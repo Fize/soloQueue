@@ -333,6 +333,10 @@ type buildContext struct {
 	compactorInstance *compactor.LLMCompactor
 	taskRouter        *router.Router
 	simEngine         *simulation.SimulationEngine
+
+	// L1 channel bindings loaded from agents/main.md
+	l1Channels      map[string]string
+	l1NotifyChannel string
 }
 
 func (bc *buildContext) resolveConfig() error {
@@ -434,6 +438,8 @@ func (bc *buildContext) assembleStack() *Stack {
 		MCPManager:        bc.mcpMgr,
 		LSPManager:        bc.lspMgr,
 		TeamStore:         bc.teamstore,
+		L1Channels:        bc.l1Channels,
+		L1NotifyChannel:   bc.l1NotifyChannel,
 		SimulationEngine:  bc.simEngine,
 		compactorInstance: bc.compactorInstance,
 	}

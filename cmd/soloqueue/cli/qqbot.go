@@ -120,7 +120,7 @@ type QQBotManager struct {
 
 // NewQQBotManager creates a new QQBotManager.
 func NewQQBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, cronSched *cron.Scheduler, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) *QQBotManager {
-	manager := &QQBotManager{
+	return &QQBotManager{
 		cfg:           cfg,
 		mgr:           mgr,
 		l2Store:       l2Store,
@@ -132,44 +132,6 @@ func NewQQBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2S
 		supervisorsFn: supervisorsFn,
 		registry:      registry,
 	}
-
-	if cronSched != nil {
-		cronSched.OnTaskCompleted(func(ctx context.Context, task cron.Task, reply string, mediaFiles []cron.SendFileMedia) {
-			manager.mu.Lock()
-			currentBridges := manager.bridges
-			manager.mu.Unlock()
-
-			msg := qqbot.QQMessage{
-				Source:       qqbot.MessageSource(task.QQSource),
-				OpenID:       task.QQOpenID,
-				TargetOpenID: task.QQTargetOpenID,
-				ChatID:       task.QQChatID,
-			}
-			formatted := qqbot.QQMarkdown(reply)
-
-			for _, bridge := range currentBridges {
-				// Try to send via each bridge. Since a target is specific to a bot, only the correct bot will succeed.
-				err := bridge.SendActiveMessage(ctx, msg, qqbot.MsgTypeMarkdown, formatted)
-				if err == nil {
-					if len(mediaFiles) > 0 {
-						var pm []qqbot.PendingMedia
-						for _, m := range mediaFiles {
-							pm = append(pm, qqbot.PendingMedia{
-								FileType:   m.FileType,
-								URL:        m.URL,
-								Base64Data: m.Base64Data,
-								FileName:   m.FileName,
-							})
-						}
-						bridge.SendMediaList(ctx, msg, pm)
-					}
-					break
-				}
-			}
-		})
-	}
-
-	return manager
 }
 
 // Reload reloads the QQBots. It stops all currently running gateways and queues, and then starts new ones based on the latest configuration.
@@ -196,6 +158,27 @@ func (m *QQBotManager) Reload() {
 	m.gateways = gateways
 	m.queues = queues
 	m.bridges = bridges
+
+	// Register each QQ bot notifier in the channel registry for cron notification routing.
+	if chanReg := m.rt.ChannelRegistry; chanReg != nil {
+		settings := m.cfg.Get()
+		idx := 0
+		for _, qqCfgBase := range settings.QQBots {
+			if !qqCfgBase.Enabled || qqCfgBase.AppID == "" || qqCfgBase.AppSecret == "" {
+				continue
+			}
+			if idx < len(bridges) {
+				notifier := &qqbot.QQNotifier{Bridge: bridges[idx]}
+				chanReg.Register(channel.NotifierEntry{
+					ChannelType: "qq",
+					InstanceID:  qqCfgBase.ID,
+					Notifier:    notifier,
+				})
+			}
+			idx++
+		}
+	}
+
 	m.mainLog.Info(logger.CatApp, "QQBots hot-reloaded successfully", "bot_count", len(m.gateways))
 }
 

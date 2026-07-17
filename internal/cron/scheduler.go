@@ -13,6 +13,8 @@ import (
 	"time"
 
 	robfig "github.com/robfig/cron/v3"
+
+	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -48,9 +50,6 @@ type SendFileMedia struct {
 	FileName   string
 }
 
-// TaskCompletedHook defines the callback invoked when a scheduled task completes.
-type TaskCompletedHook func(ctx context.Context, task Task, reply string, mediaFiles []SendFileMedia)
-
 // MemoryEngine is the interface required for memory recall during cron execution.
 type MemoryEngine interface {
 	Search(ctx context.Context, query string, limit int) (string, error)
@@ -69,6 +68,14 @@ type ResolvedModel struct {
 
 // ModelResolver resolves the latest configured model for a persisted level.
 type ModelResolver func(taskLevel string) (ResolvedModel, error)
+
+// AgentChannelResolver resolves an agent's channel bindings for notification routing.
+// Implemented by the runtime layer to avoid import cycles.
+type AgentChannelResolver interface {
+	// GetChannels returns the channels map and notify_channel for the given agent template ID.
+	// Returns (channels, notifyChannel, true) if the agent exists, (nil, "", false) otherwise.
+	GetChannels(agentID string) (channels map[string]string, notifyChannel string, ok bool)
+}
 
 type modelRoutedSession interface {
 	AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
@@ -115,8 +122,12 @@ type Scheduler struct {
 	mu              sync.Mutex
 	entries         map[string]robfig.EntryID
 	timers          map[string]*time.Timer
-	onTaskCompleted TaskCompletedHook
 	stopped         bool
+
+	// channelRegistry resolves channel notifiers for notification routing.
+	channelRegistry *channel.Registry
+	// agentChannelResolver resolves agent channel bindings.
+	agentChannelResolver AgentChannelResolver
 }
 
 // SetModelResolver configures per-run task-level model selection.
@@ -124,11 +135,18 @@ func (s *Scheduler) SetModelResolver(resolver ModelResolver) {
 	s.modelResolver = resolver
 }
 
-// OnTaskCompleted registers a callback for completed tasks.
-func (s *Scheduler) OnTaskCompleted(h TaskCompletedHook) {
+// SetChannelRegistry sets the channel registry for notification routing.
+func (s *Scheduler) SetChannelRegistry(reg *channel.Registry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.onTaskCompleted = h
+	s.channelRegistry = reg
+}
+
+// SetAgentChannelResolver sets the agent channel resolver for notification routing.
+func (s *Scheduler) SetAgentChannelResolver(resolver AgentChannelResolver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agentChannelResolver = resolver
 }
 
 // NewScheduler constructs a new Scheduler.
@@ -359,8 +377,9 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	duration := time.Since(start)
 	s.logger.Info(logger.CatApp, "cron: L1 task completed", "task_id", t.ID, "duration_ms", duration.Milliseconds())
 
-	// Invoke QQ bot callback if applicable.
-	s.invokeCompletionHook(t, replyText, mediaFiles)
+	// Route notification through channel if agent has one; fallback to L1 delivery otherwise.
+	s.routeNotification(ctx, t, replyText)
+	_ = mediaFiles // media file forwarding not yet supported for generic channels
 
 	s.updateTaskAfterExecution(ctx, t)
 }
@@ -425,11 +444,13 @@ func (s *Scheduler) executeL2Task(t Task) {
 	s.logger.Info(logger.CatApp, "cron: L2 task completed", "task_id", t.ID,
 		"target", t.TargetAgent, "duration_ms", duration.Milliseconds())
 
-	// Invoke QQ bot callback if applicable.
-	s.invokeCompletionHook(t, replyText, mediaFiles)
+	// Route notification through channel if target agent has one.
+	handled := s.routeNotification(ctx, t, replyText)
 
-	// Queue the result for L1 delivery.
-	s.enqueueL2Result(t, replyText, mediaFiles)
+	// If notification was not handled directly, fallback to L1 delivery.
+	if !handled {
+		s.enqueueL2Result(t, replyText, mediaFiles)
+	}
 
 	s.updateTaskAfterExecution(ctx, t)
 }
@@ -643,14 +664,40 @@ func (s *Scheduler) deliverResultToL1(l1Session Session, pr pendingResult) {
 	}
 }
 
-// invokeCompletionHook calls the QQ bot callback if registered.
-func (s *Scheduler) invokeCompletionHook(t Task, reply string, mediaFiles []SendFileMedia) {
-	s.mu.Lock()
-	hook := s.onTaskCompleted
-	s.mu.Unlock()
-	if hook != nil && t.QQSource != -1 {
-		hook(context.Background(), t, reply, mediaFiles)
+// routeNotification routes a completed task's result to the appropriate channel.
+// It checks the target agent's channel bindings and sends directly through the
+// bound channel if available. Returns true if the notification was handled
+// (either sent directly or determined that no notification is needed).
+// Returns false if the caller should fall back to L1 delivery.
+func (s *Scheduler) routeNotification(ctx context.Context, t Task, reply string) bool {
+	// If no channel registry, skip everything.
+	if s.channelRegistry == nil {
+		return false
 	}
+
+	// Resolve target agent's channel bindings.
+	if s.agentChannelResolver != nil {
+		channels, notifyChannel, ok := s.agentChannelResolver.GetChannels(t.TargetAgent)
+		if ok && len(channels) > 0 {
+			notifier, found := s.channelRegistry.NotifierForAgent(channels, notifyChannel)
+			if found {
+				if err := notifier.SendNotification(ctx, t.SourceUserID, t.SourceConvID, reply); err != nil {
+					s.logger.Warn(logger.CatApp, "cron: channel notification failed",
+						"task_id", t.ID, "target_agent", t.TargetAgent, "err", err.Error())
+				} else {
+					s.logger.Info(logger.CatApp, "cron: notification sent via channel",
+						"task_id", t.ID, "target_agent", t.TargetAgent)
+				}
+				return true
+			}
+		}
+	}
+
+	// Agent has no channel. Check if any channels exist at all.
+	if s.channelRegistry.HasAny() {
+		return false // caller should fallback to L1 delivery
+	}
+	return true // no channels anywhere, notification handled (skip)
 }
 
 // updateTaskAfterExecution updates DB timestamps after successful execution.

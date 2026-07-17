@@ -13,6 +13,8 @@ import {
   listModels,
   getAvailableMCPServers,
   getSkills,
+  getQQBotsConfig,
+  getWeChatBotsConfig,
 } from '@/lib/api'
 import type { TeamResponse, AgentResponse, Project, LLMModel } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -397,6 +399,11 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [permission, setPermission] = useState(true)
   const [mcpServers, setMcpServers] = useState<string[]>([])
   const [skillIds, setSkillIds] = useState<string[]>([])
+  const [qqChannel, setQqChannel] = useState('')
+  const [wechatChannel, setWechatChannel] = useState('')
+  const [notifyChannel, setNotifyChannel] = useState('')
+  const [qqBotOptions, setQqBotOptions] = useState<{ id: string; name: string; bind_agent?: string }[]>([])
+  const [wechatBotOptions, setWechatBotOptions] = useState<{ id: string; name: string; bind_agent?: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { t } = useTranslation()
@@ -427,6 +434,10 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setPermission(editAgent.permission)
         setMcpServers(editAgent.mcp_servers || [])
         setSkillIds(editAgent.skill_ids || [])
+        const channels = editAgent.channels || {}
+        setQqChannel(channels.qq || '')
+        setWechatChannel(channels.wechat || '')
+        setNotifyChannel(editAgent.notify_channel || '')
       } else {
         setName('')
         setDescription('')
@@ -437,6 +448,9 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setPermission(true)
         setMcpServers([])
         setSkillIds([])
+        setQqChannel('')
+        setWechatChannel('')
+        setNotifyChannel('')
       }
       setError(null)
 
@@ -454,6 +468,14 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
       listModels()
         .then(setModelOptions)
+        .catch(console.error)
+
+      getQQBotsConfig()
+        .then((bots) => setQqBotOptions(bots.map(b => ({ id: b.id || '', name: b.name || '', bind_agent: b.bind_agent }))))
+        .catch(console.error)
+
+      getWeChatBotsConfig()
+        .then((bots) => setWechatBotOptions(bots.map(b => ({ id: b.id, name: b.name, bind_agent: b.bind_agent }))))
         .catch(console.error)
     }
   }, [open, editAgent, teams])
@@ -500,6 +522,11 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
     setSaving(true)
     setError(null)
     try {
+      const channels: Record<string, string> = {}
+      if (qqChannel) channels.qq = qqChannel
+      if (wechatChannel) channels.wechat = wechatChannel
+      const channelsPayload = Object.keys(channels).length > 0 ? channels : undefined
+
       if (isEdit) {
         await updateAgent(editAgent!.name, {
           description: description || undefined,
@@ -510,6 +537,8 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           permission,
           mcp_servers: mcpServers.length > 0 ? mcpServers : undefined,
           skill_ids: skillIds.length > 0 ? skillIds : undefined,
+          channels: channelsPayload,
+          notify_channel: notifyChannel || null,
         })
       } else {
         await createAgent({
@@ -522,6 +551,8 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           permission,
           mcp_servers: mcpServers.length > 0 ? mcpServers : undefined,
           skill_ids: skillIds.length > 0 ? skillIds : undefined,
+          channels: channelsPayload,
+          notify_channel: notifyChannel || undefined,
         })
       }
       onSave()
@@ -531,7 +562,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
     } finally {
       setSaving(false)
     }
-  }, [name, description, teamName, isLeader, model, systemPrompt, permission, mcpServers, skillIds, isEdit, editAgent, t, onSave, onOpenChange])
+  }, [name, description, teamName, isLeader, model, systemPrompt, permission, mcpServers, skillIds, qqChannel, wechatChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -709,6 +740,103 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
               </p>
             </div>
           </div>
+
+          {/* Channel Binding */}
+          {(qqBotOptions.length > 0 || wechatBotOptions.length > 0) && (
+            <div className="flex flex-col gap-3 rounded-lg border border-border p-4 bg-muted/5">
+              <Label className="text-xs font-semibold text-foreground">Channel Binding</Label>
+              <p className="text-[10px] text-muted-foreground -mt-1">
+                Bind this agent to messaging channels. Requests to create cron tasks from these channels will be attributed to this agent.
+              </p>
+
+              {qqBotOptions.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs text-muted-foreground">QQ Bot</Label>
+                  <select
+                    value={qqChannel}
+                    onChange={(e) => {
+                      setQqChannel(e.target.value)
+                      if (notifyChannel === 'qq' && !e.target.value) setNotifyChannel('')
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">无</option>
+                    {qqBotOptions.map(bot => (
+                      <option key={bot.id} value={bot.id}>
+                        {bot.name} ({bot.id}){bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {wechatBotOptions.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs text-muted-foreground">WeChat</Label>
+                  <select
+                    value={wechatChannel}
+                    onChange={(e) => {
+                      setWechatChannel(e.target.value)
+                      if (notifyChannel === 'wechat' && !e.target.value) setNotifyChannel('')
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">无</option>
+                    {wechatBotOptions.map(bot => (
+                      <option key={bot.id} value={bot.id}>
+                        {bot.name} ({bot.id}){bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {(qqChannel || wechatChannel) && (
+                <div className="flex flex-col gap-1.5 pt-1 border-t border-border/50">
+                  <Label className="text-xs text-muted-foreground">Notification Channel (for cron task results)</Label>
+                  <div className="flex gap-4">
+                    {qqChannel && (
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input
+                          type="radio"
+                          name="notifyChannel"
+                          value="qq"
+                          checked={notifyChannel === 'qq'}
+                          onChange={() => setNotifyChannel('qq')}
+                          className="h-3 w-3"
+                        />
+                        QQ Bot
+                      </label>
+                    )}
+                    {wechatChannel && (
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input
+                          type="radio"
+                          name="notifyChannel"
+                          value="wechat"
+                          checked={notifyChannel === 'wechat'}
+                          onChange={() => setNotifyChannel('wechat')}
+                          className="h-3 w-3"
+                        />
+                        WeChat
+                      </label>
+                    )}
+                    <label className="flex items-center gap-1.5 text-xs cursor-pointer text-muted-foreground">
+                      <input
+                        type="radio"
+                        name="notifyChannel"
+                        value=""
+                        checked={notifyChannel === ''}
+                        onChange={() => setNotifyChannel('')}
+                        className="h-3 w-3"
+                      />
+                      无 (use first bound channel)
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Multi-Select Selectors */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

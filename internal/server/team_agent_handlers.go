@@ -26,18 +26,20 @@ type TeamResponse struct {
 
 // AgentResponse is the response for agent CRUD endpoints.
 type AgentResponse struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	TeamName     string   `json:"team_name"`
-	IsLeader     bool     `json:"is_leader"`
-	Model        string   `json:"model"`
-	SystemPrompt string   `json:"system_prompt"`
-	Permission   bool     `json:"permission"`
-	MCPServers   []string `json:"mcp_servers"`
-	SkillIDs     []string `json:"skill_ids"`
-	CreatedAt    string   `json:"created_at"`
-	UpdatedAt    string   `json:"updated_at"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	TeamName      string            `json:"team_name"`
+	IsLeader      bool              `json:"is_leader"`
+	Model         string            `json:"model"`
+	SystemPrompt  string            `json:"system_prompt"`
+	Permission    bool              `json:"permission"`
+	MCPServers    []string          `json:"mcp_servers"`
+	SkillIDs      []string          `json:"skill_ids"`
+	Channels      map[string]string `json:"channels,omitempty"`
+	NotifyChannel string            `json:"notify_channel,omitempty"`
+	CreatedAt     string            `json:"created_at"`
+	UpdatedAt     string            `json:"updated_at"`
 }
 
 // ─── Conversion Helpers ─────────────────────────────────────────────────────
@@ -75,18 +77,20 @@ func agentToResponse(a *teamstore.Agent) AgentResponse {
 		skills = []string{}
 	}
 	return AgentResponse{
-		ID:           a.ID,
-		Name:         a.Name,
-		Description:  a.Description,
-		TeamName:     a.TeamName,
-		IsLeader:     a.IsLeader,
-		Model:        a.Model,
-		SystemPrompt: a.SystemPrompt,
-		Permission:   a.Permission,
-		MCPServers:   mcp,
-		SkillIDs:     skills,
-		CreatedAt:    a.CreatedAt,
-		UpdatedAt:    a.UpdatedAt,
+		ID:            a.ID,
+		Name:          a.Name,
+		Description:   a.Description,
+		TeamName:      a.TeamName,
+		IsLeader:      a.IsLeader,
+		Model:         a.Model,
+		SystemPrompt:  a.SystemPrompt,
+		Permission:    a.Permission,
+		MCPServers:    mcp,
+		SkillIDs:      skills,
+		Channels:      a.Channels,
+		NotifyChannel: a.NotifyChannel,
+		CreatedAt:     a.CreatedAt,
+		UpdatedAt:     a.UpdatedAt,
 	}
 }
 
@@ -296,15 +300,17 @@ func (m *Mux) handleListAgents(w http.ResponseWriter, r *http.Request) {
 
 // createAgentRequest is the JSON body for POST /api/agents.
 type createAgentRequest struct {
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	TeamName     string   `json:"team_name"`
-	IsLeader     bool     `json:"is_leader"`
-	Model        string   `json:"model"`
-	SystemPrompt string   `json:"system_prompt"`
-	Permission   bool     `json:"permission"`
-	MCPServers   []string `json:"mcp_servers"`
-	SkillIDs     []string `json:"skill_ids"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	TeamName      string            `json:"team_name"`
+	IsLeader      bool              `json:"is_leader"`
+	Model         string            `json:"model"`
+	SystemPrompt  string            `json:"system_prompt"`
+	Permission    bool              `json:"permission"`
+	MCPServers    []string          `json:"mcp_servers"`
+	SkillIDs      []string          `json:"skill_ids"`
+	Channels      map[string]string `json:"channels,omitempty"`
+	NotifyChannel string            `json:"notify_channel,omitempty"`
 }
 
 // handleCreateAgent creates a new agent.
@@ -325,15 +331,17 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a := &teamstore.Agent{
-		Name:         req.Name,
-		Description:  req.Description,
-		TeamName:     req.TeamName,
-		IsLeader:     req.IsLeader,
-		Model:        req.Model,
-		SystemPrompt: req.SystemPrompt,
-		Permission:   req.Permission,
-		MCPServers:   req.MCPServers,
-		SkillIDs:     req.SkillIDs,
+		Name:          req.Name,
+		Description:   req.Description,
+		TeamName:      req.TeamName,
+		IsLeader:      req.IsLeader,
+		Model:         req.Model,
+		SystemPrompt:  req.SystemPrompt,
+		Permission:    req.Permission,
+		MCPServers:    req.MCPServers,
+		SkillIDs:      req.SkillIDs,
+		Channels:      req.Channels,
+		NotifyChannel: req.NotifyChannel,
 	}
 	if err := m.teamstore.CreateAgent(r.Context(), a); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -360,14 +368,16 @@ func (m *Mux) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 
 // updateAgentRequest is the JSON body for PUT /api/agents/{name}.
 type updateAgentRequest struct {
-	Description  *string   `json:"description,omitempty"`
-	TeamName     *string   `json:"team_name,omitempty"`
-	IsLeader     *bool     `json:"is_leader,omitempty"`
-	Model        *string   `json:"model,omitempty"`
-	SystemPrompt *string   `json:"system_prompt,omitempty"`
-	Permission   *bool     `json:"permission,omitempty"`
-	MCPServers   *[]string `json:"mcp_servers,omitempty"`
-	SkillIDs     *[]string `json:"skill_ids,omitempty"`
+	Description   *string            `json:"description,omitempty"`
+	TeamName      *string            `json:"team_name,omitempty"`
+	IsLeader      *bool              `json:"is_leader,omitempty"`
+	Model         *string            `json:"model,omitempty"`
+	SystemPrompt  *string            `json:"system_prompt,omitempty"`
+	Permission    *bool              `json:"permission,omitempty"`
+	MCPServers    *[]string          `json:"mcp_servers,omitempty"`
+	SkillIDs      *[]string          `json:"skill_ids,omitempty"`
+	Channels      *map[string]string `json:"channels,omitempty"`
+	NotifyChannel *string            `json:"notify_channel,omitempty"`
 }
 
 // handleUpdateAgent updates an existing agent.
@@ -412,6 +422,12 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SkillIDs != nil {
 		existing.SkillIDs = *req.SkillIDs
+	}
+	if req.Channels != nil {
+		existing.Channels = *req.Channels
+	}
+	if req.NotifyChannel != nil {
+		existing.NotifyChannel = *req.NotifyChannel
 	}
 
 	if err := m.teamstore.UpdateAgent(r.Context(), name, existing); err != nil {

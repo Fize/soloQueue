@@ -64,7 +64,12 @@ func (g *Gateway) Run(ctx context.Context) error {
 		}
 		for _, msg := range resp.Messages {
 			if normalized, ok := g.normalize(msg); ok {
-				go g.handler.OnMessage(ctx, normalized)
+				nctx := channel.ContextWithChatMeta(ctx, channel.ChatMeta{
+					Channel:        "wechat",
+					UserID:         normalized.UserID,
+					ConversationID: normalized.ConversationID,
+				})
+				go g.handler.OnMessage(nctx, normalized)
 			}
 		}
 	}

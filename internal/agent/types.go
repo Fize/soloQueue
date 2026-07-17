@@ -65,6 +65,15 @@ type Definition struct {
 
 	// Vision indicates the model supports multimodal image_url content parts.
 	Vision bool
+
+	// Channels maps channel types to instance IDs bound to this agent.
+	// e.g. {"qq": "my-qq-bot", "wechat": "default"}
+	// Each channel type may appear at most once.
+	Channels map[string]string
+
+	// NotifyChannel is the channel_type used for cron task completion notifications.
+	// Must be present in Channels. If empty, the first entry in Channels is used.
+	NotifyChannel string
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────

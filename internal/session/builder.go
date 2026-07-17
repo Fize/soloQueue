@@ -93,6 +93,8 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		ProviderID:      defModel.ProviderID,
 		ContextWindow:   defModel.ContextWindow,
 		SystemPrompt:    b.RT.SystemPrompt,
+		Channels:        b.RT.L1Channels,
+		NotifyChannel:   b.RT.L1NotifyChannel,
 	}
 
 	effectiveTeam := teamID

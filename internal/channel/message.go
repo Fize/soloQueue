@@ -61,3 +61,28 @@ type ResponseActivityStarter interface {
 type TextFormatter interface {
 	FormatText(text string) string
 }
+
+// ─── Context metadata for cross-channel notification routing ───────────────
+
+// ChatMeta carries channel source metadata through context for cron task creation.
+type ChatMeta struct {
+	Channel        string // "qq" | "wechat" | "" (web)
+	UserID         string
+	ConversationID string
+}
+
+type chatCtxKeyType struct{}
+
+var chatCtxKey = chatCtxKeyType{}
+
+// ContextWithChatMeta returns a context with the given channel metadata.
+func ContextWithChatMeta(ctx context.Context, meta ChatMeta) context.Context {
+	return context.WithValue(ctx, chatCtxKey, meta)
+}
+
+// ChatMetaFromContext extracts channel metadata from context.
+// Returns (meta, true) if present, (zero, false) otherwise.
+func ChatMetaFromContext(ctx context.Context) (ChatMeta, bool) {
+	v, ok := ctx.Value(chatCtxKey).(ChatMeta)
+	return v, ok
+}

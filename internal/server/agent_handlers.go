@@ -341,20 +341,24 @@ type AgentListResponse struct {
 
 // AgentProfileResponse is the JSON response for GET /api/agents/{id}/profile.
 type AgentProfileResponse struct {
-	Soul  string `json:"soul"`
-	Rules string `json:"rules"`
+	Soul          string            `json:"soul"`
+	Rules         string            `json:"rules"`
+	Channels      map[string]string `json:"channels,omitempty"`
+	NotifyChannel string            `json:"notify_channel,omitempty"`
 }
 
 // AgentConfigResponse is the JSON response for GET /api/agents/{id}/config.
 type AgentConfigResponse struct {
-	RawConfig    string   `json:"raw_config"`
-	SystemPrompt string   `json:"system_prompt"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	Model        string   `json:"model"`
-	Group        string   `json:"group"`
-	IsLeader     bool     `json:"is_leader"`
-	MCPServers   []string `json:"mcp_servers"`
+	RawConfig     string            `json:"raw_config"`
+	SystemPrompt  string            `json:"system_prompt"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	Model         string            `json:"model"`
+	Group         string            `json:"group"`
+	IsLeader      bool              `json:"is_leader"`
+	MCPServers    []string          `json:"mcp_servers"`
+	Channels      map[string]string `json:"channels,omitempty"`
+	NotifyChannel string            `json:"notify_channel,omitempty"`
 }
 
 // AgentTemplateResponse is a single agent template in the team list.
@@ -395,16 +399,34 @@ func (m *Mux) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {
 	soul, _ := os.ReadFile(soulPath)
 	rules, _ := os.ReadFile(rulesPath)
 
+	// Read L1 channel config from channels.yaml
+	var channels map[string]string
+	var notifyChannel string
+	if chData, err := os.ReadFile(filepath.Join(rolesDir, "channels.yaml")); err == nil {
+		var l1ch struct {
+			Channels      map[string]string `yaml:"channels"`
+			NotifyChannel string            `yaml:"notify_channel"`
+		}
+		if yaml.Unmarshal(chData, &l1ch) == nil {
+			channels = l1ch.Channels
+			notifyChannel = l1ch.NotifyChannel
+		}
+	}
+
 	m.writeJSON(w, http.StatusOK, AgentProfileResponse{
-		Soul:  string(soul),
-		Rules: string(rules),
+		Soul:          string(soul),
+		Rules:         string(rules),
+		Channels:      channels,
+		NotifyChannel: notifyChannel,
 	})
 }
 
 // UpdateAgentProfileRequest is the request body for PUT /api/agents/{id}/profile.
 type UpdateAgentProfileRequest struct {
-	Soul  *string `json:"soul,omitempty"`
-	Rules *string `json:"rules,omitempty"`
+	Soul          *string            `json:"soul,omitempty"`
+	Rules         *string            `json:"rules,omitempty"`
+	Channels      *map[string]string `json:"channels,omitempty"`
+	NotifyChannel *string            `json:"notify_channel,omitempty"`
 }
 
 // handleUpdateAgentProfile updates the soul.md and/or rules.md content for the main agent.
@@ -416,8 +438,8 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Soul == nil && req.Rules == nil {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one of soul or rules must be provided"})
+	if req.Soul == nil && req.Rules == nil && req.Channels == nil && req.NotifyChannel == nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one of soul, rules, channels, or notify_channel must be provided"})
 		return
 	}
 
@@ -439,6 +461,37 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Write L1 channel config to channels.yaml
+	if req.Channels != nil || req.NotifyChannel != nil {
+		chPath := filepath.Join(m.workDir, "prompts", "roles", "channels.yaml")
+		// Read existing config to merge
+		var l1ch struct {
+			Channels      map[string]string `yaml:"channels"`
+			NotifyChannel string            `yaml:"notify_channel"`
+		}
+		if data, err := os.ReadFile(chPath); err == nil {
+			yaml.Unmarshal(data, &l1ch)
+		}
+		if l1ch.Channels == nil {
+			l1ch.Channels = make(map[string]string)
+		}
+		if req.Channels != nil {
+			l1ch.Channels = *req.Channels
+		}
+		if req.NotifyChannel != nil {
+			l1ch.NotifyChannel = *req.NotifyChannel
+		}
+		out, err := yaml.Marshal(l1ch)
+		if err != nil {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to marshal channels: " + err.Error()})
+			return
+		}
+		if err := os.WriteFile(chPath, out, 0644); err != nil {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write channels.yaml: " + err.Error()})
+			return
+		}
+	}
+
 	// Rebuild the system prompt so changes take effect on the next interaction.
 	if m.rebuildPrompt != nil {
 		if err := m.rebuildPrompt(); err != nil {
@@ -451,9 +504,24 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 	soul, _ := os.ReadFile(filepath.Join(rolesDir, "soul.md"))
 	rules, _ := os.ReadFile(filepath.Join(rolesDir, "rules.md"))
 
+	var channels map[string]string
+	var notifyChannel string
+	if chData, err := os.ReadFile(filepath.Join(rolesDir, "channels.yaml")); err == nil {
+		var l1ch struct {
+			Channels      map[string]string `yaml:"channels"`
+			NotifyChannel string            `yaml:"notify_channel"`
+		}
+		if yaml.Unmarshal(chData, &l1ch) == nil {
+			channels = l1ch.Channels
+			notifyChannel = l1ch.NotifyChannel
+		}
+	}
+
 	m.writeJSON(w, http.StatusOK, AgentProfileResponse{
-		Soul:  string(soul),
-		Rules: string(rules),
+		Soul:          string(soul),
+		Rules:         string(rules),
+		Channels:      channels,
+		NotifyChannel: notifyChannel,
 	})
 }
 
@@ -483,14 +551,16 @@ func (m *Mux) handleGetAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusOK, AgentConfigResponse{
-		RawConfig:    serializeFrontmatter(af.Frontmatter),
-		SystemPrompt: af.Body,
-		Name:         af.Frontmatter.Name,
-		Description:  af.Frontmatter.Description,
-		Model:        af.Frontmatter.Model,
-		Group:        af.Frontmatter.Group,
-		IsLeader:     af.Frontmatter.IsLeader,
-		MCPServers:   af.Frontmatter.MCPServers,
+		RawConfig:     serializeFrontmatter(af.Frontmatter),
+		SystemPrompt:  af.Body,
+		Name:          af.Frontmatter.Name,
+		Description:   af.Frontmatter.Description,
+		Model:         af.Frontmatter.Model,
+		Group:         af.Frontmatter.Group,
+		IsLeader:      af.Frontmatter.IsLeader,
+		MCPServers:    af.Frontmatter.MCPServers,
+		Channels:      af.Frontmatter.Channels,
+		NotifyChannel: af.Frontmatter.NotifyChannel,
 	})
 }
 
@@ -527,8 +597,10 @@ func serializeFrontmatter(fm prompt.AgentFrontmatter) string {
 
 // UpdateAgentConfigRequest is the request body for PUT /api/agents/{id}/config.
 type UpdateAgentConfigRequest struct {
-	RawConfig    *string `json:"raw_config,omitempty"`
-	SystemPrompt *string `json:"system_prompt,omitempty"`
+	RawConfig     *string            `json:"raw_config,omitempty"`
+	SystemPrompt  *string            `json:"system_prompt,omitempty"`
+	Channels      *map[string]string `json:"channels,omitempty"`
+	NotifyChannel *string            `json:"notify_channel,omitempty"`
 }
 
 // handleUpdateAgentConfig updates an agent's .md file (frontmatter and/or body).
@@ -551,8 +623,8 @@ func (m *Mux) handleUpdateAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.RawConfig == nil && req.SystemPrompt == nil {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one of raw_config or system_prompt must be provided"})
+	if req.RawConfig == nil && req.SystemPrompt == nil && req.Channels == nil && req.NotifyChannel == nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one of raw_config, system_prompt, channels, or notify_channel must be provided"})
 		return
 	}
 
@@ -583,6 +655,14 @@ func (m *Mux) handleUpdateAgentConfig(w http.ResponseWriter, r *http.Request) {
 		af.Body = *req.SystemPrompt
 	}
 
+	// Merge channels/notify_channel if provided
+	if req.Channels != nil {
+		af.Frontmatter.Channels = *req.Channels
+	}
+	if req.NotifyChannel != nil {
+		af.Frontmatter.NotifyChannel = *req.NotifyChannel
+	}
+
 	// Serialize back to .md file
 	fmBytes, err := yaml.Marshal(af.Frontmatter)
 	if err != nil {
@@ -604,14 +684,16 @@ func (m *Mux) handleUpdateAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusOK, AgentConfigResponse{
-		RawConfig:    serializeFrontmatter(af.Frontmatter),
-		SystemPrompt: af.Body,
-		Name:         af.Frontmatter.Name,
-		Description:  af.Frontmatter.Description,
-		Model:        af.Frontmatter.Model,
-		Group:        af.Frontmatter.Group,
-		IsLeader:     af.Frontmatter.IsLeader,
-		MCPServers:   af.Frontmatter.MCPServers,
+		RawConfig:     serializeFrontmatter(af.Frontmatter),
+		SystemPrompt:  af.Body,
+		Name:          af.Frontmatter.Name,
+		Description:   af.Frontmatter.Description,
+		Model:         af.Frontmatter.Model,
+		Group:         af.Frontmatter.Group,
+		IsLeader:      af.Frontmatter.IsLeader,
+		MCPServers:    af.Frontmatter.MCPServers,
+		Channels:      af.Frontmatter.Channels,
+		NotifyChannel: af.Frontmatter.NotifyChannel,
 	})
 }
 

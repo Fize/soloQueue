@@ -11,17 +11,19 @@ import (
 
 // AgentFrontmatter corresponds to the YAML frontmatter of ~/.soloqueue/agents/*.md.
 type AgentFrontmatter struct {
-	ID           string            `yaml:"id,omitempty"`
-	Name         string            `yaml:"name"`
-	Description  string            `yaml:"description"`
-	Model        string            `yaml:"model"`
-	Group        string            `yaml:"group"`
-	IsLeader     bool              `yaml:"is_leader"`
-	Permission   bool              `yaml:"permission"`
-	MCPServers   []string          `yaml:"mcp_servers,omitempty"`
-	Skills       []string          `yaml:"skills,omitempty"`
-	CreatedAt    string            `yaml:"created_at,omitempty"`
-	UpdatedAt    string            `yaml:"updated_at,omitempty"`
+	ID            string            `yaml:"id,omitempty"`
+	Name          string            `yaml:"name"`
+	Description   string            `yaml:"description"`
+	Model         string            `yaml:"model"`
+	Group         string            `yaml:"group"`
+	IsLeader      bool              `yaml:"is_leader"`
+	Permission    bool              `yaml:"permission"`
+	MCPServers    []string          `yaml:"mcp_servers,omitempty"`
+	Skills        []string          `yaml:"skills,omitempty"`
+	Channels      map[string]string `yaml:"channels,omitempty"`      // channel_type → instance_id (e.g. {"qq": "my-qq-bot"})
+	NotifyChannel string            `yaml:"notify_channel,omitempty"` // channel_type to use for cron notifications
+	CreatedAt     string            `yaml:"created_at,omitempty"`
+	UpdatedAt     string            `yaml:"updated_at,omitempty"`
 }
 
 // GroupFrontmatter corresponds to the YAML frontmatter of ~/.soloqueue/groups/*.md.

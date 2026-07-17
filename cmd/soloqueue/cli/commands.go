@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/cron"
@@ -144,6 +145,14 @@ func ServeCmd(version string) *cobra.Command {
 				return fmt.Errorf("start cron scheduler: %w", err)
 			}
 			defer cronScheduler.Stop()
+
+			// ── Channel Registry for cron notification routing ──
+			chanRegistry := &channel.Registry{}
+			rt.ChannelRegistry = chanRegistry
+
+			// Wire channel notification routing into the scheduler.
+			cronScheduler.SetChannelRegistry(chanRegistry)
+			cronScheduler.SetAgentChannelResolver(&agentChannelResolver{registry: rt.AgentRegistry, stack: rt})
 
 			// Wire the cron store and scheduler into tools configuration
 			toolsCfg := rt.ReadToolsCfg()
@@ -435,4 +444,33 @@ func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskI
 	}
 
 	return l2Session, true, cleanup, nil
+}
+
+// agentChannelResolver implements cron.AgentChannelResolver by looking up
+// agents in the agent registry, with a special case for L1 from Stack.
+type agentChannelResolver struct {
+	registry *agent.Registry
+	stack    *runtime.Stack
+}
+
+func (r *agentChannelResolver) GetChannels(agentID string) (map[string]string, string, bool) {
+	// L1: check registry first, then Stack channels.
+	if agentID == "L1" || agentID == "l1-agent" {
+		agents := r.registry.GetByTemplate(agentID)
+		if len(agents) > 0 {
+			def := agents[0].Def
+			return def.Channels, def.NotifyChannel, len(def.Channels) > 0
+		}
+		if r.stack != nil && len(r.stack.L1Channels) > 0 {
+			return r.stack.L1Channels, r.stack.L1NotifyChannel, true
+		}
+		return nil, "", false
+	}
+
+	agents := r.registry.GetByTemplate(agentID)
+	if len(agents) == 0 {
+		return nil, "", false
+	}
+	def := agents[0].Def
+	return def.Channels, def.NotifyChannel, true
 }

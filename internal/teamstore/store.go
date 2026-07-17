@@ -49,33 +49,37 @@ type AutoWorkConfig struct {
 
 // Agent represents an agent (team member) stored in agents/ directory.
 type Agent struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	TeamName     string   `json:"team_name"`
-	IsLeader     bool     `json:"is_leader"`
-	Model        string   `json:"model"`
-	SystemPrompt string   `json:"system_prompt"`
-	Permission   bool     `json:"permission"`
-	MCPServers   []string `json:"mcp_servers"`
-	SkillIDs     []string `json:"skill_ids"`
-	CreatedAt    string   `json:"created_at"`
-	UpdatedAt    string   `json:"updated_at"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	TeamName      string            `json:"team_name"`
+	IsLeader      bool              `json:"is_leader"`
+	Model         string            `json:"model"`
+	SystemPrompt  string            `json:"system_prompt"`
+	Permission    bool              `json:"permission"`
+	MCPServers    []string          `json:"mcp_servers"`
+	SkillIDs      []string          `json:"skill_ids"`
+	Channels      map[string]string `json:"channels,omitempty"`
+	NotifyChannel string            `json:"notify_channel,omitempty"`
+	CreatedAt     string            `json:"created_at"`
+	UpdatedAt     string            `json:"updated_at"`
 }
 
 // AgentTemplate is a flat representation used by the agent factory for
 // compatibility with the existing agent template loading system.
 type AgentTemplate struct {
-	ID           string
-	Name         string
-	Description  string
-	SystemPrompt string
-	ModelID      string
-	IsLeader     bool
-	Group        string // maps to TeamName
-	Permission   bool
-	MCPServers   []string
-	SkillIDs     []string
+	ID            string
+	Name          string
+	Description   string
+	SystemPrompt  string
+	ModelID       string
+	IsLeader      bool
+	Group         string // maps to TeamName
+	Permission    bool
+	MCPServers    []string
+	SkillIDs      []string
+	Channels      map[string]string
+	NotifyChannel string
 }
 
 // ─── Store ──────────────────────────────────────────────────────────────────
@@ -366,6 +370,8 @@ func (s *Store) UpdateAgent(ctx context.Context, name string, a *Agent) error {
 	existing.Permission = a.Permission
 	existing.MCPServers = a.MCPServers
 	existing.SkillIDs = a.SkillIDs
+	existing.Channels = a.Channels
+	existing.NotifyChannel = a.NotifyChannel
 	existing.UpdatedAt = time.Now().Format(time.RFC3339)
 
 	return s.writeAgentFile(path, existing)
@@ -404,16 +410,18 @@ func (s *Store) DeleteAgent(ctx context.Context, name string) error {
 // with the agent factory system.
 func (a *Agent) ToAgentTemplate() AgentTemplate {
 	return AgentTemplate{
-		ID:           a.ID,
-		Name:         a.Name,
-		Description:  a.Description,
-		SystemPrompt: a.SystemPrompt,
-		ModelID:      a.Model,
-		IsLeader:     a.IsLeader,
-		Group:        a.TeamName,
-		Permission:   a.Permission,
-		MCPServers:   a.MCPServers,
-		SkillIDs:     a.SkillIDs,
+		ID:            a.ID,
+		Name:          a.Name,
+		Description:   a.Description,
+		SystemPrompt:  a.SystemPrompt,
+		ModelID:       a.Model,
+		IsLeader:      a.IsLeader,
+		Group:         a.TeamName,
+		Permission:    a.Permission,
+		MCPServers:    a.MCPServers,
+		SkillIDs:      a.SkillIDs,
+		Channels:      a.Channels,
+		NotifyChannel: a.NotifyChannel,
 	}
 }
 
@@ -488,17 +496,19 @@ func (s *Store) writeTeamFile(path string, t *Team) error {
 
 func (s *Store) writeAgentFile(path string, a *Agent) error {
 	fm := prompt.AgentFrontmatter{
-		ID:          a.ID,
-		Name:        a.Name,
-		Description: a.Description,
-		Model:       a.Model,
-		Group:       a.TeamName,
-		IsLeader:    a.IsLeader,
-		Permission:  a.Permission,
-		MCPServers:  a.MCPServers,
-		Skills:      a.SkillIDs,
-		CreatedAt:   a.CreatedAt,
-		UpdatedAt:   a.UpdatedAt,
+		ID:            a.ID,
+		Name:          a.Name,
+		Description:   a.Description,
+		Model:         a.Model,
+		Group:         a.TeamName,
+		IsLeader:      a.IsLeader,
+		Permission:    a.Permission,
+		MCPServers:    a.MCPServers,
+		Skills:        a.SkillIDs,
+		Channels:      a.Channels,
+		NotifyChannel: a.NotifyChannel,
+		CreatedAt:     a.CreatedAt,
+		UpdatedAt:     a.UpdatedAt,
 	}
 
 	fmBytes, err := yaml.Marshal(fm)
@@ -592,18 +602,20 @@ func parseAgentFile(path string, info os.FileInfo) (*Agent, error) {
 	}
 
 	return &Agent{
-		ID:           id,
-		Name:         name,
-		Description:  af.Frontmatter.Description,
-		TeamName:     af.Frontmatter.Group,
-		IsLeader:     af.Frontmatter.IsLeader,
-		Model:        af.Frontmatter.Model,
-		SystemPrompt: af.Body,
-		Permission:   af.Frontmatter.Permission,
-		MCPServers:   af.Frontmatter.MCPServers,
-		SkillIDs:     af.Frontmatter.Skills,
-		CreatedAt:    createdAt,
-		UpdatedAt:    updatedAt,
+		ID:            id,
+		Name:          name,
+		Description:   af.Frontmatter.Description,
+		TeamName:      af.Frontmatter.Group,
+		IsLeader:      af.Frontmatter.IsLeader,
+		Model:         af.Frontmatter.Model,
+		SystemPrompt:  af.Body,
+		Permission:    af.Frontmatter.Permission,
+		MCPServers:    af.Frontmatter.MCPServers,
+		SkillIDs:      af.Frontmatter.Skills,
+		Channels:      af.Frontmatter.Channels,
+		NotifyChannel: af.Frontmatter.NotifyChannel,
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
 	}, nil
 }
 

@@ -39,6 +39,8 @@ export interface AgentListResponse {
 export interface AgentProfile {
   soul: string;
   rules: string;
+  channels?: Record<string, string>;
+  notify_channel?: string;
 }
 
 export interface AgentConfig {
@@ -55,11 +57,15 @@ export interface AgentConfig {
 export interface UpdateAgentProfileRequest {
   soul?: string;
   rules?: string;
+  channels?: Record<string, string> | null;
+  notify_channel?: string | null;
 }
 
 export interface UpdateAgentConfigRequest {
   raw_config?: string;
   system_prompt?: string;
+  channels?: Record<string, string> | null;
+  notify_channel?: string | null;
 }
 
 export interface AgentTemplate {
@@ -189,6 +195,8 @@ export interface AgentResponse {
   permission: boolean;
   mcp_servers: string[];
   skill_ids: string[];
+  channels?: Record<string, string>;
+  notify_channel?: string;
   created_at: string;
   updated_at: string;
 }
@@ -225,6 +233,8 @@ export interface CreateAgentRequest {
   permission?: boolean;
   mcp_servers?: string[];
   skill_ids?: string[];
+  channels?: Record<string, string>;
+  notify_channel?: string;
 }
 
 export interface UpdateAgentRequest {
@@ -236,4 +246,6 @@ export interface UpdateAgentRequest {
   permission?: boolean;
   mcp_servers?: string[];
   skill_ids?: string[];
+  channels?: Record<string, string> | null;
+  notify_channel?: string | null;
 }

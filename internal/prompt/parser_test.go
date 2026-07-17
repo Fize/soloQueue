@@ -202,3 +202,127 @@ func TestLoadGroups_NonexistentDir(t *testing.T) {
 		t.Errorf("len(groups) = %d, want 0", len(groups))
 	}
 }
+
+// ============== channels / notify_channel YAML parsing ==============
+
+func TestParseAgentFile_WithChannels(t *testing.T) {
+	content := `---
+name: engineering
+description: Engineering team
+channels:
+  qq: my-qq-bot
+  wechat: default
+---
+System prompt body.
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "engineering.md")
+	os.WriteFile(path, []byte(content), 0o644)
+
+	af, err := ParseAgentFile(path)
+	if err != nil {
+		t.Fatalf("ParseAgentFile: %v", err)
+	}
+
+	if len(af.Frontmatter.Channels) != 2 {
+		t.Fatalf("len(Channels) = %d, want 2", len(af.Frontmatter.Channels))
+	}
+	if af.Frontmatter.Channels["qq"] != "my-qq-bot" {
+		t.Errorf("Channels[qq] = %q, want %q", af.Frontmatter.Channels["qq"], "my-qq-bot")
+	}
+	if af.Frontmatter.Channels["wechat"] != "default" {
+		t.Errorf("Channels[wechat] = %q, want %q", af.Frontmatter.Channels["wechat"], "default")
+	}
+	if af.Frontmatter.NotifyChannel != "" {
+		t.Errorf("NotifyChannel = %q, want empty", af.Frontmatter.NotifyChannel)
+	}
+}
+
+func TestParseAgentFile_WithNotifyChannel(t *testing.T) {
+	content := `---
+name: engineering
+channels:
+  qq: my-qq-bot
+notify_channel: qq
+---
+Body.
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "engineering.md")
+	os.WriteFile(path, []byte(content), 0o644)
+
+	af, err := ParseAgentFile(path)
+	if err != nil {
+		t.Fatalf("ParseAgentFile: %v", err)
+	}
+
+	if af.Frontmatter.NotifyChannel != "qq" {
+		t.Errorf("NotifyChannel = %q, want %q", af.Frontmatter.NotifyChannel, "qq")
+	}
+	if af.Frontmatter.Channels["qq"] != "my-qq-bot" {
+		t.Errorf("Channels[qq] = %q, want %q", af.Frontmatter.Channels["qq"], "my-qq-bot")
+	}
+}
+
+func TestParseAgentFile_NoChannelsField(t *testing.T) {
+	content := `---
+name: legacy
+description: Old agent without channels
+model: glm-5.0-ioa
+---
+Legacy system prompt.
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.md")
+	os.WriteFile(path, []byte(content), 0o644)
+
+	af, err := ParseAgentFile(path)
+	if err != nil {
+		t.Fatalf("ParseAgentFile: %v", err)
+	}
+
+	if af.Frontmatter.Channels != nil {
+		t.Errorf("Channels = %v, want nil (backward compat)", af.Frontmatter.Channels)
+	}
+	if af.Frontmatter.NotifyChannel != "" {
+		t.Errorf("NotifyChannel = %q, want empty", af.Frontmatter.NotifyChannel)
+	}
+}
+
+func TestParseAgentFile_EmptyChannels(t *testing.T) {
+	content := `---
+name: agent
+channels: {}
+---
+Body.
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+	os.WriteFile(path, []byte(content), 0o644)
+
+	af, err := ParseAgentFile(path)
+	if err != nil {
+		t.Fatalf("ParseAgentFile: %v", err)
+	}
+
+	if len(af.Frontmatter.Channels) != 0 {
+		t.Errorf("len(Channels) = %d, want 0", len(af.Frontmatter.Channels))
+	}
+}
+
+func TestParseAgentFile_ChannelsMalformed(t *testing.T) {
+	content := `---
+name: agent
+channels: "not-a-map"
+---
+Body.
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+	os.WriteFile(path, []byte(content), 0o644)
+
+	_, err := ParseAgentFile(path)
+	if err == nil {
+		t.Fatal("expected error for malformed channels YAML")
+	}
+}

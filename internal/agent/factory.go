@@ -36,6 +36,12 @@ type AgentTemplate struct {
 	Permission   bool     // Privileged mode, skips tool confirmation
 	MCPServers   []string // List of MCP Server names
 	SkillIDs     []string // List of skill IDs required by this agent
+	// Channels maps channel types to instance IDs bound to this agent.
+	// e.g. {"qq": "my-qq-bot", "wechat": "default"}
+	Channels map[string]string
+	// NotifyChannel is the channel_type used for cron task completion notifications.
+	// Must be present in Channels. If empty, the first entry in Channels is used.
+	NotifyChannel string
 }
 
 // ─── ModelInfo ────────────────────────────────────────────────────────────
@@ -339,6 +345,8 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		ReasoningEffort: "",                 // populated below if resolver is set
 		ExplicitModel:   tmpl.ModelID != "", // template explicitly set model → don't override
 		BypassConfirm:   f.bypassConfirm || tmpl.Permission,
+		Channels:        tmpl.Channels,
+		NotifyChannel:   tmpl.NotifyChannel,
 	}
 
 	// 1b. Validate and resolve model configuration
@@ -748,16 +756,18 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 	for _, af := range agentFiles {
 		fm := af.Frontmatter
 		tmpl := AgentTemplate{
-			ID:           strings.ToLower(fm.Name),
-			Name:         fm.Name,
-			Description:  fm.Description,
-			SystemPrompt: af.Body,
-			ModelID:      fm.Model,
-			IsLeader:     fm.IsLeader,
-			Group:        fm.Group,
-			Permission:   fm.Permission,
-			MCPServers:   fm.MCPServers,
-			SkillIDs:     fm.Skills,
+			ID:            strings.ToLower(fm.Name),
+			Name:          fm.Name,
+			Description:   fm.Description,
+			SystemPrompt:  af.Body,
+			ModelID:       fm.Model,
+			IsLeader:      fm.IsLeader,
+			Group:         fm.Group,
+			Permission:    fm.Permission,
+			MCPServers:    fm.MCPServers,
+			SkillIDs:      fm.Skills,
+			Channels:      fm.Channels,
+			NotifyChannel: fm.NotifyChannel,
 		}
 		templates = append(templates, tmpl)
 	}

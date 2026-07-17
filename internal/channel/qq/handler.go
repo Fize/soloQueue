@@ -135,6 +135,11 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	// Embed QQ message into context so downstream code (e.g. cron task creation
 	// via the create_cron_job tool) can extract QQ metadata.
 	ctx = context.WithValue(ctx, "qq_message", msg)
+	ctx = channel.ContextWithChatMeta(ctx, channel.ChatMeta{
+		Channel:        "qq",
+		UserID:         msg.OpenID,
+		ConversationID: msg.ChatID,
+	})
 
 	// Handle slash commands locally.
 	// Known builtins are handled here; unrecognized slash commands and skills

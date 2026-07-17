@@ -126,6 +126,26 @@ func TestStoreCRUD(t *testing.T) {
 		t.Errorf("updated agent values mismatch: %+v", updatedAgent)
 	}
 
+	// 4b. Update Agent with channel binding (regression test)
+	updatedAgent.Channels = map[string]string{"qq": "my-qq-bot", "wechat": "default"}
+	updatedAgent.NotifyChannel = "qq"
+	if err := store.UpdateAgent(ctx, "alice", updatedAgent); err != nil {
+		t.Fatalf("UpdateAgent with channels failed: %v", err)
+	}
+	reloaded, err := store.GetAgentByName(ctx, "alice")
+	if err != nil {
+		t.Fatalf("GetAgentByName after channel update: %v", err)
+	}
+	if reloaded.Channels["qq"] != "my-qq-bot" {
+		t.Errorf("Channels[qq] = %q, want %q", reloaded.Channels["qq"], "my-qq-bot")
+	}
+	if reloaded.Channels["wechat"] != "default" {
+		t.Errorf("Channels[wechat] = %q, want %q", reloaded.Channels["wechat"], "default")
+	}
+	if reloaded.NotifyChannel != "qq" {
+		t.Errorf("NotifyChannel = %q, want %q", reloaded.NotifyChannel, "qq")
+	}
+
 	// ─── Deletion Tests ──────────────────────────────────────────────────────
 
 	err = store.DeleteAgent(ctx, "alice")
