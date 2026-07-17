@@ -53,7 +53,7 @@ interface AgentStreamState {
 interface CronTaskStatus {
   id: string
   title: string
-  task_level: 'L0' | 'L1' | 'L2' | 'L3'
+  task_level: 'L0' | 'L1' | 'L2' | 'L3' | 'L4'
   expression: string
   instruction: string
   target_agent: string

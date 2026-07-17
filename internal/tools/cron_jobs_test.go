@@ -207,7 +207,7 @@ func TestUpdateCronJobUpdatesAllEditableFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw := `{"task_id":"` + task.ID + `","title":"New title","task_level":"L3","schedule":"30 10 * * 2","instruction":"New instruction","target_agent":"finance","status":"paused"}`
+	raw := `{"task_id":"` + task.ID + `","title":"New title","task_level":"L4","schedule":"30 10 * * 2","instruction":"New instruction","target_agent":"finance","status":"paused"}`
 	if _, err := findCronTool(t, cfg, "update_cron_job").Execute(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestUpdateCronJobUpdatesAllEditableFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Title != "New title" || updated.TaskLevel != "L3" || updated.Expression != "30 10 * * 2" ||
+	if updated.Title != "New title" || updated.TaskLevel != "L4" || updated.Expression != "30 10 * * 2" ||
 		updated.Instruction != "New instruction" || updated.TargetAgent != "finance" || updated.Status != "paused" {
 		t.Fatalf("unexpected updated job: %+v", updated)
 	}

@@ -94,6 +94,17 @@ func TestNextTrigger(t *testing.T) {
 	}
 }
 
+func TestValidateTaskLevelSupportsFiveLevels(t *testing.T) {
+	for _, level := range []string{"L0", "L1", "L2", "L3", "L4"} {
+		if err := ValidateTaskLevel(level); err != nil {
+			t.Errorf("ValidateTaskLevel(%q): %v", level, err)
+		}
+	}
+	if err := ValidateTaskLevel("L5"); err == nil {
+		t.Fatal("ValidateTaskLevel accepted unsupported L5")
+	}
+}
+
 func TestIsL1Target(t *testing.T) {
 	tests := []struct {
 		task Task
@@ -129,6 +140,18 @@ func TestBuildCronPrompt(t *testing.T) {
 	prompt := buildCronPrompt(task)
 	if prompt == "" {
 		t.Error("buildCronPrompt returned empty string")
+	}
+}
+
+func TestBuildCronContextDetectsQQOrigin(t *testing.T) {
+	s := newTestScheduler(t)
+	nonQQ := s.buildCronContext(Task{QQSource: -1})
+	if iface.IsQBotFromContext(nonQQ) {
+		t.Fatal("non-QQ cron task was marked as QQ-originated")
+	}
+	qq := s.buildCronContext(Task{QQSource: 0, QQTargetOpenID: "user-1"})
+	if !iface.IsQBotFromContext(qq) {
+		t.Fatal("QQ cron task was not marked as QQ-originated")
 	}
 }
 

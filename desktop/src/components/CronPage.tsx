@@ -335,9 +335,10 @@ export function CronPage() {
         L1: defaults.universal,
         L2: defaults.superior,
         L3: defaults.expert,
+        L4: defaults.apex,
       }
       const resolved: Record<string, { name: string; fallback: boolean } | null> = {}
-      for (const level of ['L0', 'L1', 'L2', 'L3']) {
+      for (const level of ['L0', 'L1', 'L2', 'L3', 'L4']) {
         const primary = byRef.get(refs[level])
         const fallback = byRef.get(defaults.fallback)
         resolved[level] = primary
@@ -352,7 +353,7 @@ export function CronPage() {
     }
   }
 
-  function levelLabel(level: 'L0' | 'L1' | 'L2' | 'L3', key: string) {
+  function levelLabel(level: 'L0' | 'L1' | 'L2' | 'L3' | 'L4', key: string) {
     const resolved = levelModels[level]
     if (resolved === undefined) return t(key)
     if (resolved === null) return `${t(key)} · ${t('cron.modelUnavailable')}`
@@ -720,6 +721,7 @@ export function CronPage() {
                 { value: 'L1', label: levelLabel('L1', 'cron.levelL1') },
                 { value: 'L2', label: levelLabel('L2', 'cron.levelL2') },
                 { value: 'L3', label: levelLabel('L3', 'cron.levelL3') },
+                { value: 'L4', label: levelLabel('L4', 'cron.levelL4') },
               ]}
               value={taskLevel}
               onChange={setTaskLevel}

@@ -51,7 +51,7 @@ func (t modifyScheduledTaskTool) Parameters() json.RawMessage {
     "task_level": {
       "type": "string",
       "description": "Optional. New task complexity level.",
-      "enum": ["L0", "L1", "L2", "L3"]
+      "enum": ["L0", "L1", "L2", "L3", "L4"]
     },
     "schedule": {
       "type": "string",

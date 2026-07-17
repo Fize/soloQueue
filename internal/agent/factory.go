@@ -317,7 +317,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 			finalPrompt += "\n# Cron Jobs\n\n" +
 				"You may manage cron jobs only for your own team. Use create_cron_job for new jobs, " +
 				"list_cron_jobs to find IDs, update_cron_job to change or pause jobs, and delete_cron_job to remove jobs. " +
-				"A new job always requires a user-facing title, task_level, schedule, and instruction.\n"
+				"A new job always requires a user-facing title, an L0-L4 task_level, schedule, and instruction.\n"
 		}
 	} else {
 		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, effectiveWorkDir, exploreDir, hasPermanentMemory)

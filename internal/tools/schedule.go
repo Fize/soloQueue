@@ -47,8 +47,8 @@ func (t scheduleTaskTool) Parameters() json.RawMessage {
     },
     "task_level": {
       "type": "string",
-      "description": "Required task complexity level. L0=conversation/reminder, L1=simple task, L2=multi-step task, L3=complex task.",
-      "enum": ["L0", "L1", "L2", "L3"]
+      "description": "Required task complexity level. L0=conversation/reminder, L1=simple task, L2=multi-step task, L3=complex task, L4=frontier/critical task.",
+      "enum": ["L0", "L1", "L2", "L3", "L4"]
     },
     "schedule": {
       "type": "string",

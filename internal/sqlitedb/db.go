@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -18,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 3
+const schemaVersion = 4
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -67,7 +68,7 @@ const snapshot = `
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
 	id TEXT PRIMARY KEY,
 	title TEXT NOT NULL CHECK(length(trim(title)) > 0),
-	task_level TEXT NOT NULL CHECK(task_level IN ('L0','L1','L2','L3')),
+	task_level TEXT NOT NULL CHECK(task_level IN ('L0','L1','L2','L3','L4')),
 	expression TEXT NOT NULL,
 	instruction TEXT NOT NULL,
 	target_agent TEXT NOT NULL,
@@ -288,7 +289,7 @@ func (d *DB) migrate() error {
 			CREATE TABLE scheduled_tasks (
 				id TEXT PRIMARY KEY,
 				title TEXT NOT NULL CHECK(length(trim(title)) > 0),
-				task_level TEXT NOT NULL CHECK(task_level IN ('L0','L1','L2','L3')),
+				task_level TEXT NOT NULL CHECK(task_level IN ('L0','L1','L2','L3','L4')),
 				expression TEXT NOT NULL,
 				instruction TEXT NOT NULL,
 				target_agent TEXT NOT NULL,
@@ -327,6 +328,52 @@ func (d *DB) migrate() error {
 		`); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("migrate scheduled_tasks v3: %w", err)
+		}
+	}
+
+	// v4: add L4 to the scheduled_tasks task_level CHECK constraint. SQLite
+	// cannot alter CHECK constraints in place, so rebuild existing v3 tables.
+	var scheduledTasksSQL string
+	if err := tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_tasks'`).Scan(&scheduledTasksSQL); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("inspect scheduled_tasks schema: %w", err)
+	}
+	if !strings.Contains(scheduledTasksSQL, "'L4'") {
+		if _, err := tx.Exec(`
+			DROP INDEX IF EXISTS idx_scheduled_tasks_next_run;
+			ALTER TABLE scheduled_tasks RENAME TO scheduled_tasks_v3;
+			CREATE TABLE scheduled_tasks (
+				id TEXT PRIMARY KEY,
+				title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+				task_level TEXT NOT NULL CHECK(task_level IN ('L0','L1','L2','L3','L4')),
+				expression TEXT NOT NULL,
+				instruction TEXT NOT NULL,
+				target_agent TEXT NOT NULL,
+				status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','running','completed','failed')),
+				last_run_at TEXT,
+				next_run_at TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+				qq_source INTEGER DEFAULT -1,
+				qq_openid TEXT,
+				qq_target_openid TEXT,
+				qq_chat_id TEXT
+			);
+			INSERT INTO scheduled_tasks (
+				id, title, task_level, expression, instruction, target_agent,
+				status, last_run_at, next_run_at, created_at, updated_at,
+				qq_source, qq_openid, qq_target_openid, qq_chat_id
+			)
+			SELECT
+				id, title, task_level, expression, instruction, target_agent,
+				status, last_run_at, next_run_at, created_at, updated_at,
+				qq_source, qq_openid, qq_target_openid, qq_chat_id
+			FROM scheduled_tasks_v3;
+			DROP TABLE scheduled_tasks_v3;
+			CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
+		`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate scheduled_tasks v4: %w", err)
 		}
 	}
 

@@ -83,6 +83,57 @@ func TestOpenMigratesScheduledTasksV3(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesScheduledTasksConstraintToL4(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v3.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`
+		CREATE TABLE scheduled_tasks (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+			task_level TEXT NOT NULL CHECK(task_level IN ('L0','L1','L2','L3')),
+			expression TEXT NOT NULL, instruction TEXT NOT NULL, target_agent TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','running','completed','failed')),
+			last_run_at TEXT, next_run_at TEXT NOT NULL, created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL, qq_source INTEGER DEFAULT -1, qq_openid TEXT,
+			qq_target_openid TEXT, qq_chat_id TEXT
+		);
+		INSERT INTO scheduled_tasks VALUES (
+			't1', 'Existing task', 'L3', 'daily', 'run', 'L1', 'active', NULL,
+			'2026-07-18T09:00:00+08:00', '2026-07-17T09:00:00+08:00',
+			'2026-07-17T09:00:00+08:00', -1, '', '', ''
+		);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`
+		INSERT INTO scheduled_tasks (
+			id, title, task_level, expression, instruction, target_agent, status,
+			next_run_at, created_at, updated_at
+		) VALUES ('t2', 'Critical task', 'L4', 'daily', 'run', 'L1', 'active',
+			'2026-07-19T09:00:00+08:00', '2026-07-17T09:00:00+08:00', '2026-07-17T09:00:00+08:00')
+	`); err != nil {
+		t.Fatalf("insert L4 after migration: %v", err)
+	}
+	var existingLevel string
+	if err := db.QueryRow(`SELECT task_level FROM scheduled_tasks WHERE id = 't1'`).Scan(&existingLevel); err != nil {
+		t.Fatal(err)
+	}
+	if existingLevel != "L3" {
+		t.Fatalf("existing task level changed to %q", existingLevel)
+	}
+}
+
 func TestInsertTokenUsage(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()

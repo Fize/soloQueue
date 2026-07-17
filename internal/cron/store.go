@@ -37,6 +37,7 @@ const (
 	TaskLevelL1 = "L1"
 	TaskLevelL2 = "L2"
 	TaskLevelL3 = "L3"
+	TaskLevelL4 = "L4"
 )
 
 // CreateTaskInput contains the required and optional fields for a new task.
@@ -52,10 +53,10 @@ type CreateTaskInput struct {
 // ValidateTaskLevel validates the persisted task-level enum.
 func ValidateTaskLevel(level string) error {
 	switch level {
-	case TaskLevelL0, TaskLevelL1, TaskLevelL2, TaskLevelL3:
+	case TaskLevelL0, TaskLevelL1, TaskLevelL2, TaskLevelL3, TaskLevelL4:
 		return nil
 	default:
-		return fmt.Errorf("task_level must be one of L0, L1, L2, or L3")
+		return fmt.Errorf("task_level must be one of L0, L1, L2, L3, or L4")
 	}
 }
 

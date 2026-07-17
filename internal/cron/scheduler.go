@@ -477,7 +477,7 @@ func (s *Scheduler) buildTaskPrompt(t Task) string {
 
 // buildCronContext creates a context with bypass-confirm and QBot flags.
 func (s *Scheduler) buildCronContext(t Task) context.Context {
-	isQBot := t.QQOpenID != "" || t.QQChatID != "" || t.QQSource != 0
+	isQBot := t.QQSource >= 0 && (t.QQOpenID != "" || t.QQTargetOpenID != "" || t.QQChatID != "")
 	cronCtx := iface.ContextWithBypassConfirm(context.Background())
 	cronCtx = iface.ContextWithIsQBot(cronCtx, isQBot)
 	return cronCtx

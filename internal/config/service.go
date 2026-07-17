@@ -15,10 +15,10 @@ import (
 // Provides business-related convenience query interfaces on top of that
 type GlobalService struct {
 	*Loader[Settings]
-	workDir    string
-	db         *sqlitedb.DB
-	dbMu       sync.RWMutex
-	log        *logger.Logger
+	workDir string
+	db      *sqlitedb.DB
+	dbMu    sync.RWMutex
+	log     *logger.Logger
 }
 
 // New creates a GlobalService
@@ -189,6 +189,8 @@ func (s *GlobalService) ResolveScheduledTaskModel(level string) (model *LLMModel
 		role = "superior"
 	case "L3":
 		role = "expert"
+	case "L4":
+		role = "apex"
 	default:
 		return nil, "", false, fmt.Errorf("unsupported scheduled task level %q", level)
 	}

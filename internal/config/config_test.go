@@ -121,6 +121,28 @@ func TestResolveScheduledTaskModelUsesConfiguredFallback(t *testing.T) {
 	}
 }
 
+func TestResolveScheduledTaskModelSupportsL4Apex(t *testing.T) {
+	svc, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Set(func(s *Settings) {
+		s.Providers = []LLMProvider{{ID: "p", Enabled: true}}
+		s.Models = []LLMModel{{ID: "apex-model", ProviderID: "p", Enabled: true}}
+		s.DefaultModels = DefaultModelsConfig{Apex: "p:apex-model"}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, role, usedFallback, err := svc.ResolveScheduledTaskModel("L4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.ID != "apex-model" || role != "apex" || usedFallback {
+		t.Fatalf("unexpected L4 resolution: model=%+v role=%q fallback=%v", model, role, usedFallback)
+	}
+}
+
 func TestResolveScheduledTaskModelFailsWithoutConfiguredFallback(t *testing.T) {
 	svc, err := New(t.TempDir())
 	if err != nil {
