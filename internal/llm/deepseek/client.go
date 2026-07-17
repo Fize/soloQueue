@@ -487,6 +487,8 @@ func sendThinkEvents(ctx context.Context, ch chan<- llm.Event, reasoning, text s
 }
 
 // sendErrEvent attempts to send an Error event; gives up if ctx is canceled.
+// After ctx is done, tries one last non-blocking send so the error is not
+// silently dropped when the context expires (e.g., HTTP timeout).
 func sendErrEvent(ctx context.Context, ch chan<- llm.Event, err error) {
 	ev := llm.Event{Type: llm.EventError, Err: err}
 	// First, try non-blocking (buffer usually has capacity)
@@ -499,6 +501,11 @@ func sendErrEvent(ctx context.Context, ch chan<- llm.Event, err error) {
 	select {
 	case ch <- ev:
 	case <-ctx.Done():
+		// ctx is done, try one last non-blocking send
+		select {
+		case ch <- ev:
+		default:
+		}
 	}
 }
 

@@ -251,6 +251,14 @@ export function AssistantPage() {
       !streaming &&
       streamChatSegments.length > 0
     ) {
+      // Guard: if currentMessages already has a live assistant message with
+      // any segments from the WebSocket stream, prefer it over the virtual message.
+      const hasAssistantMessage = currentMessages.some(
+        (m) => m.role === "assistant" && m.segments.length > 0
+      )
+      if (hasAssistantMessage) {
+        return currentMessages
+      }
       let base = currentMessages;
       while (base.length > 0 && base[base.length - 1].role === "assistant") {
         base = base.slice(0, -1);
@@ -385,7 +393,7 @@ export function AssistantPage() {
           showL2Selectors={false}
           ctxwinUsed={ctxwinUsed}
           ctxwinLimit={ctxwinLimit}
-          processing={isL1Processing || streaming || delegating || !!pendingConfirm}
+          processing={streaming || delegating || !!pendingConfirm}
           skillNames={filteredSkillNames}
           activeSessionId="l1"
         />

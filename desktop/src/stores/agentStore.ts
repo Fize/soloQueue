@@ -92,13 +92,23 @@ export const useAgentStore = create<AgentState>((set) => ({
   fetchTeams: async () => {
     if (inflightTeamsLoad) return inflightTeamsLoad
     set({ teamsLoading: true })
+    const tryFetch = async () => {
+      const data = await getTeams()
+      set({ teams: data as TeamListResponse })
+    }
     inflightTeamsLoad = (async () => {
       try {
-        const data = await getTeams()
-        set({ teams: data as TeamListResponse, teamsLoading: false })
+        await tryFetch()
       } catch {
-        set({ teams: null, teamsLoading: false })
+        // Retry once — covers the startup race where the IPC reports
+        // the backend up but the HTTP route isn't accepting traffic yet.
+        try {
+          await tryFetch()
+        } catch {
+          set({ teams: null })
+        }
       } finally {
+        set({ teamsLoading: false })
         inflightTeamsLoad = null
       }
     })()
@@ -106,12 +116,20 @@ export const useAgentStore = create<AgentState>((set) => ({
   },
   fetchLiveAgents: async () => {
     if (inflightLiveAgentsLoad) return inflightLiveAgentsLoad
+    const tryFetch = async () => {
+      const data = await getLiveAgents()
+      set({ agents: data })
+    }
     inflightLiveAgentsLoad = (async () => {
       try {
-        const data = await getLiveAgents()
-        set({ agents: data })
+        await tryFetch()
       } catch (err) {
-        console.error('Failed to fetch live agents:', err)
+        // Same retry-once pattern as loadSessions/fetchTeams.
+        try {
+          await tryFetch()
+        } catch (err2) {
+          console.error('Failed to fetch live agents:', err2)
+        }
       } finally {
         inflightLiveAgentsLoad = null
       }

@@ -75,30 +75,39 @@ export const useChatStore = create<ChatState>((set) => ({
     if (inflightSessionsLoad) return inflightSessionsLoad
 
     set({ sessionsLoading: true })
-    inflightSessionsLoad = (async () => {
-      try {
-        const data = await listSessions()
-        const mapped = (data.sessions || []).map((s: any) => ({
-          ...s,
-          createdAt: s.createdAt || s.created_at || new Date().toISOString(),
-        }))
-        set((prev) => {
-          // Preserve the active session if missing from API response
-          // (race: list request sent before create completed).
-          if (prev.activeSessionId) {
-            const hasActive = mapped.some((m) => m.id === prev.activeSessionId)
-            if (!hasActive) {
-              const activeFromStore = prev.sessions.find((ss) => ss.id === prev.activeSessionId)
-              if (activeFromStore) {
-                mapped.push(activeFromStore)
-              }
+    const applyResult = (data: { sessions?: any[] }) => {
+      const mapped = (data.sessions || []).map((s: any) => ({
+        ...s,
+        createdAt: s.createdAt || s.created_at || new Date().toISOString(),
+      }))
+      set((prev) => {
+        // Preserve the active session if missing from API response
+        // (race: list request sent before create completed).
+        if (prev.activeSessionId) {
+          const hasActive = mapped.some((m) => m.id === prev.activeSessionId)
+          if (!hasActive) {
+            const activeFromStore = prev.sessions.find((ss) => ss.id === prev.activeSessionId)
+            if (activeFromStore) {
+              mapped.push(activeFromStore)
             }
           }
-          return { sessions: mapped }
-        })
+        }
+        return { sessions: mapped }
+      })
+    }
+    inflightSessionsLoad = (async () => {
+      try {
+        applyResult(await listSessions())
       } catch {
-        // Server may not be running; sessions remain empty. App.tsx will
-        // re-trigger this when backendStatus.running flips to true.
+        // First attempt failed — most often because the backend was still
+        // starting when this fired. Retry once. If the backend is genuinely
+        // down the retry will also fail and the caller is back to the
+        // empty state, ready for the next backendRunning transition.
+        try {
+          applyResult(await listSessions())
+        } catch {
+          // Both attempts failed; sessions stay empty.
+        }
       } finally {
         set({ sessionsLoading: false })
         inflightSessionsLoad = null

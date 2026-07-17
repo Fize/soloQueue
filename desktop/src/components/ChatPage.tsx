@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useAgentStore } from "@/stores/agentStore";
 import { useRuntimeStore } from "@/stores/runtimeStore";
+import { useConnectionStore } from "@/stores/connectionStore";
 
 import { cn } from "@/lib/utils";
 import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment } from "@/types";
@@ -67,6 +68,7 @@ export function ChatPage() {
   const loadingMore = useRef(false);
   const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   const connectionStatus = useRuntimeStore((s) => s.connectionStatus);
+  const backendRunning = useConnectionStore((s) => s.backendStatus.running);
 
   // macOS Inspector state
   const [showInspector, setShowInspector] = useState(false);
@@ -116,7 +118,11 @@ export function ChatPage() {
   const [selectedGroup, setSelectedGroup] = useState<string>("");
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>("");
 
-  // Load L2 groups, projects, teams
+  // Load L2 groups, projects, teams. We depend on backendRunning so a
+  // mount that races ahead of the backend spawn gets a second chance once
+  // the Electron IPC reports the backend is up — same pattern as
+  // SessionTree. Without this, the welcome-screen selectors stay empty
+  // until the user navigates away and back.
   useEffect(() => {
     let active = true;
     async function loadInitialData() {
@@ -162,7 +168,7 @@ export function ChatPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [backendRunning]);
 
   const agentsData = useAgentStore((state) => state.agents);
   const teamsData = useAgentStore((state) => state.teams);
@@ -379,13 +385,13 @@ export function ChatPage() {
       streamChatSegments.length > 0
     ) {
       // Guard: if currentMessages already has a live assistant message with
-      // content (from chat_chunk events via WebSocket), prefer it over the
-      // agent stream virtual message. The agent stream is a secondary source
-      // and may lag behind or be incomplete.
-      const hasAssistantContent = currentMessages.some(
-        (m) => m.role === "assistant" && m.segments.some((s) => s.type === "content")
+      // any segments (content, thinking, tool_call, etc.) from the WebSocket
+      // stream, prefer it over the virtual message. The agent stream is a
+      // secondary source and may lag behind or be incomplete.
+      const hasAssistantMessage = currentMessages.some(
+        (m) => m.role === "assistant" && m.segments.length > 0
       )
-      if (hasAssistantContent) {
+      if (hasAssistantMessage) {
         return currentMessages
       }
       let base = currentMessages;
@@ -875,7 +881,7 @@ export function ChatPage() {
                       ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                       ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                       atRootDir={activeSession?.project_path || ""}
-                      processing={isAgentProcessing || streaming || delegating}
+                      processing={streaming || delegating}
                     />
                   </div>
                 </div>
@@ -963,7 +969,7 @@ export function ChatPage() {
                   ctxwinUsed={activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
-                  processing={isAgentProcessing || streaming || delegating || !!pendingConfirm}
+                  processing={streaming || delegating || !!pendingConfirm}
                 />
               </>
             )}

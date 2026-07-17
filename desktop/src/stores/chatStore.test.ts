@@ -169,4 +169,29 @@ describe('chatStore', () => {
     await useChatStore.getState().loadSessions()
     expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
   })
+
+  it('loadSessions retries once on failure (covers startup race with backend)', async () => {
+    // First call rejects, second succeeds. The store should end up with
+    // the data from the retry.
+    vi.mocked(listSessions)
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+      .mockResolvedValueOnce({ sessions: [{ id: 's1', name: 'after-retry' }] } as any)
+
+    await useChatStore.getState().loadSessions()
+
+    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
+    expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual(['s1'])
+  })
+
+  it('loadSessions gives up cleanly when both attempts fail', async () => {
+    vi.mocked(listSessions)
+      .mockRejectedValueOnce(new Error('first'))
+      .mockRejectedValueOnce(new Error('second'))
+
+    await useChatStore.getState().loadSessions()
+
+    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
+    expect(useChatStore.getState().sessions).toEqual([])
+    expect(useChatStore.getState().sessionsLoading).toBe(false)
+  })
 })

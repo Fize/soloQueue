@@ -65,9 +65,19 @@ func (a *Agent) processStreamEvents(
 			return ctx.Err()
 		case ev, ok := <-evCh:
 			if !ok {
-				// channel close but no Done/Error — treat as abnormal end
-				streamDone = true
-				break
+				// channel close but no Done/Error — abnormal end, report as error
+				// This happens when the LLM stream is interrupted (e.g., HTTP timeout,
+				// idle watchdog, or connection reset) and the error was not properly
+				// delivered through the event channel.
+				err := fmt.Errorf("agent: llm stream ended unexpectedly without done event")
+				durMs := time.Since(start).Milliseconds()
+				a.logError(ctx, logger.CatLLM, "llm chat failed", err,
+					"iter", iter,
+					"duration_ms", durMs,
+				)
+				a.emit(ctx, out, ErrorEvent{Err: err})
+				a.RecordError(err)
+				return err
 			}
 			switch ev.Type {
 			case llm.EventDelta:

@@ -1209,15 +1209,26 @@ enqueued:
 		var eventCount int
 		var accContent strings.Builder   // accumulates streamed content for partial flush on non-normal exit
 		var accReasoning strings.Builder
+		var lastPushedContent string      // tracks last content pushed to cw (avoids duplicate partial flush)
 
 		// Flush partial content on any non-normal exit (Stop, panic, srcCh close).
 		// Declared after the recover defer so it runs first (LIFO), before panic recovery.
 		// Skipped on normal completion (gotDone=true) because PushHook already wrote the assistant message.
+		// Also skipped if accContent matches the last content we already pushed to cw
+		// (this happens when the L2 ran multiple turns and the last turn produced no new content).
 		defer func() {
 			if !gotDone && accContent.Len() > 0 && s.tl != nil {
+				pending := accContent.String()
+				// Skip if this content is identical to what we already pushed to cw
+				// in a previous turn's DoneEvent. This prevents duplicate entries when
+				// the LLM returns a multi-turn response (e.g., content + tool_call + empty
+				// content) and the session is force-killed before the last DoneEvent.
+				if pending == lastPushedContent {
+					return
+				}
 				_ = s.tl.AppendMessage(&timeline.MessagePayload{
 					Role:             "assistant",
-					Content:          accContent.String(),
+					Content:          pending,
 					ReasoningContent: accReasoning.String(),
 					AgentID:          s.Agent.InstanceID,
 				})
@@ -1358,6 +1369,8 @@ enqueued:
 				s.mu.Lock()
 				opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
 				s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
+				// Track what we just pushed so the partial-flush defer can skip duplicates.
+				lastPushedContent = finalContent
 				s.mu.Unlock()
 
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream: assistant reply pushed to context window",

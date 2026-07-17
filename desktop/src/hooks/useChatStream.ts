@@ -244,12 +244,24 @@ export function useChatStream() {
 
   const cancel = useCallback(() => {
     const requestId = activeRequestIdRef.current
-    if (!requestId) return
+    const sid = activeSessionId
+    if (!requestId || !sid) return
+
+    // Immediately update local state so the stop button reverts to the send
+    // button without waiting for the server chat_done round-trip.
+    const store = useChatStore.getState()
+    store.setStreaming(false, sid)
+    store.setDelegating(false, sid)
+    store.setSystemCommandRunning(false, sid)
+    activeRequestIdRef.current = null
+    // Unregister the chat handler to prevent buffered WS chunks from
+    // appending to messages after the cancel has been initiated.
+    wsManager.unregisterChat(requestId)
 
     wsManager.send({
       type: 'chat_cancel',
       request_id: requestId,
-      session_id: activeSessionId!,
+      session_id: sid,
     })
   }, [activeSessionId])
 

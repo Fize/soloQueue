@@ -45,6 +45,7 @@ export function SessionTree() {
   const setActiveSession = useChatStore((s) => s.setActiveSession)
 
   const fetchLiveAgents = useAgentStore((s) => s.fetchLiveAgents)
+  const backendRunning = useConnectionStore((s) => s.backendStatus.running)
 
   const [groups, setGroups] = useState<GroupInfo[]>([])
   const [creating, setCreating] = useState<string | null>(null)
@@ -71,12 +72,17 @@ export function SessionTree() {
     setExpandedSessionLists((prev) => ({ ...prev, [key]: !prev[key] }))
   }, [])
 
+  // Refetch when the backend transitions to running. The initial run fires
+  // the three loaders in parallel; if the backend isn't ready yet they all
+  // fail silently. When the IPC `getBackendStatus()` finally returns
+  // `running: true`, this effect re-runs and picks up the data — including
+  // loadGroupInfo, which is a local function the App-level auto-retry
+  // cannot reach (it's not in a store).
   useEffect(() => {
     loadSessions()
     loadGroupInfo()
     fetchLiveAgents()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [backendRunning])
 
   // On active session change: open the active group+project, collapse all other
   // groups and projects. Preserves the active session's own "show all" flag.
@@ -238,8 +244,6 @@ export function SessionTree() {
 
   const isGroupExp = (name: string) => expandedGroups[name] !== false
   const isProjExp = (key: string) => expandedProjects[key] === true
-
-  const backendRunning = useConnectionStore((s) => s.backendStatus.running)
 
   // Empty-tree loading state: visible when the first load is still in flight
   // AND we don't have any sessions to show yet. Shown only on the very first
