@@ -726,6 +726,35 @@ func TestSessionAskIsolatedWithModelUsesAndClearsOverride(t *testing.T) {
 	}
 }
 
+func TestSessionAskStreamWithModelUsesAndClearsOverride(t *testing.T) {
+	var gotModel, gotProvider string
+	fake := &agent.FakeLLM{
+		Responses: []string{"done"},
+		Hook: func(req agent.LLMRequest) {
+			gotModel = req.Model
+			gotProvider = req.ProviderID
+		},
+	}
+	a := startAgent(t, fake)
+	s := NewSession("s2", "t2", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	ch, err := s.AskStreamWithModel(context.Background(), "run task", &iface.ModelOverrideParams{
+		ProviderID: "stream-provider",
+		ModelID:    "stream-model",
+		Level:      "L1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	if gotModel != "stream-model" || gotProvider != "stream-provider" {
+		t.Fatalf("unexpected request model: provider=%q model=%q", gotProvider, gotModel)
+	}
+	if a.ModelOverride() != nil {
+		t.Fatal("stream model override leaked after execution")
+	}
+}
+
 func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 	fake := &agent.FakeLLM{}
 	a := startAgent(t, fake)

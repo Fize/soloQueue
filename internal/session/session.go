@@ -364,6 +364,38 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 // AskIsolatedWithModel executes an isolated scheduled task with an explicit
 // per-run model. The override is cleared when the returned stream closes so it
 // cannot leak into the next user request.
+// AskStreamWithModel executes a prompt via AskStream (pushing to timeline)
+// with an explicit per-run model. The override is cleared when the stream closes.
+func (s *Session) AskStreamWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error) {
+	if params == nil {
+		return s.AskStream(ctx, prompt)
+	}
+	s.Agent.SetModelOverride(&agent.ModelParams{
+		ProviderID:      params.ProviderID,
+		ModelID:         params.ModelID,
+		ThinkingEnabled: params.ThinkingEnabled,
+		ReasoningEffort: params.ReasoningEffort,
+		ThinkingType:    params.ThinkingType,
+		Level:           params.Level,
+		ContextWindow:   params.ContextWindow,
+		Vision:          params.Vision,
+	})
+	ch, err := s.AskStream(ctx, prompt)
+	if err != nil {
+		s.Agent.ClearModelOverride()
+		return nil, err
+	}
+	out := make(chan iface.AgentEvent, 64)
+	go func() {
+		defer close(out)
+		defer s.Agent.ClearModelOverride()
+		for ev := range ch {
+			out <- ev
+		}
+	}()
+	return out, nil
+}
+
 func (s *Session) AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error) {
 	if params == nil {
 		return s.AskIsolated(ctx, prompt)

@@ -79,6 +79,7 @@ type AgentChannelResolver interface {
 
 type modelRoutedSession interface {
 	AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
+	AskStreamWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
 }
 
 var errTaskModelResolution = errors.New("scheduled task model resolution failed")
@@ -362,7 +363,20 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	start := time.Now()
 
 	cronCtx := s.buildCronContext(t)
-	ch, err := s.askWithTaskModel(cronCtx, t, l1Session)
+
+	// If the target agent has channel bindings, use AskStream so the result
+	// writes to the timeline and gets pushed through the channel bridge naturally.
+	// Otherwise use AskIsolated to avoid polluting the conversation.
+	hasChannels := s.agentChannelResolver != nil &&
+		func() bool { _, _, ok := s.agentChannelResolver.GetChannels(t.TargetAgent); return ok }()
+
+	var ch <-chan iface.AgentEvent
+	var err error
+	if hasChannels {
+		ch, err = s.askWithTaskModelStream(cronCtx, t, l1Session)
+	} else {
+		ch, err = s.askWithTaskModel(cronCtx, t, l1Session)
+	}
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
 		if errors.Is(err, errTaskModelResolution) {
@@ -373,13 +387,16 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 		return
 	}
 
-	replyText, mediaFiles := drainEvents(ch)
+	_, mediaFiles := drainEvents(ch)
 	duration := time.Since(start)
 	s.logger.Info(logger.CatApp, "cron: L1 task completed", "task_id", t.ID, "duration_ms", duration.Milliseconds())
 
-	// Route notification through channel if agent has one; fallback to L1 delivery otherwise.
-	s.routeNotification(ctx, t, replyText)
-	_ = mediaFiles // media file forwarding not yet supported for generic channels
+	// Only route notification explicitly when using isolated execution.
+	// When using AskStream the bridge already handles delivery.
+	if !hasChannels {
+		s.routeNotification(ctx, t, "")
+	}
+	_ = mediaFiles
 
 	s.updateTaskAfterExecution(ctx, t)
 }
@@ -479,6 +496,34 @@ func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) 
 		"fallback_reason", resolved.FallbackReason,
 	)
 	return routed.AskIsolatedWithModel(ctx, prompt, &resolved.Params)
+}
+
+// askWithTaskModelStream is like askWithTaskModel but uses AskStream so the
+// result writes to the session timeline and triggers channel bridge delivery.
+func (s *Scheduler) askWithTaskModelStream(ctx context.Context, t Task, sess Session) (<-chan iface.AgentEvent, error) {
+	prompt := s.buildTaskPrompt(t)
+	if s.modelResolver == nil {
+		return sess.AskStream(ctx, prompt)
+	}
+	resolved, err := s.modelResolver(t.TaskLevel)
+	if err != nil {
+		return nil, fmt.Errorf("%w: resolve level %s: %v", errTaskModelResolution, t.TaskLevel, err)
+	}
+	routed, ok := sess.(modelRoutedSession)
+	if !ok {
+		return nil, fmt.Errorf("%w: session does not support model routing", errTaskModelResolution)
+	}
+	s.logger.Info(logger.CatApp, "cron: resolved task model",
+		"task_id", t.ID,
+		"title", t.Title,
+		"task_level", t.TaskLevel,
+		"requested_role", resolved.RequestedRole,
+		"provider_id", resolved.Params.ProviderID,
+		"model_id", resolved.Params.ModelID,
+		"used_fallback", resolved.UsedFallback,
+		"fallback_reason", resolved.FallbackReason,
+	)
+	return routed.AskStreamWithModel(ctx, prompt, &resolved.Params)
 }
 
 // buildTaskPrompt builds the prompt for a task, optionally enriched with recalled memories.

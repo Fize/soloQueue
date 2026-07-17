@@ -36,6 +36,10 @@ func (m *mockSession) AskIsolatedWithModel(ctx context.Context, prompt string, p
 	m.modelParams = params
 	return m.AskStream(ctx, prompt)
 }
+func (m *mockSession) AskStreamWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error) {
+	m.modelParams = params
+	return m.AskStream(ctx, prompt)
+}
 
 type mockSessionManager struct {
 	session    Session
