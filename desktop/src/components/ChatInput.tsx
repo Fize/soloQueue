@@ -392,6 +392,18 @@ export function ChatInput({
 
     if ((!rawText && uploadedFiles.length === 0) || disabled) return
 
+    // Intercept /cancel immediately while streaming — don't queue
+    if (rawText.toLowerCase() === '/cancel' && (streaming || processing)) {
+      onCancel()
+      if (inputRef.current) inputRef.current.value = ''
+      setInputValue('')
+      setAtMentions(new Map())
+      attachments.forEach((att) => URL.revokeObjectURL(att.previewUrl))
+      setAttachments([])
+      if (inputRef.current) inputRef.current.style.height = 'auto'
+      return
+    }
+
     // Replace @displayLabel → absolute path before sending to LLM
     let text = rawText
     atMentions.forEach((absPath, label) => {
@@ -428,7 +440,7 @@ export function ChatInput({
 
     // Reset height
     if (inputRef.current) inputRef.current.style.height = 'auto'
-  }, [disabled, onSend, attachments, selectedGroup, selectedProjectPath, atMentions])
+  }, [disabled, onSend, onCancel, streaming, processing, attachments, selectedGroup, selectedProjectPath, atMentions])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
@@ -568,9 +580,9 @@ export function ChatInput({
                   caretColor: 'var(--foreground)',
                   scrollbarWidth: 'none',
                 }}
-                placeholder={disabled || processing ? "" : "Ask anything..."}
+                placeholder={disabled ? "" : "Ask anything..."}
                 rows={1}
-                disabled={disabled || processing}
+                disabled={disabled}
                 onKeyDown={handleKeyDown}
                 onInput={handleInput}
                 onScroll={handleScroll}
@@ -799,7 +811,7 @@ export function ChatInput({
                   </div>
                 )}
 
-                {streaming || delegating || processing ? (
+                {(streaming || delegating || processing) && !inputValue.trim() ? (
                   <button
                     type="button"
                     onClick={onCancel}

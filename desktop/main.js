@@ -117,6 +117,7 @@ const BACKEND_PORT = isDev ? 8765 : 57647
 
 let tray = null
 let pendingTrayStatus = null
+let isQuitting = false
 
 // 16x16 monochrome template PNGs (base64). macOS auto-recolors template images
 // to match the menu-bar appearance (light/dark). Three states: ok / warn / err.
@@ -198,7 +199,18 @@ function buildTrayMenu(status) {
     { type: 'separator' },
     { label: 'Show SoloQueue', click: focusOrCreateWindow },
     { type: 'separator' },
-    { role: 'quit' },
+    {
+      // Custom click handler instead of { role: 'quit' } so we can set
+      // isQuitting=true before calling app.quit(). On Windows/Linux the
+      // close-event interceptor in createWindow() checks this flag to
+      // decide whether to hide the window (minimize-to-tray) or actually
+      // allow the close to proceed.
+      label: process.platform === 'darwin' ? 'Quit SoloQueue' : 'Exit',
+      click: () => {
+        isQuitting = true
+        app.quit()
+      },
+    },
   ])
 }
 
@@ -483,6 +495,17 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+
+  // Windows/Linux: minimize to tray instead of closing the window.
+  // On macOS, the app stays alive after all windows are closed by convention;
+  // the close event is not intercepted, so the window closes normally and
+  // the tray persists.
+  mainWindow.on('close', (event) => {
+    if (process.platform !== 'darwin' && !isQuitting) {
+      event.preventDefault()
+      mainWindow.hide()
+    }
   })
 }
 
