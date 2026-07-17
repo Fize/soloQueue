@@ -176,6 +176,64 @@ func (s *GlobalService) DefaultModelByRole(role string) *LLMModel {
 	return s.ModelByProviderID(providerID, modelID)
 }
 
+// ResolveScheduledTaskModel resolves a task level without using legacy
+// hardcoded role defaults. Scheduled tasks may only fall back to the model
+// explicitly configured in DefaultModels.Fallback.
+func (s *GlobalService) ResolveScheduledTaskModel(level string) (model *LLMModel, role string, usedFallback bool, err error) {
+	switch level {
+	case "L0":
+		role = "basic"
+	case "L1":
+		role = "universal"
+	case "L2":
+		role = "superior"
+	case "L3":
+		role = "expert"
+	default:
+		return nil, "", false, fmt.Errorf("unsupported scheduled task level %q", level)
+	}
+
+	settings := s.Get()
+	if ref := roleField(settings.DefaultModels, role); ref != "" {
+		if resolved := enabledModelByRef(settings, ref); resolved != nil {
+			return resolved, role, false, nil
+		}
+	}
+
+	if settings.DefaultModels.Fallback == "" {
+		return nil, role, false, fmt.Errorf("no enabled model configured for %s and no fallback model configured", role)
+	}
+	resolved := enabledModelByRef(settings, settings.DefaultModels.Fallback)
+	if resolved == nil {
+		return nil, role, false, fmt.Errorf("fallback model %q is missing or disabled", settings.DefaultModels.Fallback)
+	}
+	return resolved, role, true, nil
+}
+
+func enabledModelByRef(settings Settings, ref string) *LLMModel {
+	providerID, modelID, ok := parseProviderModelID(ref)
+	if !ok {
+		return nil
+	}
+	providerEnabled := false
+	for i := range settings.Providers {
+		if settings.Providers[i].ID == providerID && settings.Providers[i].Enabled {
+			providerEnabled = true
+			break
+		}
+	}
+	if !providerEnabled {
+		return nil
+	}
+	for i := range settings.Models {
+		model := settings.Models[i]
+		if model.ProviderID == providerID && model.ID == modelID && model.Enabled {
+			return &model
+		}
+	}
+	return nil
+}
+
 // roleField returns the config value corresponding to the role
 func roleField(dm DefaultModelsConfig, role string) string {
 	switch role {

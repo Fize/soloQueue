@@ -449,5 +449,6 @@ func (la *LocatableAdapter) SetModelOverride(params *iface.ModelOverrideParams) 
 		ThinkingType:    params.ThinkingType,
 		Level:           params.Level,
 		ContextWindow:   params.ContextWindow,
+		Vision:          params.Vision,
 	})
 }

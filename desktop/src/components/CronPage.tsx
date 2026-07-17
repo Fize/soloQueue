@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { listCronTasks, createCronTask, updateCronTask, deleteCronTask, getTeams } from '@/lib/api'
+import { listCronTasks, createCronTask, updateCronTask, deleteCronTask, getTeams, getDefaultModels, listModels, listProviders } from '@/lib/api'
 import type { CronTask } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
@@ -26,6 +26,7 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
+  AlertCircle,
 } from 'lucide-react'
 
 const L1_OPTION = { value: 'L1', label: 'L1 Orchestrator' }
@@ -90,7 +91,7 @@ function TaskCard({
     <GlassCard className="flex flex-col gap-0 p-0 overflow-hidden border-border/40 bg-card/40 hover:bg-card/60 transition-colors">
       {/* Card Header */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/30">
-        {/* Left: switch + expression */}
+        {/* Left: switch + title and expression */}
         <div className="flex items-center gap-3 min-w-0">
           <Tooltip>
             <TooltipTrigger>
@@ -106,16 +107,20 @@ function TaskCard({
             </TooltipContent>
           </Tooltip>
 
-          <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-foreground bg-primary/5 border border-primary/10 px-2.5 py-1 rounded-md min-w-0">
-            <Clock className="h-3 w-3 text-primary shrink-0" />
-            <span className="truncate max-w-[180px]" title={task.expression}>
-              {task.expression}
-            </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold text-foreground" title={task.title}>
+              {task.title}
+            </h3>
+            <div className="mt-0.5 flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+              <Clock className="h-3 w-3 shrink-0" />
+              <span className="truncate max-w-[180px]" title={task.expression}>{task.expression}</span>
+            </div>
           </div>
         </div>
 
         {/* Right: agent badge + status */}
         <div className="flex items-center gap-2 shrink-0">
+          <Badge variant="secondary" className="text-xs">{task.task_level}</Badge>
           <Badge variant="outline" className="gap-1 bg-background/50 text-xs hidden sm:flex">
             <Bot className="h-3 w-3 text-primary" />
             {task.target_agent || 'L1'}
@@ -241,6 +246,7 @@ export function CronPage() {
   const { t } = useTranslation()
   const [tasks, setTasks] = useState<CronTask[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
   // Expanded instruction rows
@@ -249,6 +255,8 @@ export function CronPage() {
   // Dialog State
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<CronTask | null>(null)
+  const [title, setTitle] = useState('')
+  const [taskLevel, setTaskLevel] = useState('')
   const [expression, setExpression] = useState('')
   const [instruction, setInstruction] = useState('')
   const [targetAgent, setTargetAgent] = useState('L1')
@@ -265,13 +273,15 @@ export function CronPage() {
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
 
   const [teamOptions, setTeamOptions] = useState<{ value: string; label: string }[]>([L1_OPTION])
+  const [levelModels, setLevelModels] = useState<Record<string, { name: string; fallback: boolean } | null>>({})
 
   // Dialog first-field ref for auto-focus
-  const expressionInputRef = useRef<HTMLInputElement>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchTasks()
     fetchTeams()
+    fetchLevelModels()
   }, [])
 
   // Keyboard shortcuts: N = new task, ⌘R = refresh
@@ -311,12 +321,52 @@ export function CronPage() {
     }
   }
 
+  async function fetchLevelModels() {
+    try {
+      const [defaults, models, providers] = await Promise.all([getDefaultModels(), listModels(), listProviders()])
+      const enabledProviders = new Set(providers.filter((provider) => provider.enabled).map((provider) => provider.id))
+      const byRef = new Map(
+        models
+          .filter((model) => model.enabled && enabledProviders.has(model.providerId))
+          .map((model) => [`${model.providerId}:${model.id}`, model]),
+      )
+      const refs: Record<string, string> = {
+        L0: defaults.basic,
+        L1: defaults.universal,
+        L2: defaults.superior,
+        L3: defaults.expert,
+      }
+      const resolved: Record<string, { name: string; fallback: boolean } | null> = {}
+      for (const level of ['L0', 'L1', 'L2', 'L3']) {
+        const primary = byRef.get(refs[level])
+        const fallback = byRef.get(defaults.fallback)
+        resolved[level] = primary
+          ? { name: primary.name || primary.id, fallback: false }
+          : fallback
+            ? { name: fallback.name || fallback.id, fallback: true }
+            : null
+      }
+      setLevelModels(resolved)
+    } catch {
+      // Model labels are supporting context; task management remains available.
+    }
+  }
+
+  function levelLabel(level: 'L0' | 'L1' | 'L2' | 'L3', key: string) {
+    const resolved = levelModels[level]
+    if (resolved === undefined) return t(key)
+    if (resolved === null) return `${t(key)} · ${t('cron.modelUnavailable')}`
+    return `${t(key)} · ${resolved.name}${resolved.fallback ? ` (${t('cron.fallback')})` : ''}`
+  }
+
   async function fetchTasks() {
     setLoading(true)
+    setLoadError(false)
     try {
       const data = await listCronTasks()
       setTasks(data)
     } catch (err) {
+      setLoadError(true)
       toast.error(err instanceof Error ? err.message : t('cron.failedToFetch'))
     } finally {
       setLoading(false)
@@ -325,16 +375,20 @@ export function CronPage() {
 
   function handleOpenCreateDialog() {
     setEditingTask(null)
+    setTitle('')
+    setTaskLevel('')
     setExpression('')
     setInstruction('')
     setTargetAgent('L1')
     setDialogError(null)
     setDialogOpen(true)
-    requestAnimationFrame(() => expressionInputRef.current?.focus())
+    requestAnimationFrame(() => titleInputRef.current?.focus())
   }
 
   function handleOpenEditDialog(task: CronTask) {
     setEditingTask(task)
+    setTitle(task.title)
+    setTaskLevel(task.task_level)
     setExpression(task.expression)
     setInstruction(task.instruction)
     setTargetAgent(task.target_agent || 'L1')
@@ -343,7 +397,7 @@ export function CronPage() {
   }
 
   async function handleSaveTask() {
-    if (!expression.trim() || !instruction.trim()) {
+    if (!title.trim() || !taskLevel || !expression.trim() || !instruction.trim()) {
       setDialogError(t('cron.requiredFields'))
       return
     }
@@ -352,6 +406,8 @@ export function CronPage() {
     try {
       if (editingTask) {
         await updateCronTask(editingTask.id, {
+          title: title.trim(),
+          task_level: taskLevel as CronTask['task_level'],
           expression: expression.trim(),
           instruction: instruction.trim(),
           target_agent: targetAgent,
@@ -359,6 +415,8 @@ export function CronPage() {
         toast.success(t('cron.taskUpdated'))
       } else {
         await createCronTask({
+          title: title.trim(),
+          task_level: taskLevel as CronTask['task_level'],
           expression: expression.trim(),
           instruction: instruction.trim(),
           target_agent: targetAgent,
@@ -449,6 +507,8 @@ export function CronPage() {
     const q = searchQuery.toLowerCase()
     return (
       task.expression.toLowerCase().includes(q) ||
+      task.title.toLowerCase().includes(q) ||
+      task.task_level.toLowerCase().includes(q) ||
       task.instruction.toLowerCase().includes(q) ||
       task.target_agent?.toLowerCase().includes(q) ||
       task.status.toLowerCase().includes(q)
@@ -527,6 +587,16 @@ export function CronPage() {
                 <SkeletonCard key={i} />
               ))}
             </div>
+          ) : loadError && tasks.length === 0 ? (
+            <GlassCard variant="ghost" className="flex flex-col items-center justify-center py-16 text-center border-dashed">
+              <AlertCircle className="h-9 w-9 text-destructive/70 mb-3" />
+              <h3 className="text-base font-semibold text-foreground">{t('cron.loadErrorTitle')}</h3>
+              <p className="mt-2 text-sm text-muted-foreground">{t('cron.loadErrorDesc')}</p>
+              <Button size="sm" variant="outline" onClick={fetchTasks} className="mt-5 gap-1.5">
+                <RefreshCw className="h-3.5 w-3.5" />
+                {t('cron.retry')}
+              </Button>
+            </GlassCard>
           ) : tasks.length === 0 ? (
             /* Empty state */
             <GlassCard
@@ -591,7 +661,7 @@ export function CronPage() {
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open)
-          if (open) requestAnimationFrame(() => expressionInputRef.current?.focus())
+          if (open) requestAnimationFrame(() => titleInputRef.current?.focus())
         }}
       >
         <DialogContent className="max-w-lg">
@@ -603,6 +673,24 @@ export function CronPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-1">
+            {/* Title */}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="cron-title-input" className="text-xs font-medium text-muted-foreground">
+                {t('cron.taskTitle')}
+              </label>
+              <input
+                id="cron-title-input"
+                ref={titleInputRef}
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={100}
+                placeholder={t('cron.titlePlaceholder')}
+                className="flex h-8 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 transition-colors"
+                autoComplete="off"
+              />
+            </div>
+
             {/* Expression */}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="cron-expr-input" className="text-xs font-medium text-muted-foreground">
@@ -610,7 +698,6 @@ export function CronPage() {
               </label>
               <input
                 id="cron-expr-input"
-                ref={expressionInputRef}
                 type="text"
                 value={expression}
                 onChange={(e) => setExpression(e.target.value)}
@@ -623,6 +710,21 @@ export function CronPage() {
                 {t('cron.exprHelp')}
               </p>
             </div>
+
+            {/* Task Level */}
+            <Select
+              label={t('cron.taskLevel')}
+              options={[
+                { value: '', label: t('cron.selectLevel') },
+                { value: 'L0', label: levelLabel('L0', 'cron.levelL0') },
+                { value: 'L1', label: levelLabel('L1', 'cron.levelL1') },
+                { value: 'L2', label: levelLabel('L2', 'cron.levelL2') },
+                { value: 'L3', label: levelLabel('L3', 'cron.levelL3') },
+              ]}
+              value={taskLevel}
+              onChange={setTaskLevel}
+              id="cron-level-select"
+            />
 
             {/* Instruction */}
             <Textarea
@@ -650,7 +752,7 @@ export function CronPage() {
           )}
 
           <DialogFooter>
-            <Button size="sm" onClick={handleSaveTask} disabled={dialogSaving} id="cron-save-btn">
+            <Button size="sm" onClick={handleSaveTask} disabled={dialogSaving || !title.trim() || !taskLevel || !expression.trim() || !instruction.trim()} id="cron-save-btn">
               {dialogSaving ? t('cron.saving') : editingTask ? t('cron.saveChanges') : t('cron.scheduleTask')}
             </Button>
             <Button
@@ -670,7 +772,7 @@ export function CronPage() {
         open={!!deleteTarget}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
         title={t('cron.deleteTask')}
-        message={t('cron.deleteConfirmMsg', { expression: deleteTarget?.expression || '' })}
+        message={t('cron.deleteConfirmMsg', { title: deleteTarget?.title || '' })}
         destructive
         onConfirm={confirmDeleteTask}
         confirmLabel={t('cron.deleteTaskLabel')}

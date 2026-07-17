@@ -2,6 +2,7 @@ package sqlitedb
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,6 +42,45 @@ func TestOpen_SubdirectoryCreation(t *testing.T) {
 		t.Fatalf("Open should create subdirectory: %v", err)
 	}
 	db.Close()
+}
+
+func TestOpenMigratesScheduledTasksV3(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`
+		CREATE TABLE scheduled_tasks (
+			id TEXT PRIMARY KEY, expression TEXT NOT NULL, instruction TEXT NOT NULL,
+			target_agent TEXT NOT NULL, status TEXT NOT NULL, last_run_at TEXT,
+			next_run_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+			qq_source INTEGER, qq_openid TEXT, qq_target_openid TEXT, qq_chat_id TEXT
+		);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`INSERT INTO scheduled_tasks VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, -1, '', '', '')`,
+		"t1", "daily", "Check database health\nInclude slow queries", "engineering", "active",
+		"2026-07-18T09:00:00+08:00", "2026-07-17T09:00:00+08:00", "2026-07-17T09:00:00+08:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var title, level string
+	if err := db.QueryRow(`SELECT title, task_level FROM scheduled_tasks WHERE id = 't1'`).Scan(&title, &level); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Check database health" || level != "L2" {
+		t.Fatalf("unexpected migrated task: title=%q level=%q", title, level)
+	}
 }
 
 func TestInsertTokenUsage(t *testing.T) {

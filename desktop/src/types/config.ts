@@ -221,10 +221,12 @@ export interface AppConfig {
 
 export interface CronTask {
   id: string;
+  title: string;
+  task_level: "L0" | "L1" | "L2" | "L3";
   expression: string;
   instruction: string;
   target_agent: string;
-  status: "active" | "paused" | "completed";
+  status: "active" | "paused" | "running" | "completed" | "failed";
   last_run_at?: string;
   next_run_at: string;
   created_at: string;
@@ -232,12 +234,16 @@ export interface CronTask {
 }
 
 export interface CreateCronTaskRequest {
+  title: string;
+  task_level: "L0" | "L1" | "L2" | "L3";
   expression: string;
   instruction: string;
   target_agent?: string;
 }
 
 export interface UpdateCronTaskRequest {
+  title?: string;
+  task_level?: "L0" | "L1" | "L2" | "L3";
   expression?: string;
   instruction?: string;
   target_agent?: string;

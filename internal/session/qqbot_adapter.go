@@ -450,9 +450,6 @@ func NewErrorChannelAdapter(errMsg string) *ErrorChannelAdapter {
 // ErrorQQBotAdapter is retained as a source-compatible alias.
 type ErrorQQBotAdapter = ErrorChannelAdapter
 
-// qqbotAdapterBase is retained for package-local compatibility tests.
-type qqbotAdapterBase = channelAdapterBase
-
 func (a *ErrorChannelAdapter) CancelCurrent(reason string) error { return nil }
 
 func (a *ErrorChannelAdapter) Clear(ctx context.Context) error { return nil }

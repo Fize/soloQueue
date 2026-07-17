@@ -15,6 +15,8 @@ import (
 // CronTaskStatus is a read-only representation of a scheduled task for the portal.
 type CronTaskStatus struct {
 	ID          string  `json:"id"`
+	Title       string  `json:"title"`
+	TaskLevel   string  `json:"task_level"`
 	Expression  string  `json:"expression"`
 	Instruction string  `json:"instruction"`
 	TargetAgent string  `json:"target_agent"`
@@ -281,6 +283,8 @@ func (h *Hub) buildStateMessage() *WSMessage {
 			for _, t := range tasks {
 				cts := CronTaskStatus{
 					ID:          t.ID,
+					Title:       t.Title,
+					TaskLevel:   t.TaskLevel,
 					Expression:  t.Expression,
 					Instruction: t.Instruction,
 					TargetAgent: t.TargetAgent,

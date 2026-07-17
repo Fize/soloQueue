@@ -62,7 +62,7 @@ export function getToolCallSummary(name: string, argsStr: string): string {
         return args.query || ''
       case 'Remember':
         return args.content || ''
-      case 'schedule_task':
+      case 'create_cron_job':
         return args.instruction || args.Prompt || ''
       case 'WebSearch':
         return args.query || ''
@@ -203,4 +203,3 @@ export function getModelColorVar(modelName?: string): string {
   if (lower.includes('kimi')) return 'var(--color-model-kimi)'
   return 'var(--color-primary)'
 }
-

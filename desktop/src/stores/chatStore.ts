@@ -8,7 +8,7 @@ interface ChatState {
   activeSessionId: string | null
   messages: Record<string, ChatMessage[]> // keyed by session id
   streamingSessions: Record<string, boolean>
-  systemCommandSessions: Record<string, boolean> // keyed by session id, true while a built-in system slash command (/clear, /compact, /cancel, /help, /version, /cron) is being executed. Used to suppress the L0–L3 / model chips in the working indicator, since those commands don't run a routed task.
+  systemCommandSessions: Record<string, boolean> // keyed by session id, true while a built-in system slash command (/clear, /compact, /cancel, /help, /version) is being executed. Used to suppress the L0–L3 / model chips in the working indicator, since those commands don't run a routed task.
   delegatingSessions: Record<string, boolean> // keyed by session id, true when async delegation is in progress (L1 waiting for L2)
   titleGenerated: Record<string, boolean> // track which sessions already had title generated
   historyLoading: Record<string, boolean> // track which sessions are loading history

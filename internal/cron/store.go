@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 // Task is a scheduled/timer task persisted in SQLite.
 type Task struct {
 	ID             string     `json:"id"`
+	Title          string     `json:"title"`
+	TaskLevel      string     `json:"task_level"`
 	Expression     string     `json:"expression"`
 	Instruction    string     `json:"instruction"`
 	TargetAgent    string     `json:"target_agent"`
@@ -27,6 +30,61 @@ type Task struct {
 	QQOpenID       string     `json:"qq_openid"`
 	QQTargetOpenID string     `json:"qq_target_openid"`
 	QQChatID       string     `json:"qq_chat_id"`
+}
+
+const (
+	TaskLevelL0 = "L0"
+	TaskLevelL1 = "L1"
+	TaskLevelL2 = "L2"
+	TaskLevelL3 = "L3"
+)
+
+// CreateTaskInput contains the required and optional fields for a new task.
+type CreateTaskInput struct {
+	Title       string
+	TaskLevel   string
+	Expression  string
+	Instruction string
+	TargetAgent string
+	NextRunAt   time.Time
+}
+
+// ValidateTaskLevel validates the persisted task-level enum.
+func ValidateTaskLevel(level string) error {
+	switch level {
+	case TaskLevelL0, TaskLevelL1, TaskLevelL2, TaskLevelL3:
+		return nil
+	default:
+		return fmt.Errorf("task_level must be one of L0, L1, L2, or L3")
+	}
+}
+
+// ValidateTaskTitle validates the required user-facing title.
+func ValidateTaskTitle(title string) error {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return fmt.Errorf("title is required")
+	}
+	if len([]rune(title)) > 100 {
+		return fmt.Errorf("title must be at most 100 characters")
+	}
+	return nil
+}
+
+func validateTaskFields(title, taskLevel, expression, instruction string) error {
+	if err := ValidateTaskTitle(title); err != nil {
+		return err
+	}
+	if err := ValidateTaskLevel(taskLevel); err != nil {
+		return err
+	}
+	if strings.TrimSpace(expression) == "" {
+		return fmt.Errorf("expression is required")
+	}
+	if strings.TrimSpace(instruction) == "" {
+		return fmt.Errorf("instruction is required")
+	}
+	return nil
 }
 
 // IsOneTime returns true if the expression represents a specific datetime.
@@ -55,7 +113,7 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
+		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
 		 FROM scheduled_tasks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: list tasks: %w", err)
@@ -69,7 +127,7 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 		var nRun, cAt, uAt string
 		var qqSource sql.NullInt64
 		var qqOpenID, qqTargetOpenID, qqChatID sql.NullString
-		err := rows.Scan(&t.ID, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
+		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan task: %w", err)
 		}
@@ -81,7 +139,7 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 		t.NextRunAt, _ = time.ParseInLocation(time.RFC3339, nRun, time.Local)
 		t.CreatedAt, _ = time.ParseInLocation(time.RFC3339, cAt, time.Local)
 		t.UpdatedAt, _ = time.ParseInLocation(time.RFC3339, uAt, time.Local)
-		
+
 		if qqSource.Valid {
 			t.QQSource = int(qqSource.Int64)
 		} else {
@@ -110,9 +168,9 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 	var qqSource sql.NullInt64
 	var qqOpenID, qqTargetOpenID, qqChatID sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
+		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
 		 FROM scheduled_tasks WHERE id = ?`, id).
-		Scan(&t.ID, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
+		Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("cron store: task %q not found", id)
 	}
@@ -149,7 +207,7 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 // GetActiveTasks returns all tasks with 'active' status.
 func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
+		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
 		 FROM scheduled_tasks WHERE status = 'active'`)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: get active tasks: %w", err)
@@ -163,7 +221,7 @@ func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 		var nRun, cAt, uAt string
 		var qqSource sql.NullInt64
 		var qqOpenID, qqTargetOpenID, qqChatID sql.NullString
-		err := rows.Scan(&t.ID, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
+		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan active task: %w", err)
 		}
@@ -231,35 +289,44 @@ func getQQMessageMeta(ctx context.Context) (source int, openID, targetOpenID, ch
 }
 
 // CreateTask inserts a new task.
-func (s *DBStore) CreateTask(ctx context.Context, expression, instruction, targetAgent string, nextRun time.Time) (*Task, error) {
+func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task, error) {
+	input.Title = strings.TrimSpace(input.Title)
+	input.Expression = strings.TrimSpace(input.Expression)
+	input.Instruction = strings.TrimSpace(input.Instruction)
+	input.TargetAgent = strings.TrimSpace(input.TargetAgent)
+	if err := validateTaskFields(input.Title, input.TaskLevel, input.Expression, input.Instruction); err != nil {
+		return nil, fmt.Errorf("cron store: invalid task: %w", err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	id := uuid.New().String()
 	now := time.Now().Format(time.RFC3339)
-	nRun := nextRun.Format(time.RFC3339)
+	nRun := input.NextRunAt.Format(time.RFC3339)
 
-	if targetAgent == "" {
-		targetAgent = "L1"
+	if input.TargetAgent == "" {
+		input.TargetAgent = "L1"
 	}
 
 	qqSource, qqOpenID, qqTargetOpenID, qqChatID, _ := getQQMessageMeta(ctx)
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO scheduled_tasks (id, expression, instruction, target_agent, status, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id)
-		 VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
-		id, expression, instruction, targetAgent, nRun, now, now, qqSource, qqOpenID, qqTargetOpenID, qqChatID)
+		`INSERT INTO scheduled_tasks (id, title, task_level, expression, instruction, target_agent, status, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id)
+		 VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
+		id, input.Title, input.TaskLevel, input.Expression, input.Instruction, input.TargetAgent, nRun, now, now, qqSource, qqOpenID, qqTargetOpenID, qqChatID)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: create task: %w", err)
 	}
 
 	return &Task{
 		ID:             id,
-		Expression:     expression,
-		Instruction:    instruction,
-		TargetAgent:    targetAgent,
+		Title:          input.Title,
+		TaskLevel:      input.TaskLevel,
+		Expression:     input.Expression,
+		Instruction:    input.Instruction,
+		TargetAgent:    input.TargetAgent,
 		Status:         "active",
-		NextRunAt:      nextRun,
+		NextRunAt:      input.NextRunAt,
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 		QQSource:       qqSource,
@@ -269,19 +336,50 @@ func (s *DBStore) CreateTask(ctx context.Context, expression, instruction, targe
 	}, nil
 }
 
-// UpdateTask updates editable fields of a task (expression, instruction, target_agent, status, next_run_at).
+// UpdateTask updates all editable task fields.
 func (s *DBStore) UpdateTask(ctx context.Context, t *Task) error {
+	return s.updateTask(ctx, t, "")
+}
+
+// UpdateTaskForTarget updates a task only if it still belongs to targetAgent.
+// This keeps team-scoped agent authorization race-safe at the database boundary.
+func (s *DBStore) UpdateTaskForTarget(ctx context.Context, t *Task, targetAgent string) error {
+	if strings.TrimSpace(targetAgent) == "" {
+		return fmt.Errorf("cron store: target agent is required")
+	}
+	return s.updateTask(ctx, t, targetAgent)
+}
+
+func (s *DBStore) updateTask(ctx context.Context, t *Task, requiredTarget string) error {
+	t.Title = strings.TrimSpace(t.Title)
+	t.Expression = strings.TrimSpace(t.Expression)
+	t.Instruction = strings.TrimSpace(t.Instruction)
+	t.TargetAgent = strings.TrimSpace(t.TargetAgent)
+	if t.TargetAgent == "" {
+		t.TargetAgent = "L1"
+	}
+	if err := validateTaskFields(t.Title, t.TaskLevel, t.Expression, t.Instruction); err != nil {
+		return fmt.Errorf("cron store: invalid task: %w", err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := time.Now().Format(time.RFC3339)
 	nRun := t.NextRunAt.Format(time.RFC3339)
 
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE scheduled_tasks SET expression = ?, instruction = ?, target_agent = ?, status = ?, next_run_at = ?, updated_at = ?, qq_source = ?, qq_openid = ?, qq_target_openid = ?, qq_chat_id = ? WHERE id = ?`,
-		t.Expression, t.Instruction, t.TargetAgent, t.Status, nRun, now, t.QQSource, t.QQOpenID, t.QQTargetOpenID, t.QQChatID, t.ID)
+	query := `UPDATE scheduled_tasks SET title = ?, task_level = ?, expression = ?, instruction = ?, target_agent = ?, status = ?, next_run_at = ?, updated_at = ?, qq_source = ?, qq_openid = ?, qq_target_openid = ?, qq_chat_id = ? WHERE id = ?`
+	args := []any{t.Title, t.TaskLevel, t.Expression, t.Instruction, t.TargetAgent, t.Status, nRun, now, t.QQSource, t.QQOpenID, t.QQTargetOpenID, t.QQChatID, t.ID}
+	if requiredTarget != "" {
+		query += ` AND lower(target_agent) = lower(?)`
+		args = append(args, requiredTarget)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("cron store: update task: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("cron store: task %q not found in target scope", t.ID)
 	}
 	t.UpdatedAt = time.Now()
 	return nil
@@ -381,10 +479,28 @@ func (s *DBStore) MarkCompleted(ctx context.Context, id string) error {
 
 // DeleteTask removes task from DB.
 func (s *DBStore) DeleteTask(ctx context.Context, id string) error {
+	return s.deleteTask(ctx, id, "")
+}
+
+// DeleteTaskForTarget deletes a task only if it belongs to targetAgent.
+func (s *DBStore) DeleteTaskForTarget(ctx context.Context, id, targetAgent string) error {
+	if strings.TrimSpace(targetAgent) == "" {
+		return fmt.Errorf("cron store: target agent is required")
+	}
+	return s.deleteTask(ctx, id, targetAgent)
+}
+
+func (s *DBStore) deleteTask(ctx context.Context, id, requiredTarget string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	res, err := s.db.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE id = ?`, id)
+	query := `DELETE FROM scheduled_tasks WHERE id = ?`
+	args := []any{id}
+	if requiredTarget != "" {
+		query += ` AND lower(target_agent) = lower(?)`
+		args = append(args, requiredTarget)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("cron store: delete task: %w", err)
 	}

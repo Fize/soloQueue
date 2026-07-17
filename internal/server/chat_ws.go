@@ -148,7 +148,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			"- `/compact` — Compact context window (no memory save)\n" +
 			"- `/init` — Create/update AGENTS.md in the project directory (L2 sessions only)\n" +
 			"- `/version` — View version number\n" +
-			"- `/cron <cron_expression/time> <task_instruction>` — Create scheduled task\n" +
 			"- `/l0` — Lock routing level to L0 (conversational)\n" +
 			"- `/l1` — Lock routing level to L1 (single file modification)\n" +
 			"- `/l2` — Lock routing level to L2 (multi-file modification)\n" +
@@ -246,9 +245,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		}
 		return
 
-	case strings.HasPrefix(lowerTrimmed, "/cron"):
-		// Cron commands need the cron handler — route through AskStream
-		// fall through to normal AskStream below
 	}
 
 	// Call AskStream.

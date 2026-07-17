@@ -48,10 +48,28 @@ func TestHTTP_CronHandlers(t *testing.T) {
 	mux := NewMux(tempDir, nil, WithToolsConfig(&toolsCfg))
 	defer mux.Close()
 
+	// Required title and task level cannot be omitted or invalid.
+	for name, body := range map[string]map[string]string{
+		"missing metadata": {"expression": "daily", "instruction": "Check logs"},
+		"invalid level":    {"title": "Check logs", "task_level": "L9", "expression": "daily", "instruction": "Check logs"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			data, _ := json.Marshal(body)
+			req := newLocalhostRequest("POST", "/api/cron", bytes.NewReader(data))
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 Bad Request, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+
 	// 1. POST /api/cron - Create a task
 	var taskID string
 	{
 		body := map[string]string{
+			"title":        "Daily log check",
+			"task_level":   "L1",
 			"expression":   "0 12 * * *",
 			"instruction":  "Check daily logs",
 			"target_agent": "L1",
@@ -69,7 +87,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 			t.Fatalf("failed to parse response: %v", err)
 		}
-		if created.Expression != "0 12 * * *" || created.Instruction != "Check daily logs" {
+		if created.Title != "Daily log check" || created.TaskLevel != "L1" || created.Expression != "0 12 * * *" || created.Instruction != "Check daily logs" {
 			t.Errorf("unexpected task fields: %+v", created)
 		}
 		taskID = created.ID

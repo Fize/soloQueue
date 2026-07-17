@@ -146,7 +146,7 @@ func TestSessionAskAdapter_SaveUploadedFile(t *testing.T) {
 
 func TestConsumeAskStreamEvents_Basic(t *testing.T) {
 	testLog := newTestLog(t)
-	base := &qqbotAdapterBase{log: testLog}
+	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agent.FakeLLM{Responses: []string{"ok"}})
 	sess := &Session{Agent: ag, logger: testLog}
 	t.Cleanup(func() { sess.Close() })
@@ -168,7 +168,7 @@ func TestConsumeAskStreamEvents_Basic(t *testing.T) {
 
 func TestConsumeAskStreamEvents_Error(t *testing.T) {
 	testLog := newTestLog(t)
-	base := &qqbotAdapterBase{log: testLog}
+	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agent.FakeLLM{Responses: []string{"ok"}})
 	sess := &Session{Agent: ag, logger: testLog}
 	t.Cleanup(func() { sess.Close() })
@@ -185,7 +185,7 @@ func TestConsumeAskStreamEvents_Error(t *testing.T) {
 
 func TestConsumeAskStreamEvents_IntermediateCallback(t *testing.T) {
 	testLog := newTestLog(t)
-	base := &qqbotAdapterBase{log: testLog}
+	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agent.FakeLLM{Responses: []string{"ok"}})
 	sess := &Session{Agent: ag, logger: testLog}
 	t.Cleanup(func() { sess.Close() })
@@ -219,7 +219,7 @@ func TestConsumeAskStreamEvents_IntermediateCallback(t *testing.T) {
 
 func TestConsumeAskStreamEvents_EmptyContentUsesReasoning(t *testing.T) {
 	testLog := newTestLog(t)
-	base := &qqbotAdapterBase{log: testLog}
+	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agent.FakeLLM{Responses: []string{"ok"}})
 	sess := &Session{Agent: ag, logger: testLog}
 	t.Cleanup(func() { sess.Close() })
@@ -239,7 +239,7 @@ func TestConsumeAskStreamEvents_EmptyContentUsesReasoning(t *testing.T) {
 
 func TestSupervisorsFn_SetAndReap(t *testing.T) {
 	testLog := newTestLog(t)
-	base := &qqbotAdapterBase{log: testLog}
+	base := &channelAdapterBase{log: testLog}
 	called := false
 	base.SetSupervisorsFn(func() []*agent.Supervisor {
 		called = true
@@ -253,7 +253,7 @@ func TestSupervisorsFn_SetAndReap(t *testing.T) {
 
 func TestConsumeAskStreamEvents_ImageGenResult(t *testing.T) {
 	testLog := newTestLog(t)
-	base := &qqbotAdapterBase{log: testLog}
+	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agent.FakeLLM{Responses: []string{"ok"}})
 	sess := &Session{Agent: ag, logger: testLog}
 	t.Cleanup(func() { sess.Close() })
@@ -284,7 +284,7 @@ func TestConsumeAskStreamEvents_ImageGenResult(t *testing.T) {
 
 func TestConsumeAskStreamEvents_SendFileResult(t *testing.T) {
 	testLog := newTestLog(t)
-	base := &qqbotAdapterBase{log: testLog}
+	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agent.FakeLLM{Responses: []string{"ok"}})
 	sess := &Session{Agent: ag, logger: testLog}
 	t.Cleanup(func() { sess.Close() })

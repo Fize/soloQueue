@@ -18,12 +18,12 @@ func newDeleteScheduledTaskTool(cfg Config) *deleteScheduledTaskTool {
 	return &deleteScheduledTaskTool{cfg: cfg, logger: cfg.Logger}
 }
 
-func (deleteScheduledTaskTool) Name() string { return "delete_scheduled_task" }
+func (deleteScheduledTaskTool) Name() string { return "delete_cron_job" }
 
 func (deleteScheduledTaskTool) Description() string {
-	return "Deletes an existing scheduled task permanently. " +
+	return "Deletes an existing cron job permanently. " +
 		"The task will be unscheduled immediately and removed from the database. " +
-		"The task_id is required — you can obtain it from a previously created task (returned by schedule_task) or by asking the user. " +
+		"Use list_cron_jobs first when the job ID is unknown. " +
 		"This action cannot be undone."
 }
 
@@ -33,7 +33,7 @@ func (deleteScheduledTaskTool) Parameters() json.RawMessage {
   "properties": {
     "task_id": {
       "type": "string",
-      "description": "The unique ID of the scheduled task to delete (returned by schedule_task when the task was created)."
+		"description": "The unique ID of the cron job to delete."
     }
   },
   "required": ["task_id"]
@@ -61,13 +61,26 @@ func (t *deleteScheduledTaskTool) Execute(ctx context.Context, raw string) (stri
 		return "", err
 	}
 
-	// Unschedule first so the task won't fire during deletion.
-	t.cfg.CronScheduler.Unschedule(a.TaskID)
-
-	// Delete from database.
-	if err := t.cfg.CronStore.DeleteTask(ctx, a.TaskID); err != nil {
-		return "", fmt.Errorf("failed to delete task: %w", err)
+	task, err := t.cfg.CronStore.GetTask(ctx, a.TaskID)
+	if err != nil {
+		return "", fmt.Errorf("failed to find task: %w", err)
 	}
+	if err := authorizeCronTask(t.cfg.CronScope, task); err != nil {
+		return "", err
+	}
+
+	var deleteErr error
+	if t.cfg.CronScope.IsTeam() {
+		deleteErr = t.cfg.CronStore.DeleteTaskForTarget(ctx, a.TaskID, t.cfg.CronScope.Owner)
+	} else {
+		deleteErr = t.cfg.CronStore.DeleteTask(ctx, a.TaskID)
+	}
+	if deleteErr != nil {
+		return "", fmt.Errorf("failed to delete task: %w", deleteErr)
+	}
+
+	// Remove the in-memory entry only after the scoped database delete succeeds.
+	t.cfg.CronScheduler.Unschedule(a.TaskID)
 
 	if t.logger != nil {
 		t.logger.InfoContext(ctx, logger.CatTool, "cron: task deleted via tool", "task_id", a.TaskID)

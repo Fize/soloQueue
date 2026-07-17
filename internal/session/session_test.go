@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
@@ -672,47 +672,57 @@ func TestNewDailyMemoryFlusher(t *testing.T) {
 	}
 }
 
-func TestSession_AskStream_InterceptsCron(t *testing.T) {
-	fake := &agent.FakeLLM{}
+func TestSessionAskStreamDoesNotInterceptCronSlashText(t *testing.T) {
+	var sawPrompt bool
+	fake := &agent.FakeLLM{
+		Responses: []string{"handled by agent"},
+		Hook: func(req agent.LLMRequest) {
+			for _, msg := range req.Messages {
+				if msg.Role == "user" && strings.Contains(msg.Content, "/cron daily legacy task") {
+					sawPrompt = true
+				}
+			}
+		},
+	}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
-
-	var gotExpr, gotInst string
-	s.cronHandler = func(ctx context.Context, expression, instruction string) (string, time.Time, error) {
-		gotExpr = expression
-		gotInst = instruction
-		return "test-task-id", time.Now().Add(1 * time.Hour), nil
-	}
-
-	ch, err := s.AskStream(context.Background(), "/cron 0 12 * * 1 Check daily emails")
+	ch, err := s.AskStream(context.Background(), "/cron daily legacy task")
 	if err != nil {
-		t.Fatalf("AskStream /cron: %v", err)
+		t.Fatal(err)
 	}
+	for range ch {
+	}
+	if !sawPrompt {
+		t.Fatal("/cron text was intercepted instead of being handled as a normal user prompt")
+	}
+}
 
-	var events []iface.AgentEvent
-	for ev := range ch {
-		events = append(events, ev)
+func TestSessionAskIsolatedWithModelUsesAndClearsOverride(t *testing.T) {
+	var gotModel, gotProvider string
+	fake := &agent.FakeLLM{
+		Responses: []string{"done"},
+		Hook: func(req agent.LLMRequest) {
+			gotModel = req.Model
+			gotProvider = req.ProviderID
+		},
 	}
-
-	if gotExpr != "0 12 * * 1" {
-		t.Errorf("gotExpr = %q, want '0 12 * * 1'", gotExpr)
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	ch, err := s.AskIsolatedWithModel(context.Background(), "run task", &iface.ModelOverrideParams{
+		ProviderID: "scheduled-provider",
+		ModelID:    "scheduled-model",
+		Level:      "L2",
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if gotInst != "Check daily emails" {
-		t.Errorf("gotInst = %q, want 'Check daily emails'", gotInst)
+	for range ch {
 	}
-
-	if len(events) < 2 {
-		t.Fatalf("expected at least 2 events, got %d", len(events))
+	if gotModel != "scheduled-model" || gotProvider != "scheduled-provider" {
+		t.Fatalf("unexpected request model: provider=%q model=%q", gotProvider, gotModel)
 	}
-
-	delta, ok := events[0].(agent.ContentDeltaEvent)
-	if !ok || !strings.Contains(delta.Delta, "Scheduled task successfully created!") {
-		t.Errorf("unexpected first event: %+v", events[0])
-	}
-
-	done, ok := events[len(events)-1].(agent.DoneEvent)
-	if !ok || done.Content != "Cron task created." {
-		t.Errorf("unexpected last event: %+v", events[len(events)-1])
+	if a.ModelOverride() != nil {
+		t.Fatal("scheduled model override leaked after isolated execution")
 	}
 }
 
@@ -867,7 +877,7 @@ func TestSession_BuildRecalledContext(t *testing.T) {
 
 	// 3. Save some memories with different dates
 	ctx := context.Background()
-	
+
 	// today's memory
 	todayStr := time.Now().Format("2006-01-02")
 	hash1, _, err := engine.Save(ctx, "Apple stocks analyzed today", todayStr, "stocks", todayStr)

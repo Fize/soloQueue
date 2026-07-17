@@ -99,6 +99,46 @@ func TestLoader_Save_WritesCurrent(t *testing.T) {
 	}
 }
 
+func TestResolveScheduledTaskModelUsesConfiguredFallback(t *testing.T) {
+	svc, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Set(func(s *Settings) {
+		s.Providers = []LLMProvider{{ID: "p", Enabled: true}}
+		s.Models = []LLMModel{{ID: "fallback-model", ProviderID: "p", Enabled: true}}
+		s.DefaultModels = DefaultModelsConfig{Fallback: "p:fallback-model"}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, role, usedFallback, err := svc.ResolveScheduledTaskModel("L2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.ID != "fallback-model" || role != "superior" || !usedFallback {
+		t.Fatalf("unexpected resolution: model=%+v role=%q fallback=%v", model, role, usedFallback)
+	}
+}
+
+func TestResolveScheduledTaskModelFailsWithoutConfiguredFallback(t *testing.T) {
+	svc, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Set(func(s *Settings) {
+		s.Providers = nil
+		s.Models = nil
+		s.DefaultModels = DefaultModelsConfig{}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := svc.ResolveScheduledTaskModel("L2"); err == nil {
+		t.Fatal("expected resolution error without superior or fallback model")
+	}
+}
+
 func TestLoader_Save_WritesWechatBots(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.yaml")

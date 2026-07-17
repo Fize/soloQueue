@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -34,6 +35,8 @@ func (m *Mux) handleCreateCronTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		Title       string `json:"title"`
+		TaskLevel   string `json:"task_level"`
 		Expression  string `json:"expression"`
 		Instruction string `json:"instruction"`
 		TargetAgent string `json:"target_agent"`
@@ -42,8 +45,16 @@ func (m *Mux) handleCreateCronTask(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
-	if req.Expression == "" || req.Instruction == "" {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "expression and instruction are required"})
+	if strings.TrimSpace(req.Title) == "" || req.TaskLevel == "" || strings.TrimSpace(req.Expression) == "" || strings.TrimSpace(req.Instruction) == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "title, task_level, expression, and instruction are required"})
+		return
+	}
+	if err := cron.ValidateTaskTitle(req.Title); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := cron.ValidateTaskLevel(req.TaskLevel); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -53,7 +64,10 @@ func (m *Mux) handleCreateCronTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := m.toolsCfg.CronStore.CreateTask(r.Context(), req.Expression, req.Instruction, req.TargetAgent, nextRun)
+	task, err := m.toolsCfg.CronStore.CreateTask(r.Context(), cron.CreateTaskInput{
+		Title: req.Title, TaskLevel: req.TaskLevel, Expression: req.Expression,
+		Instruction: req.Instruction, TargetAgent: req.TargetAgent, NextRunAt: nextRun,
+	})
 	if err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -71,10 +85,12 @@ func (m *Mux) handleUpdateCronTask(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	var req struct {
-		Expression  string `json:"expression"`
-		Instruction string `json:"instruction"`
-		TargetAgent string `json:"target_agent"`
-		Status      string `json:"status"` // 'active' | 'paused'
+		Title       *string `json:"title"`
+		TaskLevel   *string `json:"task_level"`
+		Expression  string  `json:"expression"`
+		Instruction string  `json:"instruction"`
+		TargetAgent string  `json:"target_agent"`
+		Status      string  `json:"status"` // 'active' | 'paused'
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -91,6 +107,22 @@ func (m *Mux) handleUpdateCronTask(w http.ResponseWriter, r *http.Request) {
 	// Detect changes
 	changed := false
 	statusChanged := false
+	if req.Title != nil {
+		if err := cron.ValidateTaskTitle(*req.Title); err != nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		task.Title = *req.Title
+		changed = true
+	}
+	if req.TaskLevel != nil {
+		if err := cron.ValidateTaskLevel(*req.TaskLevel); err != nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		task.TaskLevel = *req.TaskLevel
+		changed = true
+	}
 
 	if req.Expression != "" && req.Expression != task.Expression {
 		task.Expression = req.Expression

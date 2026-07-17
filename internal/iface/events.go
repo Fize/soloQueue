@@ -91,6 +91,7 @@ type ModelOverrideParams struct {
 	ThinkingType    string // thinking.type value: "enabled" (DeepSeek) or "adaptive" (MiniMax etc.)
 	Level           string // task classification level (e.g., "L1-SimpleSingleFile")
 	ContextWindow   int    // model context window capacity (tokens); 0 = unchanged
+	Vision          bool   // model supports multimodal image_url content parts
 }
 
 // DoneNotifier is optionally implemented by Locatable targets returned from
@@ -166,6 +167,20 @@ func ContextWithAgentName(ctx context.Context, name string) context.Context {
 // Returns "" if not set.
 func AgentNameFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(agentNameCtxKey{}).(string)
+	return v
+}
+
+type cronExecutionCtxKey struct{}
+
+// ContextWithCronExecution marks a temporary agent that is executing an
+// already-triggered cron job. Such an agent must not create or manage jobs.
+func ContextWithCronExecution(ctx context.Context) context.Context {
+	return context.WithValue(ctx, cronExecutionCtxKey{}, true)
+}
+
+// IsCronExecution reports whether the agent is running inside a cron trigger.
+func IsCronExecution(ctx context.Context) bool {
+	v, _ := ctx.Value(cronExecutionCtxKey{}).(bool)
 	return v
 }
 

@@ -313,6 +313,12 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	hasPermanentMemory := toolsCfg.MemoryEngine != nil
 	if tmpl.IsLeader {
 		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, effectiveWorkDir, exploreDir, projRes.agents, hasPermanentMemory)
+		if tmpl.Group != "" && toolsCfg.CronStore != nil && toolsCfg.CronScheduler != nil && !iface.IsCronExecution(ctx) {
+			finalPrompt += "\n# Cron Jobs\n\n" +
+				"You may manage cron jobs only for your own team. Use create_cron_job for new jobs, " +
+				"list_cron_jobs to find IDs, update_cron_job to change or pause jobs, and delete_cron_job to remove jobs. " +
+				"A new job always requires a user-facing title, task_level, schedule, and instruction.\n"
+		}
 	} else {
 		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, effectiveWorkDir, exploreDir, hasPermanentMemory)
 	}
@@ -369,19 +375,14 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	if !strings.HasPrefix(tmpl.ID, "sim-") {
 		agentToolsCfg := toolsCfg
 		agentToolsCfg.WorkDir = effectiveWorkDir
-		allTools = tools.Build(agentToolsCfg)
-
-		// Filter out cron/scheduled task tools from L2/L3 agents.
-		// Only L1 (session builder) may operate on scheduled tasks.
-		{
-			var filtered []tools.Tool
-			for _, t := range allTools {
-				if !tools.IsCronTool(t.Name()) {
-					filtered = append(filtered, t)
-				}
+		agentToolsCfg.CronScope = tools.CronAccessScope{}
+		if tmpl.IsLeader && tmpl.Group != "" && !iface.IsCronExecution(ctx) {
+			agentToolsCfg.CronScope = tools.CronAccessScope{
+				Mode:  tools.CronAccessTeam,
+				Owner: tmpl.Group,
 			}
-			allTools = filtered
 		}
+		allTools = tools.Build(agentToolsCfg)
 
 		// Additionally filter SendFile for L3 workers only
 		if !tmpl.IsLeader {

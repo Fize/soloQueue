@@ -20,34 +20,47 @@ func newModifyScheduledTaskTool(cfg Config) *modifyScheduledTaskTool {
 	return &modifyScheduledTaskTool{cfg: cfg, logger: cfg.Logger}
 }
 
-func (modifyScheduledTaskTool) Name() string { return "modify_scheduled_task" }
+func (modifyScheduledTaskTool) Name() string { return "update_cron_job" }
 
 func (modifyScheduledTaskTool) Description() string {
-	return "Modifies an existing scheduled task. You can update the schedule expression, instruction, target agent, or status (active/paused). " +
-		"At least one of expression, instruction, target_agent, or status must be provided. " +
-		"The task_id is required — you can obtain it from a previously created task (returned by schedule_task) or by asking the user."
+	return "Updates an existing cron job. You can update the title, task level, schedule, instruction, target agent, or status (active/paused). " +
+		"At least one modifiable field must be provided. " +
+		"Use list_cron_jobs first when the job ID is unknown."
 }
 
-func (modifyScheduledTaskTool) Parameters() json.RawMessage {
+func (t modifyScheduledTaskTool) Parameters() json.RawMessage {
+	targetAgent := ""
+	if t.cfg.CronScope.IsGlobal() {
+		targetAgent = `,
+    "target_agent": {
+      "type": "string",
+      "description": "Optional. New execution agent or team."
+    }`
+	}
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
     "task_id": {
       "type": "string",
-      "description": "The unique ID of the scheduled task to modify (returned by schedule_task when the task was created)."
+      "description": "The unique ID of the cron job to update."
     },
-    "expression": {
+    "title": {
+      "type": "string",
+      "description": "Optional. New concise user-facing task title (maximum 100 characters)."
+    },
+    "task_level": {
+      "type": "string",
+      "description": "Optional. New task complexity level.",
+      "enum": ["L0", "L1", "L2", "L3"]
+    },
+    "schedule": {
       "type": "string",
       "description": "Optional. New schedule expression: a standard 5-field cron expression (e.g. '0 8 * * *' for 8am daily) or an absolute local datetime string ('YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM'). Leave empty to keep the current expression."
     },
     "instruction": {
       "type": "string",
       "description": "Optional. New instruction/reminder content for the task. Leave empty to keep the current instruction."
-    },
-    "target_agent": {
-      "type": "string",
-      "description": "Optional. New target agent level (e.g. 'L1'). Leave empty to keep the current target."
-    },
+    }` + targetAgent + `,
     "status": {
       "type": "string",
       "description": "Optional. New status: 'active' to enable the task or 'paused' to temporarily disable it. Leave empty to keep the current status.",
@@ -60,7 +73,9 @@ func (modifyScheduledTaskTool) Parameters() json.RawMessage {
 
 type modifyScheduledTaskArgs struct {
 	TaskID      string `json:"task_id"`
-	Expression  string `json:"expression"`
+	Title       string `json:"title"`
+	TaskLevel   string `json:"task_level"`
+	Schedule    string `json:"schedule"`
 	Instruction string `json:"instruction"`
 	TargetAgent string `json:"target_agent"`
 	Status      string `json:"status"`
@@ -84,8 +99,13 @@ func (t *modifyScheduledTaskTool) Execute(ctx context.Context, raw string) (stri
 	}
 
 	// At least one modifiable field must be provided.
-	if a.Expression == "" && a.Instruction == "" && a.TargetAgent == "" && a.Status == "" {
-		return "", fmt.Errorf("%w: at least one of expression, instruction, target_agent, or status must be provided", ErrInvalidArgs)
+	if a.Title == "" && a.TaskLevel == "" && a.Schedule == "" && a.Instruction == "" && a.TargetAgent == "" && a.Status == "" {
+		return "", fmt.Errorf("%w: at least one modifiable field must be provided", ErrInvalidArgs)
+	}
+	if a.TaskLevel != "" {
+		if err := cron.ValidateTaskLevel(a.TaskLevel); err != nil {
+			return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
+		}
 	}
 
 	// Validate status if provided.
@@ -98,18 +118,29 @@ func (t *modifyScheduledTaskTool) Execute(ctx context.Context, raw string) (stri
 	if err != nil {
 		return "", fmt.Errorf("failed to find task: %w", err)
 	}
+	if err := authorizeCronTask(t.cfg.CronScope, task); err != nil {
+		return "", err
+	}
 
 	// Detect changes.
 	changed := false
 	statusChanged := false
+	if a.Title != "" && a.Title != task.Title {
+		task.Title = a.Title
+		changed = true
+	}
+	if a.TaskLevel != "" && a.TaskLevel != task.TaskLevel {
+		task.TaskLevel = a.TaskLevel
+		changed = true
+	}
 
-	if a.Expression != "" && a.Expression != task.Expression {
+	if a.Schedule != "" && a.Schedule != task.Expression {
 		// Validate the new expression.
-		nextRun, err := cron.NextTrigger(a.Expression, time.Now())
+		nextRun, err := cron.NextTrigger(a.Schedule, time.Now())
 		if err != nil {
 			return "", fmt.Errorf("invalid schedule expression: %w", err)
 		}
-		task.Expression = a.Expression
+		task.Expression = a.Schedule
 		task.NextRunAt = nextRun
 		changed = true
 	}
@@ -117,9 +148,12 @@ func (t *modifyScheduledTaskTool) Execute(ctx context.Context, raw string) (stri
 		task.Instruction = a.Instruction
 		changed = true
 	}
-	if a.TargetAgent != "" && a.TargetAgent != task.TargetAgent {
+	if t.cfg.CronScope.IsGlobal() && a.TargetAgent != "" && a.TargetAgent != task.TargetAgent {
 		task.TargetAgent = a.TargetAgent
 		changed = true
+	}
+	if t.cfg.CronScope.IsTeam() {
+		task.TargetAgent = t.cfg.CronScope.Owner
 	}
 	if a.Status != "" && a.Status != task.Status {
 		task.Status = a.Status
@@ -136,8 +170,14 @@ func (t *modifyScheduledTaskTool) Execute(ctx context.Context, raw string) (stri
 	}
 
 	// Update database.
-	if err := t.cfg.CronStore.UpdateTask(ctx, task); err != nil {
-		return "", fmt.Errorf("failed to update task: %w", err)
+	var updateErr error
+	if t.cfg.CronScope.IsTeam() {
+		updateErr = t.cfg.CronStore.UpdateTaskForTarget(ctx, task, t.cfg.CronScope.Owner)
+	} else {
+		updateErr = t.cfg.CronStore.UpdateTask(ctx, task)
+	}
+	if updateErr != nil {
+		return "", fmt.Errorf("failed to update task: %w", updateErr)
 	}
 
 	// Dynamically update scheduler.
@@ -153,11 +193,15 @@ func (t *modifyScheduledTaskTool) Execute(ctx context.Context, raw string) (stri
 
 	type modifyResult struct {
 		ID        string `json:"id"`
+		Title     string `json:"title"`
+		TaskLevel string `json:"task_level"`
 		NextRunAt string `json:"next_run_at"`
 		Status    string `json:"status"`
 	}
 	res := modifyResult{
 		ID:        task.ID,
+		Title:     task.Title,
+		TaskLevel: task.TaskLevel,
 		NextRunAt: task.NextRunAt.Format("2006-01-02 15:04:05"),
 		Status:    task.Status,
 	}

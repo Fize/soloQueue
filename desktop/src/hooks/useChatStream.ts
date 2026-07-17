@@ -14,7 +14,6 @@ const SYSTEM_SLASH_COMMANDS = new Set([
   '/cancel',
   '/help',
   '/version',
-  '/cron',
 ])
 
 function isSystemSlashCommand(prompt: string): boolean {

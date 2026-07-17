@@ -14,10 +14,11 @@ type mockSession struct {
 	idle        bool
 	queued      []string
 	askStreamFn func(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
+	modelParams *iface.ModelOverrideParams
 }
 
-func (m *mockSession) Idle() bool                       { return m.idle }
-func (m *mockSession) QueueMessage(prompt string)       { m.queued = append(m.queued, prompt) }
+func (m *mockSession) Idle() bool                 { return m.idle }
+func (m *mockSession) QueueMessage(prompt string) { m.queued = append(m.queued, prompt) }
 func (m *mockSession) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
 	if m.askStreamFn != nil {
 		return m.askStreamFn(ctx, prompt)
@@ -27,6 +28,10 @@ func (m *mockSession) AskStream(ctx context.Context, prompt string) (<-chan ifac
 	return ch, nil
 }
 func (m *mockSession) AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+	return m.AskStream(ctx, prompt)
+}
+func (m *mockSession) AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error) {
+	m.modelParams = params
 	return m.AskStream(ctx, prompt)
 }
 
@@ -187,6 +192,27 @@ func TestScheduler_SetMemoryEngine(t *testing.T) {
 	}
 	if s.buildRecalledFn == nil {
 		t.Error("buildRecalledFn not set")
+	}
+}
+
+func TestSchedulerAskWithTaskModel(t *testing.T) {
+	s := newTestScheduler(t)
+	s.SetModelResolver(func(level string) (ResolvedModel, error) {
+		return ResolvedModel{
+			Params:        iface.ModelOverrideParams{ModelID: "superior-model", ProviderID: "p", Level: level},
+			RequestedRole: "superior",
+		}, nil
+	})
+	sess := &mockSession{}
+	task := Task{ID: "t1", Title: "Health check", TaskLevel: "L2", Instruction: "check"}
+	ch, err := s.askWithTaskModel(context.Background(), task, sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	if sess.modelParams == nil || sess.modelParams.ModelID != "superior-model" || sess.modelParams.Level != "L2" {
+		t.Fatalf("unexpected model params: %+v", sess.modelParams)
 	}
 }
 

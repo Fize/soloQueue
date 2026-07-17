@@ -100,9 +100,6 @@ type TaskRouterFunc func(ctx context.Context, prompt string, priorLevel string, 
 // recordedAt indicates the date of the conversation segment for correct file routing.
 type MemoryHook func(ctx context.Context, conversationText string, recordedAt time.Time)
 
-// CronHandler is a callback to handle /cron command parsing, validation, scheduling, and DB persistence.
-type CronHandler func(ctx context.Context, expression, instruction string) (string, time.Time, error)
-
 // ─── Session ──────────────────────────────────────────────────────────────
 
 // Session represents a conversation session.
@@ -167,7 +164,6 @@ type Session struct {
 	memoryManager  *conversationlog.Manager      // for dedup cursor; set alongside memoryHook
 	memoryEngine   *memoryengine.Engine // for pre-query memory recall (nil = disabled)
 	recalledHashes map[string]struct{}  // hashes of recalled memories injected in this context window
-	cronHandler    CronHandler          // optional callback to execute /cron command
 
 	idleTimeout      time.Duration // 0 = disabled; auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum CW tokens to trigger compact
@@ -365,6 +361,39 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 	return out, nil
 }
 
+// AskIsolatedWithModel executes an isolated scheduled task with an explicit
+// per-run model. The override is cleared when the returned stream closes so it
+// cannot leak into the next user request.
+func (s *Session) AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error) {
+	if params == nil {
+		return s.AskIsolated(ctx, prompt)
+	}
+	s.Agent.SetModelOverride(&agent.ModelParams{
+		ProviderID:      params.ProviderID,
+		ModelID:         params.ModelID,
+		ThinkingEnabled: params.ThinkingEnabled,
+		ReasoningEffort: params.ReasoningEffort,
+		ThinkingType:    params.ThinkingType,
+		Level:           params.Level,
+		ContextWindow:   params.ContextWindow,
+		Vision:          params.Vision,
+	})
+	ch, err := s.AskIsolated(ctx, prompt)
+	if err != nil {
+		s.Agent.ClearModelOverride()
+		return nil, err
+	}
+	out := make(chan iface.AgentEvent, 64)
+	go func() {
+		defer close(out)
+		defer s.Agent.ClearModelOverride()
+		for ev := range ch {
+			out <- ev
+		}
+	}()
+	return out, nil
+}
+
 // QueueMessage enqueues a user message into the pending queue without blocking.
 // The message will be injected into the agent's context window before the next
 // LLM API call, merged with any other pending messages into a single user turn.
@@ -534,7 +563,7 @@ func (s *Session) Rewind(targetTs time.Time) error {
 			closest = msg.Timestamp
 		}
 	}
-	
+
 	resolvedTs := targetTs
 	if !closest.IsZero() {
 		resolvedTs = closest
@@ -908,7 +937,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				"- `/compact` — Compact context window (no memory save)\n" +
 				"- `/init` — Create/update AGENTS.md in the project directory (L2 sessions only)\n" +
 				"- `/version` — View version number\n" +
-				"- `/cron <cron_expression/time> <task_instruction>` — Create scheduled task\n" +
 				"- `/l0` — Lock routing level to L0 (conversational)\n" +
 				"- `/l1` — Lock routing level to L1 (single file modification)\n" +
 				"- `/l2` — Lock routing level to L2 (multi-file modification)\n" +
@@ -974,11 +1002,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		}()
 		return out, nil
 
-	default:
-		if strings.HasPrefix(lowerTrimmed, "/cron") {
-			// Cron commands go through inFlight+goroutine (they need cron handler)
-			return s.handleCronCommand(ctx, trimmed)
-		}
 	}
 
 	// Reset cancelled flag to prevent leakage of the residual flag from previous AskStream to this call.
@@ -1511,7 +1534,6 @@ type SessionManager struct {
 	memoryHook    MemoryHook
 	memoryManager *conversationlog.Manager
 	memoryEngine  *memoryengine.Engine
-	cronHandler   CronHandler
 	logger        *logger.Logger
 
 	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
@@ -1560,12 +1582,6 @@ func (m *SessionManager) SetMemoryManager(mm *conversationlog.Manager) {
 // before processing user messages. nil = disable.
 func (m *SessionManager) SetMemoryEngine(e *memoryengine.Engine) {
 	m.memoryEngine = e
-}
-
-// SetCronHandler sets the callback for /cron slash commands.
-// Must be called before Init(). Not thread-safe for setup.
-func (m *SessionManager) SetCronHandler(h CronHandler) {
-	m.cronHandler = h
 }
 
 // SetIdleReaper enables automatic context compression for idle sessions.
@@ -1628,9 +1644,6 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	}
 	if m.memoryEngine != nil {
 		s.memoryEngine = m.memoryEngine
-	}
-	if m.cronHandler != nil {
-		s.cronHandler = m.cronHandler
 	}
 	if m.idleTimeout > 0 {
 		s.idleTimeout = m.idleTimeout
@@ -1802,76 +1815,6 @@ func filterMessagesSince(msgs []ctxwin.Message, cursor time.Time) []ctxwin.Messa
 		}
 	}
 	return out
-}
-
-func (s *Session) handleCronCommand(ctx context.Context, command string) (<-chan iface.AgentEvent, error) {
-	out := make(chan iface.AgentEvent, 2)
-	go func() {
-		defer close(out)
-		defer s.inFlight.Store(0)
-		defer s.touch()
-
-		expr, inst, err := parseCronCommandLine(command)
-		if err != nil {
-			out <- agent.ErrorEvent{Err: fmt.Errorf("invalid cron command format: %w", err)}
-			return
-		}
-
-		if s.cronHandler == nil {
-			out <- agent.ErrorEvent{Err: fmt.Errorf("cron system is not configured")}
-			return
-		}
-
-		taskID, nextRun, err := s.cronHandler(ctx, expr, inst)
-		if err != nil {
-			out <- agent.ErrorEvent{Err: err}
-			return
-		}
-
-		// Send success message to chat UI
-		out <- agent.ContentDeltaEvent{Delta: fmt.Sprintf("Scheduled task successfully created!\n- **Task ID**: %s\n- **Schedule**: %s\n- **Task**: %s\n- **Next Execution**: %s", taskID, expr, inst, nextRun.Format("2006-01-02 15:04:05"))}
-		out <- agent.DoneEvent{Content: "Cron task created."}
-	}()
-	return out, nil
-}
-
-func parseCronCommandLine(cmd string) (expr string, inst string, err error) {
-	cmd = strings.TrimPrefix(cmd, "/cron")
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" {
-		return "", "", fmt.Errorf("empty command")
-	}
-
-	parts := strings.Fields(cmd)
-	if len(parts) < 2 {
-		return "", "", fmt.Errorf("insufficient arguments, format: /cron <expression/datetime> <instruction>")
-	}
-
-	// 1. Check if first part looks like a date (e.g., YYYY-MM-DD)
-	if strings.Contains(parts[0], "-") && len(parts) >= 3 {
-		// Datetime expression: parts[0] is date, parts[1] is time
-		expr = parts[0] + " " + parts[1]
-		inst = strings.TrimSpace(strings.TrimPrefix(cmd, expr))
-		return expr, inst, nil
-	}
-
-	// 2. Check if first part is a shorthand
-	shorthand := strings.ToLower(parts[0])
-	isShorthand := strings.HasPrefix(shorthand, "@") ||
-		shorthand == "daily" || shorthand == "weekly" || shorthand == "hourly" || shorthand == "monthly"
-	if isShorthand {
-		expr = parts[0]
-		inst = strings.TrimSpace(strings.TrimPrefix(cmd, expr))
-		return expr, inst, nil
-	}
-
-	// 3. Otherwise assume 5-field cron expression
-	if len(parts) < 6 {
-		return "", "", fmt.Errorf("cron expression requires 5 fields + instruction, got %d fields", len(parts))
-	}
-	expr = strings.Join(parts[:5], " ")
-	inst = strings.TrimSpace(strings.TrimPrefix(cmd, expr))
-	return expr, inst, nil
 }
 
 // ─── Project init (/init) ─────────────────────────────────────────────────

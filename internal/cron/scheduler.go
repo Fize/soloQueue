@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -58,6 +59,23 @@ type MemoryEngine interface {
 // BuildRecalledContextFn is a function type that enriches a prompt with recalled memories.
 type BuildRecalledContextFn func(ctx context.Context, prompt string, memEngine interface{}, log *logger.Logger) string
 
+// ResolvedModel is the concrete model configuration for one scheduled run.
+type ResolvedModel struct {
+	Params         iface.ModelOverrideParams
+	RequestedRole  string
+	UsedFallback   bool
+	FallbackReason string
+}
+
+// ModelResolver resolves the latest configured model for a persisted level.
+type ModelResolver func(taskLevel string) (ResolvedModel, error)
+
+type modelRoutedSession interface {
+	AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
+}
+
+var errTaskModelResolution = errors.New("scheduled task model resolution failed")
+
 // cronTask wraps a Task with its execution metadata.
 type cronTask struct {
 	task     Task
@@ -82,12 +100,12 @@ type Scheduler struct {
 	// Memory engine for recall enrichment of cron prompts
 	memoryEngine    interface{}
 	buildRecalledFn BuildRecalledContextFn
+	modelResolver   ModelResolver
 
 	// L1 task queue: serializes L1-targeted cron tasks
-	l1Queue   []cronTask
-	l1Mu      sync.Mutex
-	l1Cond    *sync.Cond
-	l1Running bool
+	l1Queue []cronTask
+	l1Mu    sync.Mutex
+	l1Cond  *sync.Cond
 
 	// L2 result queue: delivers completed L2 results to L1
 	resultQueue []pendingResult
@@ -99,6 +117,11 @@ type Scheduler struct {
 	timers          map[string]*time.Timer
 	onTaskCompleted TaskCompletedHook
 	stopped         bool
+}
+
+// SetModelResolver configures per-run task-level model selection.
+func (s *Scheduler) SetModelResolver(resolver ModelResolver) {
+	s.modelResolver = resolver
 }
 
 // OnTaskCompleted registers a callback for completed tasks.
@@ -123,7 +146,7 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 		logger:     l,
 		cron: robfig.New(
 			robfig.WithParser(robfig.NewParser(
-				robfig.Minute | robfig.Hour | robfig.Dom | robfig.Month | robfig.Dow,
+				robfig.Minute|robfig.Hour|robfig.Dom|robfig.Month|robfig.Dow,
 			)),
 			robfig.WithChain(robfig.SkipIfStillRunning(robfig.DiscardLogger)),
 		),
@@ -320,12 +343,15 @@ func (s *Scheduler) executeL1Task(t Task) {
 func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	start := time.Now()
 
-	prompt := s.buildTaskPrompt(t)
 	cronCtx := s.buildCronContext(t)
-	ch, err := l1Session.AskIsolated(cronCtx, prompt)
+	ch, err := s.askWithTaskModel(cronCtx, t, l1Session)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
-		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+		if errors.Is(err, errTaskModelResolution) {
+			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "failed")
+		} else {
+			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+		}
 		return
 	}
 
@@ -382,12 +408,15 @@ func (s *Scheduler) executeL2Task(t Task) {
 
 	start := time.Now()
 
-	prompt := s.buildTaskPrompt(t)
 	cronCtx := s.buildCronContext(t)
-	ch, err := l2Session.AskIsolated(cronCtx, prompt)
+	ch, err := s.askWithTaskModel(cronCtx, t, l2Session)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L2 task execution failed to start", "task_id", t.ID, "err", err)
-		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+		if errors.Is(err, errTaskModelResolution) {
+			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "failed")
+		} else {
+			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+		}
 		return
 	}
 
@@ -403,6 +432,32 @@ func (s *Scheduler) executeL2Task(t Task) {
 	s.enqueueL2Result(t, replyText, mediaFiles)
 
 	s.updateTaskAfterExecution(ctx, t)
+}
+
+func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) (<-chan iface.AgentEvent, error) {
+	prompt := s.buildTaskPrompt(t)
+	if s.modelResolver == nil {
+		return sess.AskIsolated(ctx, prompt)
+	}
+	resolved, err := s.modelResolver(t.TaskLevel)
+	if err != nil {
+		return nil, fmt.Errorf("%w: resolve level %s: %v", errTaskModelResolution, t.TaskLevel, err)
+	}
+	routed, ok := sess.(modelRoutedSession)
+	if !ok {
+		return nil, fmt.Errorf("%w: session does not support model routing", errTaskModelResolution)
+	}
+	s.logger.Info(logger.CatApp, "cron: resolved task model",
+		"task_id", t.ID,
+		"title", t.Title,
+		"task_level", t.TaskLevel,
+		"requested_role", resolved.RequestedRole,
+		"provider_id", resolved.Params.ProviderID,
+		"model_id", resolved.Params.ModelID,
+		"used_fallback", resolved.UsedFallback,
+		"fallback_reason", resolved.FallbackReason,
+	)
+	return routed.AskIsolatedWithModel(ctx, prompt, &resolved.Params)
 }
 
 // buildTaskPrompt builds the prompt for a task, optionally enriched with recalled memories.
@@ -618,12 +673,14 @@ func buildCronPrompt(t Task) string {
 	return fmt.Sprintf(
 		"[SCHEDULED TASK EXECUTION]\n"+
 			"Task ID: %s\n"+
+			"Title: %s\n"+
+			"Task level: %s\n"+
 			"Schedule: %s\n"+
 			"Triggered at: %s\n"+
 			"\nIMPORTANT: This message is automatically triggered by the scheduler — NOT a user request. "+
-			"Do NOT call schedule_task or create any new scheduled tasks. "+
+			"Do NOT call create_cron_job or create any new cron jobs. "+
 			"Simply execute the following instruction directly:\n\n%s",
-		t.ID, scheduleDesc, triggerTime, t.Instruction,
+		t.ID, t.Title, t.TaskLevel, scheduleDesc, triggerTime, t.Instruction,
 	)
 }
 

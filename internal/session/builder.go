@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -19,6 +18,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/team"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -107,6 +107,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
 	sessionToolsCfg := toolsCfg
 	sessionToolsCfg.Logger = sessLog
+	sessionToolsCfg.CronScope = tools.CronAccessScope{Mode: tools.CronAccessGlobal}
 	baseTools := tools.Build(sessionToolsCfg)
 
 	// Auto-reload: wrap file-writing tools so writes to agents/ or groups/ dirs
@@ -962,7 +963,13 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	}
 
 	// Create the L2 agent via the factory.
-	childAgent, _, err := b.RT.AgentFactory.Create(ctx, *leaderTmpl, b.WorkDir)
+	// Scheduled-task level selection owns the per-run model. Clear a template
+	// model pin for this temporary agent so the scheduler override can apply;
+	// normal interactive team sessions retain the template pin.
+	cronTmpl := *leaderTmpl
+	cronTmpl.ModelID = ""
+	ctx = iface.ContextWithCronExecution(ctx)
+	childAgent, _, err := b.RT.AgentFactory.Create(ctx, cronTmpl, b.WorkDir)
 	if err != nil {
 		return nil, fmt.Errorf("create L2 agent for cron group %q: %w", group, err)
 	}

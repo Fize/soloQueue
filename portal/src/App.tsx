@@ -52,6 +52,8 @@ interface AgentStreamState {
 
 interface CronTaskStatus {
   id: string
+  title: string
+  task_level: 'L0' | 'L1' | 'L2' | 'L3'
   expression: string
   instruction: string
   target_agent: string
@@ -813,11 +815,21 @@ export default function App() {
                     {/* Instruction */}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate" style={{ color: 'var(--md-on-surface)' }}>
-                        {task.instruction.length > 60
-                          ? task.instruction.slice(0, 60) + '…'
-                          : task.instruction}
+                        {task.title}
+                      </p>
+                      <p className="text-xs truncate mt-0.5" style={{ color: 'var(--md-on-surface-variant)' }}>
+                        {task.instruction}
                       </p>
                       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold"
+                          style={{
+                            backgroundColor: 'color-mix(in srgb, var(--md-primary) 12%, transparent)',
+                            color: 'var(--md-primary)',
+                          }}
+                        >
+                          {task.task_level}
+                        </span>
                         {/* Target agent badge */}
                         <span
                           className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold"

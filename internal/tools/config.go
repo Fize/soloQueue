@@ -125,6 +125,7 @@ type Config struct {
 	// ── Cron tasks ───────────────────────────────────────────────────
 	CronStore     *cron.DBStore
 	CronScheduler *cron.Scheduler
+	CronScope     CronAccessScope
 
 	// ── Image generation ─────────────────────────────────────
 	// ImageModels lists image generation models. If any model has Enabled set, the ImageGenerate tool is registered.
@@ -187,9 +188,10 @@ func Build(cfg Config) []Tool {
 			newConsolidateMemoriesTool(cfg),
 		)
 	}
-	if cfg.CronStore != nil && cfg.CronScheduler != nil {
+	if cfg.CronStore != nil && cfg.CronScheduler != nil && cfg.CronScope.Enabled() {
 		tools = append(tools,
 			newScheduleTaskTool(cfg),
+			newListCronJobsTool(cfg),
 			newModifyScheduledTaskTool(cfg),
 			newDeleteScheduledTaskTool(cfg),
 		)

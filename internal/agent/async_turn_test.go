@@ -12,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -1404,10 +1406,10 @@ func TestResumeTurn_PushesUserMessage(t *testing.T) {
 
 	out := make(chan AgentEvent, 64)
 	turnState := &asyncTurnState{
-		agentID:   "l1",
-		out:       out,
-		cw:        cw,
-		iter:      0,
+		agentID: "l1",
+		out:     out,
+		cw:      cw,
+		iter:    0,
 		toolCalls: []llm.ToolCall{
 			{
 				ID:   "call_1",
@@ -1581,14 +1583,46 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 	}
 }
 
-// TestFactoryCronToolFiltering verifies that L2 and L3 agents do not have cron/scheduled-task tools,
-// and that L3 additionally does not have SendFile.
-func TestFactoryCronToolFiltering(t *testing.T) {
-	// Create a default factory
-	reg := NewRegistry(newTestLogger(t))
-	f := NewDefaultFactory(reg, &FakeLLM{}, tools.Config{}, newTestLogger(t))
+// TestFactoryCronToolScopes verifies L2 team scope and L3/cron-execution filtering.
+func TestFactoryCronToolScopes(t *testing.T) {
+	db, err := sqlitedb.Open(filepath.Join(t.TempDir(), "cron.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := cron.NewDBStore(db)
+	cfg := tools.Config{CronStore: store, CronScheduler: cron.NewScheduler(store, nil, nil)}
 
-	cronToolNames := []string{"schedule_task", "modify_scheduled_task", "delete_scheduled_task"}
+	reg := NewRegistry(newTestLogger(t))
+	f := NewDefaultFactory(reg, &FakeLLM{}, cfg, newTestLogger(t))
+
+	cronToolNames := []string{"create_cron_job", "list_cron_jobs", "update_cron_job", "delete_cron_job"}
+
+	// Interactive L2 leaders can manage jobs owned by their own team.
+	l2Tmpl := AgentTemplate{ID: "engineering-leader", Name: "Engineering", IsLeader: true, Group: "engineering"}
+	l2, _, err := f.Create(context.Background(), l2Tmpl, t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create L2 leader: %v", err)
+	}
+	defer l2.Stop(time.Second)
+	for _, toolName := range cronToolNames {
+		if _, ok := l2.tools.Get(toolName); !ok {
+			t.Errorf("interactive L2 leader should have tool %q", toolName)
+		}
+	}
+
+	// A temporary L2 executing an existing cron job cannot manage cron jobs.
+	cronCtx := iface.ContextWithCronExecution(context.Background())
+	cronL2, _, err := f.Create(cronCtx, l2Tmpl, t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create cron execution L2: %v", err)
+	}
+	defer cronL2.Stop(time.Second)
+	for _, toolName := range cronToolNames {
+		if _, ok := cronL2.tools.Get(toolName); ok {
+			t.Errorf("cron execution L2 should not have tool %q", toolName)
+		}
+	}
 
 	// L3 worker template
 	l3Tmpl := AgentTemplate{
@@ -1609,28 +1643,9 @@ func TestFactoryCronToolFiltering(t *testing.T) {
 		}
 	}
 
-	// L2 leader template
-	l2Tmpl := AgentTemplate{
-		ID:       "l2_leader",
-		Name:     "L2 Leader",
-		IsLeader: true,
-	}
-	leader, _, err := f.Create(context.Background(), l2Tmpl, t.TempDir())
-	if err != nil {
-		t.Fatalf("failed to create L2 leader: %v", err)
-	}
-	defer leader.Stop(time.Second)
-
-	// Verify L2 leader tools contain SendFile (since it's a default built-in tool)
-	if _, ok := leader.tools.Get("SendFile"); !ok {
+	// Interactive L2 leaders retain SendFile.
+	if _, ok := l2.tools.Get("SendFile"); !ok {
 		t.Error("L2 leader should have tool 'SendFile'")
-	}
-
-	// Verify L2 leader tools do NOT contain any cron tools (only L1 may operate on scheduled tasks)
-	for _, toolName := range cronToolNames {
-		if _, ok := leader.tools.Get(toolName); ok {
-			t.Errorf("L2 leader should not have cron tool %q (only L1 may operate on scheduled tasks)", toolName)
-		}
 	}
 }
 
@@ -1727,8 +1742,8 @@ This is the analyzer system prompt.`
 		t.Fatal("spawned analyzer agent not found in registry")
 	}
 
-	// Verify tools: should not have SendFile or schedule_task
-	for _, toolName := range []string{"SendFile", "schedule_task", "modify_scheduled_task", "delete_scheduled_task"} {
+	// Verify tools: should not have SendFile or cron-job tools.
+	for _, toolName := range []string{"SendFile", "create_cron_job", "list_cron_jobs", "update_cron_job", "delete_cron_job"} {
 		if _, ok := spawnedAgent.tools.Get(toolName); ok {
 			t.Errorf("spawned L3 agent should not have tool %q", toolName)
 		}
@@ -1742,7 +1757,6 @@ This is the analyzer system prompt.`
 		t.Error("prompt does not contain skill instructions")
 	}
 }
-
 
 // TestL1DynamicDelegationEndToEnd simulates the L1 agent receiving a query,
 // writing a custom system prompt, and calling the generic delegate_agent tool.
@@ -1811,5 +1825,3 @@ func TestL1DynamicDelegationEndToEnd(t *testing.T) {
 	// Wait a moment for stop to complete
 	waitFor(t, 200*time.Millisecond, func() bool { return spawnedChild.State() == StateStopped })
 }
-
-

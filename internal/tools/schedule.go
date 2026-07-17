@@ -20,44 +20,61 @@ func newScheduleTaskTool(cfg Config) *scheduleTaskTool {
 	return &scheduleTaskTool{cfg: cfg, logger: cfg.Logger}
 }
 
-func (scheduleTaskTool) Name() string { return "schedule_task" }
+func (scheduleTaskTool) Name() string { return "create_cron_job" }
 
 func (scheduleTaskTool) Description() string {
-	return "Schedules a task to run automatically in the future. " +
+	return "Creates a cron job that runs automatically in the future. " +
 		"Supports recurring tasks (using standard 5-field cron expression) " +
 		"and one-time tasks (using absolute local datetime string like 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD ...'). " +
 		"CRITICAL: You MUST derive the absolute datetime from the timestamp in the latest user message or retrieve the current time/date by executing a shell command (e.g., 'date' or 'Get-Date')."
 }
 
-func (scheduleTaskTool) Parameters() json.RawMessage {
+func (t scheduleTaskTool) Parameters() json.RawMessage {
+	targetAgent := ""
+	if t.cfg.CronScope.IsGlobal() {
+		targetAgent = `,
+    "target_agent": {
+      "type": "string",
+      "description": "Optional. The execution agent or team. Defaults to L1."
+    }`
+	}
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "expression": {
+    "title": {
+      "type": "string",
+      "description": "A concise user-facing title that explains what this scheduled task does (maximum 100 characters)."
+    },
+    "task_level": {
+      "type": "string",
+      "description": "Required task complexity level. L0=conversation/reminder, L1=simple task, L2=multi-step task, L3=complex task.",
+      "enum": ["L0", "L1", "L2", "L3"]
+    },
+    "schedule": {
       "type": "string",
       "description": "CRITICAL: Standard 5-field cron expression (e.g. '0 8 * * *' for 8am daily, '0 12 * * 1' for Monday noon) OR a specific absolute local datetime string ('YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM') derived from the user message timestamp or via shell command execution. Do NOT pass relative terms."
     },
     "instruction": {
       "type": "string",
       "description": "The exact instruction prompt or reminder content to run when triggered."
-    },
-    "target_agent": {
-      "type": "string",
-      "description": "Optional. The target agent level to handle this instruction (e.g. 'L1'). Default is 'L1'."
-    }
+    }` + targetAgent + `
   },
-  "required": ["expression", "instruction"]
+  "required": ["title", "task_level", "schedule", "instruction"]
 }`)
 }
 
 type scheduleTaskArgs struct {
-	Expression  string `json:"expression"`
+	Title       string `json:"title"`
+	TaskLevel   string `json:"task_level"`
+	Schedule    string `json:"schedule"`
 	Instruction string `json:"instruction"`
 	TargetAgent string `json:"target_agent"`
 }
 
 type scheduleTaskResult struct {
 	ID        string `json:"id"`
+	Title     string `json:"title"`
+	TaskLevel string `json:"task_level"`
 	NextRunAt string `json:"next_run_at"`
 	Status    string `json:"status"`
 }
@@ -75,7 +92,19 @@ func (t *scheduleTaskTool) Execute(ctx context.Context, raw string) (string, err
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
 	}
-	if err := validateNotZeroLen("expression", a.Expression); err != nil {
+	if err := validateNotZeroLen("title", a.Title); err != nil {
+		return "", err
+	}
+	if err := cron.ValidateTaskTitle(a.Title); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
+	}
+	if err := validateNotZeroLen("task_level", a.TaskLevel); err != nil {
+		return "", err
+	}
+	if err := cron.ValidateTaskLevel(a.TaskLevel); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
+	}
+	if err := validateNotZeroLen("schedule", a.Schedule); err != nil {
 		return "", err
 	}
 	if err := validateNotZeroLen("instruction", a.Instruction); err != nil {
@@ -83,19 +112,26 @@ func (t *scheduleTaskTool) Execute(ctx context.Context, raw string) (string, err
 	}
 
 	// Calculate next execution time using system local time
-	nextRun, err := cron.NextTrigger(a.Expression, time.Now())
+	nextRun, err := cron.NextTrigger(a.Schedule, time.Now())
 	if err != nil {
 		return "", fmt.Errorf("invalid schedule expression: %w", err)
 	}
 
 	// For one-time tasks, check if the target time has already passed by more than 1 minute
-	if cron.IsOneTimeExpression(a.Expression) && nextRun.Before(time.Now().Add(-1*time.Minute)) {
+	if cron.IsOneTimeExpression(a.Schedule) && nextRun.Before(time.Now().Add(-1*time.Minute)) {
 		return "", fmt.Errorf("the scheduled time %s has already passed (current time: %s)",
 			nextRun.Format("2006-01-02 15:04:05"),
 			time.Now().Format("2006-01-02 15:04:05"))
 	}
 
-	task, err := t.cfg.CronStore.CreateTask(ctx, a.Expression, a.Instruction, a.TargetAgent, nextRun)
+	targetAgent := a.TargetAgent
+	if t.cfg.CronScope.IsTeam() {
+		targetAgent = t.cfg.CronScope.Owner
+	}
+	task, err := t.cfg.CronStore.CreateTask(ctx, cron.CreateTaskInput{
+		Title: a.Title, TaskLevel: a.TaskLevel, Expression: a.Schedule,
+		Instruction: a.Instruction, TargetAgent: targetAgent, NextRunAt: nextRun,
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to save task: %w", err)
 	}
@@ -109,6 +145,8 @@ func (t *scheduleTaskTool) Execute(ctx context.Context, raw string) (string, err
 
 	res := scheduleTaskResult{
 		ID:        task.ID,
+		Title:     task.Title,
+		TaskLevel: task.TaskLevel,
 		NextRunAt: task.NextRunAt.Format("2006-01-02 15:04:05"),
 		Status:    task.Status,
 	}
@@ -118,9 +156,7 @@ func (t *scheduleTaskTool) Execute(ctx context.Context, raw string) (string, err
 
 var _ Tool = (*scheduleTaskTool)(nil)
 
-// IsCronTool reports whether the given tool name belongs to the scheduled-task
-// tool family (schedule_task, modify_scheduled_task, delete_scheduled_task).
-// These tools are only available to L1 orchestrators.
+// IsCronTool reports whether the given tool name belongs to the cron-job tool family.
 func IsCronTool(name string) bool {
-	return name == "schedule_task" || name == "modify_scheduled_task" || name == "delete_scheduled_task"
+	return name == "create_cron_job" || name == "list_cron_jobs" || name == "update_cron_job" || name == "delete_cron_job"
 }

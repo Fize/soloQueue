@@ -190,6 +190,7 @@ func (m *ModelParams) ToIFaceOverride() *iface.ModelOverrideParams {
 		ThinkingType:    m.ThinkingType,
 		Level:           m.Level,
 		ContextWindow:   m.ContextWindow,
+		Vision:          m.Vision,
 	}
 }
 

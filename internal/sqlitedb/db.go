@@ -18,7 +18,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -66,6 +66,8 @@ const snapshot = `
 -- scheduled_tasks
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
 	id TEXT PRIMARY KEY,
+	title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+	task_level TEXT NOT NULL CHECK(task_level IN ('L0','L1','L2','L3')),
 	expression TEXT NOT NULL,
 	instruction TEXT NOT NULL,
 	target_agent TEXT NOT NULL,
@@ -266,6 +268,68 @@ func (d *DB) migrate() error {
 		return fmt.Errorf("apply snapshot: %w", err)
 	}
 
+	// v3: scheduled tasks require a user-facing title and an explicit task
+	// level. CREATE TABLE IF NOT EXISTS does not alter existing databases, so
+	// rebuild the table transactionally when either column is absent.
+	hasTitle, err := tableHasColumn(tx, "scheduled_tasks", "title")
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("inspect scheduled_tasks title column: %w", err)
+	}
+	hasTaskLevel, err := tableHasColumn(tx, "scheduled_tasks", "task_level")
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("inspect scheduled_tasks task_level column: %w", err)
+	}
+	if !hasTitle || !hasTaskLevel {
+		if _, err := tx.Exec(`
+			DROP INDEX IF EXISTS idx_scheduled_tasks_next_run;
+			ALTER TABLE scheduled_tasks RENAME TO scheduled_tasks_v2;
+			CREATE TABLE scheduled_tasks (
+				id TEXT PRIMARY KEY,
+				title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+				task_level TEXT NOT NULL CHECK(task_level IN ('L0','L1','L2','L3')),
+				expression TEXT NOT NULL,
+				instruction TEXT NOT NULL,
+				target_agent TEXT NOT NULL,
+				status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','running','completed','failed')),
+				last_run_at TEXT,
+				next_run_at TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+				qq_source INTEGER DEFAULT -1,
+				qq_openid TEXT,
+				qq_target_openid TEXT,
+				qq_chat_id TEXT
+			);
+			INSERT INTO scheduled_tasks (
+				id, title, task_level, expression, instruction, target_agent,
+				status, last_run_at, next_run_at, created_at, updated_at,
+				qq_source, qq_openid, qq_target_openid, qq_chat_id
+			)
+			SELECT
+				id,
+				CASE
+					WHEN length(trim(instruction)) > 0 THEN substr(trim(
+						CASE WHEN instr(trim(instruction), char(10)) > 0
+						THEN substr(trim(instruction), 1, instr(trim(instruction), char(10)) - 1)
+						ELSE trim(instruction) END
+					), 1, 100)
+					ELSE 'Scheduled task ' || substr(id, 1, 8)
+				END,
+				CASE WHEN trim(target_agent) = '' OR upper(trim(target_agent)) = 'L1' THEN 'L1' ELSE 'L2' END,
+				expression, instruction, target_agent, status, last_run_at,
+				next_run_at, created_at, updated_at, qq_source, qq_openid,
+				qq_target_openid, qq_chat_id
+			FROM scheduled_tasks_v2;
+			DROP TABLE scheduled_tasks_v2;
+			CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
+		`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate scheduled_tasks v3: %w", err)
+		}
+	}
+
 	// Drop legacy tables no longer in use.
 	// NOTE: memories is NOT dropped — it is used by the vector store.
 	tx.Exec(`
@@ -318,4 +382,25 @@ func (d *DB) migrate() error {
 		return fmt.Errorf("commit migration: %w", err)
 	}
 	return nil
+}
+
+func tableHasColumn(tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }

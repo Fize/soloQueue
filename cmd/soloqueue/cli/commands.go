@@ -18,6 +18,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/cron"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
@@ -103,6 +104,34 @@ func ServeCmd(version string) *cobra.Command {
 				builder: builder,
 				workDir: workDir,
 			}, log)
+			cronScheduler.SetModelResolver(func(taskLevel string) (cron.ResolvedModel, error) {
+				model, role, usedFallback, err := cfg.ResolveScheduledTaskModel(taskLevel)
+				if err != nil {
+					return cron.ResolvedModel{}, err
+				}
+				modelID := model.APIModel
+				if modelID == "" {
+					modelID = model.ID
+				}
+				resolved := cron.ResolvedModel{
+					Params: iface.ModelOverrideParams{
+						ProviderID:      model.ProviderID,
+						ModelID:         modelID,
+						ThinkingEnabled: model.Thinking.Enabled,
+						ReasoningEffort: model.Thinking.ReasoningEffort,
+						ThinkingType:    model.Thinking.ThinkingType,
+						Level:           taskLevel,
+						ContextWindow:   model.ContextWindow,
+						Vision:          model.Vision,
+					},
+					RequestedRole: role,
+					UsedFallback:  usedFallback,
+				}
+				if usedFallback {
+					resolved.FallbackReason = role + " model is not configured or enabled"
+				}
+				return resolved, nil
+			})
 
 			// Wire memory engine into the scheduler so cron tasks can recall memories.
 			if rt.MemoryEngine != nil {
@@ -115,19 +144,6 @@ func ServeCmd(version string) *cobra.Command {
 				return fmt.Errorf("start cron scheduler: %w", err)
 			}
 			defer cronScheduler.Stop()
-
-			mgr.SetCronHandler(func(ctx context.Context, expression, instruction string) (string, time.Time, error) {
-				nextRun, err := cron.NextTrigger(expression, time.Now())
-				if err != nil {
-					return "", time.Time{}, err
-				}
-				task, err := cronStore.CreateTask(ctx, expression, instruction, "L1", nextRun)
-				if err != nil {
-					return "", time.Time{}, err
-				}
-				cronScheduler.Schedule(*task)
-				return task.ID, task.NextRunAt, nil
-			})
 
 			// Wire the cron store and scheduler into tools configuration
 			toolsCfg := rt.ReadToolsCfg()
