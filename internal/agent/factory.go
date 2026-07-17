@@ -945,9 +945,11 @@ const l2EnforcedPostPlan = `
 `
 
 const l2EnforcedToolAwareness = `
-# 11. Tool Awareness
-Before acting, scan ALL available tools and read their descriptions. Each tool's description defines its purpose. Choose the right tool — do not default to a familiar subset when another tool fits better.
-Prefer the Read tool for reading files. Using Bash with cat wastes tokens and bypasses the Read tool's size limit. Use Bash for running commands, not for reading text files. If a file exceeds the Read limit, use Bash with head/tail to read portions.
+# 11. Tool Awareness — Skill Priority
+Before acting, scan ALL available tools — especially the Skill tool. Skills contain mandatory domain-specific workflows and methodologies. If a skill's description matches your task, you MUST invoke the Skill tool BEFORE delegating or self-executing. The skill may change your delegation strategy or provide essential context. Do NOT skip a matching skill — it is a protocol violation.
+
+When choosing among raw tools:
+- Prefer the Read tool for reading files. Using Bash with cat wastes tokens and bypasses the Read tool's size limit. Use Bash for running commands, not for reading text files. If a file exceeds the Read limit, use Bash with head/tail to read portions.
 
 # 12. Prefer Search Before Read
 Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens). If a file exceeds the limit, use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.
@@ -1293,9 +1295,11 @@ const l3EnforcedPostPlan = `
 `
 
 const l3EnforcedToolAwareness = `
-# 6. Tool Awareness
-Before executing a task, scan ALL available tools and read their descriptions. Pick the tool that best matches the task. Do not default to a small subset of familiar tools.
-Prefer the Read tool for reading files. Using Bash with cat wastes tokens and bypasses the Read tool's size limit. Use Bash for running commands, not for reading text files. If a file exceeds the Read limit, use Bash with head/tail to read portions.
+# 6. Tool Awareness — Skill Priority
+Before executing, scan ALL available tools — especially the Skill tool. Skills contain mandatory domain-specific workflows and methodologies. If a skill's description matches your assigned task, you MUST invoke the Skill tool BEFORE using raw tools. The skill may define required steps, constraints, or workflows you must follow. Do NOT skip a matching skill — it is a protocol violation.
+
+When choosing among raw tools:
+- Prefer the Read tool for reading files. Using Bash with cat wastes tokens and bypasses the Read tool's size limit. Use Bash for running commands, not for reading text files. If a file exceeds the Read limit, use Bash with head/tail to read portions.
 
 # 7. Prefer Search Before Read
 Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens). If a file exceeds the limit, use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.

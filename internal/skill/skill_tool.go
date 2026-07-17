@@ -55,7 +55,12 @@ type skillToolArgs struct {
 
 func (SkillTool) Name() string { return "Skill" }
 
-// Description dynamically generates a list of skills for the LLM to decide when to use
+// Description dynamically generates a list of skills for the LLM to decide when to use.
+//
+// The description includes a usage directive telling the LLM to prioritize skills
+// over raw tools when a skill's domain matches the task. This is the primary
+// mechanism for ensuring proactive skill usage — the LLM sees this text alongside
+// the skill list every time it scans available tools.
 func (t *SkillTool) Description() string {
 	skills := t.registry.Skills()
 	if len(skills) == 0 {
@@ -63,7 +68,7 @@ func (t *SkillTool) Description() string {
 	}
 
 	var b strings.Builder
-	b.WriteString("Invoke a skill by name. Available skills:\n")
+	b.WriteString("Invoke a skill to load specialized workflows and methodologies. Skills contain mandatory step-by-step instructions for specific domains. When your task matches a skill's description, you MUST call this tool BEFORE using raw tools (Read, Write, Bash, etc.). Treat skills as your highest-priority execution guide — they encode battle-tested workflows. Skipping a matching skill is a protocol violation.\n\nAvailable skills:\n")
 	for _, s := range skills {
 		if s.DisableModelInvocation {
 			continue
