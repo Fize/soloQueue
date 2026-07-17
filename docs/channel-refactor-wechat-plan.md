@@ -177,6 +177,14 @@ Agent Markdown -> QQ formatter / WeChat formatter / plain formatter -> channel A
 
 The core bridge does not normalize Markdown because doing so would discard capabilities available in richer channels.
 
+### Long-running response activity
+
+The common channel package exposes an optional `ResponseActivityStarter` capability. The text bridge starts it immediately before `AskStream` and stops it before sending the final or error response. Implementations without response activity remain unchanged.
+
+WeChat implements the capability with `getconfig` and `sendtyping`: it obtains the per-conversation `typing_ticket`, sends `status=1` immediately and every five seconds during agent/tool execution, then cancels the heartbeat and sends `status=2` as bounded asynchronous cleanup. Failure to start or refresh typing is non-fatal and falls back to the existing response flow. The inbound `context_token` remains opaque and unchanged; it cannot be refreshed locally.
+
+Outbound text messages carry a generated `client_id`, and transport logs include only non-secret diagnostics such as response age, text length, duration, `ret`, and `errcode`.
+
 ## 6. Naming and compatibility migration
 
 ### Canonical names

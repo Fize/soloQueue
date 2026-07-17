@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,27 +17,48 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/channel"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 const (
 	defaultAPITimeout      = 15 * time.Second
+	defaultConfigTimeout   = 10 * time.Second
 	defaultLongPollTimeout = 40 * time.Second
+	typingKeepalivePeriod  = 5 * time.Second
+	typingStopTimeout      = 3 * time.Second
 )
 
 type Client struct {
-	cfg  Config
-	http *http.Client
+	cfg                 Config
+	http                *http.Client
+	log                 *logger.Logger
+	typingInterval      time.Duration
+	typingCancelTimeout time.Duration
 }
 
 func NewClient(cfg Config) *Client {
-	return NewClientWithHTTP(cfg, &http.Client{})
+	return newClient(cfg, &http.Client{}, nil)
+}
+
+func NewClientWithLogger(cfg Config, log *logger.Logger) *Client {
+	return newClient(cfg, &http.Client{}, log)
 }
 
 func NewClientWithHTTP(cfg Config, httpClient *http.Client) *Client {
+	return newClient(cfg, httpClient, nil)
+}
+
+func newClient(cfg Config, httpClient *http.Client, log *logger.Logger) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
-	return &Client{cfg: cfg, http: httpClient}
+	return &Client{
+		cfg:                 cfg,
+		http:                httpClient,
+		log:                 log,
+		typingInterval:      typingKeepalivePeriod,
+		typingCancelTimeout: typingStopTimeout,
+	}
 }
 
 func (c *Client) GetUpdates(ctx context.Context, cursor string, timeout time.Duration) (GetUpdatesResponse, error) {
@@ -66,13 +88,13 @@ func (c *Client) SendText(ctx context.Context, msg channel.Message, text string)
 	text = FormatText(text)
 	ctx, cancel := context.WithTimeout(ctx, defaultAPITimeout)
 	defer cancel()
-	var resp struct {
-		Ret    int    `json:"ret,omitempty"`
-		ErrMsg string `json:"errmsg,omitempty"`
-	}
+	var resp APIResponse
+	clientID := newClientID()
+	start := time.Now()
 	err := c.post(ctx, c.cfg.EffectiveBaseURL(), "ilink/bot/sendmessage", map[string]any{
 		"msg": Message{
 			ToUserID:     msg.UserID,
+			ClientID:     clientID,
 			MessageType:  2,
 			MessageState: 2,
 			ContextToken: msg.ReplyToken,
@@ -81,10 +103,66 @@ func (c *Client) SendText(ctx context.Context, msg channel.Message, text string)
 		"base_info": c.baseInfo(),
 	}, c.cfg.Token, &resp)
 	if err != nil {
+		if c.log != nil {
+			c.log.WarnContext(ctx, logger.CatApp, "wechat reply request failed", "client_id", clientID, "text_len", len(text), "duration_ms", time.Since(start).Milliseconds(), "err", err.Error())
+		}
 		return err
 	}
-	if resp.Ret != 0 {
-		return fmt.Errorf("wechat sendmessage ret=%d: %s", resp.Ret, resp.ErrMsg)
+	if err := responseError("sendmessage", resp); err != nil {
+		if c.log != nil {
+			c.log.WarnContext(ctx, logger.CatApp, "wechat reply rejected", "client_id", clientID, "text_len", len(text), "duration_ms", time.Since(start).Milliseconds(), "ret", resp.Ret, "errcode", resp.ErrCode, "err", err.Error())
+		}
+		return err
+	}
+	if c.log != nil {
+		c.log.InfoContext(ctx, logger.CatApp, "wechat reply accepted", "client_id", clientID, "text_len", len(text), "duration_ms", time.Since(start).Milliseconds())
+	}
+	return nil
+}
+
+func (c *Client) GetConfig(ctx context.Context, userID, contextToken string) (GetConfigResponse, error) {
+	if strings.TrimSpace(userID) == "" {
+		return GetConfigResponse{}, fmt.Errorf("wechat getconfig requires user id")
+	}
+	ctx, cancel := context.WithTimeout(ctx, defaultConfigTimeout)
+	defer cancel()
+	var resp GetConfigResponse
+	err := c.post(ctx, c.cfg.EffectiveBaseURL(), "ilink/bot/getconfig", map[string]any{
+		"ilink_user_id": userID,
+		"context_token": contextToken,
+		"base_info":     c.baseInfo(),
+	}, c.cfg.Token, &resp)
+	if err != nil {
+		return resp, err
+	}
+	if err := responseError("getconfig", resp.APIResponse); err != nil {
+		return resp, err
+	}
+	return resp, nil
+}
+
+func (c *Client) SendTyping(ctx context.Context, userID, typingTicket string, status TypingStatus) error {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(typingTicket) == "" {
+		return fmt.Errorf("wechat sendtyping requires user id and typing ticket")
+	}
+	ctx, cancel := context.WithTimeout(ctx, defaultConfigTimeout)
+	defer cancel()
+	var resp APIResponse
+	err := c.post(ctx, c.cfg.EffectiveBaseURL(), "ilink/bot/sendtyping", map[string]any{
+		"ilink_user_id": userID,
+		"typing_ticket": typingTicket,
+		"status":        status,
+		"base_info":     c.baseInfo(),
+	}, c.cfg.Token, &resp)
+	if err != nil {
+		return err
+	}
+	return responseError("sendtyping", resp)
+}
+
+func responseError(operation string, resp APIResponse) error {
+	if resp.Ret != 0 || resp.ErrCode != 0 {
+		return fmt.Errorf("wechat %s ret=%d errcode=%d: %s", operation, resp.Ret, resp.ErrCode, resp.ErrMsg)
 	}
 	return nil
 }
@@ -184,6 +262,14 @@ func randomWechatUIN() string {
 	}
 	n := binary.BigEndian.Uint32(raw[:])
 	return base64.StdEncoding.EncodeToString([]byte(strconv.FormatUint(uint64(n), 10)))
+}
+
+func newClientID() string {
+	var raw [12]byte
+	if _, err := rand.Read(raw[:]); err == nil {
+		return "soloqueue-" + hex.EncodeToString(raw[:])
+	}
+	return "soloqueue-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }
 
 func clientVersion(version string) string {

@@ -50,6 +50,13 @@ type TextSender interface {
 	SendText(ctx context.Context, msg Message, text string) error
 }
 
+// ResponseActivityStarter optionally keeps a channel's reply window active
+// while the session is producing a response. Transports without this concept
+// only need to implement TextSender.
+type ResponseActivityStarter interface {
+	StartResponseActivity(ctx context.Context, msg Message) (stop func(), err error)
+}
+
 // TextFormatter converts model Markdown into the subset supported by a channel.
 type TextFormatter interface {
 	FormatText(text string) string

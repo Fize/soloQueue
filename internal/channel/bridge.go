@@ -2,9 +2,13 @@ package channel
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -37,7 +41,7 @@ func NewTextBridge(sess SessionProvider, sender TextSender, log *logger.Logger, 
 func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 	if b.whitelistEnabled {
 		if _, ok := b.whitelist[msg.UserID]; !ok {
-			b.log.InfoContext(ctx, logger.CatApp, "channel message ignored: user not in whitelist", "channel", msg.Channel, "user_id", msg.UserID)
+			b.log.InfoContext(ctx, logger.CatApp, "channel message ignored: user not in whitelist", "channel", msg.Channel, "user_ref", channelUserRef(msg.UserID))
 			return
 		}
 	}
@@ -52,12 +56,25 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 		return
 	}
 
-	b.log.InfoContext(ctx, logger.CatApp, "channel message received", "channel", msg.Channel, "user_id", msg.UserID, "content_len", len(msg.Text))
+	b.log.InfoContext(ctx, logger.CatApp, "channel message received", "channel", msg.Channel, "user_ref", channelUserRef(msg.UserID), "content_len", len(msg.Text))
+	stopActivity := func() {}
+	if starter, ok := b.sender.(ResponseActivityStarter); ok {
+		stop, err := starter.StartResponseActivity(ctx, msg)
+		if err != nil {
+			b.log.WarnContext(ctx, logger.CatApp, "channel response activity unavailable", "channel", msg.Channel, "err", err.Error())
+		} else if stop != nil {
+			stopActivity = sync.OnceFunc(stop)
+			b.log.InfoContext(ctx, logger.CatApp, "channel response activity started", "channel", msg.Channel)
+		}
+	}
+	defer stopActivity()
+
 	result, err := b.sess.AskStream(ctx, msg.Text, func(ctx context.Context, content string) {
 		if strings.TrimSpace(content) != "" {
 			b.send(ctx, msg, content)
 		}
 	})
+	stopActivity()
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrSessionBusy):
@@ -73,6 +90,11 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 	if result != nil && strings.TrimSpace(result.Content) != "" {
 		b.send(ctx, msg, result.Content)
 	}
+}
+
+func channelUserRef(userID string) string {
+	sum := sha256.Sum256([]byte(userID))
+	return hex.EncodeToString(sum[:6])
 }
 
 func (b *TextBridge) handleCommand(ctx context.Context, msg Message) bool {
@@ -108,7 +130,10 @@ func (b *TextBridge) handleCommand(ctx context.Context, msg Message) bool {
 }
 
 func (b *TextBridge) send(ctx context.Context, msg Message, text string) {
+	start := time.Now()
 	if err := b.sender.SendText(ctx, msg, text); err != nil {
-		b.log.WarnContext(ctx, logger.CatApp, "channel reply failed", "channel", msg.Channel, "err", err.Error())
+		b.log.WarnContext(ctx, logger.CatApp, "channel reply failed", "channel", msg.Channel, "text_len", len(text), "duration_ms", time.Since(start).Milliseconds(), "err", err.Error())
+		return
 	}
+	b.log.InfoContext(ctx, logger.CatApp, "channel reply sent", "channel", msg.Channel, "text_len", len(text), "duration_ms", time.Since(start).Milliseconds())
 }

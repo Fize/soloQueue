@@ -119,7 +119,7 @@ func (m *WechatBotManager) Reload() {
 			bindType:  baseCfg.BindType,
 			bindAgent: baseCfg.BindAgent,
 		}, m.mgr, m.l2Store, m.rt, m.workDir, wxLog, m.supervisorsFn, m.registry)
-		client := wechat.NewClient(wxCfg)
+		client := wechat.NewClientWithLogger(wxCfg, wxLog)
 		bridge := channel.NewTextBridge(provider, client, wxLog, m.version, baseCfg.WhitelistEnabled, baseCfg.Whitelist)
 		gateway := wechat.NewGateway(wxCfg, client, bridge, wxLog)
 		m.gateways = append(m.gateways, gateway)

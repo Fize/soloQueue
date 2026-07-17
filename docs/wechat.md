@@ -9,6 +9,7 @@ SoloQueue can connect to personal WeChat accounts through Tencent's official iLi
 - Long-poll message intake with persisted in-process cursor progression
 - Text messages and voice messages that include a server-side transcript
 - Text replies with the inbound `context_token` and WeChat-compatible Markdown filtering
+- Long-running reply keepalive through `getconfig` and a 5-second `sendtyping` heartbeat
 - L1 or dedicated L2 agent binding
 - User allowlists and configuration hot reload
 - `/help`, `/cancel`, `/clear`, `/compact`, `/version`, and `/myid`
@@ -64,6 +65,8 @@ Sanitized account views are available through `GET/PUT /api/config/wechat-bots/`
 
 The reply token is intentionally opaque. For WeChat it carries `context_token`; for another channel it may be a message ID or thread token. This prevents future transports from leaking protocol types into the session package.
 
+Channels may optionally implement `ResponseActivityStarter`. The shared text bridge starts this activity before asking the session and stops it before the final or error reply. WeChat uses the lifecycle to obtain a `typing_ticket`, send an immediate typing indicator, and refresh it every five seconds. A typing failure is logged and degrades to the normal reply path; it does not fail the agent request.
+
 ## Operational considerations
 
 - iLink is controlled by Tencent and may be rate-limited, changed, interrupted, or terminated.
@@ -71,5 +74,6 @@ The reply token is intentionally opaque. For WeChat it carries `context_token`; 
 - The current cursor is not written to disk. After restart, the server starts with an empty cursor; upstream behavior should be monitored for duplicate delivery.
 - Voice messages with `voice_item.text` use the transcript immediately. Media-only voice is represented as an audio attachment and receives an explicit unsupported response until CDN decryption and ASR are configured.
 - iLink sends replies as TEXT items. The WeChat sender filters unsupported Markdown syntax; Markdown images must be sent as media items in a future outbound-media phase.
+- Each text reply includes a unique `client_id`. Logs record message age, response size, request duration, and return codes without recording the bot token, context token, typing ticket, or full user ID.
 
 Protocol references: [Tencent/openclaw-weixin](https://github.com/Tencent/openclaw-weixin), [official Chinese protocol README](https://github.com/Tencent/openclaw-weixin/blob/main/README.zh_CN.md), and the [original evaluation document](https://github.com/hao-ji-xing/openclaw-weixin/blob/main/weixin-bot-api.md).

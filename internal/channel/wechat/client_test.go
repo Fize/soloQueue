@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 )
@@ -62,6 +64,9 @@ func TestClientSendTextPreservesReplyContext(t *testing.T) {
 		if body.Message.ToUserID != "user-1" || body.Message.ContextToken != "ctx-1" {
 			t.Fatalf("reply target = %#v", body.Message)
 		}
+		if !strings.HasPrefix(body.Message.ClientID, "soloqueue-") {
+			t.Fatalf("client id = %q", body.Message.ClientID)
+		}
 		if got := body.Message.ItemList[0].TextItem.Text; got != "hello" {
 			t.Fatalf("text = %q", got)
 		}
@@ -71,6 +76,85 @@ func TestClientSendTextPreservesReplyContext(t *testing.T) {
 	err := client.SendText(context.Background(), channel.Message{UserID: "user-1", ReplyToken: "ctx-1"}, "hello")
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestClientSendTextRejectsWechatErrCode(t *testing.T) {
+	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(`{"ret":0,"errcode":-14,"errmsg":"stale"}`), nil
+	})
+	client := NewClientWithHTTP(Config{Token: "token", BaseURL: "https://example.test"}, &http.Client{Transport: transport})
+	err := client.SendText(context.Background(), channel.Message{UserID: "user", ReplyToken: "ctx"}, "hello")
+	if err == nil || !strings.Contains(err.Error(), "errcode=-14") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestResponseActivityKeepsTypingAliveAndStops(t *testing.T) {
+	var mu sync.Mutex
+	var statuses []TypingStatus
+	typingEvents := make(chan TypingStatus, 16)
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/ilink/bot/getconfig":
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if body["ilink_user_id"] != "user-1" || body["context_token"] != "ctx-1" {
+				t.Errorf("getconfig body = %#v", body)
+			}
+			return jsonResponse(`{"ret":0,"typing_ticket":"ticket-1"}`), nil
+		case "/ilink/bot/sendtyping":
+			var body struct {
+				Status TypingStatus `json:"status"`
+			}
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			mu.Lock()
+			statuses = append(statuses, body.Status)
+			mu.Unlock()
+			typingEvents <- body.Status
+			return jsonResponse(`{"ret":0}`), nil
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+			return jsonResponse(`{"ret":0}`), nil
+		}
+	})
+	client := NewClientWithHTTP(Config{Token: "token", BaseURL: "https://example.test"}, &http.Client{Transport: transport})
+	client.typingInterval = 5 * time.Millisecond
+	client.typingCancelTimeout = 100 * time.Millisecond
+
+	stop, err := client.StartResponseActivity(context.Background(), channel.Message{UserID: "user-1", ReplyToken: "ctx-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for started := 0; started < 2; {
+		select {
+		case status := <-typingEvents:
+			if status == Typing {
+				started++
+			}
+		case <-time.After(time.Second):
+			t.Fatal("typing keepalive was not sent")
+		}
+	}
+	stop()
+
+	stopDeadline := time.After(time.Second)
+	for {
+		select {
+		case status := <-typingEvents:
+			if status == TypingStopped {
+				goto stopped
+			}
+		case <-stopDeadline:
+			t.Fatal("typing stop was not sent")
+		}
+	}
+
+stopped:
+	mu.Lock()
+	defer mu.Unlock()
+	if len(statuses) < 3 || statuses[0] != Typing || statuses[len(statuses)-1] != TypingStopped {
+		t.Fatalf("typing statuses = %#v", statuses)
 	}
 }
 

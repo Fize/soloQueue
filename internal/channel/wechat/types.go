@@ -46,6 +46,7 @@ type MessageItem struct {
 
 type Message struct {
 	MessageID    int64         `json:"message_id,omitempty"`
+	ClientID     string        `json:"client_id,omitempty"`
 	FromUserID   string        `json:"from_user_id,omitempty"`
 	ToUserID     string        `json:"to_user_id,omitempty"`
 	SessionID    string        `json:"session_id,omitempty"`
@@ -55,6 +56,24 @@ type Message struct {
 	ItemList     []MessageItem `json:"item_list,omitempty"`
 	ContextToken string        `json:"context_token,omitempty"`
 }
+
+type APIResponse struct {
+	Ret     int    `json:"ret,omitempty"`
+	ErrCode int    `json:"errcode,omitempty"`
+	ErrMsg  string `json:"errmsg,omitempty"`
+}
+
+type GetConfigResponse struct {
+	APIResponse
+	TypingTicket string `json:"typing_ticket,omitempty"`
+}
+
+type TypingStatus int
+
+const (
+	Typing        TypingStatus = 1
+	TypingStopped TypingStatus = 2
+)
 
 type GetUpdatesResponse struct {
 	Ret                  int       `json:"ret,omitempty"`

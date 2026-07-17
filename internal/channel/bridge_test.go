@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -9,6 +10,12 @@ import (
 
 type fakeSession struct {
 	prompt string
+}
+
+type busySession struct{ fakeSession }
+
+func (*busySession) AskStream(context.Context, string, OnIntermediateFunc) (*AskStreamResult, error) {
+	return nil, ErrSessionBusy
 }
 
 func (s *fakeSession) AskStream(_ context.Context, prompt string, _ OnIntermediateFunc) (*AskStreamResult, error) {
@@ -30,6 +37,31 @@ func (s *fakeSender) SendText(_ context.Context, msg Message, text string) error
 	return nil
 }
 
+type activitySender struct {
+	fakeSender
+	started        bool
+	stopped        bool
+	sentBeforeStop bool
+}
+
+type unavailableActivitySender struct{ fakeSender }
+
+func (*unavailableActivitySender) StartResponseActivity(context.Context, Message) (func(), error) {
+	return nil, errors.New("typing unavailable")
+}
+
+func (s *activitySender) StartResponseActivity(context.Context, Message) (func(), error) {
+	s.started = true
+	return func() { s.stopped = true }, nil
+}
+
+func (s *activitySender) SendText(ctx context.Context, msg Message, text string) error {
+	if !s.stopped {
+		s.sentBeforeStop = true
+	}
+	return s.fakeSender.SendText(ctx, msg, text)
+}
+
 func TestTextBridgePreservesOpaqueReplyToken(t *testing.T) {
 	log, err := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
 	if err != nil {
@@ -41,6 +73,49 @@ func TestTextBridgePreservesOpaqueReplyToken(t *testing.T) {
 	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "hello", ReplyToken: "opaque"})
 	if sess.prompt != "hello" || sender.text != "reply" || sender.message.ReplyToken != "opaque" {
 		t.Fatalf("session=%q sender=%#v", sess.prompt, sender)
+	}
+}
+
+func TestTextBridgeStopsResponseActivityBeforeFinalReply(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sess := &fakeSession{}
+	sender := &activitySender{}
+	bridge := NewTextBridge(sess, sender, log, "1.0.0", false, nil)
+
+	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "hello", ReplyToken: "opaque"})
+
+	if !sender.started || !sender.stopped {
+		t.Fatalf("response activity lifecycle: started=%v stopped=%v", sender.started, sender.stopped)
+	}
+	if sender.sentBeforeStop {
+		t.Fatal("final reply was sent before response activity stopped")
+	}
+}
+
+func TestTextBridgeStopsResponseActivityBeforeErrorReply(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sender := &activitySender{}
+	bridge := NewTextBridge(&busySession{}, sender, log, "1.0.0", false, nil)
+
+	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "hello", ReplyToken: "opaque"})
+
+	if !sender.stopped || sender.sentBeforeStop {
+		t.Fatalf("activity stopped=%v sentBeforeStop=%v", sender.stopped, sender.sentBeforeStop)
+	}
+	if sender.text != busyReply {
+		t.Fatalf("reply = %q", sender.text)
+	}
+}
+
+func TestTextBridgeContinuesWhenResponseActivityIsUnavailable(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sender := &unavailableActivitySender{}
+	bridge := NewTextBridge(&fakeSession{}, sender, log, "1.0.0", false, nil)
+
+	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "hello", ReplyToken: "opaque"})
+
+	if sender.text != "reply" {
+		t.Fatalf("reply = %q", sender.text)
 	}
 }
 
