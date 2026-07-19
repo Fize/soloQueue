@@ -1,5 +1,6 @@
 import { useTranslation } from '@/lib/i18n'
 import { type KeyboardEvent, useRef, useEffect, useLayoutEffect, useCallback, useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import {
   ArrowUp, StopCircle, Plus, ChevronDown,
@@ -228,14 +229,20 @@ export function ChatInput({
     }
   }, [activeDropdown, computeDropdownPos])
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside. The dropdown menus are portaled
+  // to document.body (see createPortal below), so they are NOT descendants
+  // of groupRef/projectRef/branchRef. We also check for the closest
+  // [data-dropdown-portal] ancestor so clicks on menu options don't close
+  // the menu before their onClick fires (which would happen if we only
+  // checked the button wrapper refs).
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       const targets = [groupRef.current, projectRef.current, branchRef.current]
       const clickedInside = targets.some((ref) => ref && ref.contains(e.target as Node))
-      if (!clickedInside) {
-        setActiveDropdown(null)
-      }
+      if (clickedInside) return
+      const clickedInPortal = (e.target as HTMLElement)?.closest?.('[data-dropdown-portal]')
+      if (clickedInPortal) return
+      setActiveDropdown(null)
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -480,10 +487,10 @@ export function ChatInput({
 
 
   return (
-    <div className="@container mx-auto w-full max-w-3xl px-4 py-2">
+    <div className="mx-auto w-full max-w-3xl px-4 py-2">
       {/* Input card */}
       <div className={cn(
-        "relative flex flex-col rounded-xl border border-border/40 bg-background p-1.5 @3xs:p-2.5 transition-all shadow-sm focus-within:border-primary/30 focus-within:shadow-md"
+        "relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all shadow-sm focus-within:border-primary/30 focus-within:shadow-md"
       )}>
           {/* Attachments preview & Selected Element Badge */}
           <ChatInputAttachments
@@ -591,13 +598,13 @@ export function ChatInput({
             </div>
 
             {/* Inner action buttons row */}
-            <div className="flex items-center justify-between mt-1 pt-1 @3xs:mt-2 @3xs:pt-2 border-t border-border/15">
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/15">
               {/* Left actions: plus and selectors */}
-              <div className="flex items-center gap-1 @sm:gap-2 flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
                 <button
                   type="button"
                   onClick={() => toast.info(t('common.dragDropImages'))}
-                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer shrink-0 hidden @2xs:block"
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer shrink-0 hidden sm:block"
                   title="Add context"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -611,7 +618,7 @@ export function ChatInput({
                     setSidebarCollapsed(nextMode)
                   }}
                   className={cn(
-                    "p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 hidden @2xs:block",
+                    "p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 hidden sm:block",
                     isDesignMode 
                       ? "bg-primary/20 text-primary border border-primary/20" 
                       : "hover:bg-muted text-muted-foreground/70"
@@ -643,8 +650,9 @@ export function ChatInput({
                         {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
                       </button>
 
-                      {activeDropdown === 'group' && groups.length > 0 && (
+                      {activeDropdown === 'group' && groups.length > 0 && createPortal(
                         <div
+                          data-dropdown-portal
                           className="fixed z-50 w-44 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
                           style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
                         >
@@ -662,7 +670,8 @@ export function ChatInput({
                               {selectedGroup === g && <Check className="h-3 w-3 text-primary" />}
                             </button>
                           ))}
-                        </div>
+                        </div>,
+                        document.body
                       )}
                     </div>
 
@@ -691,8 +700,9 @@ export function ChatInput({
                             {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
                           </button>
 
-                          {activeDropdown === 'project' && (
+                          {activeDropdown === 'project' && createPortal(
                             <div
+                              data-dropdown-portal
                               className="fixed z-50 w-52 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
                               style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
                             >
@@ -710,7 +720,8 @@ export function ChatInput({
                                   {selectedProjectPath === p.path && <Check className="h-3 w-3 text-primary" />}
                                 </button>
                               ))}
-                            </div>
+                            </div>,
+                            document.body
                           )}
                         </div>
                       </>
@@ -739,8 +750,9 @@ export function ChatInput({
                             {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
                           </button>
 
-                          {activeDropdown === 'branch' && (
+                          {activeDropdown === 'branch' && createPortal(
                             <div
+                              data-dropdown-portal
                               className="fixed z-50 w-32 rounded-xl border border-border bg-popover p-1 shadow-lg"
                               style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
                             >
@@ -758,7 +770,8 @@ export function ChatInput({
                                   {branch === b && <Check className="h-3 w-3 text-primary" />}
                                 </button>
                               ))}
-                            </div>
+                            </div>,
+                            document.body
                           )}
                         </div>
                       </>
@@ -768,7 +781,7 @@ export function ChatInput({
               </div>
 
               {/* Right actions: model badge, context window ring, send/stop */}
-              <div className="flex items-center gap-1 @sm:gap-2">
+              <div className="flex items-center gap-2">
 
 
                 {ctxwinLimit > 0 && (
@@ -815,10 +828,10 @@ export function ChatInput({
                   <button
                     type="button"
                     onClick={onCancel}
-                    className="flex items-center gap-1 px-2 @sm:px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
+                    className="flex items-center gap-1 px-2 sm:px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
                   >
                     <StopCircle className="h-3.5 w-3.5" />
-                    <span className="hidden @sm:inline">{t('common.stopped')}</span>
+                    <span className="hidden sm:inline">{t('common.stopped')}</span>
                   </button>
                 ) : (
                   <button
