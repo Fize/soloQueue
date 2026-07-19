@@ -207,6 +207,32 @@ func TestPopLastEmpty(t *testing.T) {
 	}
 }
 
+func TestTruncateRollsBackIncompleteTurn(t *testing.T) {
+	cw := newTestCW(10000, 1000)
+	cw.Push(RoleSystem, "system")
+	cw.Push(RoleUser, "completed user")
+	cw.Push(RoleAssistant, "completed assistant")
+	checkpoint := cw.Len()
+	beforeTokens, _, _ := cw.TokenUsage()
+
+	cw.Push(RoleUser, "cancelled user")
+	cw.Push(RoleAssistant, "", WithToolCalls([]llm.ToolCall{{ID: "call-1"}}))
+	cw.Push(RoleTool, "partial result", WithToolCallID("call-1"))
+	cw.Truncate(checkpoint)
+
+	if got := cw.Len(); got != checkpoint {
+		t.Fatalf("len after truncate = %d, want %d", got, checkpoint)
+	}
+	afterTokens, _, _ := cw.TokenUsage()
+	if afterTokens != beforeTokens {
+		t.Fatalf("tokens after truncate = %d, want %d", afterTokens, beforeTokens)
+	}
+	last, ok := cw.MessageAt(checkpoint - 1)
+	if !ok || last.Content != "completed assistant" {
+		t.Fatalf("last message after truncate = %+v, want completed assistant", last)
+	}
+}
+
 func TestMessageAtOutOfBounds(t *testing.T) {
 	cw := newTestCW(100000, 2000)
 	_, ok := cw.MessageAt(0)

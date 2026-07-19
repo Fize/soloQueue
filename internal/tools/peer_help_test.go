@@ -232,6 +232,50 @@ func TestRequestTeamHelp_ChainPropagation(t *testing.T) {
 	}
 }
 
+func TestRequestTeamHelp_ParentCancellationReachesCrossTeamTarget(t *testing.T) {
+	targetStarted := make(chan struct{})
+	targetCancelled := make(chan struct{})
+	target := &fakeLocatable{name: "ops"}
+	target.askStreamFn = func(ctx context.Context, _ string) (<-chan iface.AgentEvent, error) {
+		ch := make(chan iface.AgentEvent)
+		close(targetStarted)
+		go func() {
+			defer close(ch)
+			<-ctx.Done()
+			close(targetCancelled)
+		}()
+		return ch, nil
+	}
+
+	tool := NewRequestTeamHelpTool("dev", func(context.Context, string) (iface.Locatable, bool, error) {
+		return target, false, nil
+	}, nil, time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := tool.Execute(ctx, `{"team_name":"ops","task":"help","context":"ctx"}`)
+		done <- err
+	}()
+
+	select {
+	case <-targetStarted:
+	case <-time.After(time.Second):
+		t.Fatal("cross-team target did not start")
+	}
+	cancel()
+
+	select {
+	case <-targetCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("parent cancellation did not reach cross-team target")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cross-team help did not return after cancellation")
+	}
+}
+
 // ─── RequestTeamHelpTool: existing chain preserved + appended ────────────────
 
 func TestRequestTeamHelp_ExistingChainAppended(t *testing.T) {

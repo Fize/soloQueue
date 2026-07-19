@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -307,6 +308,113 @@ func TestSession_AskStream_ConcurrentRejected(t *testing.T) {
 		t.Errorf("second AskStream err = %v, want ErrQueued", err2)
 	}
 	for range ch1 {
+	}
+}
+
+func TestSession_CancelCurrent_KeepsSessionReusable(t *testing.T) {
+	started := make(chan struct{})
+	var startedOnce sync.Once
+	fake := &agent.FakeLLM{
+		Responses: []string{"cancelled response", "response after cancel"},
+		Delay:     200 * time.Millisecond,
+		Hook: func(agent.LLMRequest) {
+			startedOnce.Do(func() { close(started) })
+		},
+	}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+
+	first, err := s.AskStream(context.Background(), "cancel me")
+	if err != nil {
+		t.Fatalf("first AskStream: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first LLM request did not start")
+	}
+
+	if err := s.CancelCurrent("test stop"); err != nil {
+		t.Fatalf("CancelCurrent: %v", err)
+	}
+	for range first {
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for a.State() == agent.StateProcessing && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if a.State() == agent.StateStopped || a.State() == agent.StateStopping {
+		t.Fatalf("cancel stopped reusable agent: state=%s", a.State())
+	}
+
+	second, err := s.AskStream(context.Background(), "still usable")
+	if err != nil {
+		t.Fatalf("AskStream after cancel: %v", err)
+	}
+	gotDone := false
+	for ev := range second {
+		if _, ok := ev.(agent.DoneEvent); ok {
+			gotDone = true
+		}
+	}
+	if !gotDone {
+		t.Fatal("AskStream after cancel completed without DoneEvent")
+	}
+}
+
+func TestSession_CancelCurrent_CancelsRouterRequest(t *testing.T) {
+	fake := &agent.FakeLLM{Responses: []string{"response after router cancel"}}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	routerStarted := make(chan struct{})
+	routerCalls := 0
+	s.Router = func(ctx context.Context, _ string, _ string, _ []ctxwin.PayloadMessage) (RouteResult, error) {
+		routerCalls++
+		if routerCalls == 1 {
+			close(routerStarted)
+			<-ctx.Done()
+			return RouteResult{}, ctx.Err()
+		}
+		return RouteResult{Level: "L2"}, nil
+	}
+
+	type streamResult struct {
+		ch  <-chan iface.AgentEvent
+		err error
+	}
+	firstResult := make(chan streamResult, 1)
+	go func() {
+		ch, err := s.AskStream(context.Background(), "cancel during routing")
+		firstResult <- streamResult{ch: ch, err: err}
+	}()
+
+	select {
+	case <-routerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("router request did not start")
+	}
+	if err := s.CancelCurrent("stop router"); err != nil {
+		t.Fatalf("CancelCurrent: %v", err)
+	}
+	first := <-firstResult
+	if first.ch != nil {
+		for range first.ch {
+		}
+	}
+
+	second, err := s.AskStream(context.Background(), "route again")
+	if err != nil {
+		t.Fatalf("AskStream after router cancel: %v", err)
+	}
+	gotDone := false
+	for ev := range second {
+		if _, ok := ev.(agent.DoneEvent); ok {
+			gotDone = true
+		}
+	}
+	if !gotDone {
+		t.Fatal("AskStream after router cancel completed without DoneEvent")
 	}
 }
 

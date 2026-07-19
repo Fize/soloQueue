@@ -632,6 +632,28 @@ func (cw *ContextWindow) PopLast() (Message, bool) {
 	return last, true
 }
 
+// Truncate removes messages appended at or after length. It is used to roll
+// back an incomplete turn, including any assistant tool-call and tool-result
+// messages that were appended after its user prompt.
+func (cw *ContextWindow) Truncate(length int) {
+	cw.Lock()
+	defer cw.Unlock()
+
+	if length < 0 {
+		length = 0
+	}
+	if length >= len(cw.messages) {
+		return
+	}
+	for _, msg := range cw.messages[length:] {
+		cw.currentTokens -= msg.Tokens
+	}
+	cw.messages = cw.messages[:length]
+	if cw.currentTokens < 0 {
+		cw.currentTokens = 0
+	}
+}
+
 // Reset clears the context window, keeping only the system prompt (index 0).
 //
 // Used for /clear command.

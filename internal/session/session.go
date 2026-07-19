@@ -137,8 +137,13 @@ type Session struct {
 	turnDone          chan struct{} // closed when the async delegation turn completes
 	turnDoneClosed    bool          // prevents duplicate close of turnDone
 
-	// forceKilled is closed when ForceKill is called; session goroutine exits immediately
-	forceKilled chan struct{}
+	// activeCancels contains every live top-level turn in this session. A turn
+	// context is the root of all local, delegated, and cross-team LLM calls, so
+	// cancelling it stops the whole request tree without stopping the reusable
+	// Session or Agent instances.
+	cancelMu      sync.Mutex
+	activeCancels map[uint64]activeTurnCancel
+	nextCancelID  uint64
 
 	// Supervisor is the L3 child manager for L2 sessions; nil for L1 sessions
 	Supervisor *agent.Supervisor
@@ -194,7 +199,7 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 		logger:         l,
 		pending:        &PendingQueue{},
 		recalledHashes: make(map[string]struct{}),
-		forceKilled:    make(chan struct{}),
+		activeCancels:  make(map[uint64]activeTurnCancel),
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 
@@ -851,6 +856,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	}
 	s.mu.Lock()
 	s.cw.Resize(effectiveCW, 0, 0)
+	cwLenBeforeTurn := s.cw.Len()
 	s.cw.Push(ctxwin.RoleUser, prompt)
 	s.mu.Unlock()
 
@@ -865,7 +871,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 
 	if err != nil {
 		s.mu.Lock()
-		s.cw.PopLast()
+		s.cw.Truncate(cwLenBeforeTurn)
 		s.mu.Unlock()
 
 		s.logger.WarnContext(ctx, logger.CatApp, "ask failed, user prompt removed",
@@ -1053,6 +1059,13 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		s.pending.Enqueue(prompt)
 		return nil, ErrQueued
 	}
+	clientCtx := ctx
+	askCtx, askCancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Minute)
+	askCtx = iface.ContextWithIsQBot(askCtx, s.IsQBot())
+	cancelID := s.registerActiveCancel(askCancel)
+	// Routing, memory recall, the leader LLM, local children, and cross-team
+	// helpers all use this same cancellation root.
+	ctx = askCtx
 	// Note: the release of inFlight is handled by the forwarder goroutine below
 	// checkAutoClear must happen before touch (here lastActive is the end time of the previous Ask)
 	s.checkAutoClear()
@@ -1178,13 +1191,10 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		)
 	}
 
-	// -- Create cancellable askCtx --
-	askCtx, askCancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Minute)
-	askCtx = iface.ContextWithIsQBot(askCtx, s.IsQBot())
-
 	// Resize and push user prompt atomically (both hold cw.Lock)
 	s.mu.Lock()
 	s.cw.Resize(effectiveCW, 0, 0)
+	cwLenBeforeTurn := s.cw.Len()
 	// Extract images from context if present (e.g., from qbot image uploads).
 	// Images are passed as []llm.ImageContent via context.WithValue.
 	var pushOpts []ctxwin.PushOption
@@ -1223,10 +1233,11 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		}
 
 		// Enqueue failure: cleanup
+		s.unregisterActiveCancel(cancelID)
 		askCancel()
 
 		s.mu.Lock()
-		s.cw.PopLast()
+		s.cw.Truncate(cwLenBeforeTurn)
 		s.mu.Unlock()
 		s.inFlight.Store(0)
 
@@ -1241,8 +1252,9 @@ enqueued:
 
 	out := make(chan iface.AgentEvent, 64)
 	go func() {
-		// Cleanup: release askCtx when goroutine ends
+		// Cleanup: unregister this turn and release askCtx when the goroutine ends.
 		defer func() {
+			s.unregisterActiveCancel(cancelID)
 			askCancel()
 		}()
 		defer close(out)
@@ -1265,6 +1277,14 @@ enqueued:
 		var accContent strings.Builder   // accumulates streamed content for partial flush on non-normal exit
 		var accReasoning strings.Builder
 		var lastPushedContent string      // tracks last content pushed to cw (avoids duplicate partial flush)
+		var rollbackOnce sync.Once
+		rollbackTurn := func() {
+			rollbackOnce.Do(func() {
+				s.mu.Lock()
+				s.cw.Truncate(cwLenBeforeTurn)
+				s.mu.Unlock()
+			})
+		}
 
 		// Flush partial content on any non-normal exit (Stop, panic, srcCh close).
 		// Declared after the recover defer so it runs first (LIFO), before panic recovery.
@@ -1304,13 +1324,11 @@ enqueued:
 						goto done
 					}
 					ev = e
-				case <-s.forceKilled:
+				case <-askCtx.Done():
 					s.cancelled.Store(true)
-					s.mu.Lock()
-					s.cw.PopLast()
-					s.mu.Unlock()
+					rollbackTurn()
 
-					s.logger.DebugContext(ctx, logger.CatApp, "askstream force-killed (read)",
+					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
 						"session_id", s.ID,
 						"events_processed", eventCount,
 						"duration_ms", time.Since(start).Milliseconds(),
@@ -1324,19 +1342,17 @@ enqueued:
 						goto done
 					}
 					ev = e
-				case <-s.forceKilled:
+				case <-askCtx.Done():
 					s.cancelled.Store(true)
-					s.mu.Lock()
-					s.cw.PopLast()
-					s.mu.Unlock()
+					rollbackTurn()
 
-					s.logger.DebugContext(ctx, logger.CatApp, "askstream force-killed (read)",
+					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
 						"session_id", s.ID,
 						"events_processed", eventCount,
 						"duration_ms", time.Since(start).Milliseconds(),
 					)
 					return
-				case <-ctx.Done():
+				case <-clientCtx.Done():
 					clientDisconnected = true
 					continue
 				}
@@ -1351,19 +1367,17 @@ enqueued:
 				select {
 				case out <- ev:
 					eventCount++
-				case <-s.forceKilled:
+				case <-askCtx.Done():
 					s.cancelled.Store(true)
-					s.mu.Lock()
-					s.cw.PopLast()
-					s.mu.Unlock()
+					rollbackTurn()
 
-					s.logger.DebugContext(ctx, logger.CatApp, "askstream force-killed (write)",
+					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (write)",
 						"session_id", s.ID,
 						"events_processed", eventCount,
 						"duration_ms", time.Since(start).Milliseconds(),
 					)
 					return
-				case <-ctx.Done():
+				case <-clientCtx.Done():
 					clientDisconnected = true
 					select {
 					case out <- ev:
@@ -1401,10 +1415,8 @@ enqueued:
 					"reasoning_len", len(e.ReasoningContent),
 				)
 			case agent.ErrorEvent:
-				// Error: remove user prompt
-				s.mu.Lock()
-				s.cw.PopLast()
-				s.mu.Unlock()
+				// Error: roll back the entire incomplete turn.
+				rollbackTurn()
 
 				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event, user prompt removed",
 					"session_id", s.ID,
@@ -1416,9 +1428,7 @@ enqueued:
 		// Check if cancellation occurred between goto done and this label (narrow race window)
 		if askCtx.Err() != nil {
 			s.cancelled.Store(true)
-			s.mu.Lock()
-			s.cw.PopLast()
-			s.mu.Unlock()
+			rollbackTurn()
 		} else if gotDone {
 			if finalContent != "" {
 				s.mu.Lock()
@@ -1505,40 +1515,74 @@ func (s *Session) LastActive() time.Time {
 	return time.Unix(0, s.lastActive.Load())
 }
 
-// ForceKill immediately stops all work in this session.
-// Closes the forceKilled signal so the session goroutine exits immediately,
-// then stops the session agent and all child agents (via Supervisor if present).
-// Safe to call multiple times; only the first call takes effect.
-func (s *Session) ForceKill(reason string) {
-	// Close forceKilled to signal session goroutine to exit immediately.
-	// Use select to ensure we only close once (second call is no-op).
-	select {
-	case <-s.forceKilled:
-		// Already killed
-		return
-	default:
-		close(s.forceKilled)
+type activeTurnCancel struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// registerActiveCancel adds a top-level turn cancellation root to the session.
+func (s *Session) registerActiveCancel(cancel context.CancelFunc) uint64 {
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	s.nextCancelID++
+	id := s.nextCancelID
+	s.activeCancels[id] = activeTurnCancel{cancel: cancel, done: make(chan struct{})}
+	return id
+}
+
+func (s *Session) unregisterActiveCancel(id uint64) {
+	s.cancelMu.Lock()
+	turn, ok := s.activeCancels[id]
+	if ok {
+		delete(s.activeCancels, id)
+		close(turn.done)
+	}
+	s.cancelMu.Unlock()
+}
+
+// CancelCurrent cancels every live top-level turn in this session. Delegated
+// and cross-team calls derive their contexts from these roots, so cancellation
+// propagates through the complete request tree. Session and Agent lifecycles
+// are intentionally left untouched and can serve later messages normally.
+func (s *Session) CancelCurrent(reason string) error {
+	s.cancelMu.Lock()
+	turns := make([]activeTurnCancel, 0, len(s.activeCancels))
+	for _, turn := range s.activeCancels {
+		turns = append(turns, turn)
+	}
+	s.cancelMu.Unlock()
+
+	if len(turns) == 0 {
+		return ErrNoActiveTask
+	}
+	for _, turn := range turns {
+		turn.cancel()
 	}
 
-	// Stop the session agent asynchronously.
-	if s.Agent != nil {
-		go s.Agent.Stop(5 * time.Second)
+	// WebSocket messages are handled serially. Waiting for the forwarding
+	// goroutines to release inFlight ensures a chat_send received immediately
+	// after chat_cancel starts a fresh turn instead of being stranded in the
+	// cancelled turn's pending queue.
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for _, turn := range turns {
+		select {
+		case <-turn.done:
+		case <-deadline.C:
+			s.logger.WarnContext(context.Background(), logger.CatApp, "session cancellation cleanup timed out",
+				"session_id", s.ID,
+				"active_turns", len(turns),
+			)
+			return nil
+		}
 	}
 
-	// Kill all L3 children if this is an L2 session.
-	if s.Supervisor != nil {
-		go s.Supervisor.ReapAll(5 * time.Second)
-	}
-
-	// Remove user prompt from context window.
-	s.mu.Lock()
-	s.cw.PopLast()
-	s.mu.Unlock()
-
-	s.logger.InfoContext(context.Background(), logger.CatApp, "session force-killed",
+	s.logger.InfoContext(context.Background(), logger.CatApp, "session task tree cancelled",
 		"session_id", s.ID,
+		"active_turns", len(turns),
 		"reason", reason,
 	)
+	return nil
 }
 
 // isCancelledAndReset checks if the forwarder exited due to cancellation.

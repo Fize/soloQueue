@@ -131,7 +131,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	lowerTrimmed := strings.ToLower(trimmed)
 	switch {
 	case lowerTrimmed == "/cancel":
-		sess.ForceKill("User requested cancellation")
+		_ = sess.CancelCurrent("User requested cancellation")
 		client.sendJSON(WSMessage{
 			Type:             "chat_done",
 			RequestID:        msg.RequestID,
@@ -279,14 +279,12 @@ func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 		RequestID: msg.RequestID,
 	})
 
-	// Force-kill the session (stops agent + all children immediately).
+	// Cancel the current request tree. The shared context reaches local child
+	// agents and cross-team delegations without stopping reusable sessions.
 	if h.mux != nil {
 		sess, err := h.resolveSession(msg.SessionID)
 		if err == nil {
-			sess.ForceKill("User cancelled")
-			// NOTE: forceKill closes the session goroutine's out channel,
-			// which causes forwardAgentEvents to receive its Done event.
-			// The active request is cleaned up by forwardAgentEvents' defer.
+			_ = sess.CancelCurrent("User cancelled")
 		}
 	}
 

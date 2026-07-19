@@ -54,17 +54,16 @@ func (b *channelAdapterBase) reapSupervisorChildren(tag string) {
 	}
 }
 
-// cancelAndRestart force-kills the session, stops the agent, and restarts it to idle.
-func (b *channelAdapterBase) cancelAndRestart(sess *Session, reason string) {
-	sess.ForceKill(reason)
-	_ = sess.Agent.Stop(5 * time.Second)
-	if err := sess.Agent.Start(context.Background()); err != nil {
-		b.log.WarnContext(context.Background(), logger.CatApp, "cancel: restart agent failed",
-			"session_id", sess.ID,
-			"err", err.Error(),
-		)
-	}
+// cancelCurrent cancels the current request tree while keeping the session and
+// its agents reusable. Reaping is defensive cleanup for delegated children
+// whose implementations fail to exit promptly after their context is cancelled.
+func (b *channelAdapterBase) cancelCurrent(sess *Session, reason string) error {
+	err := sess.CancelCurrent(reason)
 	b.reapSupervisorChildren("cancel")
+	if errors.Is(err, ErrNoActiveTask) {
+		return nil
+	}
+	return err
 }
 
 // compactAndReap compacts the session and reaps orphaned supervisor children.
@@ -232,8 +231,7 @@ func (a *SessionAskAdapter) CancelCurrent(reason string) error {
 	if sess == nil {
 		return errors.New("no active session")
 	}
-	a.cancelAndRestart(sess, reason)
-	return nil
+	return a.cancelCurrent(sess, reason)
 }
 
 // Clear implements channel.SessionProvider.Clear.
@@ -361,8 +359,7 @@ func (a *L2ChannelAdapter) CancelCurrent(reason string) error {
 	if err != nil {
 		return err
 	}
-	a.cancelAndRestart(sess, reason)
-	return nil
+	return a.cancelCurrent(sess, reason)
 }
 
 // Clear implements channel.SessionProvider.Clear.
