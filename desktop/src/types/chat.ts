@@ -32,6 +32,16 @@ export interface WSReasoningChunk {
   delta: string;
 }
 
+export interface WSChatRoute {
+  type: "chat_route";
+  request_id: string;
+  session_id: string;
+  task_level: string;
+  model_id: string;
+  provider_id?: string;
+  agent_instance_id?: string;
+}
+
 export interface WSToolStart {
   type: "tool_start";
   request_id: string;
@@ -112,6 +122,7 @@ export type WSMessage =
   | WSStateMessage
   | WSSimulationEventMessage
   | WSSimulationProgressMessage
+  | WSChatRoute
   | WSChatChunk
   | WSReasoningChunk
   | WSToolStart
@@ -172,6 +183,15 @@ export interface ChatSession {
   ctxwin_used?: number;
   ctxwin_limit?: number;
   plans?: string[];
+}
+
+export interface ChatRouteInfo {
+  requestId: string;
+  sessionId: string;
+  taskLevel: string;
+  modelId: string;
+  providerId?: string;
+  agentInstanceId?: string;
 }
 
 export interface ChatMessage {

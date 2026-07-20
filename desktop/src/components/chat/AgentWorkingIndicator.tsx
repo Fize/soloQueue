@@ -68,7 +68,7 @@ function AgentWorkingIndicatorInner({
   //   - ""         → processing but router hasn't classified yet
   //   - "L0"|"L1"… → known level / real model
   // Both fields share the same shape so the level + model chips render
-  // as a coherent pair (see useInputBadges coupling note).
+  // as a coherent pair from one request-scoped route result.
   const levelIsPending = taskLevel !== undefined && taskLevel === ''
   const modelNameIsPending = modelName !== undefined && modelName === ''
   const levelLabel = taskLevel && taskLevel.length > 0 ? taskLevel.split('-')[0] : null
@@ -135,7 +135,7 @@ function AgentWorkingIndicatorInner({
 
 /**
  * Memoized: the only props that change during a single in-flight task are
- * `modelName` / `taskLevel` (via useInputBadges' sticky ref); other props
+ * `modelName` / `taskLevel` (via the request-scoped route state); other props
  * are stable for the lifetime of the working state. Wrapping in memo
  * keeps the bottom-of-stream indicator from re-rendering on every
  * chat_chunk.

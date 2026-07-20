@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ChatSession, ChatMessage, ChatSegment } from '@/types'
+import type { ChatSession, ChatMessage, ChatSegment, ChatRouteInfo } from '@/types'
 import { listSessions, createL2Session, deleteL2Session, fetchSessionHistory, rewindSession as apiRewindSession, deleteSessionMessages as apiDeleteSessionMessages } from '@/lib/api'
 import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
 
@@ -10,6 +10,7 @@ interface ChatState {
   streamingSessions: Record<string, boolean>
   systemCommandSessions: Record<string, boolean> // keyed by session id, true while a built-in system slash command (/clear, /compact, /cancel, /help, /version) is being executed. Used to suppress the L0–L3 / model chips in the working indicator, since those commands don't run a routed task.
   delegatingSessions: Record<string, boolean> // keyed by session id, true when async delegation is in progress (L1 waiting for L2)
+  routeSessions: Record<string, ChatRouteInfo | undefined>
   titleGenerated: Record<string, boolean> // track which sessions already had title generated
   historyLoading: Record<string, boolean> // track which sessions are loading history
   historyHasMore: Record<string, boolean> // track which sessions have more history to load
@@ -41,6 +42,8 @@ interface ChatState {
   setStreaming: (v: boolean, sessionId?: string | null) => void
   setSystemCommandRunning: (v: boolean, sessionId?: string | null) => void
   setDelegating: (v: boolean, sessionId?: string | null) => void
+  setRoute: (route: ChatRouteInfo) => void
+  clearRoute: (sessionId: string, requestId: string) => void
   removeLastEmptyAssistantMessage: (sessionId: string) => void
   addDelegationSegment: (sessionId: string, delegation: { agentName: string; task: string }) => void
   completeLastDelegation: (sessionId: string, agentName: string, durationMs?: number, resultContent?: string) => void
@@ -65,6 +68,7 @@ export const useChatStore = create<ChatState>((set) => ({
   streamingSessions: {},
   systemCommandSessions: {},
   delegatingSessions: {},
+  routeSessions: {},
   titleGenerated: {},
   historyLoading: {},
   historyHasMore: {},
@@ -146,6 +150,7 @@ export const useChatStore = create<ChatState>((set) => ({
         const { [id]: _loading, ...restLoading } = s.historyLoading
         const { [id]: _more, ...restHasMore } = s.historyHasMore
         const { [id]: _cursor, ...restCursor } = s.historyCursor
+        const { [id]: _route, ...restRoutes } = s.routeSessions
         return {
           sessions: s.sessions.filter((sess) => sess.id !== id),
           activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
@@ -154,6 +159,7 @@ export const useChatStore = create<ChatState>((set) => ({
           historyLoading: restLoading,
           historyHasMore: restHasMore,
           historyCursor: restCursor,
+          routeSessions: restRoutes,
         }
       })
     } catch {
@@ -468,6 +474,26 @@ export const useChatStore = create<ChatState>((set) => ({
           [id]: v,
         },
       }
+    }),
+  setRoute: (route: ChatRouteInfo) =>
+    set((s) => ({
+      routeSessions: {
+        ...s.routeSessions,
+        [route.sessionId]: route,
+      },
+      sessions: route.agentInstanceId
+        ? s.sessions.map((session) =>
+            session.id === route.sessionId && session.agent_instance_id !== route.agentInstanceId
+              ? { ...session, agent_instance_id: route.agentInstanceId }
+              : session
+          )
+        : s.sessions,
+    })),
+  clearRoute: (sessionId: string, requestId: string) =>
+    set((s) => {
+      if (s.routeSessions[sessionId]?.requestId !== requestId) return s
+      const { [sessionId]: _route, ...routeSessions } = s.routeSessions
+      return { routeSessions }
     }),
 
   removeLastEmptyAssistantMessage: (sessionId: string) => {

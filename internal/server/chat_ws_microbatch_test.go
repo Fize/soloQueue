@@ -8,7 +8,45 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/session"
 )
+
+func TestBuildChatRouteMessageUsesEffectivePerAskRoute(t *testing.T) {
+	a := agent.NewAgent(agent.Definition{
+		ID:         "leader",
+		ModelID:    "fallback-model",
+		ProviderID: "fallback-provider",
+	}, &agent.FakeLLM{}, nil)
+	a.SetModelOverride(&agent.ModelParams{
+		Level:      "L2-MediumMultiFile",
+		ModelID:    "routed-model",
+		ProviderID: "routed-provider",
+	})
+
+	msg := buildChatRouteMessage(&session.Session{Agent: a}, "req-1", "l2:s1")
+	if msg.Type != "chat_route" || msg.RequestID != "req-1" || msg.SessionID != "l2:s1" {
+		t.Fatalf("unexpected envelope: %#v", msg)
+	}
+	if msg.TaskLevel != "L2-MediumMultiFile" || msg.ModelID != "routed-model" || msg.ProviderID != "routed-provider" {
+		t.Fatalf("unexpected route metadata: %#v", msg)
+	}
+	if msg.AgentInstanceID != a.InstanceID {
+		t.Fatalf("agent_instance_id = %q, want %q", msg.AgentInstanceID, a.InstanceID)
+	}
+}
+
+func TestBuildChatRouteMessageFallsBackToDefinitionModel(t *testing.T) {
+	a := agent.NewAgent(agent.Definition{
+		ID:         "leader",
+		ModelID:    "fallback-model",
+		ProviderID: "fallback-provider",
+	}, &agent.FakeLLM{}, nil)
+
+	msg := buildChatRouteMessage(&session.Session{Agent: a}, "req-1", "l1")
+	if msg.ModelID != "fallback-model" || msg.ProviderID != "fallback-provider" {
+		t.Fatalf("unexpected fallback route metadata: %#v", msg)
+	}
+}
 
 // TestForwardAgentEvents_BatchesContentDeltas verifies that a burst of
 // ContentDeltaEvents arriving within streamBatchInterval is collapsed into a

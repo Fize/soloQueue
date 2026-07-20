@@ -37,22 +37,26 @@ type WSMessage struct {
 	Progress *simulation.SimulationProgress `json:"progress,omitempty"`
 
 	// Chat streaming fields.
-	RequestID        string `json:"request_id,omitempty"`
-	SessionID        string `json:"session_id,omitempty"`
-	Delta            string `json:"delta,omitempty"`
-	CallID           string `json:"call_id,omitempty"`
-	Name             string `json:"name,omitempty"`
-	Args             string `json:"args,omitempty"`
-	Result           string `json:"result,omitempty"`
-	Error            string `json:"error,omitempty"`
-	DurationMS       int64  `json:"duration_ms,omitempty"`
-	Content          string `json:"content,omitempty"`
-	ReasoningContent string `json:"reasoning_content,omitempty"`
-	Prompt           string `json:"prompt,omitempty"`
-	AllowInSession   bool   `json:"allow_in_session,omitempty"`
-	TargetAgentID    string `json:"target_agent_id,omitempty"`
-	AgentName        string `json:"agent_name,omitempty"`
-	ResultContent    string `json:"result_content,omitempty"`
+	RequestID        string           `json:"request_id,omitempty"`
+	SessionID        string           `json:"session_id,omitempty"`
+	TaskLevel        string           `json:"task_level,omitempty"`
+	ModelID          string           `json:"model_id,omitempty"`
+	ProviderID       string           `json:"provider_id,omitempty"`
+	AgentInstanceID  string           `json:"agent_instance_id,omitempty"`
+	Delta            string           `json:"delta,omitempty"`
+	CallID           string           `json:"call_id,omitempty"`
+	Name             string           `json:"name,omitempty"`
+	Args             string           `json:"args,omitempty"`
+	Result           string           `json:"result,omitempty"`
+	Error            string           `json:"error,omitempty"`
+	DurationMS       int64            `json:"duration_ms,omitempty"`
+	Content          string           `json:"content,omitempty"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	Prompt           string           `json:"prompt,omitempty"`
+	AllowInSession   bool             `json:"allow_in_session,omitempty"`
+	TargetAgentID    string           `json:"target_agent_id,omitempty"`
+	AgentName        string           `json:"agent_name,omitempty"`
+	ResultContent    string           `json:"result_content,omitempty"`
 	NumTasks         int              `json:"num_tasks,omitempty"`
 	Plans            []string         `json:"plans,omitempty"`
 	CronTasks        []CronTaskStatus `json:"cron_tasks,omitempty"`
@@ -100,14 +104,14 @@ type wsNotify struct{}
 
 // Hub manages WebSocket client connections and broadcasts state updates.
 type Hub struct {
-	mu        sync.RWMutex
-	clients   map[*Client]bool
-	broadcast chan *WSMessage
-	register  chan *Client
+	mu         sync.RWMutex
+	clients    map[*Client]bool
+	broadcast  chan *WSMessage
+	register   chan *Client
 	unregister chan *Client
-	notify    chan wsNotify     // external signal: data changed
-	mux       *Mux             // read-only access to runtime/agent data
-	done      chan struct{}
+	notify     chan wsNotify // external signal: data changed
+	mux        *Mux          // read-only access to runtime/agent data
+	done       chan struct{}
 }
 
 // NewHub creates a new Hub. The Hub is not started until Run is called.

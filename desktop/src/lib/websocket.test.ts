@@ -142,4 +142,25 @@ describe('websocket', () => {
       expect(handler).toHaveBeenCalledWith('connected')
     })
   })
+
+  it('routes chat_route metadata to the matching request handler', async () => {
+    const onRoute = vi.fn()
+    wsManager.registerChat('req-route', { onRoute })
+    await wsManager.connect()
+    simulateOpen()
+
+    const route = {
+      type: 'chat_route',
+      request_id: 'req-route',
+      session_id: 'l2:s1',
+      task_level: 'L2-MediumMultiFile',
+      model_id: 'routed-model',
+      provider_id: 'provider',
+      agent_instance_id: 'agent-instance',
+    }
+    simulateMessage(route)
+
+    expect(onRoute).toHaveBeenCalledWith(route)
+    wsManager.unregisterChat('req-route')
+  })
 })

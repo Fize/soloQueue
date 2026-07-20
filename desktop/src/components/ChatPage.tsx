@@ -24,7 +24,6 @@ import { useConnectionStore } from "@/stores/connectionStore";
 import { cn } from "@/lib/utils";
 import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment } from "@/types";
 import { useResizablePanes } from "@/hooks/useResizablePanes";
-import { useInputBadges } from "@/hooks/useInputBadges";
 import { SessionInspectorPanel } from "./chat/SessionInspectorPanel";
 import type { PreviewCommentSnapshot } from "@/types/annotation";
 import { 
@@ -50,6 +49,7 @@ export function ChatPage() {
   const streamingSessions = useChatStore(useShallow((s) => s.streamingSessions))
   const systemCommandSessions = useChatStore(useShallow((s) => s.systemCommandSessions))
   const delegatingSessions = useChatStore(useShallow((s) => s.delegatingSessions))
+  const routeSessions = useChatStore(useShallow((s) => s.routeSessions))
   const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false
   const isSystemCommandRunning = activeSessionId ? (systemCommandSessions[activeSessionId] ?? false) : false
   const sessions = useChatStore(useShallow((s) => s.sessions))
@@ -328,13 +328,11 @@ export function ChatPage() {
       };
       return live || placeholder;
     });
-  }, [agentsData, teamsData, activeGroup, isL1Session]);
+  }, [agentsData, teamsData, activeGroup, isL1Session, activeSession?.agent_instance_id]);
 
   const activeAgent = useMemo(() => {
     return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null;
   }, [groupAgents]);
-
-  const isAgentProcessing = activeAgent?.state === "processing";
 
   const agentDisplayName = useMemo(() => {
     if (isL1Session) return "L1 Agent";
@@ -424,19 +422,11 @@ export function ChatPage() {
     return undefined;
   }, [finalMessages]);
 
-  // Hide model and task-level badges when agent is not actively processing.
-  // L2 reads the routed model from `agent.model_id` directly: the backend's
-  // EffectiveModelID() already returns the override's ModelID when the
-  // router has classified, or the template-pinned model for explicit-model
-  // agents, or "" when the router hasn't decided yet (handled by
-  // useInputBadges' level coupling).
-  const { modelName: inputModelName, taskLevel: inputTaskLevel } = useInputBadges(
-    activeAgent,
-    (isAgentProcessing || streaming || delegating) && !isSystemCommandRunning,
-    (_taskLevel, agent, lastModel) => {
-      return agent?.model_id || lastModel || ""
-    },
-  );
+  const requestActive = (streaming || delegating) && !isSystemCommandRunning;
+  const activeRoute = activeSessionId ? routeSessions[activeSessionId] : undefined;
+  const routeResolved = !!activeRoute?.taskLevel && !!activeRoute?.modelId;
+  const inputModelName = requestActive ? (routeResolved ? activeRoute.modelId : "") : undefined;
+  const inputTaskLevel = requestActive ? (routeResolved ? activeRoute.taskLevel : "") : undefined;
 
   const handleSend = async (
     text: string,
@@ -943,7 +933,7 @@ export function ChatPage() {
                         agent is actively processing. Mounted at the very
                         end of the stream so it tracks the latest message
                         and stays anchored when auto-scrolling. */}
-                    {(isAgentProcessing || streaming || delegating) && (
+                    {requestActive && (
                       <AgentWorkingIndicator
                         agentName={agentDisplayName}
                         modelName={inputModelName}

@@ -18,6 +18,7 @@ beforeEach(() => {
     messages: {},
     streamingSessions: {},
     delegatingSessions: {},
+    routeSessions: {},
     titleGenerated: {},
     historyLoading: {},
     historyHasMore: {},
@@ -28,6 +29,29 @@ beforeEach(() => {
 })
 
 describe('chatStore', () => {
+  it('stores route metadata atomically and clears only the matching request', () => {
+    useChatStore.setState({
+      sessions: [{ id: 'l2:s1', type: 'l2', name: '', createdAt: '' }],
+    })
+    const route = {
+      requestId: 'req-new',
+      sessionId: 'l2:s1',
+      taskLevel: 'L2-MediumMultiFile',
+      modelId: 'routed-model',
+      agentInstanceId: 'agent-instance',
+    }
+
+    useChatStore.getState().setRoute(route)
+    expect(useChatStore.getState().routeSessions['l2:s1']).toEqual(route)
+    expect(useChatStore.getState().sessions[0].agent_instance_id).toBe('agent-instance')
+
+    useChatStore.getState().clearRoute('l2:s1', 'req-old')
+    expect(useChatStore.getState().routeSessions['l2:s1']).toEqual(route)
+
+    useChatStore.getState().clearRoute('l2:s1', 'req-new')
+    expect(useChatStore.getState().routeSessions['l2:s1']).toBeUndefined()
+  })
+
   it('updateToolCallResult updates tool call segment done state in any assistant message', () => {
     const sid = 'session-1'
     useChatStore.setState({
@@ -133,7 +157,10 @@ describe('chatStore', () => {
     // Resolve after a tick so we can observe the in-flight state.
     let resolveList!: (v: { sessions: any[] }) => void
     vi.mocked(listSessions).mockImplementationOnce(
-      () => new Promise((res) => { resolveList = res }) as any
+      () =>
+        new Promise((res) => {
+          resolveList = res
+        }) as any
     )
 
     const promise = useChatStore.getState().loadSessions()
@@ -151,7 +178,10 @@ describe('chatStore', () => {
     // inspect `mock.calls.length` (vitest's own bookkeeping) to assert
     // dedup, since `mockResolvedValueOnce` does NOT trigger our side effect.
     vi.mocked(listSessions).mockImplementation(
-      () => new Promise((res) => { resolveList = res }) as any
+      () =>
+        new Promise((res) => {
+          resolveList = res
+        }) as any
     )
 
     // Fire three calls back-to-back — only the first should hit the network.

@@ -268,8 +268,36 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		return
 	}
 
+	// Routing is complete before AskStream returns. Send its request-scoped
+	// result before any reasoning/content/tool event can be forwarded.
+	if !client.sendJSON(buildChatRouteMessage(sess, msg.RequestID, msg.SessionID)) {
+		reqCancel()
+		client.removeActiveRequest(msg.RequestID)
+		return
+	}
+
 	// Consume agent events and forward to client.
 	go h.forwardAgentEvents(client, msg.RequestID, reqCancel, ch, msg.SessionID, msg.Prompt)
+}
+
+func buildChatRouteMessage(sess *session.Session, requestID, sessionID string) WSMessage {
+	modelID := sess.Agent.EffectiveModelID()
+	if modelID == "" {
+		modelID = sess.Agent.Def.ModelID
+	}
+	providerID := sess.Agent.EffectiveProviderID()
+	if providerID == "" {
+		providerID = sess.Agent.Def.ProviderID
+	}
+	return WSMessage{
+		Type:            "chat_route",
+		RequestID:       requestID,
+		SessionID:       sessionID,
+		TaskLevel:       sess.Agent.EffectiveTaskLevel(),
+		ModelID:         modelID,
+		ProviderID:      providerID,
+		AgentInstanceID: sess.Agent.InstanceID,
+	}
 }
 
 func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {

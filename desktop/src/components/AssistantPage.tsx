@@ -6,7 +6,6 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useAgentStream } from "@/hooks/useAgentStream";
-import { useInputBadges } from "@/hooks/useInputBadges";
 import { useAgentStore } from "@/stores/agentStore";
 import { useRuntimeStore } from "@/stores/runtimeStore";
 import { cn } from "@/lib/utils";
@@ -21,6 +20,7 @@ export function AssistantPage() {
     streamingSessions,
     systemCommandSessions,
     delegatingSessions,
+    routeSessions,
     historyHasMore,
     historyLoading,
     loadMoreHistory,
@@ -85,7 +85,6 @@ export function AssistantPage() {
   }, [agentsData]);
   const l1AgentState = l1Agent?.state;
   const l1AgentInstanceId = l1Agent?.instance_id || null;
-  const isL1Processing = l1AgentState === "processing";
   const stream = useAgentStream(l1AgentInstanceId);
 
   const filteredSkillNames = useMemo(() => {
@@ -292,12 +291,11 @@ export function AssistantPage() {
 
   const isHistoryLoading = historyLoading["l1"] ?? false;
 
-  // Hide model badge when agent is not actively processing.
-  // L1 uses the agent's model_id directly (no level→role mapping).
-  const { modelName: inputModelName } = useInputBadges(
-    l1Agent,
-    (isL1Processing || streaming || delegating) && !isSystemCommandRunning,
-  );
+  const requestActive = (streaming || delegating) && !isSystemCommandRunning;
+  const activeRoute = routeSessions["l1"];
+  const routeResolved = !!activeRoute?.taskLevel && !!activeRoute?.modelId;
+  const inputModelName = requestActive ? (routeResolved ? activeRoute.modelId : "") : undefined;
+  const inputTaskLevel = requestActive ? (routeResolved ? activeRoute.taskLevel : "") : undefined;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -365,12 +363,12 @@ export function AssistantPage() {
               ))}
             </div>
           )}
-          {(isL1Processing || streaming || delegating) && (
+          {requestActive && (
             <div className="mx-auto max-w-3xl px-4 w-full">
               <AgentWorkingIndicator
                 agentName={agentName}
                 modelName={inputModelName}
-                taskLevel={undefined}
+                taskLevel={inputTaskLevel}
                 delegating={delegating}
                 compact={false}
               />

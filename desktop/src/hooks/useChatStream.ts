@@ -39,6 +39,8 @@ export function useChatStream() {
     markTitleGenerated,
     completeLastDelegation,
     setDelegating,
+    setRoute,
+    clearRoute,
   } = useChatStore()
 
   const send = useCallback(
@@ -99,6 +101,12 @@ export function useChatStream() {
 
       const requestId = generateRequestId()
       activeRequestIdRef.current = requestId
+      setRoute({
+        requestId,
+        sessionId: sid,
+        taskLevel: '',
+        modelId: '',
+      })
 
       // Add empty assistant message placeholder.
       const asstId = `msg-${Date.now() + 1}`
@@ -125,11 +133,22 @@ export function useChatStream() {
         setStreaming(false, sid)
         setSystemCommandRunning(false, sid)
         setDelegating(false, sid)
+        clearRoute(sid, requestId)
         activeRequestIdRef.current = null
         wsManager.unregisterChat(requestId)
       }
 
       const handler: ChatHandler = {
+        onRoute: (data) => {
+          setRoute({
+            requestId: data.request_id,
+            sessionId: data.session_id,
+            taskLevel: data.task_level,
+            modelId: data.model_id,
+            providerId: data.provider_id,
+            agentInstanceId: data.agent_instance_id,
+          })
+        },
         onChunk: (delta) => {
           if (isCompact) {
             appendToLastAssistantCompact(sid, delta)
@@ -238,6 +257,8 @@ export function useChatStream() {
       markTitleGenerated,
       completeLastDelegation,
       setDelegating,
+      setRoute,
+      clearRoute,
     ]
   )
 
@@ -252,6 +273,7 @@ export function useChatStream() {
     store.setStreaming(false, sid)
     store.setDelegating(false, sid)
     store.setSystemCommandRunning(false, sid)
+    store.clearRoute(sid, requestId)
     activeRequestIdRef.current = null
     // Unregister the chat handler to prevent buffered WS chunks from
     // appending to messages after the cancel has been initiated.

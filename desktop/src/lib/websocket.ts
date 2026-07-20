@@ -15,6 +15,14 @@ import { request } from '@/lib/api/core'
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
 
 export interface ChatHandler {
+  onRoute?: (data: {
+    request_id: string
+    session_id: string
+    task_level: string
+    model_id: string
+    provider_id?: string
+    agent_instance_id?: string
+  }) => void
   onChunk?: (delta: string) => void
   onReasoning?: (delta: string) => void
   onToolStart?: (data: { call_id: string; name: string; args: string; target_agent_id?: string }) => void
@@ -225,6 +233,11 @@ class WebSocketManager {
   private dispatch(msg: WSMessage) {
     // Chat streaming messages — route to request handler.
     switch (msg.type) {
+      case 'chat_route': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onRoute?.(msg)
+        return
+      }
       case 'chat_chunk': {
         const h = this.chatHandlers.get(msg.request_id)
         h?.onChunk?.(msg.delta)
