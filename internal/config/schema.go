@@ -45,6 +45,15 @@ type SimulationConfig struct {
 	Language         string `json:"language" yaml:"language,omitempty"`
 }
 
+// ─── Speech ───────────────────────────────────────────────────────────────
+
+// SpeechConfig controls local speech-to-text via whisper.cpp.
+type SpeechConfig struct {
+	Enabled  bool   `json:"enabled" yaml:"enabled,omitempty"`
+	Model    string `json:"model"   yaml:"model,omitempty"`    // tiny / base / small / medium
+	ModelDir string `json:"modelDir" yaml:"model_dir,omitempty"` // "" = ~/.soloqueue/models
+}
+
 // ─── Top-level Settings ───────────────────────────────────────────────────────
 
 // Settings is the complete structure for global configuration
@@ -67,6 +76,7 @@ type Settings struct {
 	Agent         AgentConfig         `json:"agent" yaml:"agent,omitempty"`
 	LSPMCP        LSPMCPConfig        `json:"lspmcp" yaml:"lspmcp,omitempty"`
 	Simulation    SimulationConfig    `json:"simulation" yaml:"simulation,omitempty"`
+	Speech        SpeechConfig        `json:"speech" yaml:"speech,omitempty"`
 }
 
 // UnmarshalYAML accepts the former weixin_bots key for one compatibility
@@ -411,6 +421,7 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"lspmcp", "Built-in LSP-based MCP servers", s.LSPMCP},
 		{"tools", "Tool execution limits", s.Tools},
 		{"simulation", "Simulation engine defaults", s.Simulation},
+		{"speech", "Local speech-to-text via whisper.cpp", s.Speech},
 		{"agent", "MCP server whitelists: nil/omitted = load all; [] = load none", s.Agent},
 	}
 

@@ -26,6 +26,16 @@ type CronTaskStatus struct {
 	IsOneTime   bool    `json:"is_one_time"`
 }
 
+// NotificationPayload is the unified payload for desktop notifications.
+// Any backend module can push a notification by calling Hub.SendNotification.
+type NotificationPayload struct {
+	Category  string `json:"category"`  // "cron", "system", "agent", ...
+	Level     string `json:"level"`     // "info" | "success" | "warning" | "error"
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	Timestamp string `json:"timestamp"` // ISO8601
+}
+
 // WSMessage is the envelope for all WebSocket messages sent to clients.
 type WSMessage struct {
 	Type string `json:"type"`
@@ -58,8 +68,9 @@ type WSMessage struct {
 	AgentName        string           `json:"agent_name,omitempty"`
 	ResultContent    string           `json:"result_content,omitempty"`
 	NumTasks         int              `json:"num_tasks,omitempty"`
-	Plans            []string         `json:"plans,omitempty"`
-	CronTasks        []CronTaskStatus `json:"cron_tasks,omitempty"`
+	Plans            []string             `json:"plans,omitempty"`
+	CronTasks        []CronTaskStatus     `json:"cron_tasks,omitempty"`
+	Notification     *NotificationPayload `json:"notification,omitempty"`
 }
 
 type ClientMessage struct {
@@ -256,6 +267,28 @@ func (h *Hub) Notify() {
 	case h.notify <- wsNotify{}:
 	default:
 	}
+}
+
+// BroadcastMessage sends an arbitrary WSMessage to all connected clients.
+func (h *Hub) BroadcastMessage(msg *WSMessage) {
+	select {
+	case h.broadcast <- msg:
+	default:
+	}
+}
+
+// SendNotification pushes a desktop notification to all connected clients.
+func (h *Hub) SendNotification(category, level, title, body string) {
+	h.BroadcastMessage(&WSMessage{
+		Type: "notification",
+		Notification: &NotificationPayload{
+			Category:  category,
+			Level:     level,
+			Title:     title,
+			Body:      body,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		},
+	})
 }
 
 // Close stops the Hub and closes all client connections.

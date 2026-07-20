@@ -15,6 +15,8 @@ import type {
   CronTask,
   CreateCronTaskRequest,
   UpdateCronTaskRequest,
+  CronExecutionRecord,
+  CronHistoryDetail,
 } from "@/types";
 import { request } from "./core";
 
@@ -193,4 +195,24 @@ export async function updateCronTask(
 
 export async function deleteCronTask(id: string): Promise<void> {
   await request(`/cron/${id}`, { method: "DELETE" });
+}
+
+// ─── Cron Execution History APIs ────────────────────────────────────────────
+
+export async function listCronHistory(
+  taskId: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<CronExecutionRecord[]> {
+  const params = new URLSearchParams();
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  if (opts?.offset) params.set("offset", String(opts.offset));
+  const qs = params.toString();
+  return request<CronExecutionRecord[]>(`/cron/${taskId}/history${qs ? `?${qs}` : ""}`);
+}
+
+export async function getCronHistory(
+  taskId: string,
+  execId: string,
+): Promise<CronHistoryDetail> {
+  return request<CronHistoryDetail>(`/cron/${taskId}/history/${execId}`);
 }

@@ -7,7 +7,7 @@ import (
 
 func TestDefaultIntents(t *testing.T) {
 	got := DefaultIntents()
-	want := IntentGroupAndC2CEvent | IntentPublicGuildMessages
+	want := IntentGroupAndC2CEvent | IntentPublicGuildMessages | IntentAudioAction
 	if got != want {
 		t.Errorf("DefaultIntents() = %d, want %d", got, want)
 	}

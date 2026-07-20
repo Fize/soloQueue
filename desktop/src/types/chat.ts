@@ -118,6 +118,21 @@ export interface WSSessionPlans {
   plans: string[];
 }
 
+// ─── Desktop Notification ────────────────────────────────────────────────────
+
+export interface NotificationPayload {
+  category: string;   // "cron", "system", "agent", ...
+  level:    "info" | "success" | "warning" | "error";
+  title:    string;
+  body:     string;
+  timestamp: string;  // ISO8601
+}
+
+export interface WSNotificationMessage {
+  type: "notification";
+  notification: NotificationPayload;
+}
+
 export type WSMessage =
   | WSStateMessage
   | WSSimulationEventMessage
@@ -135,7 +150,8 @@ export type WSMessage =
   | WSSessionName
   | WSSessionPlans
   | WSConnected
-  | WSPong;
+  | WSPong
+  | WSNotificationMessage;
 
 // Client → server messages
 export interface ClientChatSend {

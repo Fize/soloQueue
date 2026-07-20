@@ -36,9 +36,9 @@ const (
 )
 
 // DefaultIntents returns the recommended intents for a typical bot:
-// GROUP_AND_C2C_EVENT + PUBLIC_GUILD_MESSAGES
+// GROUP_AND_C2C_EVENT + PUBLIC_GUILD_MESSAGES + AUDIO_ACTION
 func DefaultIntents() int {
-	return IntentGroupAndC2CEvent | IntentPublicGuildMessages
+	return IntentGroupAndC2CEvent | IntentPublicGuildMessages | IntentAudioAction
 }
 
 // ─── Gateway Payload ─────────────────────────────────────────────────────────
@@ -121,6 +121,16 @@ func ImageURLs(atts []QQAttachment) []string {
 	return urls
 }
 
+// AudioURL returns the first audio attachment URL, or empty string.
+func AudioURL(atts []QQAttachment) string {
+	for _, a := range atts {
+		if strings.Contains(a.ContentType, "audio") && a.URL != "" {
+			return a.URL
+		}
+	}
+	return ""
+}
+
 // QQFile represents a file attachment (document, text file, etc.).
 type QQFile struct {
 	URL         string
@@ -149,6 +159,7 @@ const (
 	EventGroupAtMessageCreate  = "GROUP_AT_MESSAGE_CREATE"
 	EventDirectMessageCreate   = "DIRECT_MESSAGE_CREATE"
 	EventPublicAtMessageCreate = "AT_MESSAGE_CREATE" // public guild message
+	EventAudioMessageCreate    = "AUDIO_MESSAGE_CREATE"
 	EventReady                 = "READY"
 	EventResumed               = "RESUMED"
 )
@@ -208,6 +219,16 @@ type PublicAtMessageEvent struct {
 	SeqInChat   int            `json:"seq_in_chat,omitempty"`
 }
 
+// AudioMessageEvent represents an audio/voice message event.
+type AudioMessageEvent struct {
+	ID     string `json:"id"`
+	Author struct {
+		UserOpenid string `json:"user_openid"`
+	} `json:"author"`
+	Attachments []QQAttachment `json:"attachments,omitempty"`
+	Timestamp   string         `json:"timestamp"`
+}
+
 // ─── Unified QQMessage ───────────────────────────────────────────────────────
 
 // MessageSource indicates where a QQ message originated.
@@ -228,6 +249,7 @@ type QQMessage struct {
 	Content      string   // user message text
 	ImageURLs    []string // attachment image URLs
 	Files        []QQFile // attachment files
+	AudioURL     string   // voice attachment URL (AUDIO_MESSAGE_CREATE events)
 	OpenID       string   // user openid (C2C/group member)
 	TargetOpenID string   // target openid for reply: user openid (C2C) or group openid (group)
 	ChatID       string   // group_openid / channel_id / user_openid depending on source

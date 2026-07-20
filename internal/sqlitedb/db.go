@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 6
+const schemaVersion = 7
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -257,6 +257,25 @@ CREATE TABLE IF NOT EXISTS classifier_decisions (
 	prior_level TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_classifier_decisions_ts ON classifier_decisions(timestamp);
+
+-- cron_execution_history
+CREATE TABLE IF NOT EXISTS cron_execution_history (
+	id TEXT PRIMARY KEY,
+	task_id TEXT NOT NULL,
+	executed_at TEXT NOT NULL,
+	completed_at TEXT NOT NULL,
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'success' CHECK(status IN ('success','failed','panic')),
+	result_summary TEXT NOT NULL DEFAULT '',
+	error_message TEXT NOT NULL DEFAULT '',
+	task_level TEXT NOT NULL DEFAULT '',
+	target_agent TEXT NOT NULL DEFAULT '',
+	model_id TEXT NOT NULL DEFAULT '',
+	provider_id TEXT NOT NULL DEFAULT '',
+	timeline_dir TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_cron_history_task_id ON cron_execution_history(task_id);
+CREATE INDEX IF NOT EXISTS idx_cron_history_executed_at ON cron_execution_history(executed_at);
 `
 
 // migrate applies the schema snapshot on every startup.

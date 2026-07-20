@@ -457,6 +457,8 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Route("/{id}", func(r chi.Router) {
 			r.Put("/", m.handleUpdateCronTask)
 			r.Delete("/", m.handleDeleteCronTask)
+			r.Get("/history", m.handleListCronHistory)
+			r.Get("/history/{execID}", m.handleGetCronHistory)
 		})
 	})
 

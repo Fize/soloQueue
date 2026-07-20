@@ -7,16 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
 
 	robfig "github.com/robfig/cron/v3"
+	"github.com/google/uuid"
 
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
 // Session defines the interface required by the Scheduler to trigger tasks.
@@ -98,12 +101,18 @@ type pendingResult struct {
 	completed  time.Time
 }
 
+// CronDoneCallback is called when a cron task execution completes.
+// taskID and taskTitle identify the task; success indicates the result;
+// summary is a brief human-readable description (first line of reply or error).
+type CronDoneCallback func(taskID, taskTitle string, success bool, summary string)
+
 // Scheduler manages executing scheduled tasks (both cron and timer-based) in the background.
 type Scheduler struct {
 	dbStore    *DBStore
 	sessionMgr SessionManager
 	logger     *logger.Logger
 	cron       *robfig.Cron
+	workDir    string // base directory for cron log storage
 
 	// Memory engine for recall enrichment of cron prompts
 	memoryEngine    interface{}
@@ -129,11 +138,20 @@ type Scheduler struct {
 	channelRegistry *channel.Registry
 	// agentChannelResolver resolves agent channel bindings.
 	agentChannelResolver AgentChannelResolver
+
+	// OnTaskComplete is called when a cron task finishes execution.
+	// Set from the server layer to integrate with WebSocket notifications.
+	OnTaskComplete CronDoneCallback
 }
 
 // SetModelResolver configures per-run task-level model selection.
 func (s *Scheduler) SetModelResolver(resolver ModelResolver) {
 	s.modelResolver = resolver
+}
+
+// SetWorkDir configures the base directory for cron execution logs.
+func (s *Scheduler) SetWorkDir(dir string) {
+	s.workDir = dir
 }
 
 // SetChannelRegistry sets the channel registry for notification routing.
@@ -329,11 +347,13 @@ func (s *Scheduler) executeL1Task(t Task) {
 		return
 	}
 
-	// Panic recovery: catch panic, log, return to 'active' for retry.
+	// Panic recovery: catch panic, log, record history, return to 'active' for retry.
 	defer func() {
 		if panicValue := recover(); panicValue != nil {
 			s.logger.Error(logger.CatApp, "cron: L1 task execution panicked", "task_id", t.ID, "panic", panicValue)
 			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+			s.recordExecution(ctx, t, ResolvedModel{}, time.Now(), drainEventsResult{},
+				fmt.Sprintf("panic: %v", panicValue), "panic")
 		}
 	}()
 
@@ -358,6 +378,28 @@ func (s *Scheduler) executeL1Task(t Task) {
 	s.runL1Task(ctx, t, l1Session)
 }
 
+// notifyTaskComplete is a helper that calls OnTaskComplete if set, extracting
+// a short summary from the reply text or error message.
+func (s *Scheduler) notifyTaskComplete(t Task, success bool, summary string) {
+	if s.OnTaskComplete == nil {
+		return
+	}
+	s.OnTaskComplete(t.ID, t.Title, success, summary)
+}
+
+// firstLineSummary returns at most the first line of s, truncated to ~100 runes.
+func firstLineSummary(s string) string {
+	if s == "" {
+		return ""
+	}
+	line, _, _ := strings.Cut(s, "\n")
+	// Truncate to ~100 characters.
+	if len(line) > 100 {
+		line = line[:100] + "..."
+	}
+	return line
+}
+
 // runL1Task executes a single L1 task on the given session.
 func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	start := time.Now()
@@ -370,12 +412,13 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	hasChannels := s.agentChannelResolver != nil &&
 		func() bool { _, _, ok := s.agentChannelResolver.GetChannels(t.TargetAgent); return ok }()
 
+	var resolved ResolvedModel
 	var ch <-chan iface.AgentEvent
 	var err error
 	if hasChannels {
-		ch, err = s.askWithTaskModelStream(cronCtx, t, l1Session)
+		resolved, ch, err = s.askWithTaskModelStream(cronCtx, t, l1Session)
 	} else {
-		ch, err = s.askWithTaskModel(cronCtx, t, l1Session)
+		resolved, ch, err = s.askWithTaskModel(cronCtx, t, l1Session)
 	}
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
@@ -384,19 +427,35 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 		} else {
 			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		}
+		s.recordExecution(ctx, t, resolved, start, drainEventsResult{}, err.Error(), "failed")
+		s.notifyTaskComplete(t, false, err.Error())
 		return
 	}
 
-	_, mediaFiles := drainEvents(ch)
+	result, drainErr := s.drainEventsWithTimeline(ch, t, uuid.New().String())
 	duration := time.Since(start)
 	s.logger.Info(logger.CatApp, "cron: L1 task completed", "task_id", t.ID, "duration_ms", duration.Milliseconds())
+
+	// Record execution history.
+	status := "success"
+	errMsg := ""
+	if drainErr != nil {
+		status = "failed"
+		errMsg = drainErr.Error()
+	}
+	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
+	s.notifyTaskComplete(t, status == "success", firstLineSummary(result.replyText))
 
 	// Only route notification explicitly when using isolated execution.
 	// When using AskStream the bridge already handles delivery.
 	if !hasChannels {
 		s.routeNotification(ctx, t, "")
 	}
-	_ = mediaFiles
+
+	if drainErr != nil {
+		s.logger.Error(logger.CatApp, "cron: L1 task drain error", "task_id", t.ID, "err", drainErr)
+		return
+	}
 
 	s.updateTaskAfterExecution(ctx, t)
 }
@@ -422,6 +481,9 @@ func (s *Scheduler) executeL2Task(t Task) {
 		if panicValue := recover(); panicValue != nil {
 			s.logger.Error(logger.CatApp, "cron: L2 task execution panicked", "task_id", t.ID, "panic", panicValue)
 			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+			s.recordExecution(ctx, t, ResolvedModel{}, time.Now(), drainEventsResult{},
+				fmt.Sprintf("panic: %v", panicValue), "panic")
+			s.notifyTaskComplete(t, false, fmt.Sprintf("panic: %v", panicValue))
 		}
 	}()
 
@@ -445,7 +507,7 @@ func (s *Scheduler) executeL2Task(t Task) {
 	start := time.Now()
 
 	cronCtx := s.buildCronContext(t)
-	ch, err := s.askWithTaskModel(cronCtx, t, l2Session)
+	resolved, ch, err := s.askWithTaskModel(cronCtx, t, l2Session)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L2 task execution failed to start", "task_id", t.ID, "err", err)
 		if errors.Is(err, errTaskModelResolution) {
@@ -453,13 +515,32 @@ func (s *Scheduler) executeL2Task(t Task) {
 		} else {
 			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 		}
+		s.recordExecution(ctx, t, resolved, start, drainEventsResult{}, err.Error(), "failed")
+		s.notifyTaskComplete(t, false, err.Error())
 		return
 	}
 
-	replyText, mediaFiles := drainEvents(ch)
+	result, drainErr := s.drainEventsWithTimeline(ch, t, uuid.New().String())
+	replyText := result.replyText
+	mediaFiles := result.mediaFiles
 	duration := time.Since(start)
 	s.logger.Info(logger.CatApp, "cron: L2 task completed", "task_id", t.ID,
 		"target", t.TargetAgent, "duration_ms", duration.Milliseconds())
+
+	// Record execution history.
+	status := "success"
+	errMsg := ""
+	if drainErr != nil {
+		status = "failed"
+		errMsg = drainErr.Error()
+	}
+	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
+	s.notifyTaskComplete(t, status == "success", firstLineSummary(replyText))
+
+	if drainErr != nil {
+		s.logger.Error(logger.CatApp, "cron: L2 task drain error", "task_id", t.ID, "err", drainErr)
+		return
+	}
 
 	// Route notification through channel if target agent has one.
 	handled := s.routeNotification(ctx, t, replyText)
@@ -472,18 +553,19 @@ func (s *Scheduler) executeL2Task(t Task) {
 	s.updateTaskAfterExecution(ctx, t)
 }
 
-func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) (<-chan iface.AgentEvent, error) {
+func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) (ResolvedModel, <-chan iface.AgentEvent, error) {
 	prompt := s.buildTaskPrompt(t)
 	if s.modelResolver == nil {
-		return sess.AskIsolated(ctx, prompt)
+		ch, err := sess.AskIsolated(ctx, prompt)
+		return ResolvedModel{}, ch, err
 	}
 	resolved, err := s.modelResolver(t.TaskLevel)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve level %s: %v", errTaskModelResolution, t.TaskLevel, err)
+		return ResolvedModel{}, nil, fmt.Errorf("%w: resolve level %s: %v", errTaskModelResolution, t.TaskLevel, err)
 	}
 	routed, ok := sess.(modelRoutedSession)
 	if !ok {
-		return nil, fmt.Errorf("%w: session does not support model routing", errTaskModelResolution)
+		return resolved, nil, fmt.Errorf("%w: session does not support model routing", errTaskModelResolution)
 	}
 	s.logger.Info(logger.CatApp, "cron: resolved task model",
 		"task_id", t.ID,
@@ -495,23 +577,25 @@ func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) 
 		"used_fallback", resolved.UsedFallback,
 		"fallback_reason", resolved.FallbackReason,
 	)
-	return routed.AskIsolatedWithModel(ctx, prompt, &resolved.Params)
+	ch, err := routed.AskIsolatedWithModel(ctx, prompt, &resolved.Params)
+	return resolved, ch, err
 }
 
 // askWithTaskModelStream is like askWithTaskModel but uses AskStream so the
 // result writes to the session timeline and triggers channel bridge delivery.
-func (s *Scheduler) askWithTaskModelStream(ctx context.Context, t Task, sess Session) (<-chan iface.AgentEvent, error) {
+func (s *Scheduler) askWithTaskModelStream(ctx context.Context, t Task, sess Session) (ResolvedModel, <-chan iface.AgentEvent, error) {
 	prompt := s.buildTaskPrompt(t)
 	if s.modelResolver == nil {
-		return sess.AskStream(ctx, prompt)
+		ch, err := sess.AskStream(ctx, prompt)
+		return ResolvedModel{}, ch, err
 	}
 	resolved, err := s.modelResolver(t.TaskLevel)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve level %s: %v", errTaskModelResolution, t.TaskLevel, err)
+		return ResolvedModel{}, nil, fmt.Errorf("%w: resolve level %s: %v", errTaskModelResolution, t.TaskLevel, err)
 	}
 	routed, ok := sess.(modelRoutedSession)
 	if !ok {
-		return nil, fmt.Errorf("%w: session does not support model routing", errTaskModelResolution)
+		return resolved, nil, fmt.Errorf("%w: session does not support model routing", errTaskModelResolution)
 	}
 	s.logger.Info(logger.CatApp, "cron: resolved task model",
 		"task_id", t.ID,
@@ -523,7 +607,8 @@ func (s *Scheduler) askWithTaskModelStream(ctx context.Context, t Task, sess Ses
 		"used_fallback", resolved.UsedFallback,
 		"fallback_reason", resolved.FallbackReason,
 	)
-	return routed.AskStreamWithModel(ctx, prompt, &resolved.Params)
+	ch, err := routed.AskStreamWithModel(ctx, prompt, &resolved.Params)
+	return resolved, ch, err
 }
 
 // buildTaskPrompt builds the prompt for a task, optionally enriched with recalled memories.
@@ -572,6 +657,179 @@ func drainEvents(ch <-chan iface.AgentEvent) (string, []SendFileMedia) {
 		}
 	}
 	return contentBuf.String(), mediaFiles
+}
+
+// drainEventsResult holds the output of draining an agent event channel into a timeline.
+type drainEventsResult struct {
+	replyText   string
+	mediaFiles  []SendFileMedia
+	timelineDir string // relative path from workDir: logs/cron/<taskID>/<execID>
+}
+
+// drainEventsWithTimeline drains an agent event channel and writes every event
+// (content, reasoning, tool calls, tool results) to a timeline file so the full
+// execution can be replayed later. Returns accumulated reply text, media files,
+// and the timeline directory path.
+func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, execID string) (drainEventsResult, error) {
+	var result drainEventsResult
+
+	// Determine timeline directory.
+	var tlDir string
+	if s.workDir == "" {
+		tlDir = filepath.Join(os.TempDir(), "soloqueue-cron", t.ID, execID)
+	} else {
+		tlDir = filepath.Join(s.workDir, "logs", "cron", t.ID, execID)
+	}
+	if err := os.MkdirAll(tlDir, 0755); err != nil {
+		return result, fmt.Errorf("create cron timeline dir: %w", err)
+	}
+
+	agentID := "cron-task-" + t.ID
+	tl, err := timeline.NewWriter(tlDir, "timeline", 50*1024*1024, 15)
+	if err != nil {
+		return result, fmt.Errorf("create cron timeline writer: %w", err)
+	}
+	defer tl.Close()
+
+	// Write the user prompt (task instruction).
+	prompt := s.buildTaskPrompt(t)
+	_ = tl.AppendMessage(&timeline.MessagePayload{
+		Role:    "user",
+		Content: prompt,
+		AgentID: agentID,
+	})
+
+	// ── Event processing state ──
+	var (
+		contentBuf   strings.Builder
+		reasoningBuf strings.Builder
+		replyBuf     strings.Builder // accumulates full reply text (not reset by flush)
+	)
+
+	flushAssistant := func(content, reasoning string, toolCalls []timeline.ToolCallRec) {
+		_ = tl.AppendMessage(&timeline.MessagePayload{
+			Role:             "assistant",
+			Content:          content,
+			ReasoningContent: reasoning,
+			ToolCalls:        toolCalls,
+			AgentID:          agentID,
+		})
+		contentBuf.Reset()
+		reasoningBuf.Reset()
+	}
+
+	for ev := range ch {
+		// Use iface.EventConsumer for safe cross-package content extraction.
+		if consumer, ok := ev.(iface.EventConsumer); ok {
+			if delta, ok := consumer.ContentDelta(); ok {
+				contentBuf.WriteString(delta)
+				replyBuf.WriteString(delta)
+			}
+		}
+
+		rv := reflect.ValueOf(ev)
+		typeName := rv.Type().Name()
+
+		switch typeName {
+		case "ReasoningDeltaEvent":
+			delta := rv.FieldByName("Delta").String()
+			reasoningBuf.WriteString(delta)
+
+		case "ToolExecStartEvent":
+			callID := rv.FieldByName("CallID").String()
+			name := rv.FieldByName("Name").String()
+			args := rv.FieldByName("Args").String()
+			if callID != "" {
+				flushAssistant(contentBuf.String(), reasoningBuf.String(), []timeline.ToolCallRec{
+					{ID: callID, Type: "function", Name: name, Arguments: args},
+				})
+			}
+
+		case "ToolExecDoneEvent":
+			callID := rv.FieldByName("CallID").String()
+			name := rv.FieldByName("Name").String()
+			toolResult := rv.FieldByName("Result").String()
+			errField := rv.FieldByName("Err")
+			if errField.IsValid() && !errField.IsNil() {
+				toolResult = "error: " + errField.Elem().String()
+			}
+			_ = tl.AppendMessage(&timeline.MessagePayload{
+				Role:        "tool",
+				Content:     toolResult,
+				Name:        name,
+				ToolCallID:  callID,
+				IsEphemeral: len(toolResult) > 2000,
+				AgentID:     agentID,
+			})
+			// Extract SendFile media.
+			if name == "SendFile" && toolResult != "" {
+				if m := parseSendFileMedia(toolResult); m != nil {
+					result.mediaFiles = append(result.mediaFiles, *m)
+				}
+			}
+
+		case "DoneEvent":
+			content := rv.FieldByName("Content").String()
+			reasoning := rv.FieldByName("ReasoningContent").String()
+			contentBuf.WriteString(content)
+			replyBuf.WriteString(content)
+			if reasoning != "" {
+				reasoningBuf.WriteString(reasoning)
+			}
+			flushAssistant(contentBuf.String(), reasoningBuf.String(), nil)
+
+		case "ErrorEvent":
+			errField := rv.FieldByName("Err")
+			if errField.IsValid() && !errField.IsNil() {
+				return result, fmt.Errorf("agent error: %v", errField.Elem().Interface())
+			}
+			return result, errors.New("agent error: unknown")
+		}
+
+		// Fallback: use EventConsumer for Done and Error if reflection didn't match.
+		if consumer, ok := ev.(iface.EventConsumer); ok {
+			if content, ok := consumer.DoneContent(); ok {
+				contentBuf.WriteString(content)
+				replyBuf.WriteString(content)
+				flushAssistant(contentBuf.String(), reasoningBuf.String(), nil)
+			}
+			if errVal, ok := consumer.Error(); ok {
+				return result, fmt.Errorf("agent error: %v", errVal)
+			}
+		}
+	}
+
+	// Write completion marker.
+	_ = tl.AppendControl(&timeline.ControlPayload{
+		Action: "complete",
+		Reason: "cron_task_done",
+	})
+
+	result.replyText = replyBuf.String()
+	result.timelineDir = filepath.Join("logs", "cron", t.ID, execID)
+	return result, nil
+}
+
+// recordExecution writes an execution history record to the database.
+func (s *Scheduler) recordExecution(ctx context.Context, t Task, resolved ResolvedModel, start time.Time, result drainEventsResult, errMsg string, status string) {
+	if s.dbStore == nil {
+		return
+	}
+	_ = s.dbStore.RecordExecution(ctx, ExecutionRecord{
+		ID:            uuid.New().String(),
+		TaskID:        t.ID,
+		ExecutedAt:    start,
+		CompletedAt:   time.Now(),
+		DurationMs:    time.Since(start).Milliseconds(),
+		Status:        status,
+		ResultSummary: result.replyText,
+		ErrorMessage:  errMsg,
+		TaskLevel:     t.TaskLevel,
+		TargetAgent:   t.TargetAgent,
+		ModelID:       resolved.Params.ModelID,
+		ProviderID:    resolved.Params.ProviderID,
+		TimelineDir:   result.timelineDir,
+	})
 }
 
 // enqueueL2Result adds a completed L2 task result to the delivery queue.

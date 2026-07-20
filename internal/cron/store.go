@@ -100,6 +100,26 @@ func (t *Task) IsOneTime() bool {
 	return IsOneTimeExpression(t.Expression)
 }
 
+// ExecutionRecord is a single execution history entry for a scheduled task.
+// The full execution trace is stored in a timeline file at TimelineDir.
+type ExecutionRecord struct {
+	ID            string    `json:"id"`
+	TaskID        string    `json:"task_id"`
+	ExecutedAt    time.Time `json:"executed_at"`
+	CompletedAt   time.Time `json:"completed_at"`
+	DurationMs    int64     `json:"duration_ms"`
+	Status        string    `json:"status"` // 'success' | 'failed' | 'panic'
+	ResultSummary string    `json:"result_summary"`
+	ErrorMessage  string    `json:"error_message"`
+	TaskLevel     string    `json:"task_level"`
+	TargetAgent   string    `json:"target_agent"`
+	ModelID       string    `json:"model_id"`
+	ProviderID    string    `json:"provider_id"`
+	TimelineDir   string    `json:"timeline_dir"`
+}
+
+const maxSummaryLen = 500
+
 // DBStore manages persistent scheduled tasks in the shared SQLite database.
 type DBStore struct {
 	db *sql.DB
@@ -569,5 +589,119 @@ func (s *DBStore) deleteTask(ctx context.Context, id, requiredTarget string) err
 	if n == 0 {
 		return fmt.Errorf("cron store: task %q not found", id)
 	}
+
+	// Cascade-delete execution history.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM cron_execution_history WHERE task_id = ?`, id); err != nil {
+		return fmt.Errorf("cron store: delete task history: %w", err)
+	}
 	return nil
+}
+
+// ─── Execution History CRUD ──────────────────────────────────────────────────
+
+// RecordExecution inserts a new execution history entry.
+func (s *DBStore) RecordExecution(ctx context.Context, rec ExecutionRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	eAt := rec.ExecutedAt.Format(time.RFC3339)
+	cAt := rec.CompletedAt.Format(time.RFC3339)
+	summary := rec.ResultSummary
+	if len(summary) > maxSummaryLen {
+		summary = summary[:maxSummaryLen]
+	}
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO cron_execution_history (id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_level, target_agent, model_id, provider_id, timeline_dir)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.ID, rec.TaskID, eAt, cAt, rec.DurationMs, rec.Status, summary,
+		rec.ErrorMessage, rec.TaskLevel, rec.TargetAgent, rec.ModelID, rec.ProviderID, rec.TimelineDir)
+	if err != nil {
+		return fmt.Errorf("cron store: record execution: %w", err)
+	}
+	return nil
+}
+
+// ListExecutionHistory returns execution history for a task, newest first.
+func (s *DBStore) ListExecutionHistory(ctx context.Context, taskID string, limit, offset int) ([]ExecutionRecord, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_level, target_agent, model_id, provider_id, timeline_dir
+		 FROM cron_execution_history WHERE task_id = ?
+		 ORDER BY executed_at DESC LIMIT ? OFFSET ?`, taskID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("cron store: list execution history: %w", err)
+	}
+	defer rows.Close()
+
+	var records []ExecutionRecord
+	for rows.Next() {
+		var r ExecutionRecord
+		var eAt, cAt string
+		err := rows.Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskLevel, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir)
+		if err != nil {
+			return nil, fmt.Errorf("cron store: scan execution record: %w", err)
+		}
+		r.ExecutedAt, _ = time.ParseInLocation(time.RFC3339, eAt, time.Local)
+		r.CompletedAt, _ = time.ParseInLocation(time.RFC3339, cAt, time.Local)
+		records = append(records, r)
+	}
+	return records, rows.Err()
+}
+
+// GetExecutionHistory returns a single execution record by ID (scoped to taskID).
+func (s *DBStore) GetExecutionHistory(ctx context.Context, taskID, execID string) (*ExecutionRecord, error) {
+	var r ExecutionRecord
+	var eAt, cAt string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_level, target_agent, model_id, provider_id, timeline_dir
+		 FROM cron_execution_history WHERE task_id = ? AND id = ?`, taskID, execID).
+		Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskLevel, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("cron store: execution record %q not found", execID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cron store: get execution record: %w", err)
+	}
+	r.ExecutedAt, _ = time.ParseInLocation(time.RFC3339, eAt, time.Local)
+	r.CompletedAt, _ = time.ParseInLocation(time.RFC3339, cAt, time.Local)
+	return &r, nil
+}
+
+// DeleteExecutionHistory deletes all execution history for a task.
+func (s *DBStore) DeleteExecutionHistory(ctx context.Context, taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.ExecContext(ctx, `DELETE FROM cron_execution_history WHERE task_id = ?`, taskID)
+	if err != nil {
+		return fmt.Errorf("cron store: delete execution history: %w", err)
+	}
+	return nil
+}
+
+// PruneExecutionHistory keeps only the most recent keepN records for a task.
+func (s *DBStore) PruneExecutionHistory(ctx context.Context, taskID string, keepN int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if keepN <= 0 {
+		return 0, nil
+	}
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM cron_execution_history WHERE task_id = ? AND id NOT IN (
+			 SELECT id FROM cron_execution_history WHERE task_id = ?
+			 ORDER BY executed_at DESC LIMIT ?)`, taskID, taskID, keepN)
+	if err != nil {
+		return 0, fmt.Errorf("cron store: prune execution history: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }

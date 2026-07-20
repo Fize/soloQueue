@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { GlassCard } from '@/components/ui/glass-card'
 import { useTranslation } from '@/lib/i18n'
+import { CronHistoryDialog } from '@/components/CronHistoryDialog'
 import { toast } from 'sonner'
 import {
   Clock,
@@ -27,6 +28,7 @@ import {
   ChevronDown,
   ChevronUp,
   AlertCircle,
+  History,
 } from 'lucide-react'
 
 const L1_OPTION = { value: 'L1', label: 'L1 Orchestrator' }
@@ -65,6 +67,7 @@ interface TaskCardProps {
   onToggle: (task: CronTask) => void
   onEdit: (task: CronTask) => void
   onDelete: (task: CronTask) => void
+  onViewHistory: (task: CronTask) => void
   onCopyId: (id: string) => void
   onToggleExpand: (id: string) => void
   formatTime: (t?: string) => string
@@ -78,6 +81,7 @@ function TaskCard({
   onToggle,
   onEdit,
   onDelete,
+  onViewHistory,
   onCopyId,
   onToggleExpand,
   formatTime,
@@ -207,6 +211,19 @@ function TaskCard({
             <TooltipContent>{copiedId === task.id ? t('cron.copied') : `${t('cron.copyId')}: ${task.id}`}</TooltipContent>
           </Tooltip>
 
+          <Tooltip>
+            <TooltipTrigger>
+              <button
+                onClick={() => onViewHistory(task)}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                aria-label={t('cron.viewHistory')}
+              >
+                <History className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t('cron.viewHistory')}</TooltipContent>
+          </Tooltip>
+
           <div className="w-px h-4 bg-border/60 mx-1" />
 
           <Tooltip>
@@ -268,6 +285,10 @@ export function CronPage() {
 
   // Clipboard copy state
   const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  // History dialog state
+  const [historyTask, setHistoryTask] = useState<CronTask | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   // Optimistic toggle tracking
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
@@ -459,6 +480,16 @@ export function CronPage() {
     setDeleteTarget(task)
   }
 
+  function handleViewHistory(task: CronTask) {
+    setHistoryTask(task)
+    setHistoryOpen(true)
+  }
+
+  function handleCloseHistory() {
+    setHistoryOpen(false)
+    setHistoryTask(null)
+  }
+
   async function confirmDeleteTask() {
     if (!deleteTarget) return
     try {
@@ -647,6 +678,7 @@ export function CronPage() {
                   onToggle={handleToggleStatus}
                   onEdit={handleOpenEditDialog}
                   onDelete={handleDeleteTask}
+                  onViewHistory={handleViewHistory}
                   onCopyId={copyToClipboard}
                   onToggleExpand={toggleExpanded}
                   formatTime={formatTime}
@@ -778,6 +810,13 @@ export function CronPage() {
         destructive
         onConfirm={confirmDeleteTask}
         confirmLabel={t('cron.deleteTaskLabel')}
+      />
+
+      {/* ── Execution History Dialog ──────────────────────────── */}
+      <CronHistoryDialog
+        open={historyOpen}
+        task={historyTask}
+        onClose={handleCloseHistory}
       />
     </TooltipProvider>
   )

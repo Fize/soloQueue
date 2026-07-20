@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/cron"
+	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
 // handleListCronTasks lists all scheduled tasks from SQLite.
@@ -185,4 +187,68 @@ func (m *Mux) handleDeleteCronTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+}
+
+// handleListCronHistory lists execution history for a scheduled task.
+func (m *Mux) handleListCronHistory(w http.ResponseWriter, r *http.Request) {
+	if m.toolsCfg == nil || m.toolsCfg.CronStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "cron system not configured"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	records, err := m.toolsCfg.CronStore.ListExecutionHistory(r.Context(), id, limit, offset)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if records == nil {
+		records = []cron.ExecutionRecord{}
+	}
+	m.writeJSON(w, http.StatusOK, records)
+}
+
+// handleGetCronHistory returns the full timeline events for a specific execution.
+func (m *Mux) handleGetCronHistory(w http.ResponseWriter, r *http.Request) {
+	if m.toolsCfg == nil || m.toolsCfg.CronStore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "cron system not configured"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	execID := chi.URLParam(r, "execID")
+
+	rec, err := m.toolsCfg.CronStore.GetExecutionHistory(r.Context(), id, execID)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Read the timeline events from disk.
+	timelineDir := rec.TimelineDir
+	if !strings.HasPrefix(timelineDir, "/") {
+		timelineDir = m.workDir + "/" + timelineDir
+	}
+	events, err := readAllTimelineEvents(timelineDir)
+	if err != nil {
+		// Timeline files may not exist yet (e.g., execution was a no-op).
+		events = []timeline.Event{}
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"execution": rec,
+		"events":    events,
+	})
 }

@@ -301,3 +301,47 @@ func TestExpandPath_Tilde(t *testing.T) {
 		t.Errorf("expandPath = %q, want %q", got, want)
 	}
 }
+
+func TestSpeechConfigDefaults(t *testing.T) {
+	settings := DefaultSettings()
+	if settings.Speech.Enabled {
+		t.Error("Speech.Enabled should default to false")
+	}
+	if settings.Speech.Model != "small" {
+		t.Errorf("Speech.Model = %q, want small", settings.Speech.Model)
+	}
+	if settings.Speech.ModelDir != "" {
+		t.Errorf("Speech.ModelDir = %q, want empty", settings.Speech.ModelDir)
+	}
+}
+
+func TestSpeechConfigRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	writeYAML(t, path, map[string]any{
+		"speech": map[string]any{
+			"enabled":   true,
+			"model":     "base",
+			"model_dir": "/custom/models",
+		},
+	})
+
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
+	if err := loader.Load(); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	settings := loader.Get()
+	if !settings.Speech.Enabled {
+		t.Error("Speech.Enabled should be true")
+	}
+	if settings.Speech.Model != "base" {
+		t.Errorf("Speech.Model = %q, want base", settings.Speech.Model)
+	}
+	if settings.Speech.ModelDir != "/custom/models" {
+		t.Errorf("Speech.ModelDir = %q, want /custom/models", settings.Speech.ModelDir)
+	}
+}

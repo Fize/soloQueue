@@ -178,5 +178,9 @@ func DefaultSettings() Settings {
 			TimeScale:             300,
 			Language:              "zh",
 		},
+		Speech: SpeechConfig{
+			Enabled: false,
+			Model:   "small",
+		},
 	}
 }

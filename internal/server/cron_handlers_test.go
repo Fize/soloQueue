@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
@@ -180,5 +181,135 @@ func TestHTTP_CronHandlers_Invalid(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 Service Unavailable, got %d", rec.Code)
+	}
+}
+
+func TestHTTP_CronHistory(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "soloqueue.db")
+	sdb, err := sqlitedb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open sqlite DB: %v", err)
+	}
+	defer sdb.Close()
+
+	store := cron.NewDBStore(sdb)
+	sched := cron.NewScheduler(store, mockSessionManager{}, nil)
+	sched.SetWorkDir(tempDir)
+	if err := sched.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start scheduler: %v", err)
+	}
+	defer sched.Stop()
+
+	toolsCfg := tools.Config{
+		CronStore:     store,
+		CronScheduler: sched,
+	}
+
+	mux := NewMux(tempDir, nil, WithToolsConfig(&toolsCfg))
+	defer mux.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert execution records for a task.
+	rec1 := cron.ExecutionRecord{
+		ID: "exec-1", TaskID: "task-1",
+		ExecutedAt: now.Add(-2 * time.Hour), CompletedAt: now.Add(-2*time.Hour).Add(time.Second),
+		DurationMs: 1000, Status: "success", ResultSummary: "all good",
+		TaskLevel: "L1", TargetAgent: "L1", ModelID: "m1", ProviderID: "p1",
+		TimelineDir: "logs/cron/task-1/exec-1",
+	}
+	store.RecordExecution(ctx, rec1)
+
+	rec2 := cron.ExecutionRecord{
+		ID: "exec-2", TaskID: "task-1",
+		ExecutedAt: now.Add(-1 * time.Hour), CompletedAt: now.Add(-1*time.Hour).Add(2*time.Second),
+		DurationMs: 2000, Status: "failed", ErrorMessage: "timeout",
+		TaskLevel: "L1", TargetAgent: "L1",
+		TimelineDir: "logs/cron/task-1/exec-2",
+	}
+	store.RecordExecution(ctx, rec2)
+
+	// GET /api/cron/task-1/history - list records.
+	{
+		req := newLocalhostRequest("GET", "/api/cron/task-1/history", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var records []cron.ExecutionRecord
+		if err := json.Unmarshal(rec.Body.Bytes(), &records); err != nil {
+			t.Fatalf("failed to parse: %v", err)
+		}
+		if len(records) != 2 {
+			t.Fatalf("expected 2 records, got %d", len(records))
+		}
+		// Newest first.
+		if records[0].ID != "exec-2" || records[1].ID != "exec-1" {
+			t.Errorf("unexpected order: %+v", records)
+		}
+	}
+
+	// GET /api/cron/task-1/history with limit.
+	{
+		req := newLocalhostRequest("GET", "/api/cron/task-1/history?limit=1", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		var records []cron.ExecutionRecord
+		json.Unmarshal(rec.Body.Bytes(), &records)
+		if len(records) != 1 {
+			t.Errorf("expected 1 record with limit, got %d", len(records))
+		}
+		if records[0].ID != "exec-2" {
+			t.Errorf("expected exec-2, got %s", records[0].ID)
+		}
+	}
+
+	// GET /api/cron/task-1/history/exec-1 - detail (timeline may not exist, but metadata should).
+	{
+		req := newLocalhostRequest("GET", "/api/cron/task-1/history/exec-1", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var resp struct {
+			Execution cron.ExecutionRecord `json:"execution"`
+			Events    []interface{}        `json:"events"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to parse detail: %v", err)
+		}
+		if resp.Execution.ID != "exec-1" {
+			t.Errorf("expected exec-1, got %s", resp.Execution.ID)
+		}
+	}
+
+	// GET /api/cron/task-1/history/nonexistent - 404.
+	{
+		req := newLocalhostRequest("GET", "/api/cron/task-1/history/nonexistent", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", rec.Code)
+		}
+	}
+
+	// GET /api/cron/task-1/history with offset.
+	{
+		req := newLocalhostRequest("GET", "/api/cron/task-1/history?offset=1&limit=1", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		var records []cron.ExecutionRecord
+		json.Unmarshal(rec.Body.Bytes(), &records)
+		if len(records) != 1 || records[0].ID != "exec-1" {
+			t.Errorf("unexpected offset result: %+v", records)
+		}
 	}
 }

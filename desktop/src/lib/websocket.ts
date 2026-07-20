@@ -5,6 +5,7 @@ import type {
   AgentStreamState,
   SimulationEvent,
   SimulationProgress,
+  NotificationPayload,
   ClientMessage,
 } from '@/types'
 import { useRuntimeStore } from '@/stores/runtimeStore'
@@ -59,6 +60,7 @@ type MessageHandler = {
   status: Set<(status: ConnectionStatus) => void>
   simulation_event: Set<(data: SimulationEvent) => void>
   simulation_progress: Set<(data: SimulationProgress) => void>
+  notification: Set<(data: NotificationPayload) => void>
 }
 
 class WebSocketManager {
@@ -73,6 +75,7 @@ class WebSocketManager {
     status: new Set(),
     simulation_event: new Set(),
     simulation_progress: new Set(),
+    notification: new Set(),
   }
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 1000
@@ -340,6 +343,8 @@ class WebSocketManager {
       this.handlers.simulation_event.forEach((h) => h(msg.event))
     } else if (msg.type === 'simulation_progress' && msg.progress) {
       this.handlers.simulation_progress.forEach((h) => h(msg.progress))
+    } else if (msg.type === 'notification' && msg.notification) {
+      this.handlers.notification.forEach((h) => h(msg.notification))
     }
   }
 

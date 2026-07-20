@@ -296,6 +296,8 @@ func (g *Gateway) handleDispatch(ctx context.Context, payload GatewayPayload) {
 		g.handleDirectMessage(ctx, payload.D)
 	case EventPublicAtMessageCreate:
 		g.handlePublicAtMessage(ctx, payload.D)
+	case EventAudioMessageCreate:
+		g.handleAudioMessage(ctx, payload.D)
 	default:
 		g.log.DebugContext(ctx, logger.CatApp, "qqbot unhandled dispatch event",
 			"type", payload.T)
@@ -382,6 +384,24 @@ func (g *Gateway) handlePublicAtMessage(ctx context.Context, raw json.RawMessage
 		ChatID:       event.ChannelID,
 		EventID:      event.ID,
 		Seq:          event.SeqInChat,
+	}
+	g.handler.OnQQMessage(ctx, msg)
+}
+
+func (g *Gateway) handleAudioMessage(ctx context.Context, raw json.RawMessage) {
+	var event AudioMessageEvent
+	if err := json.Unmarshal(raw, &event); err != nil {
+		g.log.WarnContext(ctx, logger.CatApp, "qqbot failed to parse audio message event",
+			"err", err.Error())
+		return
+	}
+	msg := QQMessage{
+		Source:   SourceC2C,
+		AudioURL: AudioURL(event.Attachments),
+		OpenID:   event.Author.UserOpenid,
+		TargetOpenID: event.Author.UserOpenid,
+		ChatID:       event.Author.UserOpenid,
+		EventID:      event.ID,
 	}
 	g.handler.OnQQMessage(ctx, msg)
 }

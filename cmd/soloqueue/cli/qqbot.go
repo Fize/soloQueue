@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -32,6 +33,28 @@ func StartQQBots(cfg *config.GlobalService, mgr *session.SessionManager, l2Store
 	var gateways []*qqbot.Gateway
 	var queues []*qqbot.MessageQueue
 	var bridges []*qqbot.SessionBridge
+
+	// Initialize speech-to-text transcriber (shared across all QQ bots).
+	var transcriber *qqbot.Transcriber
+	if settings.Speech.Enabled {
+		modelDir := settings.Speech.ModelDir
+		if modelDir == "" {
+			modelDir = filepath.Join(workDir, "models")
+		}
+		transcriber = qqbot.NewTranscriber(settings.Speech.Model, modelDir)
+		if transcriber.Available() {
+			mainLog.Info(logger.CatApp, "speech transcriber initialized",
+				"model", transcriber.Model(),
+				"model_path", transcriber.ModelPath(),
+				"binary", transcriber.Binary(),
+			)
+		} else {
+			mainLog.Warn(logger.CatApp, "speech enabled but whisper-cli or model file not found",
+				"model", settings.Speech.Model,
+				"model_dir", modelDir,
+			)
+		}
+	}
 
 	for _, qqCfgBase := range settings.QQBots {
 		qqCfg := qqCfgBase.ToQQBotConfig()
@@ -73,6 +96,7 @@ func StartQQBots(cfg *config.GlobalService, mgr *session.SessionManager, l2Store
 			qqbot.WithVersion(version),
 			qqbot.WithMessageQueue(qqQueue),
 			qqbot.WithWhitelist(qqCfgBase.WhitelistEnabled, qqCfgBase.Whitelist),
+			qqbot.WithTranscriber(transcriber),
 		)
 
 		gateway := qqbot.NewGateway(qqCfg, qqBridge, qqAPI, qqLog)

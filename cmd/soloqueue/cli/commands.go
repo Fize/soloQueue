@@ -153,6 +153,7 @@ func ServeCmd(version string) *cobra.Command {
 			// Wire channel notification routing into the scheduler.
 			cronScheduler.SetChannelRegistry(chanRegistry)
 			cronScheduler.SetAgentChannelResolver(&agentChannelResolver{registry: rt.AgentRegistry, stack: rt})
+			cronScheduler.SetWorkDir(workDir)
 
 			// Wire the cron store and scheduler into tools configuration
 			toolsCfg := rt.ReadToolsCfg()
@@ -256,6 +257,15 @@ func ServeCmd(version string) *cobra.Command {
 			wsHub := server.NewHub(mux)
 			mux.SetHub(wsHub)
 			go wsHub.Run()
+
+			// Wire cron task completion notifications to WebSocket.
+			cronScheduler.OnTaskComplete = func(taskID, taskTitle string, success bool, summary string) {
+				lv := "error"
+				if success {
+					lv = "success"
+				}
+				wsHub.SendNotification("cron", lv, taskTitle, summary)
+			}
 
 			// Wire onChange callbacks so Registry changes trigger WebSocket broadcasts.
 			runtimeMetrics.SetOnChange(wsHub.Notify)

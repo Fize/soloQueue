@@ -250,6 +250,61 @@ export interface UpdateCronTaskRequest {
   status?: "active" | "paused";
 }
 
+// ─── Cron Execution History Types ───────────────────────────────────────────
+
+export interface CronExecutionRecord {
+  id: string;
+  task_id: string;
+  executed_at: string;
+  completed_at: string;
+  duration_ms: number;
+  status: "success" | "failed" | "panic";
+  result_summary: string;
+  error_message: string;
+  task_level: string;
+  target_agent: string;
+  model_id: string;
+  provider_id: string;
+  timeline_dir: string;
+}
+
+export interface CronHistoryDetail {
+  execution: CronExecutionRecord;
+  events: TimelineEvent[];
+}
+
+export interface TimelineEvent {
+  ts: string;
+  type: "message" | "control";
+  msg?: TimelineMessage;
+  ctrl?: TimelineControl;
+}
+
+export interface TimelineMessage {
+  role: string;
+  content: string;
+  reasoning?: string;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: TimelineToolCall[];
+  ephemeral?: boolean;
+  agent_id?: string;
+  ts?: string;
+}
+
+export interface TimelineToolCall {
+  id: string;
+  type: string;
+  name: string;
+  arguments: string;
+}
+
+export interface TimelineControl {
+  action: string;
+  reason?: string;
+  content?: string;
+}
+
 // ─── LSP MCP ──────────────────────────────────────────────────────────────────
 
 export interface LSPMCPEntry {

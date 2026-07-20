@@ -69,6 +69,7 @@ type SessionBridge struct {
 	log              *logger.Logger
 	version          string
 	queue            *MessageQueue
+	transcriber      *Transcriber
 	whitelistEnabled bool
 	whitelist        map[string]bool
 }
@@ -99,6 +100,11 @@ func WithMessageQueue(q *MessageQueue) SessionBridgeOption {
 	return func(b *SessionBridge) { b.queue = q }
 }
 
+// WithTranscriber sets the speech-to-text transcriber for audio message handling.
+func WithTranscriber(t *Transcriber) SessionBridgeOption {
+	return func(b *SessionBridge) { b.transcriber = t }
+}
+
 // NewSessionBridge creates a new SessionBridge.
 func NewSessionBridge(sess SessionProvider, api *APIClient, log *logger.Logger, opts ...SessionBridgeOption) *SessionBridge {
 	b := &SessionBridge{
@@ -125,6 +131,14 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	if b.whitelistEnabled && !b.whitelist[msg.OpenID] {
 		b.log.InfoContext(ctx, logger.CatApp, "qqbot message ignored: user not in whitelist", "open_id", msg.OpenID)
 		return
+	}
+
+	// 3. Handle audio messages — download SILK, transcribe via whisper.cpp,
+	//    then treat the transcript as normal text input.
+	if msg.AudioURL != "" {
+		if !b.processAudioMessage(ctx, &msg) {
+			return
+		}
 	}
 
 	b.log.InfoContext(ctx, logger.CatApp, "qqbot message received",
@@ -349,6 +363,43 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 		// Unknown slash command: forward to LLM as normal input.
 		return false
 	}
+}
+
+// processAudioMessage downloads the SILK audio from msg.AudioURL, transcodes to
+// WAV via ffmpeg, and transcribes using whisper.cpp. On success, msg.Content is
+// set to the transcript and the caller continues normal text processing.
+// Returns false if the audio could not be processed (error reply already sent).
+func (b *SessionBridge) processAudioMessage(ctx context.Context, msg *QQMessage) bool {
+	if b.transcriber == nil || !b.transcriber.Available() {
+		b.sendReply(ctx, *msg, MsgTypeText, "语音转写未配置，请发送文字消息。")
+		return false
+	}
+
+	b.log.InfoContext(ctx, logger.CatApp, "qqbot audio message received",
+		"url", msg.AudioURL)
+
+	audioData, _, err := downloadFile(ctx, msg.AudioURL)
+	if err != nil {
+		b.log.WarnContext(ctx, logger.CatApp, "qqbot failed to download audio",
+			"url", msg.AudioURL, "err", err.Error())
+		b.sendReply(ctx, *msg, MsgTypeText, "无法下载语音消息，请重试。")
+		return false
+	}
+	b.log.InfoContext(ctx, logger.CatApp, "qqbot audio downloaded",
+		"size", len(audioData))
+
+	transcript, err := b.transcriber.Transcribe(ctx, audioData)
+	if err != nil {
+		b.log.WarnContext(ctx, logger.CatApp, "qqbot audio transcription failed",
+			"err", err.Error())
+		b.sendReply(ctx, *msg, MsgTypeText, "语音识别失败，请发送文字消息。")
+		return false
+	}
+
+	b.log.InfoContext(ctx, logger.CatApp, "qqbot audio transcribed",
+		"text", transcript)
+	msg.Content = transcript
+	return true
 }
 
 // sendReply sends the reply text to QQ, splitting into chunks if it exceeds the limit.

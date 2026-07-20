@@ -7,6 +7,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster, toast } from 'sonner'
 import { wsManager } from '@/lib/websocket'
+import { notificationManager } from '@/lib/notification'
 import { useConnectionStore, type BackendStatus } from '@/stores/connectionStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -256,7 +257,14 @@ function App() {
 
   useEffect(() => {
     wsManager.connect()
+
+    // Subscribe to desktop notifications from the backend.
+    const unsubNotify = wsManager.subscribe('notification', (payload) => {
+      notificationManager.show(payload)
+    })
+
     return () => {
+      unsubNotify()
       wsManager.disconnect()
     }
   }, [])

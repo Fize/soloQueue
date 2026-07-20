@@ -3,12 +3,15 @@ package cron
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
 // mockSession implements the Session interface for testing.
@@ -234,7 +237,7 @@ func TestSchedulerAskWithTaskModel(t *testing.T) {
 	})
 	sess := &mockSession{}
 	task := Task{ID: "t1", Title: "Health check", TaskLevel: "L2", Instruction: "check"}
-	ch, err := s.askWithTaskModel(context.Background(), task, sess)
+	_, ch, err := s.askWithTaskModel(context.Background(), task, sess)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,3 +573,284 @@ func TestRouteNotification_EmptyNotifyChannel_UsesFirst(t *testing.T) {
 		t.Error("QQ notifier should be called when notify_channel is empty")
 	}
 }
+
+// ============== Execution History Store Tests ==============
+
+func openTestDB(t *testing.T) *DBStore {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+	db, err := sqlitedb.Open(path)
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return NewDBStore(db)
+}
+
+func TestRecordAndListExecutionHistory(t *testing.T) {
+	store := openTestDB(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Record some executions.
+	rec1 := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now.Add(-2 * time.Hour), CompletedAt: now.Add(-2*time.Hour).Add(5 * time.Second), DurationMs: 5000, Status: "success", ResultSummary: "All good 1", TaskLevel: "L1", TargetAgent: "L1", ModelID: "m1", ProviderID: "p1", TimelineDir: "logs/cron/t1/e1"}
+	rec2 := ExecutionRecord{ID: "e2", TaskID: "t1", ExecutedAt: now.Add(-1 * time.Hour), CompletedAt: now.Add(-1*time.Hour).Add(3 * time.Second), DurationMs: 3000, Status: "failed", ResultSummary: "", ErrorMessage: "timeout", TaskLevel: "L1", TargetAgent: "L1", ModelID: "m2", ProviderID: "p1", TimelineDir: "logs/cron/t1/e2"}
+	rec3 := ExecutionRecord{ID: "e3", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(7 * time.Second), DurationMs: 7000, Status: "panic", ResultSummary: "", ErrorMessage: "panic: nil pointer", TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e3"}
+
+	if err := store.RecordExecution(ctx, rec1); err != nil {
+		t.Fatalf("RecordExecution 1: %v", err)
+	}
+	if err := store.RecordExecution(ctx, rec2); err != nil {
+		t.Fatalf("RecordExecution 2: %v", err)
+	}
+	if err := store.RecordExecution(ctx, rec3); err != nil {
+		t.Fatalf("RecordExecution 3: %v", err)
+	}
+
+	// List all 3 (newest first).
+	records, err := store.ListExecutionHistory(ctx, "t1", 10, 0)
+	if err != nil {
+		t.Fatalf("ListExecutionHistory: %v", err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(records))
+	}
+	// Newest first: e3, e2, e1.
+	if records[0].ID != "e3" || records[1].ID != "e2" || records[2].ID != "e1" {
+		t.Errorf("unexpected order: %v", records)
+	}
+	if records[0].Status != "panic" {
+		t.Errorf("expected panic status, got %s", records[0].Status)
+	}
+	if records[0].ErrorMessage != "panic: nil pointer" {
+		t.Errorf("expected error message, got %s", records[0].ErrorMessage)
+	}
+
+	// Pagination: limit 2, offset 0.
+	records, err = store.ListExecutionHistory(ctx, "t1", 2, 0)
+	if err != nil {
+		t.Fatalf("ListExecutionHistory page 1: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+	if records[0].ID != "e3" || records[1].ID != "e2" {
+		t.Errorf("unexpected page 1: %v", records)
+	}
+
+	// Pagination: limit 2, offset 2.
+	records, err = store.ListExecutionHistory(ctx, "t1", 2, 2)
+	if err != nil {
+		t.Fatalf("ListExecutionHistory page 2: %v", err)
+	}
+	if len(records) != 1 || records[0].ID != "e1" {
+		t.Errorf("unexpected page 2: %v", records)
+	}
+
+	// Empty list for unknown task.
+	records, err = store.ListExecutionHistory(ctx, "unknown", 10, 0)
+	if err != nil {
+		t.Fatalf("ListExecutionHistory unknown: %v", err)
+	}
+	if len(records) != 0 {
+		t.Errorf("expected 0 records for unknown task, got %d", len(records))
+	}
+}
+
+func TestGetExecutionHistory(t *testing.T) {
+	store := openTestDB(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	rec := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: "done", TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e1"}
+	if err := store.RecordExecution(ctx, rec); err != nil {
+		t.Fatalf("RecordExecution: %v", err)
+	}
+
+	got, err := store.GetExecutionHistory(ctx, "t1", "e1")
+	if err != nil {
+		t.Fatalf("GetExecutionHistory: %v", err)
+	}
+	if got.ID != "e1" || got.Status != "success" || got.ResultSummary != "done" {
+		t.Errorf("unexpected record: %+v", got)
+	}
+
+	// Not found.
+	_, err = store.GetExecutionHistory(ctx, "t1", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent record")
+	}
+}
+
+func TestDeleteExecutionHistory(t *testing.T) {
+	store := openTestDB(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	rec := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: "done", TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e1"}
+	store.RecordExecution(ctx, rec)
+	rec2 := ExecutionRecord{ID: "e2", TaskID: "t2", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: "done", TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t2/e2"}
+	store.RecordExecution(ctx, rec2)
+
+	// Delete history for t1 only.
+	if err := store.DeleteExecutionHistory(ctx, "t1"); err != nil {
+		t.Fatalf("DeleteExecutionHistory: %v", err)
+	}
+
+	records, _ := store.ListExecutionHistory(ctx, "t1", 10, 0)
+	if len(records) != 0 {
+		t.Errorf("expected 0 records for t1, got %d", len(records))
+	}
+	records, _ = store.ListExecutionHistory(ctx, "t2", 10, 0)
+	if len(records) != 1 {
+		t.Errorf("expected 1 record for t2, got %d", len(records))
+	}
+}
+
+func TestPruneExecutionHistory(t *testing.T) {
+	store := openTestDB(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	for i := 0; i < 5; i++ {
+		rec := ExecutionRecord{
+			ID: fmt.Sprintf("e%d", i), TaskID: "t1",
+			ExecutedAt: now.Add(time.Duration(i) * time.Minute),
+			CompletedAt: now.Add(time.Duration(i)*time.Minute + time.Second),
+			DurationMs: 1000, Status: "success", ResultSummary: fmt.Sprintf("run %d", i),
+			TaskLevel: "L1", TargetAgent: "L1", TimelineDir: fmt.Sprintf("logs/cron/t1/e%d", i),
+		}
+		store.RecordExecution(ctx, rec)
+	}
+
+	// Keep only 2 most recent.
+	n, err := store.PruneExecutionHistory(ctx, "t1", 2)
+	if err != nil {
+		t.Fatalf("PruneExecutionHistory: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("expected 3 pruned, got %d", n)
+	}
+
+	records, _ := store.ListExecutionHistory(ctx, "t1", 10, 0)
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records after prune, got %d", len(records))
+	}
+	// Newest first: e4, e3.
+	if records[0].ID != "e4" || records[1].ID != "e3" {
+		t.Errorf("unexpected after prune: %v", records)
+	}
+}
+
+func TestDeleteExecutionHistory_EmptyTask(t *testing.T) {
+	store := openTestDB(t)
+	ctx := context.Background()
+	// Deleting history for a task with no records should not error.
+	if err := store.DeleteExecutionHistory(ctx, "nonexistent"); err != nil {
+		t.Fatalf("DeleteExecutionHistory on empty task: %v", err)
+	}
+}
+
+func TestResultSummaryTruncation(t *testing.T) {
+	store := openTestDB(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	longSummary := ""
+	for i := 0; i < 600; i++ {
+		longSummary += "x"
+	}
+
+	rec := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: longSummary, TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e1"}
+	if err := store.RecordExecution(ctx, rec); err != nil {
+		t.Fatalf("RecordExecution: %v", err)
+	}
+
+	got, _ := store.GetExecutionHistory(ctx, "t1", "e1")
+	if len(got.ResultSummary) > maxSummaryLen {
+		t.Errorf("summary was not truncated: len=%d > max=%d", len(got.ResultSummary), maxSummaryLen)
+	}
+}
+
+// ============== Scheduler drainEventsWithTimeline Tests ==============
+
+func TestDrainEventsWithTimeline_Basic(t *testing.T) {
+	s := newTestScheduler(t)
+	tmpDir := t.TempDir()
+	s.SetWorkDir(tmpDir)
+
+	task := Task{ID: "test-task", Title: "test", Instruction: "do something"}
+	ch := make(chan iface.AgentEvent, 2)
+
+	// Simulate a simple content delta + done.
+	ch <- &testContentDelta{delta: "hello"}
+	ch <- &testDoneEvent{content: " world"}
+	close(ch)
+
+	result, err := s.drainEventsWithTimeline(ch, task, "exec-1")
+	if err != nil {
+		t.Fatalf("drainEventsWithTimeline: %v", err)
+	}
+	if result.replyText != "hello world" {
+		t.Errorf("expected 'hello world', got %q", result.replyText)
+	}
+	if result.timelineDir == "" {
+		t.Error("timelineDir should not be empty")
+	}
+
+	// Verify timeline file was created.
+	files, err := filepath.Glob(filepath.Join(tmpDir, "logs", "cron", "test-task", "exec-1", "timeline-*.jsonl"))
+	if err != nil || len(files) == 0 {
+		t.Errorf("timeline file was not created (err=%v, files=%v)", err, files)
+	}
+}
+
+func TestDrainEventsWithTimeline_Error(t *testing.T) {
+	s := newTestScheduler(t)
+	s.SetWorkDir(t.TempDir())
+
+	task := Task{ID: "test-task", Instruction: "do something"}
+	ch := make(chan iface.AgentEvent, 1)
+	ch <- &testErrorEvent{err: errors.New("something went wrong")}
+	close(ch)
+
+	_, err := s.drainEventsWithTimeline(ch, task, "exec-err")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Error() != "agent error: something went wrong" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ── Mock event types that implement iface.AgentEvent + iface.EventConsumer ──
+
+type testContentDelta struct {
+	delta string
+}
+
+func (e *testContentDelta) IsAgentEvent()                    {}
+func (e *testContentDelta) ContentDelta() (string, bool)     { return e.delta, true }
+func (e *testContentDelta) DoneContent() (string, bool)      { return "", false }
+func (e *testContentDelta) Error() (error, bool)             { return nil, false }
+func (e *testContentDelta) ConfirmRequest() (string, bool)   { return "", false }
+
+type testDoneEvent struct {
+	content string
+}
+
+func (e *testDoneEvent) IsAgentEvent()                    {}
+func (e *testDoneEvent) ContentDelta() (string, bool)     { return "", false }
+func (e *testDoneEvent) DoneContent() (string, bool)      { return e.content, true }
+func (e *testDoneEvent) Error() (error, bool)             { return nil, false }
+func (e *testDoneEvent) ConfirmRequest() (string, bool)   { return "", false }
+
+type testErrorEvent struct {
+	err error
+}
+
+func (e *testErrorEvent) IsAgentEvent()                    {}
+func (e *testErrorEvent) ContentDelta() (string, bool)     { return "", false }
+func (e *testErrorEvent) DoneContent() (string, bool)      { return "", false }
+func (e *testErrorEvent) Error() (error, bool)             { return e.err, true }
+func (e *testErrorEvent) ConfirmRequest() (string, bool)   { return "", false }
