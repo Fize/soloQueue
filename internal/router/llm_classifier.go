@@ -48,7 +48,7 @@ IMPORTANT OVERRIDE & HISTORY RULES:
 - Multi-target changes, migrations, integrations are level 2.
 - Rewrites, architectural decisions, complex debugging, system design are level 3.
 - Level 4 is reserved for tasks that combine high complexity with critical stakes: production migrations with zero downtime, unprecedented design problems, tasks requiring exhaustive multi-step agent orchestration, or systems where failure is unacceptable.
-- If user explicitly requests deep thinking or careful analysis (e.g., "think carefully", "thorough"), raise level by 1.
+- Requests such as "think carefully" or "be thorough" describe answer quality, not task scope. Do not raise the level unless the requested work itself has wider impact, more steps, higher uncertainty, or critical operational risk.
 - CONTEXT & HISTORY: If the user's message is a follow-up (e.g., asking for tweaks, additions, continuation, or asking questions about a previously established task in the history), maintain the level of that task (level 1, 2, or 3) rather than downgrading to 0. Treat follow-up modifications or corrections as action tasks, not chitchat.
 
 Output format (ONLY this JSON, nothing else):
@@ -72,6 +72,7 @@ type LLMClassifier struct {
 //   - providerID: the LLM provider ID
 //   - model: API model name to use (typically the "fast" model without thinking)
 //   - logger: optional logger (nil = creates minimal system-layer logger)
+//
 // func NewLLMClassifier(client agent.LLMClient, providerID, model string, l *logger.Logger) *LLMClassifier {
 func NewLLMClassifier(client agent.LLMClient, providerID, model string, l *logger.Logger) *LLMClassifier {
 	if l == nil {
@@ -119,7 +120,6 @@ func (lc *LLMClassifier) GetModelAndProvider() (string, string) {
 	defer lc.mu.RUnlock()
 	return lc.providerID, lc.model
 }
-
 
 // Classify performs LLM-based semantic classification of a user prompt.
 //
@@ -198,7 +198,7 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ Classifi
 // llmClassifyJSON is the expected JSON structure from the LLM
 type llmClassifyJSON struct {
 	Intent string `json:"intent"` // "chat" or "action"
-	Level  int    `json:"level"`  // 0, 1, 2, 3
+	Level  int    `json:"level"`  // 0-4
 	Reason string `json:"reason"`
 }
 
@@ -239,11 +239,12 @@ func parseLLMClassifyResponse(content string) ClassificationResult {
 		level = LevelSimpleSingleFile // safety fallback
 	}
 
-	// LLM classification has fixed confidence of 80
-	// (higher than low-confidence fast-track, lower than high-confidence fast-track)
+	// Keep confidence internal to the classifier contract. It is intentionally
+	// not requested from the model because downstream routing expects the
+	// stable intent/level/reason JSON schema.
 	confidence := 80
 	if raw.Intent == "chat" && level == LevelConversation {
-		confidence = 90 // High confidence for clear conversation intent
+		confidence = 90
 	}
 
 	reason := raw.Reason

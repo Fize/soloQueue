@@ -159,3 +159,18 @@ func TestLLMCompactorUsesCorrectModel(t *testing.T) {
 		t.Errorf("Model = %q, want %q", gotModel, "deepseek-v4-flash")
 	}
 }
+
+func TestCompactorPromptHasContinuationStateSchema(t *testing.T) {
+	for _, heading := range []string{
+		"## Current goal", "## Completed", "## Current state",
+		"## Key decisions", "## Changed files", "## Remaining work",
+		"## Blockers", "## User preferences",
+	} {
+		if !strings.Contains(compactSystemPrompt, heading) {
+			t.Fatalf("compactor prompt missing continuation heading %q", heading)
+		}
+	}
+	if !strings.Contains(compactSystemPrompt, "untrusted data") {
+		t.Fatal("compactor prompt must define a trust boundary")
+	}
+}

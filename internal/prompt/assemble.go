@@ -12,14 +12,15 @@ import (
 func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir, exploreDir string, mcpServers []string) string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "<identity>\n%s\n</identity>", strings.TrimSpace(profile))
+	fmt.Fprintf(&b, "<identity>\n%s\n</identity>", escapePromptData(strings.TrimSpace(profile)))
 
-	fmt.Fprintf(&b, "\n\n<working_directory>\nYour global working directory is `%s`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use `%s` paths.\n</working_directory>", workDir, workDir)
+	safeWorkDir := escapePromptData(workDir)
+	fmt.Fprintf(&b, "\n\n<working_directory>\nYour global working directory is `%s`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use `%s` paths.\n</working_directory>", safeWorkDir, safeWorkDir)
 
-	fmt.Fprintf(&b, "\n\n%s", EnvSection(workDir, exploreDir, true, true))
+	fmt.Fprintf(&b, "\n\n%s", EnvSection(safeWorkDir, escapePromptData(exploreDir), true, true))
 
 	if userCtx != "" {
-		fmt.Fprintf(&b, "\n\n<user_context>\n%s\n</user_context>", strings.TrimSpace(userCtx))
+		fmt.Fprintf(&b, "\n\n<user_context>\n%s\n</user_context>", escapePromptData(strings.TrimSpace(userCtx)))
 	}
 
 	if recentMemory != "" {
@@ -32,16 +33,16 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 
 	fmt.Fprintf(&b, "\n\n<delegation_requirement>\n===============================================================================\n🔴 CRITICAL DIRECTIVE: YOU ARE A TASK ROUTER, NOT AN EXECUTOR.\nYOUR PRIMARY AND ONLY DEFAULT ACTION FOR ANY USER TASK IS TO DELEGATE.\n===============================================================================\n- You MUST use delegate_* tools for ALL tasks that fall within any team's domain.\n- Using built-in tools (Read, Bash, Write, Edit, Grep, Glob, WebFetch, WebSearch) when a matching team exists is a STRICT PROTOCOL VIOLATION.\n- Self-execution is ONLY permitted if NO registered team matches the task's domain.\n- When delegating, you MUST include the `work_dir` parameter set to the appropriate workspace path from the team's workspace list. The delegated agent will work in this directory and load project-specific configuration (AGENTS.md, CLAUDE.md, .claude/) from it. Omitting `work_dir` will cause the delegation to fail.\n\n👉 SELECTIVE CONTEXT SYNTHESIS FOR MULTI-TURN DELEGATION:\nL2 agents start with an empty history and only see the `task` string.\nWhen delegating in a multi-turn conversation, you MUST NOT pass the raw user query. You MUST synthesize a self-contained task description that includes:\n1. The overall goal and latest request.\n2. Only directly relevant and useful context from previous turns (such as specific file paths, specific error logs, or key prior findings discussed). Do NOT dump all history or irrelevant details.\n\nExample: delegate_dev(task=\"Fix CSS on login page. Context: user reported layout shift in main.css and we saw line 45 has bad flex properties.\", work_dir=\"/path/to/project\")\n===============================================================================\n</delegation_requirement>")
 
-	fmt.Fprintf(&b, "\n\n<available_teams>\n%s\n</available_teams>", strings.TrimSpace(routingTable))
+	fmt.Fprintf(&b, "\n\n<available_teams>\n%s\n</available_teams>", escapePromptData(strings.TrimSpace(routingTable)))
 
-	fmt.Fprintf(&b, "\n\n<team_management>\n%s\n</team_management>", strings.TrimSpace(teamMgmt))
+	fmt.Fprintf(&b, "\n\n<team_management>\n%s\n</team_management>", escapePromptData(strings.TrimSpace(teamMgmt)))
 
-	fmt.Fprintf(&b, "\n\n<rules>\n%s\n%s\n</rules>", strings.TrimSpace(rules), HardcodedL1Rules)
+	fmt.Fprintf(&b, "\n\n<rules>\n%s\n%s\n</rules>", escapePromptData(strings.TrimSpace(rules)), HardcodedL1Rules)
 
 	if len(mcpServers) > 0 {
 		b.WriteString("\n\n<mcp_servers>\n")
 		for _, name := range mcpServers {
-			fmt.Fprintf(&b, "- %s\n", name)
+			fmt.Fprintf(&b, "- %s\n", escapePromptData(name))
 		}
 		b.WriteString("</mcp_servers>")
 	}
