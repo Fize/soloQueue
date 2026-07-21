@@ -71,37 +71,5 @@ func (r *Registry) Clear() {
 	r.entries = nil
 }
 
-// NotifierForAgent resolves the appropriate ChannelNotifier for a given agent.
-// It uses the agent's Channels map and NotifyChannel preference.
-// If NotifyChannel is set and exists in Channels, that channel's notifier is returned.
-// If NotifyChannel is empty, the first entry in Channels is used.
-// Returns (notifier, true) if a matching notifier is registered, (nil, false) otherwise.
-func (r *Registry) NotifierForAgent(channels map[string]string, notifyChannel string) (ChannelNotifier, bool) {
-	if len(channels) == 0 {
-		return nil, false
-	}
-
-	// Determine which channel type to use.
-	notifyType := notifyChannel
-	if notifyType == "" {
-		// Use the first channel type in the map as default.
-		for k := range channels {
-			notifyType = k
-			break
-		}
-	}
-
-	instanceID, ok := channels[notifyType]
-	if !ok {
-		// notifyChannel points to a type not in channels — fallback to first.
-		for k, v := range channels {
-			return r.Find(k, v)
-		}
-		return nil, false
-	}
-
-	return r.Find(notifyType, instanceID)
-}
-
 // Ensure Registry implements no extra interfaces.
 var _ = (*Registry)(nil)

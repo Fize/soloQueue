@@ -16,7 +16,6 @@ import (
 	robfig "github.com/robfig/cron/v3"
 	"github.com/google/uuid"
 
-	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
@@ -72,13 +71,10 @@ type ResolvedModel struct {
 // ModelResolver resolves the latest configured model for a persisted level.
 type ModelResolver func(taskLevel string) (ResolvedModel, error)
 
-// AgentChannelResolver resolves an agent's channel bindings for notification routing.
-// Implemented by the runtime layer to avoid import cycles.
-type AgentChannelResolver interface {
-	// GetChannels returns the channels map and notify_channel for the given agent template ID.
-	// Returns (channels, notifyChannel, true) if the agent exists, (nil, "", false) otherwise.
-	GetChannels(agentID string) (channels map[string]string, notifyChannel string, ok bool)
-}
+// TaskCompletedHook is called when a scheduled task finishes execution.
+// Each channel (QQ, etc.) registers its own hook to deliver notifications
+// via its own transport. The hook receives the task and the full reply text.
+type TaskCompletedHook func(ctx context.Context, task Task, reply string)
 
 type modelRoutedSession interface {
 	AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
@@ -134,14 +130,13 @@ type Scheduler struct {
 	timers          map[string]*time.Timer
 	stopped         bool
 
-	// channelRegistry resolves channel notifiers for notification routing.
-	channelRegistry *channel.Registry
-	// agentChannelResolver resolves agent channel bindings.
-	agentChannelResolver AgentChannelResolver
-
 	// OnTaskComplete is called when a cron task finishes execution.
 	// Set from the server layer to integrate with WebSocket notifications.
 	OnTaskComplete CronDoneCallback
+
+	// onTaskCompleted is the callback registered by channels (QQ, etc.) for
+	// delivering task results via their own transport (SendActiveMessage, etc.).
+	onTaskCompleted TaskCompletedHook
 }
 
 // SetModelResolver configures per-run task-level model selection.
@@ -154,18 +149,22 @@ func (s *Scheduler) SetWorkDir(dir string) {
 	s.workDir = dir
 }
 
-// SetChannelRegistry sets the channel registry for notification routing.
-func (s *Scheduler) SetChannelRegistry(reg *channel.Registry) {
+// OnTaskCompleted registers a callback that is invoked when a cron task completes.
+// Each channel (QQ, WeChat, etc.) registers its own hook to deliver the result.
+func (s *Scheduler) OnTaskCompleted(h TaskCompletedHook) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.channelRegistry = reg
+	s.onTaskCompleted = h
 }
 
-// SetAgentChannelResolver sets the agent channel resolver for notification routing.
-func (s *Scheduler) SetAgentChannelResolver(resolver AgentChannelResolver) {
+// invokeTaskCompletedHook safely calls the registered TaskCompletedHook if set.
+func (s *Scheduler) invokeTaskCompletedHook(ctx context.Context, t Task, reply string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.agentChannelResolver = resolver
+	hook := s.onTaskCompleted
+	s.mu.Unlock()
+	if hook != nil {
+		hook(ctx, t, reply)
+	}
 }
 
 // NewScheduler constructs a new Scheduler.
@@ -406,20 +405,7 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 
 	cronCtx := s.buildCronContext(t)
 
-	// If the target agent has channel bindings, use AskStream so the result
-	// writes to the timeline and gets pushed through the channel bridge naturally.
-	// Otherwise use AskIsolated to avoid polluting the conversation.
-	hasChannels := s.agentChannelResolver != nil &&
-		func() bool { _, _, ok := s.agentChannelResolver.GetChannels(t.TargetAgent); return ok }()
-
-	var resolved ResolvedModel
-	var ch <-chan iface.AgentEvent
-	var err error
-	if hasChannels {
-		resolved, ch, err = s.askWithTaskModelStream(cronCtx, t, l1Session)
-	} else {
-		resolved, ch, err = s.askWithTaskModel(cronCtx, t, l1Session)
-	}
+	resolved, ch, err := s.askWithTaskModel(cronCtx, t, l1Session)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
 		if errors.Is(err, errTaskModelResolution) {
@@ -445,12 +431,7 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	}
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
 	s.notifyTaskComplete(t, status == "success", firstLineSummary(result.replyText))
-
-	// Only route notification explicitly when using isolated execution.
-	// When using AskStream the bridge already handles delivery.
-	if !hasChannels {
-		s.routeNotification(ctx, t, "")
-	}
+	s.invokeTaskCompletedHook(ctx, t, result.replyText)
 
 	if drainErr != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task drain error", "task_id", t.ID, "err", drainErr)
@@ -536,19 +517,15 @@ func (s *Scheduler) executeL2Task(t Task) {
 	}
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
 	s.notifyTaskComplete(t, status == "success", firstLineSummary(replyText))
+	s.invokeTaskCompletedHook(ctx, t, replyText)
 
 	if drainErr != nil {
 		s.logger.Error(logger.CatApp, "cron: L2 task drain error", "task_id", t.ID, "err", drainErr)
 		return
 	}
 
-	// Route notification through channel if target agent has one.
-	handled := s.routeNotification(ctx, t, replyText)
-
-	// If notification was not handled directly, fallback to L1 delivery.
-	if !handled {
-		s.enqueueL2Result(t, replyText, mediaFiles)
-	}
+	// Enqueue L2 result for L1 delivery.
+	s.enqueueL2Result(t, replyText, mediaFiles)
 
 	s.updateTaskAfterExecution(ctx, t)
 }
@@ -965,42 +942,6 @@ func (s *Scheduler) deliverResultToL1(l1Session Session, pr pendingResult) {
 	// Drain events silently (the result is already in CW/WS via AskStream).
 	for range ch {
 	}
-}
-
-// routeNotification routes a completed task's result to the appropriate channel.
-// It checks the target agent's channel bindings and sends directly through the
-// bound channel if available. Returns true if the notification was handled
-// (either sent directly or determined that no notification is needed).
-// Returns false if the caller should fall back to L1 delivery.
-func (s *Scheduler) routeNotification(ctx context.Context, t Task, reply string) bool {
-	// If no channel registry, skip everything.
-	if s.channelRegistry == nil {
-		return false
-	}
-
-	// Resolve target agent's channel bindings.
-	if s.agentChannelResolver != nil {
-		channels, notifyChannel, ok := s.agentChannelResolver.GetChannels(t.TargetAgent)
-		if ok && len(channels) > 0 {
-			notifier, found := s.channelRegistry.NotifierForAgent(channels, notifyChannel)
-			if found {
-				if err := notifier.SendNotification(ctx, t.SourceUserID, t.SourceConvID, reply); err != nil {
-					s.logger.Warn(logger.CatApp, "cron: channel notification failed",
-						"task_id", t.ID, "target_agent", t.TargetAgent, "err", err.Error())
-				} else {
-					s.logger.Info(logger.CatApp, "cron: notification sent via channel",
-						"task_id", t.ID, "target_agent", t.TargetAgent)
-				}
-				return true
-			}
-		}
-	}
-
-	// Agent has no channel. Check if any channels exist at all.
-	if s.channelRegistry.HasAny() {
-		return false // caller should fallback to L1 delivery
-	}
-	return true // no channels anywhere, notification handled (skip)
 }
 
 // updateTaskAfterExecution updates DB timestamps after successful execution.

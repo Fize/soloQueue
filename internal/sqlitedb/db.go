@@ -80,10 +80,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
 	qq_source INTEGER DEFAULT -1,
 	qq_openid TEXT,
 	qq_target_openid TEXT,
-	qq_chat_id TEXT,
-	source_channel TEXT NOT NULL DEFAULT '',
-	source_user_id TEXT NOT NULL DEFAULT '',
-	source_conv_id TEXT NOT NULL DEFAULT ''
+	qq_chat_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
 

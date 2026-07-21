@@ -183,8 +183,9 @@ func (m *QQBotManager) Reload() {
 	m.queues = queues
 	m.bridges = bridges
 
-	// Register each QQ bot notifier in the channel registry for cron notification routing.
-	if chanReg := m.rt.ChannelRegistry; chanReg != nil {
+	// Register cron task completion callback for each QQ bot.
+	// Each bridge delivers task results via SendActiveMessage.
+	if m.cronSched != nil {
 		settings := m.cfg.Get()
 		idx := 0
 		for _, qqCfgBase := range settings.QQBots {
@@ -192,11 +193,26 @@ func (m *QQBotManager) Reload() {
 				continue
 			}
 			if idx < len(bridges) {
-				notifier := &qqbot.QQNotifier{Bridge: bridges[idx]}
-				chanReg.Register(channel.NotifierEntry{
-					ChannelType: "qq",
-					InstanceID:  qqCfgBase.ID,
-					Notifier:    notifier,
+				bridge := bridges[idx] // capture bridge for closure
+				log := m.mainLog
+				m.cronSched.OnTaskCompleted(func(ctx context.Context, task cron.Task, reply string) {
+					if task.QQSource < 0 {
+						return // not a QQ-originated task
+					}
+					msg := qqbot.QQMessage{
+						Source:       qqbot.MessageSource(task.QQSource),
+						OpenID:       task.QQOpenID,
+						TargetOpenID: task.QQTargetOpenID,
+						ChatID:       task.QQChatID,
+					}
+					formatted := qqbot.QQMarkdown(reply)
+					if err := bridge.SendActiveMessage(ctx, msg, qqbot.MsgTypeMarkdown, formatted); err != nil {
+						log.Error(logger.CatApp, "qqbot cron: active message failed",
+							"task_id", task.ID, "err", err)
+					} else {
+						log.Info(logger.CatApp, "qqbot cron: active message sent",
+							"task_id", task.ID)
+					}
 				})
 			}
 			idx++

@@ -151,8 +151,6 @@ func ServeCmd(version string) *cobra.Command {
 			rt.ChannelRegistry = chanRegistry
 
 			// Wire channel notification routing into the scheduler.
-			cronScheduler.SetChannelRegistry(chanRegistry)
-			cronScheduler.SetAgentChannelResolver(&agentChannelResolver{registry: rt.AgentRegistry, stack: rt})
 			cronScheduler.SetWorkDir(workDir)
 
 			// Wire the cron store and scheduler into tools configuration
@@ -454,33 +452,4 @@ func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskI
 	}
 
 	return l2Session, true, cleanup, nil
-}
-
-// agentChannelResolver implements cron.AgentChannelResolver by looking up
-// agents in the agent registry, with a special case for L1 from Stack.
-type agentChannelResolver struct {
-	registry *agent.Registry
-	stack    *runtime.Stack
-}
-
-func (r *agentChannelResolver) GetChannels(agentID string) (map[string]string, string, bool) {
-	// L1: check registry first, then Stack channels.
-	if agentID == "L1" || agentID == "l1-agent" {
-		agents := r.registry.GetByTemplate(agentID)
-		if len(agents) > 0 {
-			def := agents[0].Def
-			return def.Channels, def.NotifyChannel, len(def.Channels) > 0
-		}
-		if r.stack != nil && len(r.stack.L1Channels) > 0 {
-			return r.stack.L1Channels, r.stack.L1NotifyChannel, true
-		}
-		return nil, "", false
-	}
-
-	agents := r.registry.GetByTemplate(agentID)
-	if len(agents) == 0 {
-		return nil, "", false
-	}
-	def := agents[0].Def
-	return def.Channels, def.NotifyChannel, true
 }

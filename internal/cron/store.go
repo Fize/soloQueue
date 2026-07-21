@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
@@ -31,12 +30,6 @@ type Task struct {
 	QQOpenID       string     `json:"qq_openid"`
 	QQTargetOpenID string     `json:"qq_target_openid"`
 	QQChatID       string     `json:"qq_chat_id"`
-	// SourceChannel is the channel type that created this task ("qq", "wechat", or "" for web).
-	SourceChannel string `json:"source_channel"`
-	// SourceUserID is the user identifier in the source channel.
-	SourceUserID string `json:"source_user_id"`
-	// SourceConvID is the conversation identifier in the source channel.
-	SourceConvID string `json:"source_conv_id"`
 }
 
 const (
@@ -141,7 +134,7 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id, source_channel, source_user_id, source_conv_id
+		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
 		 FROM scheduled_tasks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: list tasks: %w", err)
@@ -155,8 +148,7 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 		var nRun, cAt, uAt string
 		var qqSource sql.NullInt64
 		var qqOpenID, qqTargetOpenID, qqChatID sql.NullString
-		var srcChannel, srcUserID, srcConvID sql.NullString
-		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID, &srcChannel, &srcUserID, &srcConvID)
+		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan task: %w", err)
 		}
@@ -183,15 +175,6 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 		if qqChatID.Valid {
 			t.QQChatID = qqChatID.String
 		}
-		if srcChannel.Valid {
-			t.SourceChannel = srcChannel.String
-		}
-		if srcUserID.Valid {
-			t.SourceUserID = srcUserID.String
-		}
-		if srcConvID.Valid {
-			t.SourceConvID = srcConvID.String
-		}
 
 		tasks = append(tasks, t)
 	}
@@ -205,11 +188,10 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 	var nRun, cAt, uAt string
 	var qqSource sql.NullInt64
 	var qqOpenID, qqTargetOpenID, qqChatID sql.NullString
-	var srcChannel, srcUserID, srcConvID sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id, source_channel, source_user_id, source_conv_id
+		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
 		 FROM scheduled_tasks WHERE id = ?`, id).
-		Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID, &srcChannel, &srcUserID, &srcConvID)
+		Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("cron store: task %q not found", id)
 	}
@@ -239,15 +221,6 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 	if qqChatID.Valid {
 		t.QQChatID = qqChatID.String
 	}
-	if srcChannel.Valid {
-		t.SourceChannel = srcChannel.String
-	}
-	if srcUserID.Valid {
-		t.SourceUserID = srcUserID.String
-	}
-	if srcConvID.Valid {
-		t.SourceConvID = srcConvID.String
-	}
 
 	return &t, nil
 }
@@ -255,7 +228,8 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 // GetActiveTasks returns all tasks with 'active' status.
 func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id, source_channel, source_user_id, source_conv_id
+		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
+
 		 FROM scheduled_tasks WHERE status = 'active'`)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: get active tasks: %w", err)
@@ -269,8 +243,7 @@ func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 		var nRun, cAt, uAt string
 		var qqSource sql.NullInt64
 		var qqOpenID, qqTargetOpenID, qqChatID sql.NullString
-		var srcChannel, srcUserID, srcConvID sql.NullString
-		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID, &srcChannel, &srcUserID, &srcConvID)
+		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan active task: %w", err)
 		}
@@ -296,15 +269,6 @@ func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 		}
 		if qqChatID.Valid {
 			t.QQChatID = qqChatID.String
-		}
-		if srcChannel.Valid {
-			t.SourceChannel = srcChannel.String
-		}
-		if srcUserID.Valid {
-			t.SourceUserID = srcUserID.String
-		}
-		if srcConvID.Valid {
-			t.SourceConvID = srcConvID.String
 		}
 
 		tasks = append(tasks, t)
@@ -346,25 +310,6 @@ func getQQMessageMeta(ctx context.Context) (source int, openID, targetOpenID, ch
 	return source, openID, targetOpenID, chatID, true
 }
 
-// getChannelMeta extracts generic channel source metadata from context.
-// It tries the new ChatMeta key first, then falls back to legacy QQ context.
-func getChannelMeta(ctx context.Context) (sourceChannel, userID, convID string) {
-	// 1. Try new generic context key
-	if meta, ok := channel.ChatMetaFromContext(ctx); ok {
-		return meta.Channel, meta.UserID, meta.ConversationID
-	}
-	// 2. Fallback: legacy QQ context
-	_, openID, targetOpenID, chatID, exists := getQQMessageMeta(ctx)
-	if exists {
-		conv := chatID
-		if conv == "" {
-			conv = targetOpenID
-		}
-		return "qq", openID, conv
-	}
-	return "", "", ""
-}
-
 // CreateTask inserts a new task.
 func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task, error) {
 	input.Title = strings.TrimSpace(input.Title)
@@ -386,12 +331,11 @@ func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task,
 	}
 
 	qqSource, qqOpenID, qqTargetOpenID, qqChatID, _ := getQQMessageMeta(ctx)
-	sourceChannel, sourceUserID, sourceConvID := getChannelMeta(ctx)
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO scheduled_tasks (id, title, task_level, expression, instruction, target_agent, status, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id, source_channel, source_user_id, source_conv_id)
-		 VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, input.Title, input.TaskLevel, input.Expression, input.Instruction, input.TargetAgent, nRun, now, now, qqSource, qqOpenID, qqTargetOpenID, qqChatID, sourceChannel, sourceUserID, sourceConvID)
+		`INSERT INTO scheduled_tasks (id, title, task_level, expression, instruction, target_agent, status, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id)
+		 VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
+		id, input.Title, input.TaskLevel, input.Expression, input.Instruction, input.TargetAgent, nRun, now, now, qqSource, qqOpenID, qqTargetOpenID, qqChatID)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: create task: %w", err)
 	}
@@ -411,9 +355,6 @@ func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task,
 		QQOpenID:       qqOpenID,
 		QQTargetOpenID: qqTargetOpenID,
 		QQChatID:       qqChatID,
-		SourceChannel:  sourceChannel,
-		SourceUserID:   sourceUserID,
-		SourceConvID:   sourceConvID,
 	}, nil
 }
 
@@ -448,8 +389,8 @@ func (s *DBStore) updateTask(ctx context.Context, t *Task, requiredTarget string
 	now := time.Now().Format(time.RFC3339)
 	nRun := t.NextRunAt.Format(time.RFC3339)
 
-	query := `UPDATE scheduled_tasks SET title = ?, task_level = ?, expression = ?, instruction = ?, target_agent = ?, status = ?, next_run_at = ?, updated_at = ?, qq_source = ?, qq_openid = ?, qq_target_openid = ?, qq_chat_id = ?, source_channel = ?, source_user_id = ?, source_conv_id = ? WHERE id = ?`
-	args := []any{t.Title, t.TaskLevel, t.Expression, t.Instruction, t.TargetAgent, t.Status, nRun, now, t.QQSource, t.QQOpenID, t.QQTargetOpenID, t.QQChatID, t.SourceChannel, t.SourceUserID, t.SourceConvID, t.ID}
+	query := `UPDATE scheduled_tasks SET title = ?, task_level = ?, expression = ?, instruction = ?, target_agent = ?, status = ?, next_run_at = ?, updated_at = ?, qq_source = ?, qq_openid = ?, qq_target_openid = ?, qq_chat_id = ? WHERE id = ?`
+	args := []any{t.Title, t.TaskLevel, t.Expression, t.Instruction, t.TargetAgent, t.Status, nRun, now, t.QQSource, t.QQOpenID, t.QQTargetOpenID, t.QQChatID, t.ID}
 	if requiredTarget != "" {
 		query += ` AND lower(target_agent) = lower(?)`
 		args = append(args, requiredTarget)
