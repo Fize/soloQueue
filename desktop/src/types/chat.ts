@@ -237,7 +237,7 @@ export type ChatSegment =
       type: "delegation";
       agentName: string;
       task: string;
-      status: "running" | "completed" | "failed";
+      status: "running" | "completed" | "failed" | "cancelled";
       durationMs?: number;
       resultContent?: string;
     }

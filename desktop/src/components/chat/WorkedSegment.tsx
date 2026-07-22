@@ -152,6 +152,7 @@ export function SubagentCard({
   const [modalOpen, setModalOpen] = useState(false)
   const running = segment.status === 'running'
   const failed = segment.status === 'failed'
+  const cancelled = segment.status === 'cancelled'
   const completed = segment.status === 'completed'
   const hasResult = !!segment.resultContent
 
@@ -166,7 +167,7 @@ export function SubagentCard({
 
   // Clickable whenever the agent is running (to watch live stream) or has
   // finished output (to review results).
-  const isClickable = running || completed || failed
+  const isClickable = running || completed || failed || cancelled
 
   return (
     <>
@@ -188,7 +189,7 @@ export function SubagentCard({
             'h-0.5 w-full',
             running
               ? 'bg-gradient-to-r from-primary to-purple-400'
-              : failed
+              : failed || cancelled
                 ? 'bg-destructive/60'
                 : 'bg-success/40'
           )}
@@ -199,12 +200,16 @@ export function SubagentCard({
           <div
             className={cn(
               'h-7 w-7 rounded-lg flex items-center justify-center shrink-0',
-              running ? 'bg-signal/15' : failed ? 'bg-destructive/10' : 'bg-success/10'
+              running
+                ? 'bg-signal/15'
+                : failed || cancelled
+                  ? 'bg-destructive/10'
+                  : 'bg-success/10'
             )}
           >
             {running ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-signal" />
-            ) : failed ? (
+            ) : failed || cancelled ? (
               <AlertCircle className="h-3.5 w-3.5 text-destructive" />
             ) : (
               <CheckCircle2 className="h-3.5 w-3.5 text-success" />
@@ -222,12 +227,18 @@ export function SubagentCard({
                   'text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md',
                   running
                     ? 'bg-primary/15 text-primary'
-                    : failed
+                    : failed || cancelled
                       ? 'bg-destructive/10 text-destructive'
                       : 'bg-success/10 text-success'
                 )}
               >
-                {running ? t('common.running') : failed ? t('common.failed') : t('common.done')}
+                {running
+                  ? t('common.running')
+                  : cancelled
+                    ? t('common.cancelled')
+                    : failed
+                      ? t('common.failed')
+                      : t('common.done')}
               </span>
               {isClickable && <ExternalLink className="h-2.5 w-2.5 text-primary/40 shrink-0" />}
             </div>

@@ -43,6 +43,7 @@ export function DelegationCard({
   const agentStream = useAgentStream(instanceId)
 
   const running = !done
+  const cancelled = done && error === 'Cancelled by user'
 
   const getTaskText = () => {
     try {
@@ -116,7 +117,13 @@ export function DelegationCard({
                         : 'bg-success/10 text-success'
                   )}
                 >
-                  {running ? t('common.running') : error ? t('common.failed') : t('common.done')}
+                  {running
+                    ? t('common.running')
+                    : cancelled
+                      ? t('common.cancelled')
+                      : error
+                        ? t('common.failed')
+                        : t('common.done')}
                 </span>
                 {isClickable && (
                   <ExternalLink className="h-2.5 w-2.5 text-primary/40 shrink-0" />

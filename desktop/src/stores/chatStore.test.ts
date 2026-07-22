@@ -153,6 +153,50 @@ describe('chatStore', () => {
     expect(useChatStore.getState().delegatingSessions['session-1']).toBe(true)
   })
 
+  it('marks running delegation cards cancelled when a request is stopped', () => {
+    const sid = 'session-1'
+    useChatStore.setState({
+      messages: {
+        [sid]: [
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            timestamp: '',
+            segments: [
+              {
+                type: 'tool_call',
+                callId: 'delegate-call',
+                name: 'delegate_editor',
+                args: '{}',
+                done: false,
+              },
+              {
+                type: 'tool_call',
+                callId: 'regular-call',
+                name: 'Read',
+                args: '{}',
+                done: false,
+              },
+              {
+                type: 'delegation',
+                agentName: 'editor',
+                task: 'edit file',
+                status: 'running',
+              },
+            ],
+          },
+        ],
+      },
+    })
+
+    useChatStore.getState().cancelRunningDelegations(sid)
+
+    const segments = useChatStore.getState().messages[sid][0].segments
+    expect(segments[0]).toMatchObject({ done: true, error: 'Cancelled by user' })
+    expect(segments[1]).toMatchObject({ done: false })
+    expect(segments[2]).toMatchObject({ status: 'cancelled' })
+  })
+
   it('sessionsLoading toggles true→false around loadSessions (drives the tree loading UI)', async () => {
     // Resolve after a tick so we can observe the in-flight state.
     let resolveList!: (v: { sessions: any[] }) => void

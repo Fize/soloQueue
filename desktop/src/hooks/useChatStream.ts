@@ -274,6 +274,7 @@ export function useChatStream() {
     store.setDelegating(false, sid)
     store.setSystemCommandRunning(false, sid)
     store.clearRoute(sid, requestId)
+    store.cancelRunningDelegations(sid)
     activeRequestIdRef.current = null
     // Unregister the chat handler to prevent buffered WS chunks from
     // appending to messages after the cancel has been initiated.

@@ -47,6 +47,7 @@ interface ChatState {
   removeLastEmptyAssistantMessage: (sessionId: string) => void
   addDelegationSegment: (sessionId: string, delegation: { agentName: string; task: string }) => void
   completeLastDelegation: (sessionId: string, agentName: string, durationMs?: number, resultContent?: string) => void
+  cancelRunningDelegations: (sessionId: string) => void
   resolveToolConfirm: (sessionId: string, callId: string, choice: string) => void
   
   rewindSession: (sessionId: string, targetTs: string) => Promise<void>
@@ -575,6 +576,33 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
+  cancelRunningDelegations: (sessionId: string) => {
+    set((s) => {
+      const msgs = s.messages[sessionId] || []
+      let changed = false
+      const updated = msgs.map((msg) => {
+        if (msg.role !== 'assistant') return msg
+        let messageChanged = false
+        const segments = msg.segments.map((seg) => {
+          if (seg.type === 'tool_call' && seg.name.startsWith('delegate_') && !seg.done) {
+            changed = true
+            messageChanged = true
+            return { ...seg, done: true, error: 'Cancelled by user' }
+          }
+          if (seg.type === 'delegation' && seg.status === 'running') {
+            changed = true
+            messageChanged = true
+            return { ...seg, status: 'cancelled' as const }
+          }
+          return seg
+        })
+        return messageChanged ? { ...msg, segments } : msg
+      })
+      if (!changed) return s
+      return { messages: { ...s.messages, [sessionId]: updated } }
+    })
+  },
+
   resolveToolConfirm: (sessionId: string, callId: string, choice: string) => {
     set((s) => {
       const sid = sessionId
@@ -674,7 +702,7 @@ function convertHistorySegment(seg: SessionHistorySegment): ChatSegment {
         type: 'delegation',
         agentName: seg.agent_name || seg.name || '',
         task: seg.task || '',
-        status: (seg.status as 'running' | 'completed' | 'failed') || 'completed',
+        status: (seg.status as 'running' | 'completed' | 'failed' | 'cancelled') || 'completed',
         durationMs: seg.duration_ms,
         resultContent: seg.result,
       }

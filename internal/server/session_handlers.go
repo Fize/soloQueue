@@ -993,9 +993,12 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 	var pendingToolCalls []pendingToolCall
 
 	validThreshold := ""
+	hiddenByRewind := make(map[int]bool)
 	deletedSet := make(map[string]bool)
 
-	// Pre-process rewind and delete events going backwards
+	// Pre-process rewind and delete events going backwards. A rewind only
+	// invalidates messages that precede the control event; messages appended
+	// after the rewind must remain visible.
 	for i := len(events) - 1; i >= 0; i-- {
 		evt := events[i]
 		if evt.EventType == timeline.EventControl && evt.Control != nil {
@@ -1011,10 +1014,20 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 					deletedSet[ts] = true
 				}
 			}
+			continue
+		}
+		if evt.EventType == timeline.EventMessage && evt.Message != nil && validThreshold != "" {
+			msgTimestamp := evt.Message.Timestamp
+			if msgTimestamp == "" {
+				msgTimestamp = evt.Timestamp
+			}
+			if msgTimestamp >= validThreshold {
+				hiddenByRewind[i] = true
+			}
 		}
 	}
 
-	for _, evt := range events {
+	for eventIdx, evt := range events {
 		if evt.EventType == timeline.EventControl && evt.Control != nil && evt.Control.Action == "summary" {
 			msgID := fmt.Sprintf("hist-%d", len(msgs))
 			msgs = append(msgs, historyMsg{
@@ -1051,7 +1064,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			msgTimestamp = evt.Timestamp
 		}
 
-		if validThreshold != "" && msgTimestamp >= validThreshold {
+		if hiddenByRewind[eventIdx] {
 			continue
 		}
 		if deletedSet[msgTimestamp] {

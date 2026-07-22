@@ -164,6 +164,76 @@ func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 	}
 }
 
+func TestHTTP_SessionHistory_RewindKeepsLaterMessages(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	events := []string{
+		`{"ts":"2026-07-22T18:40:00+08:00","type":"message","msg":{"role":"assistant","content":"earlier reply","ts":"2026-07-22T18:40:00+08:00"}}`,
+		`{"ts":"2026-07-22T18:40:12+08:00","type":"message","msg":{"role":"user","content":"typo","ts":"2026-07-22T18:40:12+08:00"}}`,
+		`{"ts":"2026-07-22T18:40:18+08:00","type":"control","ctrl":{"action":"rewind","target_ts":["2026-07-22T18:40:12+08:00"]}}`,
+		`{"ts":"2026-07-22T18:40:51+08:00","type":"message","msg":{"role":"user","content":"corrected question","ts":"2026-07-22T18:40:51+08:00"}}`,
+		`{"ts":"2026-07-22T18:41:45+08:00","type":"message","msg":{"role":"assistant","content":"later reply","ts":"2026-07-22T18:41:45+08:00"}}`,
+	}
+
+	f, err := os.Create(timelinePath)
+	if err != nil {
+		t.Fatalf("Create timeline file: %v", err)
+	}
+	for _, event := range events {
+		_, _ = f.WriteString(event + "\n")
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close timeline file: %v", err)
+	}
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Segments []struct {
+				Text string `json:"text"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	var contents []string
+	for _, msg := range resp.Messages {
+		for _, seg := range msg.Segments {
+			if seg.Text != "" {
+				contents = append(contents, seg.Text)
+			}
+		}
+	}
+	want := []string{"earlier reply", "corrected question", "later reply"}
+	if len(contents) != len(want) {
+		t.Fatalf("contents = %q, want %q", contents, want)
+	}
+	for i := range want {
+		if contents[i] != want[i] {
+			t.Fatalf("contents = %q, want %q", contents, want)
+		}
+	}
+}
+
 func TestHTTP_SessionHistory_Delegation_Completed(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
