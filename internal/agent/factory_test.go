@@ -1054,6 +1054,12 @@ func TestBuildL2SystemPrompt_PermanentMemory(t *testing.T) {
 	if !strings.Contains(prompt, "Remember") {
 		t.Error("L2 prompt should mention Remember tool")
 	}
+	if !strings.Contains(prompt, "when the task explicitly references earlier work") {
+		t.Error("L2 prompt should describe selective memory recall")
+	}
+	if strings.Contains(prompt, "ALWAYS call first") || strings.Contains(prompt, "EVERY non-trivial task") {
+		t.Error("L2 prompt should not require memory recall for every task")
+	}
 }
 
 func TestBuildL2SystemPrompt_NoPermanentMemory(t *testing.T) {
@@ -1094,6 +1100,12 @@ func TestBuildL3SystemPrompt_PermanentMemory(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "Remember") {
 		t.Error("L3 prompt should mention Remember tool")
+	}
+	if !strings.Contains(prompt, "when the task explicitly references earlier work") {
+		t.Error("L3 prompt should describe selective memory recall")
+	}
+	if strings.Contains(prompt, "ALWAYS call first") || strings.Contains(prompt, "EVERY non-trivial task") {
+		t.Error("L3 prompt should not require memory recall for every task")
 	}
 }
 
@@ -1654,6 +1666,8 @@ func TestBuildL2SystemPrompt_ProjectAgentsListed(t *testing.T) {
 	}
 }
 
+
+
 func TestBuildL2SystemPrompt_ProjectAgentOverridesGlobal(t *testing.T) {
 	devTmpl := AgentTemplate{
 		ID:           "dev",
@@ -1785,5 +1799,3 @@ func TestDefaultFactory_Create_SimulationAgentNoTools(t *testing.T) {
 		t.Errorf("expected simulation agent to have no tools, but got %d tools: %v", len(specs), specs)
 	}
 }
-
-

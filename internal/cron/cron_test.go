@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,14 +181,14 @@ func TestParseSendFileMedia(t *testing.T) {
 
 func TestBuildTaskPrompt(t *testing.T) {
 	s := newTestScheduler(t)
-	s.SetMemoryEngine("fake-engine", func(ctx context.Context, prompt string, memEngine interface{}, log *logger.Logger) string {
-		return ""
-	})
 
 	task := Task{ID: "t1", Instruction: "Do something important"}
 	prompt := s.buildTaskPrompt(task)
 	if prompt == "" {
 		t.Error("buildTaskPrompt returned empty string")
+	}
+	if strings.Contains(prompt, "<recalled_memories>") {
+		t.Error("buildTaskPrompt must not inject recalled memories")
 	}
 }
 
@@ -210,19 +211,6 @@ func TestScheduler_NewAndInit(t *testing.T) {
 	}
 	if s.entries == nil || s.timers == nil {
 		t.Error("maps not initialized")
-	}
-}
-
-func TestScheduler_SetMemoryEngine(t *testing.T) {
-	s := newTestScheduler(t)
-	s.SetMemoryEngine("fake-engine", func(ctx context.Context, prompt string, memEngine interface{}, log *logger.Logger) string {
-		return "recalled"
-	})
-	if s.memoryEngine != "fake-engine" {
-		t.Error("memoryEngine not set")
-	}
-	if s.buildRecalledFn == nil {
-		t.Error("buildRecalledFn not set")
 	}
 }
 
@@ -491,6 +479,67 @@ func TestDrainEventsWithTimeline_Error(t *testing.T) {
 	}
 	if err.Error() != "agent error: something went wrong" {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestExecuteTask_UpdatesNextRunOnDrainError(t *testing.T) {
+	store := openTestDB(t)
+
+	ctx := context.Background()
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		Title:       "Test Drain Error Task",
+		TaskLevel:   "L1",
+		Expression:  "0 8 * * *",
+		Instruction: "do something",
+		NextRunAt:   time.Now().Add(-1 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	s := NewScheduler(store, nil, nil)
+	s.updateTaskAfterExecution(ctx, *task)
+
+	updated, err := store.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if updated.LastRunAt == nil {
+		t.Error("expected LastRunAt to be non-nil after updateTaskAfterExecution")
+	}
+	if updated.NextRunAt.Before(time.Now()) {
+		t.Errorf("expected NextRunAt to be in the future, got %v", updated.NextRunAt)
+	}
+}
+
+type testToolExecStart struct {
+	callID string
+	name   string
+	args   string
+}
+
+func (e *testToolExecStart) IsAgentEvent()                  {}
+func (e *testToolExecStart) ContentDelta() (string, bool)   { return "", false }
+func (e *testToolExecStart) DoneContent() (string, bool)    { return "", false }
+func (e *testToolExecStart) Error() (error, bool)           { return nil, false }
+func (e *testToolExecStart) ConfirmRequest() (string, bool) { return "", false }
+
+func TestDrainEventsWithTimeline_ToolCallCount(t *testing.T) {
+	s := newTestScheduler(t)
+	s.SetWorkDir(t.TempDir())
+
+	task := Task{ID: "test-task-tool", Instruction: "run tool task"}
+	ch := make(chan iface.AgentEvent, 2)
+	ch <- &testToolExecStart{callID: "call-1", name: "pre_market", args: "{}"}
+	ch <- &testDoneEvent{content: "done"}
+	close(ch)
+
+	res, err := s.drainEventsWithTimeline(ch, task, "exec-tool-count")
+	if err != nil {
+		t.Fatalf("drainEventsWithTimeline error: %v", err)
+	}
+	if res.toolCallCount != 1 {
+		t.Errorf("expected toolCallCount == 1, got %d", res.toolCallCount)
 	}
 }
 

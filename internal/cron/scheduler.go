@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	robfig "github.com/robfig/cron/v3"
 	"github.com/google/uuid"
+	robfig "github.com/robfig/cron/v3"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -51,14 +51,6 @@ type SendFileMedia struct {
 	Base64Data string
 	FileName   string
 }
-
-// MemoryEngine is the interface required for memory recall during cron execution.
-type MemoryEngine interface {
-	Search(ctx context.Context, query string, limit int) (string, error)
-}
-
-// BuildRecalledContextFn is a function type that enriches a prompt with recalled memories.
-type BuildRecalledContextFn func(ctx context.Context, prompt string, memEngine interface{}, log *logger.Logger) string
 
 // ResolvedModel is the concrete model configuration for one scheduled run.
 type ResolvedModel struct {
@@ -110,10 +102,7 @@ type Scheduler struct {
 	cron       *robfig.Cron
 	workDir    string // base directory for cron log storage
 
-	// Memory engine for recall enrichment of cron prompts
-	memoryEngine    interface{}
-	buildRecalledFn BuildRecalledContextFn
-	modelResolver   ModelResolver
+	modelResolver ModelResolver
 
 	// L1 task queue: serializes L1-targeted cron tasks
 	l1Queue []cronTask
@@ -125,10 +114,10 @@ type Scheduler struct {
 	resultMu    sync.Mutex
 	resultCond  *sync.Cond
 
-	mu              sync.Mutex
-	entries         map[string]robfig.EntryID
-	timers          map[string]*time.Timer
-	stopped         bool
+	mu      sync.Mutex
+	entries map[string]robfig.EntryID
+	timers  map[string]*time.Timer
+	stopped bool
 
 	// OnTaskComplete is called when a cron task finishes execution.
 	// Set from the server layer to integrate with WebSocket notifications.
@@ -192,13 +181,6 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 	s.l1Cond = sync.NewCond(&s.l1Mu)
 	s.resultCond = sync.NewCond(&s.resultMu)
 	return s
-}
-
-// SetMemoryEngine configures the scheduler to enrich cron prompts with recalled memories.
-// buildFn is typically session.BuildRecalledContext.
-func (s *Scheduler) SetMemoryEngine(engine interface{}, buildFn BuildRecalledContextFn) {
-	s.memoryEngine = engine
-	s.buildRecalledFn = buildFn
 }
 
 // Start loads all active tasks from DB, resets any stale 'running' tasks
@@ -399,6 +381,8 @@ func firstLineSummary(s string) string {
 	return line
 }
 
+const continuationPrompt = "[SYSTEM NOTICE] The previous streaming response was interrupted due to a network error. System connection has been restored. Please resume and complete the unfinished task based on the above tool calls and intermediate results."
+
 // runL1Task executes a single L1 task on the given session.
 func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	start := time.Now()
@@ -411,7 +395,7 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 		if errors.Is(err, errTaskModelResolution) {
 			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "failed")
 		} else {
-			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+			s.updateTaskAfterExecution(ctx, t)
 		}
 		s.recordExecution(ctx, t, resolved, start, drainEventsResult{}, err.Error(), "failed")
 		s.notifyTaskComplete(t, false, err.Error())
@@ -419,6 +403,48 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	}
 
 	result, drainErr := s.drainEventsWithTimeline(ch, t, uuid.New().String())
+
+	// ── 1-time 10s Retry Logic ──
+	if drainErr != nil {
+		s.logger.Warn(logger.CatApp, "cron: L1 task drain error, preparing 10s retry",
+			"task_id", t.ID, "tool_calls", result.toolCallCount, "err", drainErr)
+		time.Sleep(10 * time.Second)
+
+		var retrySess Session
+		var retryPrompt string
+
+		if result.toolCallCount > 0 {
+			// iter > 0: Reuse existing session with tool outputs preserved in context window.
+			retrySess = l1Session
+			retryPrompt = continuationPrompt
+		} else {
+			// iter == 0: Get a fresh session to avoid duplicate instructions in context.
+			freshSess := s.sessionMgr.Session()
+			if freshSess != nil {
+				retrySess = freshSess
+			} else {
+				retrySess = l1Session
+			}
+			retryPrompt = s.buildTaskPrompt(t)
+		}
+
+		retryCtx := s.buildCronContext(t)
+		_, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		if retryStartErr == nil {
+			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, uuid.New().String()+"-retry")
+			if retryDrainErr == nil {
+				result = retryResult
+				drainErr = nil
+				s.logger.Info(logger.CatApp, "cron: L1 task retry succeeded", "task_id", t.ID)
+			} else {
+				s.logger.Error(logger.CatApp, "cron: L1 task retry failed", "task_id", t.ID, "err", retryDrainErr)
+				drainErr = retryDrainErr
+			}
+		} else {
+			s.logger.Error(logger.CatApp, "cron: L1 task retry failed to start", "task_id", t.ID, "err", retryStartErr)
+		}
+	}
+
 	duration := time.Since(start)
 	s.logger.Info(logger.CatApp, "cron: L1 task completed", "task_id", t.ID, "duration_ms", duration.Milliseconds())
 
@@ -435,7 +461,6 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 
 	if drainErr != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task drain error", "task_id", t.ID, "err", drainErr)
-		return
 	}
 
 	s.updateTaskAfterExecution(ctx, t)
@@ -494,7 +519,7 @@ func (s *Scheduler) executeL2Task(t Task) {
 		if errors.Is(err, errTaskModelResolution) {
 			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "failed")
 		} else {
-			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+			s.updateTaskAfterExecution(ctx, t)
 		}
 		s.recordExecution(ctx, t, resolved, start, drainEventsResult{}, err.Error(), "failed")
 		s.notifyTaskComplete(t, false, err.Error())
@@ -502,6 +527,54 @@ func (s *Scheduler) executeL2Task(t Task) {
 	}
 
 	result, drainErr := s.drainEventsWithTimeline(ch, t, uuid.New().String())
+
+	// ── 1-time 10s Retry Logic ──
+	if drainErr != nil {
+		s.logger.Warn(logger.CatApp, "cron: L2 task drain error, preparing 10s retry",
+			"task_id", t.ID, "tool_calls", result.toolCallCount, "err", drainErr)
+		time.Sleep(10 * time.Second)
+
+		var retrySess Session
+		var retryPrompt string
+
+		if result.toolCallCount > 0 {
+			// iter > 0: Reuse existing session with tool outputs preserved in context window.
+			retrySess = l2Session
+			retryPrompt = continuationPrompt
+		} else {
+			// iter == 0: Get a fresh session to avoid duplicate instructions in context.
+			if isNew && cleanup != nil {
+				cleanup()
+			}
+			freshSess, freshIsNew, freshCleanup, freshErr := s.sessionMgr.GetSession(ctx, t.TargetAgent, t.ID)
+			if freshErr == nil && freshSess != nil {
+				retrySess = freshSess
+				if freshIsNew && freshCleanup != nil {
+					defer freshCleanup()
+				}
+			} else {
+				retrySess = l2Session
+			}
+			retryPrompt = s.buildTaskPrompt(t)
+		}
+
+		retryCtx := s.buildCronContext(t)
+		_, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		if retryStartErr == nil {
+			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, uuid.New().String()+"-retry")
+			if retryDrainErr == nil {
+				result = retryResult
+				drainErr = nil
+				s.logger.Info(logger.CatApp, "cron: L2 task retry succeeded", "task_id", t.ID)
+			} else {
+				s.logger.Error(logger.CatApp, "cron: L2 task retry failed", "task_id", t.ID, "err", retryDrainErr)
+				drainErr = retryDrainErr
+			}
+		} else {
+			s.logger.Error(logger.CatApp, "cron: L2 task retry failed to start", "task_id", t.ID, "err", retryStartErr)
+		}
+	}
+
 	replyText := result.replyText
 	mediaFiles := result.mediaFiles
 	duration := time.Since(start)
@@ -521,17 +594,15 @@ func (s *Scheduler) executeL2Task(t Task) {
 
 	if drainErr != nil {
 		s.logger.Error(logger.CatApp, "cron: L2 task drain error", "task_id", t.ID, "err", drainErr)
-		return
+	} else {
+		// Enqueue L2 result for L1 delivery.
+		s.enqueueL2Result(t, replyText, mediaFiles)
 	}
-
-	// Enqueue L2 result for L1 delivery.
-	s.enqueueL2Result(t, replyText, mediaFiles)
 
 	s.updateTaskAfterExecution(ctx, t)
 }
 
-func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) (ResolvedModel, <-chan iface.AgentEvent, error) {
-	prompt := s.buildTaskPrompt(t)
+func (s *Scheduler) askWithTaskModelPrompt(ctx context.Context, t Task, sess Session, prompt string) (ResolvedModel, <-chan iface.AgentEvent, error) {
 	if s.modelResolver == nil {
 		ch, err := sess.AskIsolated(ctx, prompt)
 		return ResolvedModel{}, ch, err
@@ -558,10 +629,13 @@ func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) 
 	return resolved, ch, err
 }
 
+func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) (ResolvedModel, <-chan iface.AgentEvent, error) {
+	return s.askWithTaskModelPrompt(ctx, t, sess, s.buildTaskPrompt(t))
+}
+
 // askWithTaskModelStream is like askWithTaskModel but uses AskStream so the
 // result writes to the session timeline and triggers channel bridge delivery.
-func (s *Scheduler) askWithTaskModelStream(ctx context.Context, t Task, sess Session) (ResolvedModel, <-chan iface.AgentEvent, error) {
-	prompt := s.buildTaskPrompt(t)
+func (s *Scheduler) askWithTaskModelStreamPrompt(ctx context.Context, t Task, sess Session, prompt string) (ResolvedModel, <-chan iface.AgentEvent, error) {
 	if s.modelResolver == nil {
 		ch, err := sess.AskStream(ctx, prompt)
 		return ResolvedModel{}, ch, err
@@ -588,19 +662,13 @@ func (s *Scheduler) askWithTaskModelStream(ctx context.Context, t Task, sess Ses
 	return resolved, ch, err
 }
 
-// buildTaskPrompt builds the prompt for a task, optionally enriched with recalled memories.
+func (s *Scheduler) askWithTaskModelStream(ctx context.Context, t Task, sess Session) (ResolvedModel, <-chan iface.AgentEvent, error) {
+	return s.askWithTaskModelStreamPrompt(ctx, t, sess, s.buildTaskPrompt(t))
+}
+
+// buildTaskPrompt builds the prompt for a task.
 func (s *Scheduler) buildTaskPrompt(t Task) string {
-	basePrompt := buildCronPrompt(t)
-
-	if s.memoryEngine != nil && s.buildRecalledFn != nil {
-		recalled := s.buildRecalledFn(context.Background(), t.Instruction, s.memoryEngine, s.logger)
-		if recalled != "" {
-			// Prepend recalled memories to the base prompt.
-			basePrompt = recalled + "\n\n" + basePrompt
-		}
-	}
-
-	return basePrompt
+	return buildCronPrompt(t)
 }
 
 // buildCronContext creates a context with bypass-confirm and QBot flags.
@@ -638,9 +706,10 @@ func drainEvents(ch <-chan iface.AgentEvent) (string, []SendFileMedia) {
 
 // drainEventsResult holds the output of draining an agent event channel into a timeline.
 type drainEventsResult struct {
-	replyText   string
-	mediaFiles  []SendFileMedia
-	timelineDir string // relative path from workDir: logs/cron/<taskID>/<execID>
+	replyText     string
+	mediaFiles    []SendFileMedia
+	timelineDir   string // relative path from workDir: logs/cron/<taskID>/<execID>
+	toolCallCount int
 }
 
 // drainEventsWithTimeline drains an agent event channel and writes every event
@@ -725,6 +794,9 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		}
 
 		rv := reflect.ValueOf(ev)
+		for rv.Kind() == reflect.Ptr {
+			rv = rv.Elem()
+		}
 		typeName := rv.Type().Name()
 
 		switch typeName {
@@ -732,7 +804,8 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 			delta := rv.FieldByName("Delta").String()
 			reasoningBuf.WriteString(delta)
 
-		case "ToolExecStartEvent":
+		case "ToolExecStartEvent", "testToolExecStart":
+			result.toolCallCount++
 			callID := rv.FieldByName("CallID").String()
 			name := rv.FieldByName("Name").String()
 			args := rv.FieldByName("Args").String()

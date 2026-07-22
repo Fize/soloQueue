@@ -22,7 +22,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/server"
@@ -94,7 +93,6 @@ func ServeCmd(version string) *cobra.Command {
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
 			mgr.SetMemoryManager(rt.MemoryManager)
-			mgr.SetMemoryEngine(rt.MemoryEngine)
 			mgr.SetIdleReaper(30*time.Minute, 200000)
 
 			// Initialize Scheduled Tasks (Cron & Timers) system
@@ -133,13 +131,6 @@ func ServeCmd(version string) *cobra.Command {
 				}
 				return resolved, nil
 			})
-
-			// Wire memory engine into the scheduler so cron tasks can recall memories.
-			if rt.MemoryEngine != nil {
-				cronScheduler.SetMemoryEngine(rt.MemoryEngine, func(ctx context.Context, prompt string, memEngine interface{}, log *logger.Logger) string {
-					return session.BuildRecalledContext(ctx, prompt, memEngine.(*memoryengine.Engine), log)
-				})
-			}
 
 			if err := cronScheduler.Start(context.Background()); err != nil {
 				return fmt.Errorf("start cron scheduler: %w", err)

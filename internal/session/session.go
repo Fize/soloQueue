@@ -28,7 +28,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
@@ -167,8 +166,6 @@ type Session struct {
 
 	memoryHook     MemoryHook           // optional callback for short-term memory (nil = disabled)
 	memoryManager  *conversationlog.Manager      // for dedup cursor; set alongside memoryHook
-	memoryEngine   *memoryengine.Engine // for pre-query memory recall (nil = disabled)
-	recalledHashes map[string]struct{}  // hashes of recalled memories injected in this context window
 
 	idleTimeout      time.Duration // 0 = disabled; auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum CW tokens to trigger compact
@@ -198,7 +195,6 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 		tl:             tl,
 		logger:         l,
 		pending:        &PendingQueue{},
-		recalledHashes: make(map[string]struct{}),
 		activeCancels:  make(map[uint64]activeTurnCancel),
 	}
 	s.lastActive.Store(time.Now().UnixNano())
@@ -454,13 +450,6 @@ func (s *Session) SetMemoryManager(mm *conversationlog.Manager) {
 	s.memoryManager = mm
 }
 
-// SetMemoryEngine sets the memory engine for pre-query memory recall.
-// When set, AskStream will automatically recall relevant memories before
-// each user message and inject them into the prompt. nil = disable.
-func (s *Session) SetMemoryEngine(e *memoryengine.Engine) {
-	s.memoryEngine = e
-}
-
 // Clear performs a soft clear: appends /clear control event to timeline, resets ContextWindow
 //
 // Does not delete any persistent data. ContextWindow only retains the system prompt.
@@ -496,7 +485,6 @@ func (s *Session) Clear() error {
 
 	// Reset ContextWindow (retaining system prompt)
 	s.cw.Reset()
-	s.recalledHashes = make(map[string]struct{})
 	s.mu.Unlock()
 
 	// Call memory hook for each date group (outside lock)
@@ -535,10 +523,6 @@ func (s *Session) Compact(ctx context.Context) (string, error) {
 		s.logger.LogError(context.Background(), logger.CatApp, "session compact failed", err)
 		return "", fmt.Errorf("session: compact: %w", err)
 	}
-
-	s.mu.Lock()
-	s.recalledHashes = make(map[string]struct{})
-	s.mu.Unlock()
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session compacted",
 		"session_id", s.ID,
@@ -700,7 +684,6 @@ func (s *Session) ClearSilent() error {
 
 	// Reset context window (preserves system prompt)
 	s.cw.Reset()
-	s.recalledHashes = make(map[string]struct{})
 	s.mu.Unlock()
 
 	// Call memory hook for each date group (outside lock)
@@ -802,10 +785,6 @@ func (s *Session) checkAutoClear() {
 		return
 	}
 
-	s.mu.Lock()
-	s.recalledHashes = make(map[string]struct{})
-	s.mu.Unlock()
-
 	s.logger.InfoContext(context.Background(), logger.CatApp, "auto-clear: context compressed and replaced",
 		"summary_len", len(summary))
 }
@@ -842,11 +821,6 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 
 	start := time.Now()
 
-	// Pre-load recalled memories (same as AskStream)
-	recalled := s.buildRecalledContext(ctx, prompt)
-	if recalled != "" {
-		prompt = recalled + "\n\n" + prompt
-	}
 	ctx = iface.ContextWithIsQBot(ctx, s.IsQBot())
 
 	// Resize to default model's context window and push user prompt
@@ -863,7 +837,6 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	s.logger.DebugContext(ctx, logger.CatApp, "ask: prompt pushed to context window",
 		"session_id", s.ID,
 		"prompt_len", len(prompt),
-		"recalled", recalled != "",
 	)
 
 	reply, reasoningContent, err := s.Agent.AskWithHistory(ctx, s.cw, prompt)
@@ -1177,20 +1150,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 
 	// ── Resize context window to match effective model ──
 
-	// ── Pre-load recalled memories ──
-	// Search the memory engine for context relevant to this prompt and inject
-	// it before the user message. This ensures the LLM has relevant long-term
-	// context without relying on it to proactively call RecallMemory.
-	recalled := s.buildRecalledContext(ctx, prompt)
-	if recalled != "" {
-		prompt = recalled + "\n\n" + prompt
-		s.logger.DebugContext(ctx, logger.CatApp, "askstream: recalled memories pre-loaded",
-			"session_id", s.ID,
-			"recalled_len", len(recalled),
-			"prompt_len", len(prompt),
-		)
-	}
-
 	// Resize and push user prompt atomically (both hold cw.Lock)
 	s.mu.Lock()
 	s.cw.Resize(effectiveCW, 0, 0)
@@ -1207,7 +1166,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	s.logger.DebugContext(ctx, logger.CatApp, "askstream: prompt pushed to context window",
 		"session_id", s.ID,
 		"prompt_len", len(prompt),
-		"recalled", recalled != "",
 	)
 
 	srcCh, err := s.Agent.AskStreamWithHistory(askCtx, s.cw, prompt)
@@ -1609,7 +1567,6 @@ type SessionManager struct {
 	routerFunc    TaskRouterFunc
 	memoryHook    MemoryHook
 	memoryManager *conversationlog.Manager
-	memoryEngine  *memoryengine.Engine
 	logger        *logger.Logger
 
 	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
@@ -1651,13 +1608,6 @@ func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 // Must be set alongside SetMemoryHook. Not thread-safe for setup.
 func (m *SessionManager) SetMemoryManager(mm *conversationlog.Manager) {
 	m.memoryManager = mm
-}
-
-// SetMemoryEngine sets the memory engine for pre-query memory recall.
-// When set, each session will automatically recall relevant memories
-// before processing user messages. nil = disable.
-func (m *SessionManager) SetMemoryEngine(e *memoryengine.Engine) {
-	m.memoryEngine = e
 }
 
 // SetIdleReaper enables automatic context compression for idle sessions.
@@ -1717,9 +1667,6 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	}
 	if m.memoryManager != nil {
 		s.memoryManager = m.memoryManager
-	}
-	if m.memoryEngine != nil {
-		s.memoryEngine = m.memoryEngine
 	}
 	if m.idleTimeout > 0 {
 		s.idleTimeout = m.idleTimeout
