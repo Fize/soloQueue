@@ -215,3 +215,11 @@ func (s *GlobalService) UpdateSimulation(sim SimulationConfig) error {
 	})
 	return err
 }
+
+// UpdateSpeech replaces the speech-to-text configuration.
+func (s *GlobalService) UpdateSpeech(speech SpeechConfig) error {
+	_, err := s.Set(func(st *Settings) {
+		st.Speech = speech
+	})
+	return err
+}

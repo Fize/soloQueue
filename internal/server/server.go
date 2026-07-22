@@ -424,6 +424,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Get("/", m.handleGetSimulationConfig)
 			r.Put("/", m.handleUpdateSimulationConfig)
 		})
+
+		r.Route("/speech", func(r chi.Router) {
+			r.Get("/", m.handleGetSpeechConfig)
+			r.Put("/", m.handleUpdateSpeechConfig)
+			r.Get("/status", m.handleGetSpeechStatus)
+			r.Post("/install", m.handleInstallSpeech)
+		})
 	})
 
 	r.Route("/api/channels/wechat", func(r chi.Router) {

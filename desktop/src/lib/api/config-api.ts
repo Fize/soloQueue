@@ -12,6 +12,9 @@ import type {
   StartWeChatLoginRequest,
   LSPMCPConfig,
   SimulationConfig,
+  SpeechConfig,
+  SpeechStatus,
+  SpeechInstallResponse,
   ToolListResponse,
   SkillListResponse,
   SkillInfo,
@@ -231,6 +234,30 @@ export async function updateSimulationConfig(
   return request<SimulationConfig>("/config/simulation", {
     method: "PUT",
     body: JSON.stringify(data),
+  });
+}
+
+export async function getSpeechConfig(): Promise<SpeechConfig> {
+  return request<SpeechConfig>("/config/speech");
+}
+
+export async function updateSpeechConfig(
+  data: SpeechConfig,
+): Promise<SpeechConfig> {
+  return request<SpeechConfig>("/config/speech", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getSpeechStatus(): Promise<SpeechStatus> {
+  return request<SpeechStatus>("/config/speech/status");
+}
+
+export async function installSpeech(model?: string): Promise<SpeechInstallResponse> {
+  return request<SpeechInstallResponse>("/config/speech/install", {
+    method: "POST",
+    body: JSON.stringify({ model }),
   });
 }
 

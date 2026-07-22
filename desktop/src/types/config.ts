@@ -202,6 +202,33 @@ export interface SimulationConfig {
   language?: string;
 }
 
+export interface SpeechConfig {
+  enabled: boolean;
+  model: string;     // tiny | base | small | medium
+  modelDir: string;  // "" = ~/.soloqueue/models
+}
+
+export interface SpeechStatus {
+  enabled: boolean;
+  model: string;
+  modelDir: string;
+  modelPath: string;
+  modelExists: boolean;
+  whisperBinary: string;
+  whisperAvailable: boolean;
+  ready: boolean;
+}
+
+export interface SpeechInstallResponse {
+  success: boolean;
+  binaryPath?: string;
+  modelPath?: string;
+  binaryMessage?: string;
+  modelMessage?: string;
+  error?: string;
+  detail?: string;  // step-by-step instructions on failure
+}
+
 export interface AppConfig {
   session: SessionConfig;
   log: LogConfig;
@@ -215,6 +242,7 @@ export interface AppConfig {
   agent: L1AgentSettings;
   lspmcp: LSPMCPConfig;
   simulation: SimulationConfig;
+  speech: SpeechConfig;
 }
 
 // ─── Cron/Timer Task Types ──────────────────────────────────────────────────

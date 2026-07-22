@@ -7,14 +7,18 @@ import {
   cancelWeChatLogin,
   deleteWeChatBot,
   getQQBotsConfig,
+  getSpeechConfig,
+  getSpeechStatus,
   getWeChatBotsConfig,
   getWeChatLogin,
+  installSpeech,
   startWeChatLogin,
   submitWeChatVerification,
   updateQQBotsConfig,
+  updateSpeechConfig,
   updateWeChatBotsConfig,
 } from '@/lib/api'
-import type { QQBotConfig, WeChatAccountView, WeChatLoginSnapshot } from '@/types'
+import type { QQBotConfig, SpeechConfig, SpeechStatus, WeChatAccountView, WeChatLoginSnapshot } from '@/types'
 import { useTranslation } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,6 +35,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { QQBotSection } from './ConfigTab/QQBotSection'
+import { SpeechSection } from './ConfigTab/SpeechSection'
 
 const terminalLoginStatuses = new Set(['connected', 'already_connected', 'expired', 'cancelled', 'failed'])
 
@@ -247,13 +252,61 @@ export function ChannelsTab() {
   const [loginAccount, setLoginAccount] = useState<WeChatAccountView | undefined>()
   const [removeAccount, setRemoveAccount] = useState<WeChatAccountView | null>(null)
   const [removing, setRemoving] = useState(false)
+  const [speech, setSpeech] = useState<SpeechConfig>({ enabled: false, model: 'small', modelDir: '' })
+  const [speechStatus, setSpeechStatus] = useState<SpeechStatus | null>(null)
+  const [installing, setInstalling] = useState(false)
+  const [installError, setInstallError] = useState<string | null>(null)
+
+  const INSTALL_KEY = 'soloqueue_speech_installing'
+
+  // Restore installing state after tab navigation — if the user navigated
+  // away while install was running, resume polling the status endpoint.
+  useEffect(() => {
+    if (sessionStorage.getItem(INSTALL_KEY) !== 'true') return
+    setInstalling(true)
+
+    const start = Date.now()
+    const maxWait = 2 * 60 * 1000 // 2 minutes
+
+    const poll = setInterval(async () => {
+      try {
+        const st = await getSpeechStatus()
+        if (st.ready) {
+          sessionStorage.removeItem(INSTALL_KEY)
+          setInstalling(false)
+          setSpeechStatus(st)
+          toast.success(t('config.speechInstalled'))
+          clearInterval(poll)
+          return
+        }
+        if (Date.now() - start > maxWait) {
+          sessionStorage.removeItem(INSTALL_KEY)
+          setInstalling(false)
+          setInstallError(t('config.speechInstallTimeout'))
+          toast.error(t('config.speechInstallTimeout'))
+          clearInterval(poll)
+        }
+      } catch {
+        // status endpoint temporarily unavailable, keep polling
+      }
+    }, 3000)
+
+    return () => clearInterval(poll)
+  }, [t])
 
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [qq, wechat] = await Promise.all([getQQBotsConfig(), getWeChatBotsConfig()])
+      const [qq, wechat, speechCfg, speechSt] = await Promise.all([
+        getQQBotsConfig(),
+        getWeChatBotsConfig(),
+        getSpeechConfig(),
+        getSpeechStatus().catch(() => null),
+      ])
       setQQBots(qq || [])
       setWechatAccounts(wechat || [])
+      setSpeech(speechCfg || { enabled: false, model: 'small', modelDir: '' })
+      setSpeechStatus(speechSt)
     } catch (error) {
       toast.error((error as Error).message)
     } finally {
@@ -285,6 +338,42 @@ export function ChannelsTab() {
     }
   }
 
+  const saveSpeech = async () => {
+    try {
+      setSpeech(await updateSpeechConfig(speech))
+      toast.success(t('config.speechSave'))
+    } catch (error) {
+      toast.error((error as Error).message)
+    }
+  }
+
+  const handleInstallSpeech = async () => {
+    setInstalling(true)
+    setInstallError(null)
+    sessionStorage.setItem(INSTALL_KEY, 'true')
+    try {
+      const result = await installSpeech(speech.model || 'small')
+      if (result.success) {
+        sessionStorage.removeItem(INSTALL_KEY)
+        toast.success(t('config.speechInstalled'))
+        const status = await getSpeechStatus()
+        setSpeechStatus(status)
+        setInstalling(false)
+      } else {
+        sessionStorage.removeItem(INSTALL_KEY)
+        setInstallError(result.detail || result.error || t('config.speechInstallFailed'))
+        toast.error(result.error || t('config.speechInstallFailed'))
+        setInstalling(false)
+      }
+    } catch (error) {
+      sessionStorage.removeItem(INSTALL_KEY)
+      const msg = (error as Error).message
+      setInstallError(msg)
+      setInstalling(false)
+      toast.error(msg)
+    }
+  }
+
   const removeWeChat = async () => {
     if (!removeAccount) return
     setRemoving(true)
@@ -304,6 +393,8 @@ export function ChannelsTab() {
   return (
     <div className="space-y-8 pb-10">
       <QQBotSection config={qqbots} onChange={setQQBots} onSave={saveQQ} />
+
+      <SpeechSection config={speech} onChange={setSpeech} onSave={saveSpeech} status={speechStatus} onInstall={handleInstallSpeech} installing={installing} installError={installError} onDismissError={() => setInstallError(null)} />
 
       <section className="space-y-6 rounded-xl border border-border bg-card p-6 shadow-sm">
         <div className="flex items-center justify-between gap-4 border-b border-border pb-3">
