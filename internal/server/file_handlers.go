@@ -78,6 +78,10 @@ func (m *Mux) allowedRoots() []string {
 	artifactsDir := filepath.Join(m.workDir, "artifacts")
 	roots = append(roots, artifactsDir)
 
+	// Exploration artifacts from L2/L3 agents (explore/<task-slug>_<agent-id>.md).
+	exploreDir := filepath.Join(m.workDir, "explore")
+	roots = append(roots, exploreDir)
+
 	// Design files for no-project sessions: agent works in workDir/workspace/<group>/,
 	// so design files are at workDir/workspace/<group>/design/.
 	// Scan all group subdirectories under workspace/ and add their design dirs.

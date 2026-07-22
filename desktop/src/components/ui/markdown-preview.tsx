@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
+import { ExploreFileChip, isExplorePath, getExploreLabel, preprocessExplorePaths } from '@/components/chat/ExploreFileChip'
 
 interface MarkdownPreviewProps {
   content?: string
@@ -72,6 +73,9 @@ function MarkdownPreviewInner({
             )
           },
           a({ href, children, ...props }: any) {
+            if (href && isExplorePath(href)) {
+              return <ExploreFileChip path={href} label={getExploreLabel(children)} />
+            }
             return (
               <a href={href} {...props}>
                 {children}
@@ -99,7 +103,7 @@ function MarkdownPreviewInner({
           },
         }}
       >
-        {contentVal}
+        {preprocessExplorePaths(contentVal)}
       </Streamdown>
     </div>
   )

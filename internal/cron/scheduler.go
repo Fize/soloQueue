@@ -695,6 +695,26 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		reasoningBuf.Reset()
 	}
 
+	appendDoneContent := func(content string) {
+		if content == "" {
+			return
+		}
+		cur := contentBuf.String()
+		if cur != "" && strings.HasPrefix(content, cur) {
+			suffix := content[len(cur):]
+			if suffix != "" {
+				contentBuf.WriteString(suffix)
+				replyBuf.WriteString(suffix)
+			}
+		} else if cur == "" {
+			contentBuf.WriteString(content)
+			replyBuf.WriteString(content)
+		} else if !strings.Contains(cur, content) {
+			contentBuf.WriteString(content)
+			replyBuf.WriteString(content)
+		}
+	}
+
 	for ev := range ch {
 		// Use iface.EventConsumer for safe cross-package content extraction.
 		if consumer, ok := ev.(iface.EventConsumer); ok {
@@ -748,12 +768,12 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		case "DoneEvent":
 			content := rv.FieldByName("Content").String()
 			reasoning := rv.FieldByName("ReasoningContent").String()
-			contentBuf.WriteString(content)
-			replyBuf.WriteString(content)
-			if reasoning != "" {
+			if reasoning != "" && reasoningBuf.Len() == 0 {
 				reasoningBuf.WriteString(reasoning)
 			}
+			appendDoneContent(content)
 			flushAssistant(contentBuf.String(), reasoningBuf.String(), nil)
+			continue
 
 		case "ErrorEvent":
 			errField := rv.FieldByName("Err")
@@ -766,8 +786,7 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		// Fallback: use EventConsumer for Done and Error if reflection didn't match.
 		if consumer, ok := ev.(iface.EventConsumer); ok {
 			if content, ok := consumer.DoneContent(); ok {
-				contentBuf.WriteString(content)
-				replyBuf.WriteString(content)
+				appendDoneContent(content)
 				flushAssistant(contentBuf.String(), reasoningBuf.String(), nil)
 			}
 			if errVal, ok := consumer.Error(); ok {
