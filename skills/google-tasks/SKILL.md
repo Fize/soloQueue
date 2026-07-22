@@ -49,18 +49,38 @@ https://api.maton.ai/google-tasks/{native-api-path}
 
 Maton proxies requests to `tasks.googleapis.com` and automatically injects your OAuth token.
 
-## Installation
+## CLI Installation (optional — agent decides)
 
-**NPM:**
+Maton CLI is optional. Agent can decide whether to install it based on the environment.
+
+### macOS / Linux
 
 ```bash
-npm install -g @maton-ai/cli
+curl -fsSL https://maton.ai/install.sh | bash
 ```
 
-**Homebrew:**
+### Windows
+
+```powershell
+irm https://maton.ai/install.ps1 | iex
+```
+
+### npm (cross-platform)
+
+```bash
+npm install -g @maton/cli
+```
+
+### Homebrew (macOS)
 
 ```bash
 brew install maton-ai/cli/maton
+```
+
+After installation, verify with:
+
+```bash
+maton --version
 ```
 
 ## Authentication
