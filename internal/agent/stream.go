@@ -236,7 +236,8 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 	}
 
 	// Circuit breaker: refuse to run if too many consecutive failures.
-	if cf := a.ConsecutiveFailures(); cf >= DefaultMaxConsecutiveFailures {
+	if a.CircuitBreakerOpen() {
+		cf := a.ConsecutiveFailures()
 		a.logError(ctx, logger.CatLLM, "circuit breaker open — too many consecutive failures",
 			ErrCircuitBreakerOpen,
 			"consecutive_failures", int(cf),

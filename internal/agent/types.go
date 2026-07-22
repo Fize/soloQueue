@@ -142,6 +142,10 @@ const DefaultToolTimeout = 5 * time.Minute
 // MaxIterations exceeded. Context cancellations are excluded.
 const DefaultMaxConsecutiveFailures = 3
 
+// DefaultCircuitBreakerResetTimeout is how long an open circuit remains closed
+// before allowing one new task to probe whether the dependency recovered.
+const DefaultCircuitBreakerResetTimeout = time.Minute
+
 // ─── ModelParams (per-ask override) ─────────────────────────────────────────
 
 // ModelParams captures per-ask model parameter overrides.
@@ -213,6 +217,7 @@ type agentRuntime struct {
 	errCount            int32
 	lastErr             string
 	consecutiveFailures int32
+	lastFailureAt       time.Time
 	exitErr             error
 
 	prompt    string

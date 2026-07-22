@@ -492,6 +492,7 @@ func (a *Agent) LastError() string {
 func (a *Agent) IncrementConsecutiveFailures() int32 {
 	a.runtimeMu.Lock()
 	a.runtime.consecutiveFailures++
+	a.runtime.lastFailureAt = time.Now()
 	v := a.runtime.consecutiveFailures
 	a.runtimeMu.Unlock()
 	return v
@@ -500,7 +501,25 @@ func (a *Agent) IncrementConsecutiveFailures() int32 {
 func (a *Agent) ResetConsecutiveFailures() {
 	a.runtimeMu.Lock()
 	a.runtime.consecutiveFailures = 0
+	a.runtime.lastFailureAt = time.Time{}
 	a.runtimeMu.Unlock()
+}
+
+// CircuitBreakerOpen reports whether new work must be rejected. After the
+// cooldown it resets the failure count and permits one recovery attempt.
+func (a *Agent) CircuitBreakerOpen() bool {
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
+
+	if a.runtime.consecutiveFailures < DefaultMaxConsecutiveFailures {
+		return false
+	}
+	if !a.runtime.lastFailureAt.IsZero() && time.Since(a.runtime.lastFailureAt) >= DefaultCircuitBreakerResetTimeout {
+		a.runtime.consecutiveFailures = 0
+		a.runtime.lastFailureAt = time.Time{}
+		return false
+	}
+	return true
 }
 
 func (a *Agent) ConsecutiveFailures() int32 {

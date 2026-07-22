@@ -217,11 +217,10 @@ func BuildLLMClient(provider *config.LLMProvider, log *logger.Logger) (agent.LLM
 		Headers:   provider.Headers,
 		TimeoutMs: provider.TimeoutMs,
 		Retry: llm.RetryPolicy{
-			MaxRetries:          provider.Retry.MaxRetries,
-			RateLimitMaxRetries: provider.Retry.RateLimitMaxRetries,
-			InitialDelay:        time.Duration(provider.Retry.InitialDelayMs) * time.Millisecond,
-			MaxDelay:            time.Duration(provider.Retry.MaxDelayMs) * time.Millisecond,
-			Multiplier:          provider.Retry.BackoffMultiplier,
+			MaxRetries:   provider.Retry.MaxRetries,
+			InitialDelay: time.Duration(provider.Retry.InitialDelayMs) * time.Millisecond,
+			MaxDelay:     time.Duration(provider.Retry.MaxDelayMs) * time.Millisecond,
+			Multiplier:   provider.Retry.BackoffMultiplier,
 		},
 		Log: log,
 	})

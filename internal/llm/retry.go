@@ -13,12 +13,13 @@ import (
 //   - Attempts at most MaxRetries additional retries (total attempts = MaxRetries + 1)
 //   - MaxRetries = 0 → No retries
 type RetryPolicy struct {
-	MaxRetries          int
-	RateLimitMaxRetries int // separate retry budget for 429; 0 means use MaxRetries
-	InitialDelay        time.Duration
-	MaxDelay            time.Duration
-	Multiplier          float64
+	MaxRetries   int
+	InitialDelay time.Duration
+	MaxDelay     time.Duration
+	Multiplier   float64
 }
+
+const rateLimitMaxRetries = 10
 
 // normalize normalizes the policy (primarily to prevent issues like zero-value division).
 func (p RetryPolicy) normalize() RetryPolicy {
@@ -34,19 +35,7 @@ func (p RetryPolicy) normalize() RetryPolicy {
 	if p.MaxRetries < 0 {
 		p.MaxRetries = 0
 	}
-	if p.RateLimitMaxRetries < 0 {
-		p.RateLimitMaxRetries = 0
-	}
 	return p
-}
-
-// rateLimitMaxRetries returns the effective max retries for rate-limit (429) errors.
-// If RateLimitMaxRetries is explicitly set (>0), use it; otherwise fall back to MaxRetries.
-func (p RetryPolicy) rateLimitMaxRetries() int {
-	if p.RateLimitMaxRetries > 0 {
-		return p.RateLimitMaxRetries
-	}
-	return p.MaxRetries
 }
 
 // RunWithRetry executes fn, retrying according to the policy.
@@ -79,7 +68,7 @@ func RunWithRetry(
 //   - delay: The backoff duration before the next attempt.
 //   - err: The error from the failed attempt.
 //
-// isRateLimit(err) bool: If true, uses RateLimitMaxRetries instead of MaxRetries. nil = never.
+// isRateLimit(err) bool: If true, uses the fixed 10-retry rate-limit budget. nil = never.
 //
 // retryAfter(err) time.Duration: If non-zero, overrides the exponential backoff delay.
 //
@@ -97,13 +86,10 @@ func RunWithRetryHooks(
 	p := policy.normalize()
 	delay := p.InitialDelay
 
-	// Determine effective max retries: 429 errors get a separate (larger) budget.
-	rateLimitMax := p.rateLimitMaxRetries()
-
 	// The loop bound is the larger of the two, so we don't prematurely exit for 429.
 	loopMax := p.MaxRetries
-	if isRateLimit != nil && rateLimitMax > loopMax {
-		loopMax = rateLimitMax
+	if isRateLimit != nil && rateLimitMaxRetries > loopMax {
+		loopMax = rateLimitMaxRetries
 	}
 
 	var lastErr error
@@ -124,7 +110,7 @@ func RunWithRetryHooks(
 		// Determine the effective max for this particular error.
 		max := p.MaxRetries
 		if isRateLimit != nil && isRateLimit(err) {
-			max = rateLimitMax
+			max = rateLimitMaxRetries
 		}
 
 		// Last attempt: no more retries.

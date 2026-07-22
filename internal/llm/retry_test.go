@@ -63,6 +63,45 @@ func TestRunWithRetry_GivesUp(t *testing.T) {
 	}
 }
 
+func TestRunWithRetryHooks_RateLimitAlwaysRetriesTenTimes(t *testing.T) {
+	var calls atomic.Int32
+	rateLimitErr := errors.New("rate limited")
+	err := RunWithRetryHooks(context.Background(),
+		RetryPolicy{MaxRetries: 3, InitialDelay: time.Nanosecond, MaxDelay: time.Nanosecond},
+		func(error) bool { return true },
+		func(err error) bool { return errors.Is(err, rateLimitErr) },
+		nil, nil,
+		func(context.Context) error {
+			calls.Add(1)
+			return rateLimitErr
+		})
+	if !errors.Is(err, rateLimitErr) {
+		t.Errorf("err = %v, want %v", err, rateLimitErr)
+	}
+	if got := calls.Load(); got != 11 {
+		t.Errorf("calls = %d, want 11 (1 original + 10 rate-limit retries)", got)
+	}
+}
+
+func TestRunWithRetryHooks_NonRateLimitUsesConfiguredRetries(t *testing.T) {
+	var calls atomic.Int32
+	err := RunWithRetryHooks(context.Background(),
+		RetryPolicy{MaxRetries: 3, InitialDelay: time.Nanosecond, MaxDelay: time.Nanosecond},
+		func(error) bool { return true },
+		func(error) bool { return false },
+		nil, nil,
+		func(context.Context) error {
+			calls.Add(1)
+			return errors.New("transient")
+		})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := calls.Load(); got != 4 {
+		t.Errorf("calls = %d, want 4 (1 original + 3 configured retries)", got)
+	}
+}
+
 func TestRunWithRetry_ShouldRetryFalse_StopsEarly(t *testing.T) {
 	var calls atomic.Int32
 	nonRetry := errors.New("no-retry")

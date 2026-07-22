@@ -115,6 +115,7 @@ type Scheduler struct {
 	resultCond  *sync.Cond
 
 	mu      sync.Mutex
+	oneTimeRuns map[string]string
 	entries map[string]robfig.EntryID
 	timers  map[string]*time.Timer
 	stopped bool
@@ -177,6 +178,7 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 		),
 		entries: make(map[string]robfig.EntryID),
 		timers:  make(map[string]*time.Timer),
+		oneTimeRuns: make(map[string]string),
 	}
 	s.l1Cond = sync.NewCond(&s.l1Mu)
 	s.resultCond = sync.NewCond(&s.resultMu)
@@ -302,6 +304,10 @@ func isL1Target(task Task) bool {
 // executeTask is the entry point for all task executions.
 // It dispatches to the appropriate execution path based on TargetAgent.
 func (s *Scheduler) executeTask(t Task) {
+	if !s.claimOneTimeRun(t) {
+		s.logger.Info(logger.CatApp, "cron: duplicate one-time task trigger skipped", "task_id", t.ID)
+		return
+	}
 	s.logger.Info(logger.CatApp, "cron: task execution triggered", "task_id", t.ID,
 		"instruction", t.Instruction, "target_agent", t.TargetAgent)
 
@@ -310,6 +316,22 @@ func (s *Scheduler) executeTask(t Task) {
 	} else {
 		s.executeL2Task(t)
 	}
+}
+
+// claimOneTimeRun makes a one-time task idempotent for a specific scheduled
+// instant. Updating the same task to a different instant permits a new run.
+func (s *Scheduler) claimOneTimeRun(t Task) bool {
+	if !t.IsOneTime() {
+		return true
+	}
+	key := t.NextRunAt.UTC().Format(time.RFC3339Nano)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.oneTimeRuns[t.ID] == key {
+		return false
+	}
+	s.oneTimeRuns[t.ID] = key
+	return true
 }
 
 // executeL1Task handles tasks targeting L1. If L1 is busy, the task is queued

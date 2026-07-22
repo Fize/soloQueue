@@ -1174,6 +1174,27 @@ func TestAgent_ConsecutiveFailures_CircuitBreaker(t *testing.T) {
 	}
 }
 
+func TestAgent_CircuitBreakerRecoversAfterCooldown(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	for range DefaultMaxConsecutiveFailures {
+		a.IncrementConsecutiveFailures()
+	}
+	if !a.CircuitBreakerOpen() {
+		t.Fatal("circuit breaker should be open at the failure threshold")
+	}
+
+	a.runtimeMu.Lock()
+	a.runtime.lastFailureAt = time.Now().Add(-DefaultCircuitBreakerResetTimeout)
+	a.runtimeMu.Unlock()
+
+	if a.CircuitBreakerOpen() {
+		t.Fatal("circuit breaker should allow a probe after the cooldown")
+	}
+	if got := a.ConsecutiveFailures(); got != 0 {
+		t.Fatalf("ConsecutiveFailures = %d after cooldown, want 0", got)
+	}
+}
+
 func TestAgent_State_LifecycleTransitions(t *testing.T) {
 	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}}, nil)
 	if s := a.State(); s != StateStopped {

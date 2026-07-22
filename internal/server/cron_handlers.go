@@ -236,15 +236,16 @@ func (m *Mux) handleGetCronHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read the timeline events from disk.
-	timelineDir := rec.TimelineDir
-	if !strings.HasPrefix(timelineDir, "/") {
-		timelineDir = m.workDir + "/" + timelineDir
-	}
-	events, err := readAllTimelineEvents(timelineDir)
-	if err != nil {
-		// Timeline files may not exist yet (e.g., execution was a no-op).
-		events = []timeline.Event{}
+	// Read timeline events only when the execution actually produced a timeline.
+	events := []timeline.Event{}
+	if strings.TrimSpace(rec.TimelineDir) != "" {
+		timelineDir := rec.TimelineDir
+		if !strings.HasPrefix(timelineDir, "/") {
+			timelineDir = m.workDir + "/" + timelineDir
+		}
+		if loaded, err := readAllTimelineEvents(timelineDir); err == nil {
+			events = loaded
+		}
 	}
 
 	m.writeJSON(w, http.StatusOK, map[string]interface{}{

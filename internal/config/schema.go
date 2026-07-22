@@ -225,11 +225,10 @@ type ToolsConfig struct {
 // ─── LLM Provider ─────────────────────────────────────────────────────────────
 
 type RetryConfig struct {
-	MaxRetries          int     `json:"maxRetries"           yaml:"max_retries,omitempty"`
-	RateLimitMaxRetries int     `json:"rateLimitMaxRetries"  yaml:"rate_limit_max_retries,omitempty"`
-	InitialDelayMs      int     `json:"initialDelayMs"       yaml:"initial_delay_ms,omitempty"`
-	MaxDelayMs          int     `json:"maxDelayMs"           yaml:"max_delay_ms,omitempty"`
-	BackoffMultiplier   float64 `json:"backoffMultiplier"    yaml:"backoff_multiplier,omitempty"`
+	MaxRetries        int     `json:"maxRetries"        yaml:"max_retries,omitempty"`
+	InitialDelayMs    int     `json:"initialDelayMs"    yaml:"initial_delay_ms,omitempty"`
+	MaxDelayMs        int     `json:"maxDelayMs"        yaml:"max_delay_ms,omitempty"`
+	BackoffMultiplier float64 `json:"backoffMultiplier" yaml:"backoff_multiplier,omitempty"`
 }
 
 // ResolveAPIKey returns the API key.

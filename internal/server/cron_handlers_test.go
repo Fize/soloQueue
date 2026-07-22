@@ -215,7 +215,7 @@ func TestHTTP_CronHistory(t *testing.T) {
 	// Insert execution records for a task.
 	rec1 := cron.ExecutionRecord{
 		ID: "exec-1", TaskID: "task-1",
-		ExecutedAt: now.Add(-2 * time.Hour), CompletedAt: now.Add(-2*time.Hour).Add(time.Second),
+		ExecutedAt: now.Add(-2 * time.Hour), CompletedAt: now.Add(-2 * time.Hour).Add(time.Second),
 		DurationMs: 1000, Status: "success", ResultSummary: "all good",
 		TaskLevel: "L1", TargetAgent: "L1", ModelID: "m1", ProviderID: "p1",
 		TimelineDir: "logs/cron/task-1/exec-1",
@@ -224,10 +224,10 @@ func TestHTTP_CronHistory(t *testing.T) {
 
 	rec2 := cron.ExecutionRecord{
 		ID: "exec-2", TaskID: "task-1",
-		ExecutedAt: now.Add(-1 * time.Hour), CompletedAt: now.Add(-1*time.Hour).Add(2*time.Second),
+		ExecutedAt: now.Add(-1 * time.Hour), CompletedAt: now.Add(-1 * time.Hour).Add(2 * time.Second),
 		DurationMs: 2000, Status: "failed", ErrorMessage: "timeout",
 		TaskLevel: "L1", TargetAgent: "L1",
-		TimelineDir: "logs/cron/task-1/exec-2",
+		TimelineDir: "",
 	}
 	store.RecordExecution(ctx, rec2)
 
@@ -287,6 +287,28 @@ func TestHTTP_CronHistory(t *testing.T) {
 		}
 		if resp.Execution.ID != "exec-1" {
 			t.Errorf("expected exec-1, got %s", resp.Execution.ID)
+		}
+	}
+
+	// Empty timeline directories are valid for failures rejected before an
+	// agent turn starts; the endpoint should return metadata and an empty list.
+	{
+		req := newLocalhostRequest("GET", "/api/cron/task-1/history/exec-2", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var resp struct {
+			Execution cron.ExecutionRecord `json:"execution"`
+			Events    []interface{}        `json:"events"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to parse empty-timeline detail: %v", err)
+		}
+		if resp.Execution.ID != "exec-2" || resp.Events == nil || len(resp.Events) != 0 {
+			t.Fatalf("unexpected empty-timeline response: %+v", resp)
 		}
 	}
 

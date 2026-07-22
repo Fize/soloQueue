@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -129,6 +131,35 @@ func TestIsL1Target(t *testing.T) {
 		if got := isL1Target(tt.task); got != tt.want {
 			t.Errorf("isL1Target(%q) = %v, want %v", tt.task.TargetAgent, got, tt.want)
 		}
+	}
+}
+
+func TestClaimOneTimeRunDeduplicatesSameSchedule(t *testing.T) {
+	s := newTestScheduler(t)
+	task := Task{
+		ID:         "one-time-task",
+		Expression: "2026-07-22 19:21:00",
+		NextRunAt:  time.Date(2026, 7, 22, 19, 21, 0, 0, time.Local),
+	}
+	var accepted atomic.Int32
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if s.claimOneTimeRun(task) {
+				accepted.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := accepted.Load(); got != 1 {
+		t.Fatalf("accepted triggers = %d, want exactly 1", got)
+	}
+
+	task.NextRunAt = task.NextRunAt.Add(time.Minute)
+	if !s.claimOneTimeRun(task) {
+		t.Fatal("updated scheduled instant should be accepted")
 	}
 }
 
