@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -27,7 +29,8 @@ func (rememberTool) Description() string {
 	return "Save important information to long-term conversationlog. " +
 		"Use this when the user explicitly asks you to remember something, " +
 		"or when you encounter information likely to be useful in future conversations. " +
-		"Optionally include extracted entities and their relationships to build the knowledge graph."
+		"Save only durable preferences, decisions, stable facts, or reusable solutions. " +
+		"Do not save routine task completion reports, transient output, or duplicates."
 }
 
 func (rememberTool) Parameters() json.RawMessage {
@@ -35,23 +38,29 @@ func (rememberTool) Parameters() json.RawMessage {
   "type":"object",
   "properties":{
     "content":{"type":"string","description":"The information to save. Be concise but include all key details."},
+    "memory_type":{"type":"string","enum":["preference","decision","stable_fact","reusable_solution"],"description":"Why this information remains useful across future conversations."},
+    "explicit_user_request":{"type":"boolean","description":"True only when the user explicitly asked to remember this information."},
     "timestamp":{"type":"string","description":"Optional. The time this information is about, in YYYY-MM-DD HH:MM format. Use the actual time the event occurred or was discussed, not the current time. If omitted, defaults to now."},
     "entities":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"relations":{"type":"array","items":{"type":"object","properties":{"target_name":{"type":"string"},"rel_type":{"type":"string"},"weight":{"type":"number"}}}}}},"description":"Optional. Extracted entities and their relationships to index in the knowledge graph."}
   },
-  "required":["content"]
+  "required":["content","memory_type"]
 }`)
 }
 
 type rememberArgs struct {
-	Content   string              `json:"content"`
-	Timestamp string              `json:"timestamp"`
-	Entities  []memoryengine.EntityExtraction `json:"entities,omitempty"`
+	Content             string                          `json:"content"`
+	MemoryType          string                          `json:"memory_type"`
+	ExplicitUserRequest bool                            `json:"explicit_user_request,omitempty"`
+	Timestamp           string                          `json:"timestamp"`
+	Entities            []memoryengine.EntityExtraction `json:"entities,omitempty"`
 }
 
 type rememberResult struct {
 	ContentHash string `json:"content_hash"`
 	Saved       bool   `json:"saved"`
 	IsNew       bool   `json:"is_new"`
+	Action      string `json:"action"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) {
@@ -85,25 +94,48 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 	date := at.Format("2006-01-02")
 	eventTime := at.Format(time.RFC3339)
 
-	var hash string
-	var isNew bool
-	var err error
-
-	if len(a.Entities) > 0 {
-		hash, isNew, err = t.cfg.MemoryEngine.SaveWithEntities(ctx, a.Content, date, "", eventTime, a.Entities)
-	} else {
-		hash, isNew, err = t.cfg.MemoryEngine.Save(ctx, a.Content, date, "", eventTime)
+	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
+	sourceType := memoryengine.SourceAgent
+	if a.ExplicitUserRequest {
+		sourceType = memoryengine.SourceExplicit
 	}
+	result, err := t.cfg.MemoryEngine.Ingest(ctx, memoryengine.MemoryCandidate{
+		Content:             a.Content,
+		MemoryType:          a.MemoryType,
+		ScopeType:           scopeType,
+		ScopeID:             scopeID,
+		SourceType:          sourceType,
+		SourceID:            t.cfg.WorkDir,
+		Date:                date,
+		EventTime:           eventTime,
+		ExplicitUserRequest: a.ExplicitUserRequest,
+		Entities:            a.Entities,
+	})
 	if err != nil {
 		return "", err
 	}
 
 	if t.logger != nil {
-		t.logger.InfoContext(ctx, logger.CatTool, "remember: saved", "hash", hash, "is_new", isNew)
+		t.logger.InfoContext(ctx, logger.CatTool, "remember: evaluated",
+			"hash", result.ContentHash, "action", result.Action, "reason", result.Reason)
 	}
 
-	b, _ := json.Marshal(rememberResult{ContentHash: hash, Saved: true, IsNew: isNew})
+	b, _ := json.Marshal(rememberResult{
+		ContentHash: result.ContentHash,
+		Saved:       result.Action == "insert",
+		IsNew:       result.IsNew,
+		Action:      result.Action,
+		Reason:      result.Reason,
+	})
 	return string(b), nil
+}
+
+func memoryScopeForWorkDir(workDir string) (string, string) {
+	workDir = filepath.Clean(strings.TrimSpace(workDir))
+	if workDir == "." || workDir == "" || strings.HasSuffix(workDir, string(filepath.Separator)+".soloqueue") {
+		return memoryengine.ScopeGlobal, ""
+	}
+	return memoryengine.ScopeProject, workDir
 }
 
 var _ Tool = (*rememberTool)(nil)

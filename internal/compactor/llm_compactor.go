@@ -79,8 +79,10 @@ user preferences, or solutions worth remembering, include a <memories> section:
 </memories>
 
 Each memory should be a concise, standalone statement. Only include genuinely
-important information, not casual talk. If nothing is worth saving, omit the
-entire <memories> section.`
+important information that changes future behavior. Do not include task completion
+reports, generated file paths, build/test results, commits, transient tool output,
+daily reports, or time-sensitive snapshots. Prefer zero memories; emit at most
+three. If nothing is worth saving, omit the entire <memories> section.`
 
 // CompactorOption is an optional configuration for LLMCompactor.
 type CompactorOption func(*LLMCompactor)

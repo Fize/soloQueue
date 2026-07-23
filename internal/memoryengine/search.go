@@ -96,10 +96,10 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 		fused = h.filterByTime(fused, query)
 	}
 
-	// Hydrate content for results that only have content_hash
+	// Hydrate authoritative content and lifecycle metadata for every result.
 	hashes := make([]string, 0, len(fused))
 	for _, r := range fused {
-		if r.Content == "" && r.ContentHash != "" {
+		if r.ContentHash != "" {
 			hashes = append(hashes, r.ContentHash)
 		}
 	}
@@ -116,10 +116,17 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 					fused[i].Date = e.Date
 					fused[i].Tags = e.Tags
 					fused[i].EventTime = e.EventTime
+					fused[i].MemoryType = e.MemoryType
+					fused[i].ScopeType = e.ScopeType
+					fused[i].ScopeID = e.ScopeID
+					fused[i].Status = e.Status
+					fused[i].ExpiresAt = e.ExpiresAt
 				}
 			}
 		}
 	}
+
+	fused = h.filterByLifecycleAndScope(fused, query)
 
 	// Apply salience boost
 	fused = h.applySalience(ctx, fused)
@@ -132,7 +139,7 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 	// Graph context edges for entity queries
 	var graphEdges []GraphEdge
 	if query.IncludeGraphContext && len(query.Entities) > 0 {
-		graphEdges = h.collectGraphContext(ctx, query.Entities, limit-len(fused))
+		graphEdges = h.collectGraphContext(ctx, query, limit-len(fused))
 	}
 
 	return &SearchResultSet{
@@ -143,6 +150,31 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 		GraphEdges:   graphEdges,
 		QueryLatency: time.Since(start),
 	}, nil
+}
+
+func (h *HybridSearcher) filterByLifecycleAndScope(results []SearchResult, query SearchQuery) []SearchResult {
+	now := time.Now().UTC().Format(time.RFC3339)
+	filtered := make([]SearchResult, 0, len(results))
+	for _, result := range results {
+		if result.Status != "" && result.Status != StatusActive {
+			continue
+		}
+		if result.ExpiresAt != "" && result.ExpiresAt <= now {
+			continue
+		}
+		if query.ScopeType == "" {
+			filtered = append(filtered, result)
+			continue
+		}
+		if result.ScopeType == query.ScopeType && result.ScopeID == query.ScopeID {
+			filtered = append(filtered, result)
+			continue
+		}
+		if query.IncludeGlobal && result.ScopeType == ScopeGlobal {
+			filtered = append(filtered, result)
+		}
+	}
+	return filtered
 }
 
 // filterByTime filters results based on date range or as_of point.
@@ -185,7 +217,17 @@ func (h *HybridSearcher) applySalience(ctx context.Context, results []SearchResu
 	}
 	salienceByHash := make(map[string]float64, len(entries))
 	for _, e := range entries {
-		salienceByHash[e.ContentHash] = e.Salience
+		referenceTime := e.LastUsedAt
+		if referenceTime == "" {
+			referenceTime = e.CreatedAt
+		}
+		reference, ok := parseMemoryTime(referenceTime)
+		if !ok {
+			salienceByHash[e.ContentHash] = e.Salience
+			continue
+		}
+		days := time.Since(reference).Hours() / 24
+		salienceByHash[e.ContentHash] = EbbinghausSalience(e.Salience, days, 30)
 	}
 
 	for i, r := range results {
@@ -196,14 +238,24 @@ func (h *HybridSearcher) applySalience(ctx context.Context, results []SearchResu
 	return results
 }
 
+func parseMemoryTime(value string) (time.Time, bool) {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+		parsed, err := time.Parse(layout, value)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // collectGraphContext fetches graph edges for entities not already covered by search results.
-func (h *HybridSearcher) collectGraphContext(ctx context.Context, entities []string, maxExtra int) []GraphEdge {
+func (h *HybridSearcher) collectGraphContext(ctx context.Context, query SearchQuery, maxExtra int) []GraphEdge {
 	if maxExtra <= 0 {
 		return nil
 	}
 
 	var edges []GraphEdge
-	for _, name := range entities {
+	for _, name := range query.Entities {
 		n, err := h.kg.store.GetNode(ctx, name)
 		if err != nil {
 			canon, _ := h.kg.store.ResolveAlias(ctx, name)
@@ -226,10 +278,29 @@ func (h *HybridSearcher) collectGraphContext(ctx context.Context, entities []str
 		}
 	}
 
-	if len(unique) > maxExtra {
-		unique = unique[:maxExtra]
+	hashes := make([]string, 0, len(unique))
+	for _, edge := range unique {
+		if edge.SourceHash != "" {
+			hashes = append(hashes, edge.SourceHash)
+		}
 	}
-	return unique
+	active := h.store.ActiveContentHashes(
+		ctx, hashes, query.ScopeType, query.ScopeID, query.IncludeGlobal,
+	)
+	filteredEdges := unique[:0]
+	for _, edge := range unique {
+		if edge.SourceHash == "" && query.ScopeType == "" {
+			filteredEdges = append(filteredEdges, edge)
+			continue
+		}
+		if active[edge.SourceHash] {
+			filteredEdges = append(filteredEdges, edge)
+		}
+	}
+	if len(filteredEdges) > maxExtra {
+		filteredEdges = filteredEdges[:maxExtra]
+	}
+	return filteredEdges
 }
 
 // SearchText is a convenience wrapper that does a simple text search.

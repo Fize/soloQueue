@@ -62,8 +62,12 @@ func (v *VectorSearcher) Search(ctx context.Context, query string, limit int) ([
 		if maxSim > 0 {
 			score /= float64(maxSim)
 		}
+		contentHash := e.ID
+		if len(e.Source) == 64 {
+			contentHash = e.Source
+		}
 		searchResults = append(searchResults, SearchResult{
-			ContentHash: e.ID,
+			ContentHash: contentHash,
 			Content:     e.Content,
 			Score:       score,
 			Source:      "vector",

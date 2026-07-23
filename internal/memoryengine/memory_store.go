@@ -94,6 +94,92 @@ func (m *MemoryStore) Save(ctx context.Context, content, date, tags, eventTime s
 	return contentHash, true, nil
 }
 
+func (m *MemoryStore) saveCandidate(ctx context.Context, candidate MemoryCandidate, canonicalHash string) (contentHash string, isNew bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+
+	contentHash = hashContent(candidate.ScopeType + "\x00" + candidate.ScopeID + "\x00" + candidate.Content)
+	now := time.Now().UTC().Format(time.RFC3339)
+	confidence := candidate.Confidence
+	if confidence <= 0 {
+		confidence = 1.0
+	}
+
+	m.mu.Lock()
+	var existingHash string
+	err = m.db.QueryRowContext(ctx,
+		`SELECT content_hash FROM mem_entries
+		 WHERE canonical_hash = ? AND scope_type = ? AND scope_id = ? AND status = 'active'
+		 LIMIT 1`,
+		canonicalHash, candidate.ScopeType, candidate.ScopeID,
+	).Scan(&existingHash)
+	if err == nil {
+		m.mu.Unlock()
+		return existingHash, false, nil
+	}
+	if err != sql.ErrNoRows {
+		m.mu.Unlock()
+		return "", false, fmt.Errorf("memory save candidate lookup: %w", err)
+	}
+
+	id := contentHash[:16]
+	_, err = m.db.ExecContext(ctx,
+		`INSERT INTO mem_entries (
+			id, content, content_hash, date, tags, event_time, created_at,
+			memory_type, scope_type, scope_id, source_type, source_id,
+			status, confidence, expires_at, canonical_hash, updated_at
+		) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+		id, candidate.Content, contentHash, candidate.Date, candidate.EventTime, now,
+		candidate.MemoryType, candidate.ScopeType, candidate.ScopeID,
+		candidate.SourceType, candidate.SourceID, confidence, candidate.ExpiresAt,
+		canonicalHash, now,
+	)
+	m.mu.Unlock()
+	if err != nil {
+		return "", false, fmt.Errorf("memory save candidate: %w", err)
+	}
+
+	m.embed(ctx, id, contentHash, candidate.Content)
+	return contentHash, true, nil
+}
+
+func (m *MemoryStore) embed(ctx context.Context, id, sourceHash, content string) {
+	if m.embedder == nil || m.vecStore == nil {
+		return
+	}
+	results, err := m.embedder.Embed(ctx, []string{content})
+	if err != nil {
+		m.logWarn("memory save: embed failed", err)
+		return
+	}
+	if len(results) == 0 {
+		return
+	}
+	if err := m.vecStore.Upsert(ctx, vectorstore.MemoryEntry{
+		ID:        id,
+		Content:   content,
+		Embedding: results[0].Embedding,
+		Timestamp: time.Now().UTC(),
+		Source:    sourceHash,
+	}); err != nil {
+		m.logWarn("memory save: vector upsert failed", err)
+	}
+}
+
+const memorySelectColumns = `id, content, content_hash, date, tags, event_time, salience, last_recalled_at, created_at,
+	memory_type, scope_type, scope_id, source_type, source_id, status, confidence,
+	expires_at, supersedes_hash, canonical_hash, last_used_at`
+
+func scanMemoryEntry(scanner interface{ Scan(...any) error }, e *MemoryEntry) error {
+	return scanner.Scan(
+		&e.ID, &e.Content, &e.ContentHash, &e.Date, &e.Tags, &e.EventTime,
+		&e.Salience, &e.LastRecalledAt, &e.CreatedAt, &e.MemoryType, &e.ScopeType, &e.ScopeID,
+		&e.SourceType, &e.SourceID, &e.Status, &e.Confidence, &e.ExpiresAt,
+		&e.SupersedesHash, &e.CanonicalHash, &e.LastUsedAt,
+	)
+}
+
 // GetByContentHashes fetches multiple memories by their content hashes.
 func (m *MemoryStore) GetByContentHashes(ctx context.Context, hashes []string) ([]MemoryEntry, error) {
 	if len(hashes) == 0 {
@@ -108,7 +194,7 @@ func (m *MemoryStore) GetByContentHashes(ctx context.Context, hashes []string) (
 	}
 
 	query := fmt.Sprintf(
-		`SELECT id, content, content_hash, date, tags, event_time, salience, created_at
+		`SELECT `+memorySelectColumns+`
 		 FROM mem_entries WHERE content_hash IN (%s)`,
 		strings.Join(placeholders, ","),
 	)
@@ -122,7 +208,7 @@ func (m *MemoryStore) GetByContentHashes(ctx context.Context, hashes []string) (
 	var entries []MemoryEntry
 	for rows.Next() {
 		var e MemoryEntry
-		if err := rows.Scan(&e.ID, &e.Content, &e.ContentHash, &e.Date, &e.Tags, &e.EventTime, &e.Salience, &e.CreatedAt); err != nil {
+		if err := scanMemoryEntry(rows, &e); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
@@ -146,9 +232,11 @@ func (m *MemoryStore) BM25Search(ctx context.Context, query string, limit int) (
 	ftsQuery := strings.Join(tokens, " ")
 
 	rows, err := m.db.QueryContext(ctx,
-		`SELECT m.id, m.content, m.date, m.tags, m.content_hash, m.event_time, rank
+		`SELECT m.content_hash, m.content, m.date, m.tags, m.event_time,
+		        m.memory_type, m.scope_type, m.scope_id, m.status, m.expires_at, rank
 		 FROM mem_fts JOIN mem_entries m ON m.rowid = mem_fts.rowid
-		 WHERE mem_fts MATCH ?
+		 WHERE mem_fts MATCH ? AND m.status = 'active'
+		   AND (m.expires_at = '' OR m.expires_at > datetime('now'))
 		 ORDER BY rank
 		 LIMIT ?`,
 		ftsQuery, limit,
@@ -163,7 +251,10 @@ func (m *MemoryStore) BM25Search(ctx context.Context, query string, limit int) (
 	for rows.Next() {
 		var r SearchResult
 		var rank float64
-		if err := rows.Scan(&r.ContentHash, &r.Content, &r.Date, &r.Tags, &r.ContentHash, &r.EventTime, &rank); err != nil {
+		if err := rows.Scan(
+			&r.ContentHash, &r.Content, &r.Date, &r.Tags, &r.EventTime,
+			&r.MemoryType, &r.ScopeType, &r.ScopeID, &r.Status, &r.ExpiresAt, &rank,
+		); err != nil {
 			return nil, 0, err
 		}
 		r.Source = "bm25"
@@ -186,12 +277,17 @@ func (m *MemoryStore) BM25Search(ctx context.Context, query string, limit int) (
 
 // Timeline returns memories chronologically within a date range.
 func (m *MemoryStore) Timeline(ctx context.Context, from, to string, limit int) ([]MemoryEntry, error) {
+	return m.TimelineScoped(ctx, from, to, limit, "", "", false)
+}
+
+func (m *MemoryStore) TimelineScoped(ctx context.Context, from, to string, limit int, scopeType, scopeID string, includeGlobal bool) ([]MemoryEntry, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 
-	query := `SELECT id, content, content_hash, date, tags, event_time, salience, created_at
-		 FROM mem_entries WHERE 1=1`
+	query := `SELECT ` + memorySelectColumns + `
+		 FROM mem_entries WHERE status = 'active'
+		   AND (expires_at = '' OR expires_at > datetime('now'))`
 	var args []interface{}
 
 	if from != "" {
@@ -201,6 +297,15 @@ func (m *MemoryStore) Timeline(ctx context.Context, from, to string, limit int) 
 	if to != "" {
 		query += ` AND event_time <= ?`
 		args = append(args, to)
+	}
+	if scopeType != "" {
+		if includeGlobal && scopeType != ScopeGlobal {
+			query += ` AND ((scope_type = ? AND scope_id = ?) OR scope_type = ?)`
+			args = append(args, scopeType, scopeID, ScopeGlobal)
+		} else {
+			query += ` AND scope_type = ? AND scope_id = ?`
+			args = append(args, scopeType, scopeID)
+		}
 	}
 	query += ` ORDER BY event_time DESC LIMIT ?`
 	args = append(args, limit)
@@ -214,7 +319,7 @@ func (m *MemoryStore) Timeline(ctx context.Context, from, to string, limit int) 
 	var entries []MemoryEntry
 	for rows.Next() {
 		var e MemoryEntry
-		if err := rows.Scan(&e.ID, &e.Content, &e.ContentHash, &e.Date, &e.Tags, &e.EventTime, &e.Salience, &e.CreatedAt); err != nil {
+		if err := scanMemoryEntry(rows, &e); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
@@ -240,6 +345,45 @@ func (m *MemoryStore) Count(ctx context.Context) (int, error) {
 	var n int
 	err := m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mem_entries`).Scan(&n)
 	return n, err
+}
+
+func (m *MemoryStore) ActiveContentHashes(ctx context.Context, hashes []string, scopeType, scopeID string, includeGlobal bool) map[string]bool {
+	active := make(map[string]bool)
+	if len(hashes) == 0 {
+		return active
+	}
+	placeholders := make([]string, len(hashes))
+	args := make([]any, len(hashes))
+	for i, hash := range hashes {
+		placeholders[i] = "?"
+		args[i] = hash
+	}
+	query := fmt.Sprintf(
+		`SELECT content_hash FROM mem_entries
+		 WHERE status = 'active' AND content_hash IN (%s)`,
+		strings.Join(placeholders, ","),
+	)
+	if scopeType != "" {
+		if includeGlobal && scopeType != ScopeGlobal {
+			query += ` AND ((scope_type = ? AND scope_id = ?) OR scope_type = ?)`
+			args = append(args, scopeType, scopeID, ScopeGlobal)
+		} else {
+			query += ` AND scope_type = ? AND scope_id = ?`
+			args = append(args, scopeType, scopeID)
+		}
+	}
+	rows, err := m.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return active
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var hash string
+		if rows.Scan(&hash) == nil {
+			active[hash] = true
+		}
+	}
+	return active
 }
 
 // Delete removes a memory by content hash.

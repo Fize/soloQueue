@@ -20,7 +20,19 @@ func openTestDB(t *testing.T) (*sql.DB, *sync.Mutex) {
 	}
 
 	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS mem_entries (id TEXT PRIMARY KEY, content TEXT NOT NULL, content_hash TEXT NOT NULL UNIQUE, date TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '', event_time TEXT NOT NULL, salience REAL NOT NULL DEFAULT 1.0, last_recalled_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+		`CREATE TABLE IF NOT EXISTS mem_entries (
+			id TEXT PRIMARY KEY, content TEXT NOT NULL, content_hash TEXT NOT NULL UNIQUE,
+			date TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '', event_time TEXT NOT NULL,
+			salience REAL NOT NULL DEFAULT 1.0, last_recalled_at TEXT NOT NULL DEFAULT '',
+			memory_type TEXT NOT NULL DEFAULT 'legacy', scope_type TEXT NOT NULL DEFAULT 'global',
+			scope_id TEXT NOT NULL DEFAULT '', source_type TEXT NOT NULL DEFAULT 'legacy',
+			source_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
+			confidence REAL NOT NULL DEFAULT 1.0, expires_at TEXT NOT NULL DEFAULT '',
+			supersedes_hash TEXT NOT NULL DEFAULT '', canonical_hash TEXT NOT NULL DEFAULT '',
+			recall_count INTEGER NOT NULL DEFAULT 0, used_count INTEGER NOT NULL DEFAULT 0,
+			last_used_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS mem_fts USING fts5(content, date, content='mem_entries', content_rowid='rowid', tokenize='unicode61')`,
 		`CREATE TRIGGER IF NOT EXISTS mem_fts_ai AFTER INSERT ON mem_entries BEGIN INSERT INTO mem_fts(rowid, content, date) VALUES (new.rowid, new.content, new.date); END`,
 		`CREATE TABLE IF NOT EXISTS kg_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, type TEXT NOT NULL DEFAULT 'entity', mention_count INTEGER NOT NULL DEFAULT 1, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 1.0)`,

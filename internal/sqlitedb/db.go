@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 7
+const schemaVersion = 8
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -151,6 +151,20 @@ CREATE TABLE IF NOT EXISTS mem_entries (
 	event_time TEXT NOT NULL,
 	salience REAL NOT NULL DEFAULT 1.0,
 	last_recalled_at TEXT NOT NULL DEFAULT '',
+	memory_type TEXT NOT NULL DEFAULT 'legacy',
+	scope_type TEXT NOT NULL DEFAULT 'global',
+	scope_id TEXT NOT NULL DEFAULT '',
+	source_type TEXT NOT NULL DEFAULT 'legacy',
+	source_id TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'active',
+	confidence REAL NOT NULL DEFAULT 1.0,
+	expires_at TEXT NOT NULL DEFAULT '',
+	supersedes_hash TEXT NOT NULL DEFAULT '',
+	canonical_hash TEXT NOT NULL DEFAULT '',
+	recall_count INTEGER NOT NULL DEFAULT 0,
+	used_count INTEGER NOT NULL DEFAULT 0,
+	last_used_at TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_mem_entries_date ON mem_entries(date);
@@ -447,6 +461,62 @@ func (d *DB) migrate() error {
 		FROM memories
 		WHERE content IS NOT NULL AND content != ''
 	`)
+
+	// v8: add typed, scoped lifecycle metadata to long-term memories. Columns
+	// are added individually so existing local databases keep their rowids and
+	// FTS external-content links intact.
+	memoryColumns := []struct {
+		name string
+		ddl  string
+	}{
+		{"memory_type", `ALTER TABLE mem_entries ADD COLUMN memory_type TEXT NOT NULL DEFAULT 'legacy'`},
+		{"scope_type", `ALTER TABLE mem_entries ADD COLUMN scope_type TEXT NOT NULL DEFAULT 'global'`},
+		{"scope_id", `ALTER TABLE mem_entries ADD COLUMN scope_id TEXT NOT NULL DEFAULT ''`},
+		{"source_type", `ALTER TABLE mem_entries ADD COLUMN source_type TEXT NOT NULL DEFAULT 'legacy'`},
+		{"source_id", `ALTER TABLE mem_entries ADD COLUMN source_id TEXT NOT NULL DEFAULT ''`},
+		{"status", `ALTER TABLE mem_entries ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`},
+		{"confidence", `ALTER TABLE mem_entries ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0`},
+		{"expires_at", `ALTER TABLE mem_entries ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''`},
+		{"supersedes_hash", `ALTER TABLE mem_entries ADD COLUMN supersedes_hash TEXT NOT NULL DEFAULT ''`},
+		{"canonical_hash", `ALTER TABLE mem_entries ADD COLUMN canonical_hash TEXT NOT NULL DEFAULT ''`},
+		{"recall_count", `ALTER TABLE mem_entries ADD COLUMN recall_count INTEGER NOT NULL DEFAULT 0`},
+		{"used_count", `ALTER TABLE mem_entries ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0`},
+		{"last_used_at", `ALTER TABLE mem_entries ADD COLUMN last_used_at TEXT NOT NULL DEFAULT ''`},
+		{"updated_at", `ALTER TABLE mem_entries ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`},
+	}
+	memorySchemaChanged := false
+	for _, column := range memoryColumns {
+		hasColumn, err := tableHasColumn(tx, "mem_entries", column.name)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect mem_entries %s column: %w", column.name, err)
+		}
+		if !hasColumn {
+			if _, err := tx.Exec(column.ddl); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migrate mem_entries v8 add %s: %w", column.name, err)
+			}
+			memorySchemaChanged = true
+		}
+	}
+	if memorySchemaChanged {
+		if _, err := tx.Exec(`
+			INSERT INTO mem_fts(mem_fts) VALUES('rebuild');
+			UPDATE mem_entries SET updated_at = created_at WHERE updated_at = '';
+		`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate mem_entries v8 data: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_mem_entries_scope_status
+			ON mem_entries(scope_type, scope_id, status);
+		CREATE INDEX IF NOT EXISTS idx_mem_entries_canonical
+			ON mem_entries(canonical_hash);
+	`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migrate mem_entries v8 indexes: %w", err)
+	}
 
 	// Fix corrupted llm_models rows where the "vision" column accidentally holds
 	// a timestamp string (caused by a column-offset bug when the vision column was

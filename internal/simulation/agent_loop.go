@@ -37,16 +37,16 @@ type GAAgentLoop struct {
 	allPersonas     []Persona
 	log             *logger.Logger
 	language        string
-	graph           *RelationGraph  // interaction graph for edge tracking
+	graph           *RelationGraph // interaction graph for edge tracking
 
 	// Runtime state
-	actionSeq              int64
-	stopCh                 chan struct{}
-	stopOnce               sync.Once
-	startOnce              sync.Once // emits agent_start event on first ProcessRound
+	actionSeq                int64
+	stopCh                   chan struct{}
+	stopOnce                 sync.Once
+	startOnce                sync.Once // emits agent_start event on first ProcessRound
 	ticksSinceLastReflection int
-	reflections            []ReflectionRecord
-	reflectionsMu          sync.Mutex
+	reflections              []ReflectionRecord
+	reflectionsMu            sync.Mutex
 
 	// Output
 	events chan SimulationEvent
@@ -74,23 +74,23 @@ func NewGAAgentLoop(
 	graph *RelationGraph,
 ) *GAAgentLoop {
 	return &GAAgentLoop{
-		sa:                sa,
-		env:               env,
-		bus:               bus,
-		clock:             clock,
-		planGen:           planGen,
-		relationshipMgr:   relationshipMgr,
-		memoryEngine:      memEngine,
-		reflectionEng:     reflectionEng,
-		dialogueMgr:       dialogueMgr,
-		worldState:        worldState,
-		nameByID:          nameByID,
-		allPersonas:       allPersonas,
-		log:               log,
-		language:          language,
-		graph:             graph,
-		stopCh:            make(chan struct{}),
-		events:            make(chan SimulationEvent, 64),
+		sa:              sa,
+		env:             env,
+		bus:             bus,
+		clock:           clock,
+		planGen:         planGen,
+		relationshipMgr: relationshipMgr,
+		memoryEngine:    memEngine,
+		reflectionEng:   reflectionEng,
+		dialogueMgr:     dialogueMgr,
+		worldState:      worldState,
+		nameByID:        nameByID,
+		allPersonas:     allPersonas,
+		log:             log,
+		language:        language,
+		graph:           graph,
+		stopCh:          make(chan struct{}),
+		events:          make(chan SimulationEvent, 64),
 	}
 }
 
@@ -342,12 +342,12 @@ func (gal *GAAgentLoop) ProcessRound(ctx context.Context, round int, timeEvt Sim
 			Type:  "relationship_update",
 			Round: round,
 			Data: map[string]any{
-				"subject_id":   personaID,
-				"target_id":    ru.TargetID,
-				"kind":         string(ru.Kind),
-				"familiarity":  ru.Familiarity,
-				"affinity":     ru.Affinity,
-				"tags":         ru.Tags,
+				"subject_id":  personaID,
+				"target_id":   ru.TargetID,
+				"kind":        string(ru.Kind),
+				"familiarity": ru.Familiarity,
+				"affinity":    ru.Affinity,
+				"tags":        ru.Tags,
 			},
 		})
 	}
@@ -777,7 +777,17 @@ func (gal *GAAgentLoop) runReflection(ctx context.Context) {
 
 	// Also save to MemoryEngine for cross-simulation recall
 	if gal.memoryEngine != nil {
-		_, _, err := gal.memoryEngine.Save(ctx, record.Content, record.GeneratedAt.Format("2006-01-02"), "reflection", record.GeneratedAt.Format(time.RFC3339))
+		_, err := gal.memoryEngine.Ingest(ctx, memoryengine.MemoryCandidate{
+			Content:    record.Content,
+			MemoryType: memoryengine.MemoryTypeStableFact,
+			ScopeType:  memoryengine.ScopeSimulation,
+			ScopeID:    persona.ID,
+			SourceType: memoryengine.SourceSimulation,
+			SourceID:   persona.ID,
+			Date:       record.GeneratedAt.Format("2006-01-02"),
+			EventTime:  record.GeneratedAt.Format(time.RFC3339),
+			Confidence: 0.7,
+		})
 		if err != nil && gal.log != nil {
 			gal.log.WarnContext(ctx, logger.CatSimulation, "failed to save reflection to memory engine", "agent_id", persona.ID, "err", err.Error())
 		}
@@ -810,15 +820,15 @@ func safePersonaName(p *Persona) string {
 func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, initiatorName, targetID, targetName string, action *Action, isSneak bool, round int, timeEvt SimTimeEvent) {
 	currentZone := gal.env.GetAgentZone(targetID)
 	presentAgents := gal.env.GetAgentsInZone(currentZone)
-	
+
 	// Faction strengths
 	aFactionStrength := gal.getFactionStrength(initiatorID, presentAgents)
 	bFactionStrength := gal.getFactionStrength(targetID, presentAgents)
-	
+
 	if isSneak {
 		aFactionStrength += 30.0
 	}
-	
+
 	switch action.Type {
 	case ActionMove:
 		// B tries to flee
@@ -829,7 +839,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 		if pEscape > 0.9 {
 			pEscape = 0.9
 		}
-		
+
 		if rand.Float64() < pEscape {
 			// Escape success! B moves.
 			obs, err := gal.env.MoveAgent(targetID, action.Target)
@@ -842,7 +852,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 					SimulatedTime: timeEvt.SimTime,
 					Timestamp:     time.Now(),
 				})
-				
+
 				// Emit move event
 				for _, o := range obs {
 					gal.sa.Memory().Record(MemoryRecord{
@@ -864,7 +874,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 						"to_zone":  action.Target,
 					},
 				})
-				
+
 				// Notify initiator A
 				gal.bus.Send(initiatorID, Message{
 					From:    "System",
@@ -884,7 +894,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 				SimulatedTime: timeEvt.SimTime,
 				Timestamp:     time.Now(),
 			})
-			
+
 			gal.bus.Send(initiatorID, Message{
 				From:    "System",
 				To:      initiatorID,
@@ -892,11 +902,11 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 				Type:    "system",
 				Round:   round,
 			})
-			
+
 			// Resolve the fight
 			gal.resolveFight(ctx, initiatorID, initiatorName, targetID, targetName, aFactionStrength, bFactionStrength, round, timeEvt)
 		}
-		
+
 	case ActionConflict:
 		// B fights back
 		gal.sa.Memory().Record(MemoryRecord{
@@ -907,7 +917,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
 		})
-		
+
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
@@ -915,10 +925,10 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 			Type:    "system",
 			Round:   round,
 		})
-		
+
 		// Resolve the fight
 		gal.resolveFight(ctx, initiatorID, initiatorName, targetID, targetName, aFactionStrength, bFactionStrength, round, timeEvt)
-		
+
 	default:
 		// B submits/talks
 		gal.sa.Memory().Record(MemoryRecord{
@@ -929,7 +939,7 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
 		})
-		
+
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
@@ -942,9 +952,9 @@ func (gal *GAAgentLoop) resolveConflictState(ctx context.Context, initiatorID, i
 
 func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiatorName, targetID, targetName string, aStrength, bStrength float64, round int, timeEvt SimTimeEvent) {
 	diff := aStrength - bStrength
-	
+
 	var deadAgentID, deadAgentName, killerID, killerName string
-	
+
 	if diff >= 30.0 {
 		// A wins, B loses
 		gal.sa.Memory().Record(MemoryRecord{
@@ -955,7 +965,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
 		})
-		
+
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
@@ -963,7 +973,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 			Type:    "system",
 			Round:   round,
 		})
-		
+
 		// Death check for B
 		deadChance := 0.02
 		if diff >= 40.0 {
@@ -985,7 +995,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
 		})
-		
+
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
@@ -993,7 +1003,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 			Type:    "system",
 			Round:   round,
 		})
-		
+
 		// Death check for A
 		deadChance := 0.02
 		if diff <= -40.0 {
@@ -1015,7 +1025,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 			SimulatedTime: timeEvt.SimTime,
 			Timestamp:     time.Now(),
 		})
-		
+
 		gal.bus.Send(initiatorID, Message{
 			From:    "System",
 			To:      initiatorID,
@@ -1023,7 +1033,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 			Type:    "system",
 			Round:   round,
 		})
-		
+
 		// Accidental death check for both
 		if rand.Float64() < 0.02 {
 			deadAgentID = targetID
@@ -1037,7 +1047,7 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 			killerName = targetName
 		}
 	}
-	
+
 	// Handle death if triggered
 	if deadAgentID != "" {
 		gal.emit(SimulationEvent{
@@ -1052,13 +1062,13 @@ func (gal *GAAgentLoop) resolveFight(ctx context.Context, initiatorID, initiator
 				SeqNum:    round,
 			},
 		})
-		
+
 		gal.emit(SimulationEvent{
 			Type:  "agent_death",
 			Round: round,
 			Data:  map[string]string{"agent_id": deadAgentID, "agent_name": deadAgentName, "reason": fmt.Sprintf("killed in conflict with %s", killerName)},
 		})
-		
+
 		// Notify killer's memory
 		gal.bus.Send(killerID, Message{
 			From:    "System",

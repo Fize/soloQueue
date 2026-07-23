@@ -69,11 +69,15 @@ func (t *recallMemoryTool) Execute(ctx context.Context, raw string) (string, err
 		limit = 10
 	}
 
+	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
 	result, err := t.cfg.MemoryEngine.Search(ctx, memoryengine.SearchQuery{
-		Text:               strings.TrimSpace(a.Query),
-		Entities:           a.Entities,
-		Limit:              limit,
+		Text:                strings.TrimSpace(a.Query),
+		Entities:            a.Entities,
+		Limit:               limit,
 		IncludeGraphContext: len(a.Entities) > 0,
+		ScopeType:           scopeType,
+		ScopeID:             scopeID,
+		IncludeGlobal:       true,
 	})
 	if err != nil {
 		return "", err

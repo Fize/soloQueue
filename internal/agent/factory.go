@@ -1193,14 +1193,17 @@ When memory is relevant:
 
 Use Remember only for durable information that will likely help future work, such as explicit
 user preferences, decisions, stable configuration, or important conclusions. Do not save routine
-chat, transient tool output, or duplicate findings.
+chat, task completion reports, generated file paths, build/test results, commits, daily reports,
+time-sensitive snapshots, transient tool output, or duplicate findings. Save at most three concise,
+standalone memories per task. Set memory_type and mark explicit_user_request true only when the user
+actually asked you to remember something.
 
 ## Tool Reference
 - **RecallMemory(query, limit=10)**: Hybrid search by text query.
 - **RecallEntity(entity, max_hops=2)**: Explore KG from a specific entity.
 - **ConnectEntities(source, target)**: Find paths between two entities.
 - **MemoryTimeline(from, to, limit=50)**: Chronological review over a date range.
-- **Remember(content, entities[], event_time)**: Save findings to long-term conversationlog.
+- **Remember(content, memory_type, explicit_user_request, entities[], timestamp)**: Save durable information.
 - **KGIndex(entities[])**: Bulk-index entities and relationships into the KG.
 - **ConsolidateMemories()**: Run maintenance (edge decay, stale cleanup).
 `

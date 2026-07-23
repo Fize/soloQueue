@@ -63,7 +63,10 @@ func (t *memoryTimelineTool) Execute(ctx context.Context, raw string) (string, e
 		a.Limit = 50
 	}
 
-	entries, err := t.cfg.MemoryEngine.Timeline(ctx, a.From, a.To, a.Limit)
+	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
+	entries, err := t.cfg.MemoryEngine.TimelineScoped(
+		ctx, a.From, a.To, a.Limit, scopeType, scopeID, true,
+	)
 	if err != nil {
 		return "", err
 	}

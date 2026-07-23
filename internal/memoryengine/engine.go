@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
 )
 
@@ -19,9 +19,9 @@ type Engine struct {
 	searcher *HybridSearcher
 	vector   *VectorSearcher
 
-	db       *sql.DB
-	mu       *sync.Mutex
-	log      *logger.Logger
+	db  *sql.DB
+	mu  *sync.Mutex
+	log *logger.Logger
 }
 
 // New creates a new Engine backed by the shared database.
@@ -56,15 +56,16 @@ func (e *Engine) SaveWithEntities(ctx context.Context, content, date, tags, even
 	if err != nil {
 		return hash, isNew, err
 	}
+	e.indexEntities(ctx, content, hash, eventTime, entities)
+	return hash, isNew, nil
+}
 
+func (e *Engine) indexEntities(ctx context.Context, content, hash, eventTime string, entities []EntityExtraction) {
 	for _, entity := range entities {
 		if entity.Confidence <= 0 {
 			entity.Confidence = 1.0
 		}
-		nodeType := entity.Type
-		if nodeType == "" {
-			nodeType = "entity"
-		}
+		nodeType := normalizeEntityType(entity.Type)
 
 		srcID, _, err := e.graph.UpsertNode(ctx, entity.Name, nodeType, entity.Confidence)
 		if err != nil {
@@ -87,25 +88,11 @@ func (e *Engine) SaveWithEntities(ctx context.Context, content, date, tags, even
 			}
 		}
 	}
-
-	return hash, isNew, nil
 }
 
 // Search performs a hybrid search across all configured pipelines.
 func (e *Engine) Search(ctx context.Context, query SearchQuery) (*SearchResultSet, error) {
-	result, err := e.searcher.Search(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	// Boost salience for recalled memories
-	for _, r := range result.Results {
-		if r.ContentHash != "" {
-			_ = e.store.BoostSalience(ctx, r.ContentHash)
-		}
-	}
-
-	return result, nil
+	return e.searcher.Search(ctx, query)
 }
 
 // IndexEntity indexes an entity in the knowledge graph.
@@ -147,9 +134,16 @@ func (e *Engine) AddAlias(ctx context.Context, alias, canonical string) error {
 
 // RecallEntity traverses the KG from an entity and returns related memories.
 func (e *Engine) RecallEntity(ctx context.Context, entityName string, maxHops int, limit int) ([]SearchResult, error) {
+	return e.RecallEntityScoped(ctx, entityName, maxHops, limit, "", "", false)
+}
+
+func (e *Engine) RecallEntityScoped(ctx context.Context, entityName string, maxHops int, limit int, scopeType, scopeID string, includeGlobal bool) ([]SearchResult, error) {
 	query := SearchQuery{
-		Entities: []string{entityName},
-		Limit:    limit,
+		Entities:      []string{entityName},
+		Limit:         limit,
+		ScopeType:     scopeType,
+		ScopeID:       scopeID,
+		IncludeGlobal: includeGlobal,
 	}
 	result, err := e.Search(ctx, query)
 	if err != nil {
@@ -171,6 +165,10 @@ func (e *Engine) ShortestPath(ctx context.Context, source, target string, maxDep
 // Timeline returns memories chronologically within a date range.
 func (e *Engine) Timeline(ctx context.Context, from, to string, limit int) ([]MemoryEntry, error) {
 	return e.store.Timeline(ctx, from, to, limit)
+}
+
+func (e *Engine) TimelineScoped(ctx context.Context, from, to string, limit int, scopeType, scopeID string, includeGlobal bool) ([]MemoryEntry, error) {
+	return e.store.TimelineScoped(ctx, from, to, limit, scopeType, scopeID, includeGlobal)
 }
 
 // Consolidate runs maintenance operations.

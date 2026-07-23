@@ -132,6 +132,48 @@ func TestOpenMigratesScheduledTasksConstraintToL4(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesMemoryMetadataV8(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "memory-v7.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`
+		CREATE TABLE mem_entries (
+			id TEXT PRIMARY KEY, content TEXT NOT NULL, content_hash TEXT NOT NULL UNIQUE,
+			date TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '', event_time TEXT NOT NULL,
+			salience REAL NOT NULL DEFAULT 1.0, last_recalled_at TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL
+		);
+		INSERT INTO mem_entries VALUES (
+			'm1', 'legacy memory', 'hash1', '2026-07-01', '', '2026-07-01',
+			1.0, '', '2026-07-01T00:00:00Z'
+		);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var memoryType, scopeType, status, updatedAt string
+	if err := db.QueryRow(`
+		SELECT memory_type, scope_type, status, updated_at
+		FROM mem_entries WHERE id = 'm1'
+	`).Scan(&memoryType, &scopeType, &status, &updatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if memoryType != "legacy" || scopeType != "global" || status != "active" ||
+		updatedAt != "2026-07-01T00:00:00Z" {
+		t.Fatalf("unexpected migrated metadata: %q %q %q %q",
+			memoryType, scopeType, status, updatedAt)
+	}
+}
+
 func TestInsertTokenUsage(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()

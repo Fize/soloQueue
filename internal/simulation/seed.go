@@ -159,7 +159,19 @@ func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedEx
 		if s.log != nil {
 			s.log.DebugContext(ctx, logger.CatSimulation, "extractChunk: saving to KG", "entities", len(ext.Entities))
 		}
-		_, _, err := s.memoryEngine.SaveWithEntities(ctx, chunk, time.Now().Format(time.RFC3339), "simulation_seed", "", ext.Entities)
+		now := time.Now()
+		_, err := s.memoryEngine.Ingest(ctx, memoryengine.MemoryCandidate{
+			Content:    chunk,
+			MemoryType: memoryengine.MemoryTypeStableFact,
+			ScopeType:  memoryengine.ScopeSimulation,
+			ScopeID:    "seed",
+			SourceType: memoryengine.SourceSimulation,
+			SourceID:   "seed",
+			Date:       now.Format("2006-01-02"),
+			EventTime:  now.Format(time.RFC3339),
+			Confidence: 0.7,
+			Entities:   ext.Entities,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("save to memory engine: %w", err)
 		}

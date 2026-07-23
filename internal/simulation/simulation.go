@@ -29,8 +29,8 @@ type SimulationEngine struct {
 	log      *logger.Logger
 	config   config.SimulationConfig
 
-	memoryEngine  *memoryengine.Engine  // optional, for KG-based seed processing
-	resolveModel  agent.ModelResolver  // nil = skip model resolution (tests)
+	memoryEngine *memoryengine.Engine // optional, for KG-based seed processing
+	resolveModel agent.ModelResolver  // nil = skip model resolution (tests)
 
 	subscribers   map[chan SimulationEvent]struct{}
 	subscribersMu sync.RWMutex
@@ -38,9 +38,9 @@ type SimulationEngine struct {
 	cancels   map[string]context.CancelFunc
 	cancelsMu sync.Mutex
 
-	pauseChs   map[string]chan struct{}
-	stepChs    map[string]chan struct{}
-	pausesMu   sync.Mutex
+	pauseChs map[string]chan struct{}
+	stepChs  map[string]chan struct{}
+	pausesMu sync.Mutex
 }
 
 // NewSimulationEngine creates a new engine.
@@ -606,9 +606,9 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 			return "", fmt.Errorf("report analyst ask: %w", err)
 		}
 		return resp.Content, nil
-}
+	}
 
-// Find the persona
+	// Find the persona
 	var persona *Persona
 	for i, p := range state.Config.Personas {
 		if p.ID == personaID {
@@ -649,10 +649,10 @@ func (e *SimulationEngine) ReplayAsk(ctx context.Context, simID, personaID, ques
 
 // ForkRequest defines what-if parameters when forking a simulation.
 type ForkRequest struct {
-	NewWorldState    map[string]any `json:"new_world_state,omitempty"`
-	ExtraPersonas    []Persona      `json:"extra_personas,omitempty"`
-	NewTopic         string         `json:"new_topic,omitempty"`
-	NewMaxWallClockMs int           `json:"new_max_wall_clock_ms,omitempty"`
+	NewWorldState     map[string]any `json:"new_world_state,omitempty"`
+	ExtraPersonas     []Persona      `json:"extra_personas,omitempty"`
+	NewTopic          string         `json:"new_topic,omitempty"`
+	NewMaxWallClockMs int            `json:"new_max_wall_clock_ms,omitempty"`
 }
 
 // Fork clones a completed simulation with modified parameters for "what-if" replay.
@@ -1524,11 +1524,11 @@ func buildZonesFromConfig(env *Environment, config SimulationConfig) {
 					if lm, ok := locs[0].(map[string]any); ok {
 						if name, ok := lm["name"].(string); ok {
 							env.AddObject(name, &EnvObject{
-								ID:           name + "_marker",
-								Name:         name + " Mark",
-								Description:  "A signature feature of this location.",
+								ID:            name + "_marker",
+								Name:          name + " Mark",
+								Description:   "A signature feature of this location.",
 								IsInteractive: true,
-								State:        map[string]any{},
+								State:         map[string]any{},
 							})
 						}
 					}
@@ -1587,32 +1587,32 @@ func (e *SimulationEngine) maybePersist(state *SimulationState) {
 }
 
 // persistAgentMemories saves all agent memories to the store for replay.
-	// (Kept for compatibility, but round-by-round persistence is now preferred)
-	func (e *SimulationEngine) persistAgentMemories(simID string, simAgents []*SimAgent) {
-		for _, sa := range simAgents {
-			records := sa.Memory().Records()
-			if len(records) == 0 {
-				continue
-			}
-			if err := e.store.SaveAgentMemories(simID, sa.PersonaID(), records); err != nil && e.log != nil {
-				e.log.Warn(logger.CatSimulation, "failed to persist agent memories",
-					"persona_id", sa.PersonaID(), "err", err.Error())
-			}
+// (Kept for compatibility, but round-by-round persistence is now preferred)
+func (e *SimulationEngine) persistAgentMemories(simID string, simAgents []*SimAgent) {
+	for _, sa := range simAgents {
+		records := sa.Memory().Records()
+		if len(records) == 0 {
+			continue
+		}
+		if err := e.store.SaveAgentMemories(simID, sa.PersonaID(), records); err != nil && e.log != nil {
+			e.log.Warn(logger.CatSimulation, "failed to persist agent memories",
+				"persona_id", sa.PersonaID(), "err", err.Error())
 		}
 	}
+}
 
-	func (e *SimulationEngine) persistAgentMemoriesByRound(simID string, simAgents []*SimAgent, round int) {
-		for _, sa := range simAgents {
-			records := sa.Memory().ByRound(round)
-			if len(records) == 0 {
-				continue
-			}
-			if err := e.store.SaveAgentMemories(simID, sa.PersonaID(), records); err != nil && e.log != nil {
-				e.log.Warn(logger.CatSimulation, "failed to persist agent memories incrementally",
-					"persona_id", sa.PersonaID(), "round", round, "err", err.Error())
-			}
+func (e *SimulationEngine) persistAgentMemoriesByRound(simID string, simAgents []*SimAgent, round int) {
+	for _, sa := range simAgents {
+		records := sa.Memory().ByRound(round)
+		if len(records) == 0 {
+			continue
+		}
+		if err := e.store.SaveAgentMemories(simID, sa.PersonaID(), records); err != nil && e.log != nil {
+			e.log.Warn(logger.CatSimulation, "failed to persist agent memories incrementally",
+				"persona_id", sa.PersonaID(), "round", round, "err", err.Error())
 		}
 	}
+}
 
 // indexSimulationToKG indexes simulation results into the MemoryEngine KG.
 // Converts the RelationGraph into entity extractions and persists the report.
@@ -1687,7 +1687,18 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 
 	// 5. Save to KG
 	now := time.Now().Format(time.RFC3339)
-	hash, _, err := e.memoryEngine.SaveWithEntities(ctx, content, now, "simulation_result", now, entities)
+	result, err := e.memoryEngine.Ingest(ctx, memoryengine.MemoryCandidate{
+		Content:    content,
+		MemoryType: memoryengine.MemoryTypeStableFact,
+		ScopeType:  memoryengine.ScopeSimulation,
+		ScopeID:    simID,
+		SourceType: memoryengine.SourceSimulation,
+		SourceID:   simID,
+		Date:       time.Now().Format("2006-01-02"),
+		EventTime:  now,
+		Confidence: 0.8,
+		Entities:   entities,
+	})
 	if err != nil {
 		if e.log != nil {
 			e.log.Warn(logger.CatSimulation, "failed to index simulation to KG", "sim_id", simID, "err", err.Error())
@@ -1696,7 +1707,7 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 	}
 
 	if e.log != nil {
-		e.log.Info(logger.CatSimulation, "indexed simulation to KG", "sim_id", simID, "hash", hash, "entities", len(entities))
+		e.log.Info(logger.CatSimulation, "indexed simulation to KG", "sim_id", simID, "hash", result.ContentHash, "entities", len(entities))
 	}
 }
 

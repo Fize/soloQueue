@@ -13,6 +13,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
@@ -475,10 +476,24 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 
 			// Extract <memories> block from the per-segment summary and save
 			// separately to the long-term memory engine.
-			memories, cleanSummary := extractMemoriesFromSummary(seg.Summary)
+			memories, _ := extractMemoriesFromSummary(seg.Summary)
 			for _, mem := range memories {
 				if b.RT.MemoryEngine != nil {
-					_, _, err := b.RT.MemoryEngine.Save(context.Background(), mem, seg.Date.Format("2006-01-02"), "auto-compact,memory", "")
+					scopeType, scopeID := memoryengine.ScopeGlobal, ""
+					if effectiveTeam != "default" {
+						scopeType, scopeID = memoryengine.ScopeTeam, effectiveTeam
+					}
+					_, err := b.RT.MemoryEngine.Ingest(context.Background(), memoryengine.MemoryCandidate{
+						Content:    mem,
+						MemoryType: memoryengine.MemoryTypeStableFact,
+						ScopeType:  scopeType,
+						ScopeID:    scopeID,
+						SourceType: memoryengine.SourceCompaction,
+						SourceID:   effectiveTeam,
+						Date:       seg.Date.Format("2006-01-02"),
+						EventTime:  seg.Date.Format(time.RFC3339),
+						Confidence: 0.8,
+					})
 					if err != nil {
 						sessLog.Error(logger.CatActor, "memory extraction: save failed",
 							"err", err.Error())
@@ -487,10 +502,8 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			}
 
 			if seg.Date.Before(cutoff) {
-				// >7 days old: write directly to permanent (long-term) memory
-				if b.RT.MemoryEngine != nil {
-					_, _, _ = b.RT.MemoryEngine.Save(context.Background(), cleanSummary, seg.Date.Format("2006-01-02"), "auto-compact", seg.Date.Format("2006-01-02")+"T00:00:00Z")
-				}
+				// >7 days old: the durable facts above may enter long-term
+				// memory, while the full task summary remains in the timeline.
 			} else if b.RT.MemoryManager != nil {
 				// ≤7 days: short-term memory only (timeline event already
 				// emitted above from the merged finalSummary).

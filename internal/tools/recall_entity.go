@@ -70,7 +70,10 @@ func (t *recallEntityTool) Execute(ctx context.Context, raw string) (string, err
 		a.Limit = 10
 	}
 
-	results, err := t.cfg.MemoryEngine.RecallEntity(ctx, a.Entity, a.MaxHops, a.Limit)
+	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
+	results, err := t.cfg.MemoryEngine.RecallEntityScoped(
+		ctx, a.Entity, a.MaxHops, a.Limit, scopeType, scopeID, true,
+	)
 	if err != nil {
 		return "", err
 	}
