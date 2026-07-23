@@ -42,6 +42,11 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
     console.error("API error:", err);
     throw new Error(err.error || `HTTP ${res.status}`);
   }
+
+  if (res.status === 204) {
+    return undefined as unknown as T;
+  }
+  
   return res.json();
 }
 
