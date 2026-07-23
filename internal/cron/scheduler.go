@@ -29,6 +29,9 @@ type Session interface {
 	// AskIsolated executes a prompt in a clean context (no conversation history,
 	// no writes to the session's ContextWindow or timeline).
 	AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
+	// SendViaChannel delivers a text notification through the session's bound channel
+	// bridge (QQ/WeChat). Returns nil if no bridge is registered.
+	SendViaChannel(ctx context.Context, text string) error
 }
 
 // SessionManager provides sessions for scheduled task execution.
@@ -63,11 +66,6 @@ type ResolvedModel struct {
 // ModelResolver resolves the latest configured model for a persisted level.
 type ModelResolver func(taskLevel string) (ResolvedModel, error)
 
-// TaskCompletedHook is called when a scheduled task finishes execution.
-// Each channel (QQ, etc.) registers its own hook to deliver notifications
-// via its own transport. The hook receives the task and the full reply text.
-type TaskCompletedHook func(ctx context.Context, task Task, reply string)
-
 type modelRoutedSession interface {
 	AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
 	AskStreamWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
@@ -79,14 +77,6 @@ var errTaskModelResolution = errors.New("scheduled task model resolution failed"
 type cronTask struct {
 	task     Task
 	enqueued time.Time
-}
-
-// pendingResult holds a completed L2 task result awaiting delivery to L1.
-type pendingResult struct {
-	task       Task
-	reply      string
-	mediaFiles []SendFileMedia
-	completed  time.Time
 }
 
 // CronDoneCallback is called when a cron task execution completes.
@@ -109,24 +99,15 @@ type Scheduler struct {
 	l1Mu    sync.Mutex
 	l1Cond  *sync.Cond
 
-	// L2 result queue: delivers completed L2 results to L1
-	resultQueue []pendingResult
-	resultMu    sync.Mutex
-	resultCond  *sync.Cond
-
-	mu      sync.Mutex
+	mu          sync.Mutex
+	entries     map[string]robfig.EntryID
+	timers      map[string]*time.Timer
 	oneTimeRuns map[string]string
-	entries map[string]robfig.EntryID
-	timers  map[string]*time.Timer
-	stopped bool
+	stopped     bool
 
 	// OnTaskComplete is called when a cron task finishes execution.
 	// Set from the server layer to integrate with WebSocket notifications.
 	OnTaskComplete CronDoneCallback
-
-	// onTaskCompleted is the callback registered by channels (QQ, etc.) for
-	// delivering task results via their own transport (SendActiveMessage, etc.).
-	onTaskCompleted TaskCompletedHook
 }
 
 // SetModelResolver configures per-run task-level model selection.
@@ -137,24 +118,6 @@ func (s *Scheduler) SetModelResolver(resolver ModelResolver) {
 // SetWorkDir configures the base directory for cron execution logs.
 func (s *Scheduler) SetWorkDir(dir string) {
 	s.workDir = dir
-}
-
-// OnTaskCompleted registers a callback that is invoked when a cron task completes.
-// Each channel (QQ, WeChat, etc.) registers its own hook to deliver the result.
-func (s *Scheduler) OnTaskCompleted(h TaskCompletedHook) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.onTaskCompleted = h
-}
-
-// invokeTaskCompletedHook safely calls the registered TaskCompletedHook if set.
-func (s *Scheduler) invokeTaskCompletedHook(ctx context.Context, t Task, reply string) {
-	s.mu.Lock()
-	hook := s.onTaskCompleted
-	s.mu.Unlock()
-	if hook != nil {
-		hook(ctx, t, reply)
-	}
 }
 
 // NewScheduler constructs a new Scheduler.
@@ -176,12 +139,11 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 			)),
 			robfig.WithChain(robfig.SkipIfStillRunning(robfig.DiscardLogger)),
 		),
-		entries: make(map[string]robfig.EntryID),
-		timers:  make(map[string]*time.Timer),
+		entries:     make(map[string]robfig.EntryID),
+		timers:      make(map[string]*time.Timer),
 		oneTimeRuns: make(map[string]string),
 	}
 	s.l1Cond = sync.NewCond(&s.l1Mu)
-	s.resultCond = sync.NewCond(&s.resultMu)
 	return s
 }
 
@@ -209,7 +171,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	// Start background goroutines for L1 task queue and L2 result delivery.
 	go s.l1QueueLoop()
-	go s.l1ResultLoop()
 
 	s.cron.Start()
 	s.logger.InfoContext(ctx, logger.CatApp, "cron: scheduler daemon started successfully")
@@ -234,7 +195,6 @@ func (s *Scheduler) Stop() {
 
 	// Wake up background loops so they can exit.
 	s.l1Cond.Broadcast()
-	s.resultCond.Broadcast()
 
 	s.logger.Info(logger.CatApp, "cron: scheduler daemon stopped")
 }
@@ -479,7 +439,11 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	}
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
 	s.notifyTaskComplete(t, status == "success", firstLineSummary(result.replyText))
-	s.invokeTaskCompletedHook(ctx, t, result.replyText)
+
+	// Deliver result through the session's bound channel (QQ/WeChat).
+	if status == "success" && result.replyText != "" {
+		l1Session.SendViaChannel(ctx, result.replyText)
+	}
 
 	if drainErr != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task drain error", "task_id", t.ID, "err", drainErr)
@@ -598,7 +562,6 @@ func (s *Scheduler) executeL2Task(t Task) {
 	}
 
 	replyText := result.replyText
-	mediaFiles := result.mediaFiles
 	duration := time.Since(start)
 	s.logger.Info(logger.CatApp, "cron: L2 task completed", "task_id", t.ID,
 		"target", t.TargetAgent, "duration_ms", duration.Milliseconds())
@@ -612,13 +575,14 @@ func (s *Scheduler) executeL2Task(t Task) {
 	}
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
 	s.notifyTaskComplete(t, status == "success", firstLineSummary(replyText))
-	s.invokeTaskCompletedHook(ctx, t, replyText)
+
+	// Deliver result through the session's bound channel (QQ/WeChat).
+	if status == "success" && replyText != "" {
+		l2Session.SendViaChannel(ctx, replyText)
+	}
 
 	if drainErr != nil {
 		s.logger.Error(logger.CatApp, "cron: L2 task drain error", "task_id", t.ID, "err", drainErr)
-	} else {
-		// Enqueue L2 result for L1 delivery.
-		s.enqueueL2Result(t, replyText, mediaFiles)
 	}
 
 	s.updateTaskAfterExecution(ctx, t)
@@ -693,11 +657,9 @@ func (s *Scheduler) buildTaskPrompt(t Task) string {
 	return buildCronPrompt(t)
 }
 
-// buildCronContext creates a context with bypass-confirm and QBot flags.
+// buildCronContext creates a context with bypass-confirm flag.
 func (s *Scheduler) buildCronContext(t Task) context.Context {
-	isQBot := t.QQSource >= 0 && (t.QQOpenID != "" || t.QQTargetOpenID != "" || t.QQChatID != "")
 	cronCtx := iface.ContextWithBypassConfirm(context.Background())
-	cronCtx = iface.ContextWithIsQBot(cronCtx, isQBot)
 	return cronCtx
 }
 
@@ -923,18 +885,7 @@ func (s *Scheduler) recordExecution(ctx context.Context, t Task, resolved Resolv
 	})
 }
 
-// enqueueL2Result adds a completed L2 task result to the delivery queue.
-func (s *Scheduler) enqueueL2Result(t Task, reply string, mediaFiles []SendFileMedia) {
-	s.resultMu.Lock()
-	s.resultQueue = append(s.resultQueue, pendingResult{
-		task:       t,
-		reply:      reply,
-		mediaFiles: mediaFiles,
-		completed:  time.Now(),
-	})
-	s.resultMu.Unlock()
-	s.resultCond.Signal()
-}
+
 
 // l1QueueLoop runs in a background goroutine. It processes queued L1 tasks
 // one at a time when L1 becomes idle.
@@ -985,78 +936,9 @@ func (s *Scheduler) l1QueueLoop() {
 	}
 }
 
-// l1ResultLoop runs in a background goroutine. It drains the L2 result queue
-// and delivers each result to L1 via AskStream (so the user sees it).
-func (s *Scheduler) l1ResultLoop() {
-	s.resultMu.Lock()
-	defer s.resultMu.Unlock()
 
-	for {
-		s.mu.Lock()
-		stopped := s.stopped
-		s.mu.Unlock()
-		if stopped {
-			return
-		}
 
-		for len(s.resultQueue) == 0 && !stopped {
-			s.resultCond.Wait()
-			s.mu.Lock()
-			stopped = s.stopped
-			s.mu.Unlock()
-		}
-		if stopped {
-			return
-		}
 
-		pr := s.resultQueue[0]
-		s.resultQueue = s.resultQueue[1:]
-		s.resultMu.Unlock()
-
-		// Deliver to L1 when idle.
-		l1Session := s.sessionMgr.Session()
-		if l1Session != nil {
-			for !l1Session.Idle() {
-				time.Sleep(100 * time.Millisecond)
-				s.mu.Lock()
-				stopped = s.stopped
-				s.mu.Unlock()
-				if stopped {
-					s.resultMu.Lock()
-					return
-				}
-			}
-			s.deliverResultToL1(l1Session, pr)
-		}
-
-		s.resultMu.Lock()
-	}
-}
-
-// deliverResultToL1 sends a completed L2 task result to L1 via AskStream
-// so the result appears in the conversation and the user can see it.
-func (s *Scheduler) deliverResultToL1(l1Session Session, pr pendingResult) {
-	prompt := fmt.Sprintf(
-		"[Scheduled Task Completed]\n"+
-			"Task ID: %s\n"+
-			"Target Agent: %s\n"+
-			"Schedule: %s\n"+
-			"Completed at: %s\n"+
-			"\nThe following scheduled task has been executed. Please review and present the result to the user:\n\n%s",
-		pr.task.ID, pr.task.TargetAgent, pr.task.Expression,
-		pr.completed.Format("2006-01-02 15:04:05"), pr.reply,
-	)
-
-	ctx := iface.ContextWithBypassConfirm(context.Background())
-	ch, err := l1Session.AskStream(ctx, prompt)
-	if err != nil {
-		s.logger.Warn(logger.CatApp, "cron: failed to deliver L2 result to L1", "task_id", pr.task.ID, "err", err)
-		return
-	}
-	// Drain events silently (the result is already in CW/WS via AskStream).
-	for range ch {
-	}
-}
 
 // updateTaskAfterExecution updates DB timestamps after successful execution.
 func (s *Scheduler) updateTaskAfterExecution(ctx context.Context, t Task) {

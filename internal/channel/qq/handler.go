@@ -133,6 +133,17 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		return
 	}
 
+	// 2b. Register channel sender for system notifications (cron, etc.).
+	if s, ok := b.sess.(interface{ SetChannelSender(string, func(context.Context, string) error) }); ok {
+		s.SetChannelSender("qq", func(ctx context.Context, text string) error {
+			formatted := QQMarkdown(text)
+			return b.SendActiveMessage(ctx, msg, MsgTypeMarkdown, formatted)
+		})
+		b.log.InfoContext(ctx, logger.CatApp, "qqbot: channelSender registered",
+			"open_id", msg.OpenID,
+		)
+	}
+
 	// 3. Handle audio messages — download SILK, transcribe via whisper.cpp,
 	//    then treat the transcript as normal text input.
 	if msg.AudioURL != "" {

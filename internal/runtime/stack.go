@@ -9,7 +9,6 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
-	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
@@ -60,9 +59,6 @@ type Stack struct {
 	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
 
 	TeamStore *teamstore.Store // DB-backed team/agent store (nil = disabled)
-
-	// ChannelRegistry tracks active channel notifiers for cron notification routing.
-	ChannelRegistry *channel.Registry
 
 	// L1Channels and L1NotifyChannel hold the L1 main agent's channel bindings,
 	// loaded from ~/.soloqueue/agents/main.md at startup.

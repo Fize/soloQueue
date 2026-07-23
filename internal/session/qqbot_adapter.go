@@ -252,6 +252,14 @@ func (a *SessionAskAdapter) Compact(ctx context.Context) error {
 	return a.compactAndReap(ctx, sess)
 }
 
+// SetChannelSender stores the function used to send text through the session's
+// active channel bridge. channelType is "qq" or "wechat".
+func (a *SessionAskAdapter) SetChannelSender(channelType string, fn func(context.Context, string) error) {
+	if sess := a.mgr.Session(); sess != nil {
+		sess.SetChannelSender(channelType, fn)
+	}
+}
+
 // AskStream implements channel.SessionProvider.
 func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
 	sess := a.mgr.Session()
@@ -378,6 +386,14 @@ func (a *L2ChannelAdapter) Compact(ctx context.Context) error {
 		return err
 	}
 	return a.compactAndReap(ctx, sess)
+}
+
+// SetChannelSender stores the function used to send text through the session's
+// channel bridge. channelType is "qq" or "wechat".
+func (a *L2ChannelAdapter) SetChannelSender(channelType string, fn func(context.Context, string) error) {
+	if sess, err := a.getSession(context.Background()); err == nil {
+		sess.SetChannelSender(channelType, fn)
+	}
 }
 
 // AskStream implements channel.SessionProvider.

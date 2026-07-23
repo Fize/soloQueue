@@ -147,6 +147,11 @@ type Session struct {
 	// Supervisor is the L3 child manager for L2 sessions; nil for L1 sessions
 	Supervisor *agent.Supervisor
 
+	// channelSenders maps channel type ("qq"/"wechat") to send functions.
+	// Registered by bridges when OnMessage fires. Protected by channelSendersMu.
+	channelSenders   map[string]func(context.Context, string) error
+	channelSendersMu sync.RWMutex
+
 	// cancelled: forwarder sets this when cancelled, consumed and reset by the adapter
 	cancelled atomic.Bool
 
@@ -314,6 +319,58 @@ func (s *Session) ContextWindow() *ctxwin.ContextWindow {
 // Idle returns true if there is no Ask or AskStream currently in flight.
 func (s *Session) Idle() bool {
 	return s.inFlight.Load() == 0
+}
+
+// SetChannelSender registers a send function for the given channel type ("qq"/"wechat").
+// Called by the bridge when OnMessage fires. Replaces any existing sender for the same type.
+func (s *Session) SetChannelSender(channelType string, fn func(context.Context, string) error) {
+	s.channelSendersMu.Lock()
+	if s.channelSenders == nil {
+		s.channelSenders = make(map[string]func(context.Context, string) error)
+	}
+	prev := s.channelSenders[channelType] != nil
+	s.channelSenders[channelType] = fn
+	s.channelSendersMu.Unlock()
+	s.logger.InfoContext(context.Background(), logger.CatApp, "session: channelSender registered",
+		"session_id", s.ID,
+		"channel_type", channelType,
+		"had_previous", prev,
+	)
+}
+
+// SendViaChannel sends text through the configured notify channel.
+// The channel is determined by the agent's NotifyChannel config (e.g. "qq" or "wechat").
+// If notify_channel is not configured, no notification is sent.
+func (s *Session) SendViaChannel(ctx context.Context, text string) error {
+	notifyChannel := ""
+	if s.Agent != nil {
+		notifyChannel = s.Agent.Def.NotifyChannel
+	}
+	if notifyChannel == "" {
+		s.logger.WarnContext(ctx, logger.CatApp, "session: SendViaChannel skipped, no notify_channel configured",
+			"session_id", s.ID,
+		)
+		return nil
+	}
+
+	s.channelSendersMu.RLock()
+	fn := s.channelSenders[notifyChannel]
+	s.channelSendersMu.RUnlock()
+
+	if fn == nil {
+		s.logger.WarnContext(ctx, logger.CatApp, "session: SendViaChannel skipped, no sender for notify_channel",
+			"session_id", s.ID,
+			"notify_channel", notifyChannel,
+		)
+		return nil
+	}
+
+	s.logger.InfoContext(ctx, logger.CatApp, "session: SendViaChannel delivering",
+		"session_id", s.ID,
+		"notify_channel", notifyChannel,
+		"text_len", len(text),
+	)
+	return fn(ctx, text)
 }
 
 // IsQBot returns true if the session is currently serving or was last triggered by QBot.

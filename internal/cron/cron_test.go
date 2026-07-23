@@ -45,6 +45,7 @@ func (m *mockSession) AskStreamWithModel(ctx context.Context, prompt string, par
 	m.modelParams = params
 	return m.AskStream(ctx, prompt)
 }
+func (m *mockSession) SendViaChannel(ctx context.Context, text string) error { return nil }
 
 type mockSessionManager struct {
 	session    Session
@@ -183,18 +184,6 @@ func TestBuildCronPrompt(t *testing.T) {
 	}
 }
 
-func TestBuildCronContextDetectsQQOrigin(t *testing.T) {
-	s := newTestScheduler(t)
-	nonQQ := s.buildCronContext(Task{QQSource: -1})
-	if iface.IsQBotFromContext(nonQQ) {
-		t.Fatal("non-QQ cron task was marked as QQ-originated")
-	}
-	qq := s.buildCronContext(Task{QQSource: 0, QQTargetOpenID: "user-1"})
-	if !iface.IsQBotFromContext(qq) {
-		t.Fatal("QQ cron task was not marked as QQ-originated")
-	}
-}
-
 func TestParseSendFileMedia(t *testing.T) {
 	raw := `{"status":"success","file_type":"image","file_name":"test.png","url":"https://example.com/img.png"}`
 	result := parseSendFileMedia(raw)
@@ -225,7 +214,7 @@ func TestBuildTaskPrompt(t *testing.T) {
 
 func TestBuildCronContext(t *testing.T) {
 	s := newTestScheduler(t)
-	task := Task{ID: "t1", QQSource: 1, QQOpenID: "openid-1", QQTargetOpenID: "target-1", QQChatID: "chat-1"}
+	task := Task{ID: "t1"}
 	ctx := s.buildCronContext(task)
 	if ctx == nil {
 		t.Error("buildCronContext returned nil")
@@ -237,7 +226,7 @@ func TestScheduler_NewAndInit(t *testing.T) {
 	if s == nil {
 		t.Fatal("NewScheduler returned nil")
 	}
-	if s.l1Cond == nil || s.resultCond == nil {
+	if s.l1Cond == nil {
 		t.Error("cond not initialized")
 	}
 	if s.entries == nil || s.timers == nil {

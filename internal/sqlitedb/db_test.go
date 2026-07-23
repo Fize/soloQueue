@@ -54,14 +54,13 @@ func TestOpenMigratesScheduledTasksV3(t *testing.T) {
 		CREATE TABLE scheduled_tasks (
 			id TEXT PRIMARY KEY, expression TEXT NOT NULL, instruction TEXT NOT NULL,
 			target_agent TEXT NOT NULL, status TEXT NOT NULL, last_run_at TEXT,
-			next_run_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-			qq_source INTEGER, qq_openid TEXT, qq_target_openid TEXT, qq_chat_id TEXT
+			next_run_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 		);
 	`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = raw.Exec(`INSERT INTO scheduled_tasks VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, -1, '', '', '')`,
+	_, err = raw.Exec(`INSERT INTO scheduled_tasks VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
 		"t1", "daily", "Check database health\nInclude slow queries", "engineering", "active",
 		"2026-07-18T09:00:00+08:00", "2026-07-17T09:00:00+08:00", "2026-07-17T09:00:00+08:00")
 	if err != nil {
@@ -97,13 +96,12 @@ func TestOpenMigratesScheduledTasksConstraintToL4(t *testing.T) {
 			expression TEXT NOT NULL, instruction TEXT NOT NULL, target_agent TEXT NOT NULL,
 			status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','running','completed','failed')),
 			last_run_at TEXT, next_run_at TEXT NOT NULL, created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL, qq_source INTEGER DEFAULT -1, qq_openid TEXT,
-			qq_target_openid TEXT, qq_chat_id TEXT
+			updated_at TEXT NOT NULL
 		);
 		INSERT INTO scheduled_tasks VALUES (
 			't1', 'Existing task', 'L3', 'daily', 'run', 'L1', 'active', NULL,
 			'2026-07-18T09:00:00+08:00', '2026-07-17T09:00:00+08:00',
-			'2026-07-17T09:00:00+08:00', -1, '', '', ''
+			'2026-07-17T09:00:00+08:00'
 		);
 	`)
 	if err != nil {

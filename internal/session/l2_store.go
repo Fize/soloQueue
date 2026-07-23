@@ -486,6 +486,20 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 	return result
 }
 
+// FindByGroup returns the first activated persistent L2 session whose group
+// matches the given name (case-insensitive). Returns nil if none found.
+// This is used by the cron scheduler to reuse qbot-bound L2 sessions.
+func (s *L2SessionStore) FindByGroup(group string) *Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, entry := range s.sessions {
+		if strings.EqualFold(entry.Group, group) && entry.Session != nil {
+			return entry.Session
+		}
+	}
+	return nil
+}
+
 // Shutdown stops all L2 sessions and closes their resources.
 func (s *L2SessionStore) Shutdown() {
 	s.mu.Lock()

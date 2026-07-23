@@ -124,15 +124,6 @@ func (m *WechatBotManager) Reload() {
 		gateway := wechat.NewGateway(wxCfg, client, bridge, wxLog)
 		m.gateways = append(m.gateways, gateway)
 
-		// Register WeChat notifier in the channel registry for cron notification routing.
-		if chanReg := m.rt.ChannelRegistry; chanReg != nil {
-			chanReg.Register(channel.NotifierEntry{
-				ChannelType: "wechat",
-				InstanceID:  baseCfg.ID,
-				Notifier:    &wechat.WechatNotifier{Client: client},
-			})
-		}
-
 		go func() {
 			if err := gateway.Run(context.Background()); err != nil && err != wechat.ErrClosed {
 				wxLog.Warn(logger.CatApp, "wechat gateway stopped", "err", err.Error())

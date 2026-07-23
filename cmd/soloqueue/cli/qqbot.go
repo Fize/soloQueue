@@ -11,7 +11,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -130,7 +129,6 @@ type QQBotManager struct {
 	mgr           *session.SessionManager
 	l2Store       *session.L2SessionStore
 	rt            *runtime.Stack
-	cronSched     *cron.Scheduler
 	workDir       string
 	version       string
 	mainLog       *logger.Logger
@@ -143,13 +141,12 @@ type QQBotManager struct {
 }
 
 // NewQQBotManager creates a new QQBotManager.
-func NewQQBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, cronSched *cron.Scheduler, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) *QQBotManager {
+func NewQQBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) *QQBotManager {
 	return &QQBotManager{
 		cfg:           cfg,
 		mgr:           mgr,
 		l2Store:       l2Store,
 		rt:            rt,
-		cronSched:     cronSched,
 		workDir:       workDir,
 		version:       version,
 		mainLog:       mainLog,
@@ -182,42 +179,6 @@ func (m *QQBotManager) Reload() {
 	m.gateways = gateways
 	m.queues = queues
 	m.bridges = bridges
-
-	// Register cron task completion callback for each QQ bot.
-	// Each bridge delivers task results via SendActiveMessage.
-	if m.cronSched != nil {
-		settings := m.cfg.Get()
-		idx := 0
-		for _, qqCfgBase := range settings.QQBots {
-			if !qqCfgBase.Enabled || qqCfgBase.AppID == "" || qqCfgBase.AppSecret == "" {
-				continue
-			}
-			if idx < len(bridges) {
-				bridge := bridges[idx] // capture bridge for closure
-				log := m.mainLog
-				m.cronSched.OnTaskCompleted(func(ctx context.Context, task cron.Task, reply string) {
-					if task.QQSource < 0 {
-						return // not a QQ-originated task
-					}
-					msg := qqbot.QQMessage{
-						Source:       qqbot.MessageSource(task.QQSource),
-						OpenID:       task.QQOpenID,
-						TargetOpenID: task.QQTargetOpenID,
-						ChatID:       task.QQChatID,
-					}
-					formatted := qqbot.QQMarkdown(reply)
-					if err := bridge.SendActiveMessage(ctx, msg, qqbot.MsgTypeMarkdown, formatted); err != nil {
-						log.Error(logger.CatApp, "qqbot cron: active message failed",
-							"task_id", task.ID, "err", err)
-					} else {
-						log.Info(logger.CatApp, "qqbot cron: active message sent",
-							"task_id", task.ID)
-					}
-				})
-			}
-			idx++
-		}
-	}
 
 	m.mainLog.Info(logger.CatApp, "QQBots hot-reloaded successfully", "bot_count", len(m.gateways))
 }

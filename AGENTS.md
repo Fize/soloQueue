@@ -179,3 +179,23 @@ Config-driven hybrid search: BM25 (SQLite FTS5) + Knowledge Graph (in-process, p
 - **Test conventions**: no `TestMain` or shared fixtures. Self-contained per package.
 - **Package manager**: `pnpm` (NOT npm). Lockfile: `pnpm-lock.yaml`.
 - **Frontend**: State management via Zustand stores (`desktop/src/stores/`). Real-time updates via WebSocket. `@/` path alias maps to `src/`.
+
+## Cron notification limitations
+
+Cron task results are delivered to channels (QQ/WeChat) via the session's active bridge
+(`SendActiveMessage` for QQ, `SendText` for WeChat). This mechanism has several constraints:
+
+1. **Requires agent config**: The agent's template must set `notify_channel` to `"qq"` or
+   `"wechat"` (via YAML frontmatter or `~/.soloqueue/prompts/roles/channels.yaml` for L1).
+   Without this, no channel notification is sent.
+
+2. **Requires recent user interaction**: The channel bridge only registers its sender after
+   a user sends a message. If the server has just restarted or no user has messaged the bot
+   recently, `SendViaChannel` will be a no-op.
+
+3. **WeChat instability**: WeChat iLink API may not reliably deliver active messages.
+   Consider QQ Bot for more consistent channel notifications.
+
+4. **No guaranteed delivery**: If the target user's bridge context is expired or the channel
+   API returns an error, the notification is silently dropped. Always check the Web UI for
+   definitive task results.

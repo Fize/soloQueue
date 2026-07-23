@@ -76,11 +76,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
 	last_run_at TEXT,
 	next_run_at TEXT NOT NULL,
 	created_at TEXT NOT NULL DEFAULT (datetime('now')),
-	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-	qq_source INTEGER DEFAULT -1,
-	qq_openid TEXT,
-	qq_target_openid TEXT,
-	qq_chat_id TEXT
+	updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
 
@@ -316,32 +312,26 @@ func (d *DB) migrate() error {
 				last_run_at TEXT,
 				next_run_at TEXT NOT NULL,
 				created_at TEXT NOT NULL DEFAULT (datetime('now')),
-				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-				qq_source INTEGER DEFAULT -1,
-				qq_openid TEXT,
-				qq_target_openid TEXT,
-				qq_chat_id TEXT
-			);
-			INSERT INTO scheduled_tasks (
-				id, title, task_level, expression, instruction, target_agent,
-				status, last_run_at, next_run_at, created_at, updated_at,
-				qq_source, qq_openid, qq_target_openid, qq_chat_id
-			)
-			SELECT
-				id,
-				CASE
-					WHEN length(trim(instruction)) > 0 THEN substr(trim(
-						CASE WHEN instr(trim(instruction), char(10)) > 0
-						THEN substr(trim(instruction), 1, instr(trim(instruction), char(10)) - 1)
-						ELSE trim(instruction) END
-					), 1, 100)
-					ELSE 'Scheduled task ' || substr(id, 1, 8)
-				END,
-				CASE WHEN trim(target_agent) = '' OR upper(trim(target_agent)) = 'L1' THEN 'L1' ELSE 'L2' END,
-				expression, instruction, target_agent, status, last_run_at,
-				next_run_at, created_at, updated_at, qq_source, qq_openid,
-				qq_target_openid, qq_chat_id
-			FROM scheduled_tasks_v2;
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		INSERT INTO scheduled_tasks (
+			id, title, task_level, expression, instruction, target_agent,
+			status, last_run_at, next_run_at, created_at, updated_at
+		)
+		SELECT
+			id,
+			CASE
+				WHEN length(trim(instruction)) > 0 THEN substr(trim(
+					CASE WHEN instr(trim(instruction), char(10)) > 0
+					THEN substr(trim(instruction), 1, instr(trim(instruction), char(10)) - 1)
+					ELSE trim(instruction) END
+				), 1, 100)
+				ELSE 'Scheduled task ' || substr(id, 1, 8)
+			END,
+			CASE WHEN trim(target_agent) = '' OR upper(trim(target_agent)) = 'L1' THEN 'L1' ELSE 'L2' END,
+			expression, instruction, target_agent, status, last_run_at,
+			next_run_at, created_at, updated_at
+		FROM scheduled_tasks_v2;
 			DROP TABLE scheduled_tasks_v2;
 			CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
 		`); err != nil {
@@ -372,46 +362,21 @@ func (d *DB) migrate() error {
 				last_run_at TEXT,
 				next_run_at TEXT NOT NULL,
 				created_at TEXT NOT NULL DEFAULT (datetime('now')),
-				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-				qq_source INTEGER DEFAULT -1,
-				qq_openid TEXT,
-				qq_target_openid TEXT,
-				qq_chat_id TEXT
-			);
-			INSERT INTO scheduled_tasks (
-				id, title, task_level, expression, instruction, target_agent,
-				status, last_run_at, next_run_at, created_at, updated_at,
-				qq_source, qq_openid, qq_target_openid, qq_chat_id
-			)
-			SELECT
-				id, title, task_level, expression, instruction, target_agent,
-				status, last_run_at, next_run_at, created_at, updated_at,
-				qq_source, qq_openid, qq_target_openid, qq_chat_id
-			FROM scheduled_tasks_v3;
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		INSERT INTO scheduled_tasks (
+			id, title, task_level, expression, instruction, target_agent,
+			status, last_run_at, next_run_at, created_at, updated_at
+		)
+		SELECT
+			id, title, task_level, expression, instruction, target_agent,
+			status, last_run_at, next_run_at, created_at, updated_at
+		FROM scheduled_tasks_v3;
 			DROP TABLE scheduled_tasks_v3;
 			CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
 		`); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("migrate scheduled_tasks v4: %w", err)
-		}
-	}
-
-	// v5: add generic channel source metadata columns for cross-channel cron notifications.
-	{
-		hasCol, err := tableHasColumn(tx, "scheduled_tasks", "source_channel")
-		if err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("inspect scheduled_tasks source_channel column: %w", err)
-		}
-		if !hasCol {
-			if _, err := tx.Exec(`
-				ALTER TABLE scheduled_tasks ADD COLUMN source_channel TEXT NOT NULL DEFAULT '';
-				ALTER TABLE scheduled_tasks ADD COLUMN source_user_id TEXT NOT NULL DEFAULT '';
-				ALTER TABLE scheduled_tasks ADD COLUMN source_conv_id TEXT NOT NULL DEFAULT '';
-			`); err != nil {
-				_ = tx.Rollback()
-				return fmt.Errorf("migrate scheduled_tasks v5: %w", err)
-			}
 		}
 	}
 

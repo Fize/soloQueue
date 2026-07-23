@@ -28,6 +28,7 @@ type TextBridge struct {
 	version          string
 	whitelistEnabled bool
 	whitelist        map[string]struct{}
+	lastMsg          Message // latest message context for system notifications
 }
 
 func NewTextBridge(sess SessionProvider, sender TextSender, log *logger.Logger, version string, whitelistEnabled bool, whitelist []string) *TextBridge {
@@ -39,6 +40,18 @@ func NewTextBridge(sess SessionProvider, sender TextSender, log *logger.Logger, 
 }
 
 func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
+	b.lastMsg = msg
+
+	// Register channel sender for system notifications (cron, etc.).
+	if s, ok := b.sess.(interface{ SetChannelSender(string, func(context.Context, string) error) }); ok {
+		s.SetChannelSender(msg.Channel, func(ctx context.Context, text string) error {
+			return b.sender.SendText(ctx, b.lastMsg, text)
+		})
+		b.log.InfoContext(ctx, logger.CatApp, "bridge: channelSender registered",
+			"channel", msg.Channel,
+		)
+	}
+
 	if b.whitelistEnabled {
 		if _, ok := b.whitelist[msg.UserID]; !ok {
 			b.log.InfoContext(ctx, logger.CatApp, "channel message ignored: user not in whitelist", "channel", msg.Channel, "user_ref", channelUserRef(msg.UserID))
