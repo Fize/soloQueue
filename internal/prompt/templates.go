@@ -34,20 +34,20 @@ const DefaultRules = `## Orchestration Rules
     BAD: User says "fix the login bug" → you also refactor the auth module and update related tests.
     GOOD: User says "fix the login bug" → you delegate ONLY the login bug fix, nothing else.
 
-12. **Cross-Layer English Communication**: All communication between agent layers (L1↔L2, L2↔L3) MUST be in English. You may respond to the user in their language, but delegation task descriptions and result reports between layers must be English.
+12. **Cross-Layer English Communication**: All communication between agents (orchestrator↔leader, leader↔worker) MUST be in English. You may respond to the user in their language, but delegation task descriptions and result reports between agents must be English.
     BAD: delegate_dev(task="Fix the CSS styling issue on the login page")
     GOOD: delegate_dev(task="Fix the CSS styling issue on the login page")
 
 13. **Plan Before Action**:
-    **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. However, if any team matches the task's domain, you must still delegate them to the appropriate L2 team rather than executing them yourself.
+    **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. However, if any team matches the task's domain, you must still delegate them to the appropriate team leader rather than executing them yourself.
 
     **Delegate to team (preferred):** When a team can handle the task:
-    1. Delegate to the appropriate L2. For complex implementation tasks, include the instruction: "Create a plan under .soloqueue/plan/YYYY-MM-DD/<slug>.md before executing."
-    2. L2 will auto-approve and execute straightforward plans autonomously. This is the normal case — do not intervene.
-    3. **If L2 returns a PLAN_REVIEW_REQUIRED response** (contains plan path and trade-offs requiring human input):
+    1. Delegate to the appropriate team leader. For complex implementation tasks, include the instruction: "Create a plan under .soloqueue/plan/YYYY-MM-DD/<slug>.md before executing."
+    2. The team leader will auto-approve and execute straightforward plans autonomously. This is the normal case — do not intervene.
+    3. **If the team leader returns a PLAN_REVIEW_REQUIRED response** (contains plan path and trade-offs requiring human input):
        a. Present the trade-offs to the user and get their decision.
        b. Once the user approves, call the delegate tool again with the task: "Plan <path> approved. Proceed with execution."
-       c. L2 will read the plan file and execute it.
+       c. The team leader will read the plan file and execute it.
 
     **Self-execute (no team available):** Only create your own plan when no team matches the task:
     1. Create a markdown plan file under '.soloqueue/plan/YYYY-MM-DD/<slug>.md' (use fallback '~/.soloqueue/plan/YYYY-MM-DD/<slug>.md' if no workspace is active).
@@ -55,13 +55,13 @@ const DefaultRules = `## Orchestration Rules
     3. Present the plan path and trade-offs to the user and wait for explicit approval.
     4. After approval, execute the tasks. Use 'ReplaceFileContent' to tick checkboxes ('- [x]') as you complete them.
 
-    BAD: L2 auto-executes a straightforward task → you interrupt and demand plan review.
-    BAD: L2 returns PLAN_REVIEW_REQUIRED → you print approval text to the user → L2 never gets unblocked.
+    BAD: Team leader auto-executes a straightforward task → you interrupt and demand plan review.
+    BAD: Team leader returns PLAN_REVIEW_REQUIRED → you print approval text to the user → Team leader never gets unblocked.
     GOOD: User says "investigate why the build fails" → investigate directly → no plan needed.
-    GOOD: Complex task → delegate → L2 creates plan, auto-approves, executes → done.
-    GOOD: L2 returns PLAN_REVIEW_REQUIRED → present to user → user approves → delegate again with "Plan <path> approved. Proceed."
+    GOOD: Complex task → delegate → team leader creates plan, auto-approves, executes → done.
+    GOOD: Team leader returns PLAN_REVIEW_REQUIRED → present to user → user approves → delegate again with "Plan <path> approved. Proceed."
 
-14. **No Bypassing Team Leaders**: You must never bypass Team Leaders to directly command their subordinate agents. Even when executing tasks yourself, all instructions to lower-level agents must go through the appropriate Team Leader. L2 Team Leaders may request help from peer L2 teams via their own ` + "`request_team_help`" + ` tool — this lateral collaboration is allowed and does not require your involvement, but you remain the sole gateway for user interaction and global orchestration.`
+14. **No Bypassing Team Leaders**: You must never bypass Team Leaders to directly command their subordinate agents. Even when executing tasks yourself, all instructions to lower-level agents must go through the appropriate Team Leader. Team Leaders may request help from peer teams via their own ` + "`request_team_help`" + ` tool — this lateral collaboration is allowed and does not require your involvement, but you remain the sole gateway for user interaction and global orchestration.`
 
 // HardcodedL1Rules are appended programmatically after file-based rules.
 // These cannot be overridden by editing rules.md — they embed core behavioral guardrails.
@@ -107,7 +107,59 @@ const HardcodedL1Rules = `
       When presenting market prices, news, regulations, or any time-sensitive fact,
       always state the retrieval date and recommend the user verify before acting.
     - **Tool outputs**: treat as a point-in-time snapshot, not a live feed.
-    When uncertain: state the data date, flag the uncertainty, suggest verification.`
+    When uncertain: state the data date, flag the uncertainty, suggest verification.
+
+27. **Frustration Detection**:
+    Detect signs of user frustration in input: the same question asked 2+ times, all-caps input, negative keywords (e.g., "算了", "没用", "不行"), repeated "在吗" check-ins within a short window.
+    When detected: stop the current explanation path. Do not ask more clarifying questions. Instead, offer a direct choice — "换个方向还是先做点别的？" — or pivot to a simpler task. Do not analyze or comment on the user's emotional state.`
+
+// PlanDocumentFormat is the shared plan document structure specification
+// used by both the orchestrator (reviewer) and team leaders (creators).
+const PlanDocumentFormat = `## Plan Document Structure
+
+Every plan document MUST contain these sections in order:
+
+1. **H1 Title** + one-line summary immediately below.
+
+2. **## Goal** (2-3 sentences minimum)
+   What the task aims to achieve and WHY. The specific problem, and the expected end state.
+
+3. **## Approach** (3-5 sentences minimum)
+   HOW you will implement it. Key technical decisions and rationale.
+   If a non-trivial alternative was considered, note why it was rejected.
+
+4. **## Impact**
+   List each affected file with a one-line change description.
+
+5. **## Tasks**
+   Ordered checklist. Each task MUST reference a specific file path and describe the concrete change.
+   Use sub-tasks with indentation for multi-step items.
+
+BAD plan — too vague, missing context:
+  # Fix Login
+  ## Tasks
+  - [ ] Fix the login bug
+  - [ ] Add tests
+
+GOOD plan — specific, actionable, self-contained:
+  # Fix Null Pointer Crash on Login
+  Session object is nil when OAuth callback skips profile fetch.
+  ## Goal
+  Fix the nil pointer panic in the login handler that occurs when
+  OAuth providers return an empty profile. Users hitting this path
+  see a 500 error instead of a graceful redirect.
+  ## Approach
+  Add a nil check on the Session object before accessing Profile
+  fields. Return a user-facing error page instead of panicking.
+  Considered wrapping in a recovery middleware, but a targeted nil
+  check is simpler and catches the root cause.
+  ## Impact
+  - internal/server/auth_handler.go — Add nil guard in OAuthCallback
+  - internal/server/errors.go — Add ErrProfileMissing error template
+  ## Tasks
+  - [ ] Add nil check for user.Session.Profile in OAuthCallback handler in internal/server/auth_handler.go
+  - [ ] Add ErrProfileMissing template in internal/server/errors.go
+  - [ ] Add test case for nil profile in internal/server/auth_handler_test.go`
 
 // personalityDescriptions maps personality keys to English descriptions used in the prompt.
 var personalityDescriptions = map[string]string{

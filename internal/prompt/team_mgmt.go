@@ -6,7 +6,7 @@ import (
 )
 
 // buildTeamManagementSection returns the <team_management> section injected
-// into L1's system prompt. It teaches the LLM how to dynamically create and
+// into system prompt. It teaches the LLM how to dynamically create and
 // manage teams/members using standard file-writing tools (Write, Edit,
 // MultiWrite, MultiEdit). File changes are automatically synced to a database
 // and reflected in the Web UI.
@@ -85,7 +85,7 @@ Rules:
 - "name": unique lowercase-with-hyphens identifier (e.g. "react-expert")
 - "description": one line shown in routing tables
 - "group": MUST exactly match the team's "name" field (case-sensitive)
-- "is_leader": true for the team leader (L2), false for workers (L3)
+- "is_leader": true for the team leader, false for workers
 - "model": leave empty for default
 - "permission": true to skip tool confirmations (bypass), false to require them
 - "mcp_servers": list of MCP server names this agent can use (e.g. ["builtin-lsp"])
@@ -112,9 +112,9 @@ The leader MUST have is_leader: true and group set to the team name from Step 1.
 
 Write a comprehensive system prompt body covering:
 - The leader's role and responsibilities
-- How to receive and decompose tasks from L1
+- How to receive and decompose tasks from the orchestrator
 - How to coordinate with team members
-- Communication protocol with L1 (delegate_* responses)
+- Communication protocol with the orchestrator (delegate_* responses)
 - Constraints and quality standards
 
 Check the result — if it fails, report the error and STOP.

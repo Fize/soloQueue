@@ -1098,6 +1098,54 @@ func TestBuildL3SystemPrompt_PermanentMemory(t *testing.T) {
 	if !strings.Contains(prompt, "RecallMemory") {
 		t.Error("L3 prompt should mention RecallMemory tool")
 	}
+}
+
+func TestBuildSystemPrompt_LSPToolAwareness(t *testing.T) {
+	devWithLSP := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		IsLeader:     true,
+		MCPServers:   []string{"builtin-lsp"},
+	}
+	devWithoutLSP := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		IsLeader:     true,
+		MCPServers:   []string{"other-mcp"},
+	}
+
+	templates := map[string]AgentTemplate{"dev": devWithLSP}
+	groups := map[string]prompt.GroupFile{}
+
+	promptWithLSP := buildL2SystemPrompt(devWithLSP, templates, groups, "/plan", "/workdir", "/explore", nil, false)
+	if !strings.Contains(promptWithLSP, "LSP Code Intelligence & Navigation Tools") {
+		t.Error("L2 prompt should contain LSP section when builtin-lsp is in MCPServers")
+	}
+
+	promptWithoutLSP := buildL2SystemPrompt(devWithoutLSP, templates, groups, "/plan", "/workdir", "/explore", nil, false)
+	if strings.Contains(promptWithoutLSP, "LSP Code Intelligence & Navigation Tools") {
+		t.Error("L2 prompt should NOT contain LSP section when builtin-lsp is omitted from MCPServers")
+	}
+
+	workerWithLSP := buildL3SystemPrompt(devWithLSP, groups, "/plan", "/workdir", "/explore", false)
+	if !strings.Contains(workerWithLSP, "LSP Code Intelligence & Navigation Tools") {
+		t.Error("L3 prompt should contain LSP section when builtin-lsp is in MCPServers")
+	}
+
+	workerWithoutLSP := buildL3SystemPrompt(devWithoutLSP, groups, "/plan", "/workdir", "/explore", false)
+	if strings.Contains(workerWithoutLSP, "LSP Code Intelligence & Navigation Tools") {
+		t.Error("L3 prompt should NOT contain LSP section when builtin-lsp is omitted from MCPServers")
+	}
+}
+
+func TestBuildL3SystemPrompt_PermanentMemory_Remember(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/workdir", "/explore", true)
 	if !strings.Contains(prompt, "Remember") {
 		t.Error("L3 prompt should mention Remember tool")
 	}

@@ -323,7 +323,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 			finalPrompt += "\n# Cron Jobs\n\n" +
 				"You may manage cron jobs only for your own team. Use create_cron_job for new jobs, " +
 				"list_cron_jobs to find IDs, update_cron_job to change or pause jobs, and delete_cron_job to remove jobs. " +
-				"A new job always requires a user-facing title, an L0-L4 task_level, schedule, and instruction.\n"
+				"A new job always requires a user-facing title, a task_level (e.g. L0/L1/L2/L3/L4), schedule, and instruction.\n"
 		}
 	} else {
 		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, effectiveWorkDir, exploreDir, hasPermanentMemory)
@@ -878,21 +878,20 @@ This rule establishes a **MANDATORY Plan Before Execution** policy for all non-t
 
 **For implementation tasks:**
 1. Assess complexity:
-   - **Simple task** (single file, narrow change) → delegate directly to L3. L3 will self-plan if needed.
+   - **Simple task** (single file, narrow change) → delegate directly to a worker. Workers will self-plan if needed.
    - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan.
 2. Create a markdown plan file under the project-specific path: ` + "`" + `{{PLAN_DIR}}/YYYY-MM-DD/<slug>.md` + "`" + ` (where YYYY-MM-DD is today's date). If not inside a project workspace, use the home directory fallback ` + "`" + `~/.soloqueue/plan/YYYY-MM-DD/<slug>.md` + "`" + `.
-3. Structuring the file:
-   - Must start with an H1 header ('# Title') containing the name of the plan.
-   - Must contain a '# Tasks' header. Under this header, list all checklist tasks using standard checkboxes ('- [ ]', '- [/]', '- [x]').
-   - Use indentations to denote sub-tasks. You can add notes or dependency labels in task descriptions.
+3. Structure the plan following the Plan Document Structure below. Use standard checkboxes ('- [ ]', '- [/]', '- [x]') for task status tracking.
+
+{{PLAN_DOC_FORMAT}}
 4. **Approval decision — choose ONE:**
-   - **Auto-approve (default for most tasks):** If the plan is straightforward and low-risk → proceed directly to execution without waiting for L1.
-   - **Escalate to L1 (only for significant trade-offs):** If the plan involves irreversible changes or trade-offs → return a structured response to L1:
+   - **Auto-approve (default for most tasks):** If the plan is straightforward and low-risk → proceed directly to execution without waiting for the orchestrator.
+   - **Escalate to Orchestrator (only for significant trade-offs):** If the plan involves irreversible changes or trade-offs → return a structured response to the orchestrator:
      ` + "`" + `PLAN_REVIEW_REQUIRED
 Path: <path_to_plan_file>
 Summary: <one-line summary of the plan>
 Trade-offs: <what requires human decision>` + "`" + `
-     Wait for L1 to re-delegate with "Plan <path> approved" before executing.
+     Wait for the orchestrator to re-delegate with "Plan <path> approved" before executing.
 
 **Execution loop — you MUST follow these steps EXACTLY in order, no skipping:**
 
@@ -906,11 +905,11 @@ Trade-offs: <what requires human decision>` + "`" + `
 10. Repeat from step 5. Find the next batch of checklist tasks whose dependencies are now satisfied. Continue the loop until no remaining tasks.
 11. When ALL tasks in the checklist are marked completed, your job is complete.
 
-**When L3 submits a plan for review:**
+**When a worker submits a plan for review:**
 - Approve autonomously if straightforward → reply 'Plan <path> approved' and proceed.
-- Escalate to L1 only for significant trade-offs using the PLAN_REVIEW_REQUIRED format above.
+- Escalate to the orchestrator only for significant trade-offs using the PLAN_REVIEW_REQUIRED format above.
 
-**When L1 re-delegates with "Plan <path> approved":**
+**When the orchestrator re-delegates with "Plan <path> approved":**
 - Read the plan file at '<path>' to retrieve the tasks.
 - Proceed directly to the execution loop (step 5 onwards).
 
@@ -935,7 +934,7 @@ Examples:
 - {{EXPLORE_DIR}}/investigate_race_condition_dev-leader.md
 
 ## Document Content
-- Agent: your id/name/layer
+- Agent: your id/name
 - Created at: use current time when saving
 - Updated at: use current time when updating
 - Freshness window: same-day
@@ -943,16 +942,16 @@ Examples:
 - Key Findings, Files Inspected, Reusable Context, Open Questions
 
 ## Reuse Rules
-1. Before delegating an exploration task to L3, check {{EXPLORE_DIR}} for an existing artifact with the same task-slug and your agent-id.
-2. If an artifact exists and was created today, read it first and pass its findings to the L3 Worker to avoid redundant exploration.
-3. If you create or reuse an artifact, include its path in your response to L1 so other agents can access it.
-4. When delegating to L3, you may ask the Worker to write an artifact and return its path.
+1. Before delegating an exploration task to a worker, check {{EXPLORE_DIR}} for an existing artifact with the same task-slug and your agent-id.
+2. If an artifact exists and was created today, read it first and pass its findings to the worker to avoid redundant exploration.
+3. If you create or reuse an artifact, include its path in your response to the orchestrator so other agents can access it.
+4. When delegating to a worker, you may ask the worker to write an artifact and return its path.
 `
 
 const l2EnforcedPostPlan = `
 # 10. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
-- If you CANNOT (ambiguous requirements, significant trade-offs, risk of unintended consequences) → escalate to L1 with options and reasoning.
+- If you CANNOT (ambiguous requirements, significant trade-offs, risk of unintended consequences) → escalate to the orchestrator with options and reasoning.
 `
 
 const l2EnforcedToolAwareness = `
@@ -964,20 +963,6 @@ When choosing among raw tools:
 
 # 12. Prefer Search Before Read
 Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens). If a file exceeds the limit, use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.
-
-# 13. LSP Tools — Even Higher Priority Than Grep
-The built-in LSP tools (lsp__*) understand language semantics (AST, types, symbols), making them **strictly preferable** to text-based Grep/Glob/Read for code navigation tasks:
-- **lsp__document_outline** — file structure overview (use before Read on unfamiliar files)
-- **lsp__goto_definition_by_name** — find a symbol by name across the workspace
-- **lsp__get_code_item** — retrieve a symbol's exact source code by name
-- **lsp__goto_definition** — jump to definition at cursor position
-- **lsp__find_references** — find all usages of a symbol
-- **lsp__workspace_symbols** — search workspace by symbol name/pattern
-- **lsp__hover** — quick type and documentation lookup
-- **lsp__diagnostics** — get compilation errors and warnings for a file
-- **lsp__rename_symbol** — rename globally with LSP semantics (preferred over search-and-replace)
-
-Before Grep/Glob/Read for code research (planning, investigating, understanding), always try LSP tools first. Fall back to text search only when LSP returns no results or the matching LSP server is unavailable.
 `
 
 const l2EnforcedDirectivesPart2 = `
@@ -1014,19 +999,30 @@ BAD: Task is "add a unit test for login" and you have a "test" worker → you wr
 GOOD: Task is "add a unit test for login" and you have a "test" worker → you delegate to the "test" worker.
 
 # 7. Strict Scope Adherence
-Only delegate tasks that the user (via L1) explicitly requested. Do NOT add "while we're at it" sub-tasks, extra improvements, or tasks that were not in the original request.
+Only delegate tasks that the user (via the orchestrator) explicitly requested. Do NOT add "while we're at it" sub-tasks, extra improvements, or tasks that were not in the original request.
 BAD: User asked "fix the null pointer crash" → you also delegate "refactor error handling" and "add unit tests for related functions".
 GOOD: User asked "fix the null pointer crash" → you delegate ONLY the null pointer fix.
 
 # 8. Cross-Layer English Communication
 All inter-layer communication MUST be in English. This includes:
-- Task descriptions you send to L3 Workers (delegate_* calls)
-- Result summaries you return to L1 (your output)
+- Task descriptions you send to workers (delegate_* calls)
+- Result summaries you return to the orchestrator (your output)
 - Clarification requests
-BAD (to L3): "Check line 42 of /workspace/main.go for the panic and fix it"
-GOOD (to L3): "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
-BAD (to L1): "Task completed, already fixed the styling issues on the login page"
-GOOD (to L1): "Task completed. The CSS styling issue on the login page has been fixed."
+BAD (to worker): "Check line 42 of /workspace/main.go for the panic and fix it"
+GOOD (to worker): "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
+BAD (to orchestrator): "Task completed, already fixed the styling issues on the login page"
+GOOD (to orchestrator): "Task completed. The CSS styling issue on the login page has been fixed."
+
+# 9. Task Approval Continuity
+When a task has been agreed, the approval covers it end to end. In-scope steps do not need re-confirmation. If the next step is clearly decided, execute it directly. Only hand control back when:
+- The entire task is complete
+- You are waiting on external input
+- The next step requires the user's decision
+
+# 10. Communication Efficiency
+- Result summaries to the orchestrator must be 1-2 sentences. What was done and what was the outcome — nothing else.
+- One sentence per key update while working. Brief is good — silent is not.
+- Match responses to the task. A simple result gets a direct statement, not sections and formatting.
 `
 
 // buildL2SystemPrompt builds a three-segment System Prompt for the L2 Supervisor.
@@ -1125,9 +1121,9 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString("# Peer Teams (Cross-Team Collaboration)\n\n")
 		b.WriteString("## MANDATORY Delegation Chain\n\n")
 		b.WriteString("You MUST follow this exact priority chain, in order, without skipping levels:\n\n")
-		b.WriteString("1. **Your L3 Workers (FIRST)** — Delegate ALL sub-tasks that match an L3 worker's domain. This is non-negotiable. Self-executing L3-level work is FORBIDDEN.\n\n")
-		b.WriteString("2. **Peer L2 Teams (SECOND)** — If NO L3 worker can handle the sub-task, you MUST check all peer teams listed below. If a peer team's domain matches, you MUST delegate via `request_team_help(name, task, context)`. Skipping peer teams and going directly to self-execution is FORBIDDEN.\n\n")
-		b.WriteString("3. **Self-execute (LAST RESORT)** — Only when BOTH L3 workers AND all peer teams are unsuitable. Self-execution is a delegation failure. Minimize it.\n\n")
+		b.WriteString("1. **Your Team Workers (FIRST)** — Delegate ALL sub-tasks that match a worker's domain. This is non-negotiable. Self-executing worker-level work is FORBIDDEN.\n\n")
+		b.WriteString("2. **Peer Teams (SECOND)** — If NO team worker can handle the sub-task, you MUST check all peer teams listed below. If a peer team's domain matches, you MUST delegate via `request_team_help(name, task, context)`. Skipping peer teams and going directly to self-execution is FORBIDDEN.\n\n")
+		b.WriteString("3. **Self-execute (LAST RESORT)** — Only when BOTH team workers AND all peer teams are unsuitable. Self-execution is a delegation failure. Minimize it.\n\n")
 		b.WriteString("## Available Peer Teams\n\n")
 		for _, peer := range peerLeaders {
 			desc := peer.Description
@@ -1141,7 +1137,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString("- Peer help is for SUB-TASKS within your current task. Do NOT outsource the entire task.\n")
 		b.WriteString("- Provide clear, self-contained context when delegating to peers.\n")
 		b.WriteString("- Do NOT form delegation loops (system enforced, auto-rejected).\n")
-		b.WriteString("- If a peer team is unreachable, report to L1 with details.\n\n")
+		b.WriteString("- If a peer team is unreachable, report to the orchestrator with details.\n\n")
 	}
 
 	// 2c. MCP Servers
@@ -1162,13 +1158,18 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart1, "{{PLAN_DIR}}", planDir))
 	if planDir != "" {
-		b.WriteString(strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", planDir))
+		planSection := strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", planDir)
+		planSection = strings.ReplaceAll(planSection, "{{PLAN_DOC_FORMAT}}", prompt.PlanDocumentFormat)
+		b.WriteString(planSection)
 	}
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart2, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
+	if hasMCPServer(tmpl.MCPServers, "builtin-lsp") {
+		b.WriteString(lspToolAwarenessSection)
+	}
 
 	return b.String()
 }
@@ -1208,7 +1209,7 @@ const l3EnforcedDirectives = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
 ========================================
-You are operating as a Layer 3 Worker. The following rules are ABSOLUTE and override any previous instructions.
+You are operating as a Worker. The following rules are ABSOLUTE and override any previous instructions.
 
 # 1. Strict Scope Adherence
 Only execute the exact task you were assigned. Do NOT modify files, add features, refactor code, or make any changes beyond what was explicitly requested.
@@ -1220,17 +1221,17 @@ Your output (results, summaries, error reports) MUST be in English. You are part
 BAD: "Fixed – resolved the null pointer issue on line 42"
 GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
 # 3. Follow the Plan — you MUST execute tasks one at a time and mark each:
-1. Locate the plan file path. If L2 provided a plan path, read that file. If no plan file path was provided, check the workspace for an existing plan or create your own:
+1. Locate the plan file path. If the leader provided a plan path, read that file. If no plan file path was provided, check the workspace for an existing plan or create your own:
    - Create a markdown plan file under ` + "`" + `{{PLAN_DIR}}/YYYY-MM-DD/<slug>.md` + "`" + ` (use fallback ` + "`" + `~/.soloqueue/plan/YYYY-MM-DD/<slug>.md` + "`" + ` if no workspace is active).
     - Write an H1 header ('# Title') and a '# Tasks' section containing checklist items ('- [ ]', '- [/]', '- [x]').
-    - If creating your own plan, present the path to L2, wait for approval, and then proceed.
+    - If creating your own plan, present the path to the leader, wait for approval, and then proceed.
 2. Pick the FIRST uncompleted task from the checklist in the plan file.
 3. Mark it in-progress by replacing '- [ ]' with '- [/' + ']' in the file.
 4. Execute it using the appropriate tool.
 5. IMMEDIATELY after completion:
    - Replace the task's checkbox with '- [x]' in the file. This step is MANDATORY — you MUST NOT skip it.
 6. Repeat from step 2 for the next uncompleted task.
-7. When ALL tasks in the checklist are marked completed, report the completion to L2.
+7. When ALL tasks in the checklist are marked completed, report the completion to the leader.
 
 BAD: execute all work → report done at the end without updating the plan file per task.
 GOOD: execute task1 → mark done in file → execute task2 → mark done in file ... → report completion.
@@ -1252,7 +1253,7 @@ Examples:
 - {{EXPLORE_DIR}}/investigate_race_condition_backend-worker.md
 
 ## Document Content
-- Agent: your id/name/layer
+- Agent: your id/name
 - Created at: use current time when saving
 - Updated at: use current time when updating
 - Freshness window: same-day
@@ -1262,13 +1263,13 @@ Examples:
 ## Reuse Rules
 1. Before starting a new exploration, check {{EXPLORE_DIR}} for an existing artifact with the same task-slug and your agent-id.
 2. If an artifact exists and was created today, read it first and reuse its findings when appropriate.
-3. If you create or reuse an artifact, include its path in your response to L2 so other agents can access it.
+3. If you create or reuse an artifact, include its path in your response to the leader so other agents can access it.
 `
 
 const l3EnforcedPostPlan = `
 # 5. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
-- If you CANNOT (ambiguous requirements, significant trade-offs) → escalate to L2 with options and reasoning.
+- If you CANNOT (ambiguous requirements, significant trade-offs) → escalate to the leader with options and reasoning.
 `
 
 const l3EnforcedToolAwareness = `
@@ -1280,16 +1281,33 @@ When choosing among raw tools:
 
 # 7. Prefer Search Before Read
 Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens). If a file exceeds the limit, use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.
-
-# 8. LSP Tools — Higher Priority Than Grep
-LSP tools understand code semantics. Use them BEFORE text-based tools for code tasks:
-- **lsp__get_code_item** — retrieve a symbol's source by name (before reading the whole file)
-- **lsp__goto_definition_by_name** — find a symbol definition across the workspace (before Grep)
-- **lsp__goto_definition** — jump to definition at a known position
-- **lsp__document_outline** — understand file structure before editing
-- **lsp__find_references** — find all usages before refactoring
-- **lsp__diagnostics** — verify code after edits (check for errors)
 `
+
+const lspToolAwarenessSection = `
+# LSP Code Intelligence & Navigation Tools
+The built-in LSP tools (lsp__*) understand language semantics (AST, types, symbols), making them **strictly preferable** to text-based Grep/Glob/Read for code navigation and analysis tasks:
+- **lsp__document_outline** — file structure overview (use before Read on unfamiliar files)
+- **lsp__goto_definition_by_name** — find a symbol by name across the workspace
+- **lsp__get_code_item** — retrieve a symbol's exact source code by name
+- **lsp__goto_definition** — jump to definition at cursor position
+- **lsp__find_references** — find all usages of a symbol
+- **lsp__workspace_symbols** — search workspace by symbol name/pattern
+- **lsp__hover** — quick type and documentation lookup
+- **lsp__diagnostics** — get compilation errors and warnings for a file
+- **lsp__rename_symbol** — rename globally with LSP semantics (preferred over search-and-replace)
+- **lsp__format_file** — format a source file using the LSP server
+
+Before Grep/Glob/Read for code research (planning, investigating, understanding), always try LSP tools first when available.
+`
+
+func hasMCPServer(servers []string, target string) bool {
+	for _, s := range servers {
+		if s == target {
+			return true
+		}
+	}
+	return false
+}
 
 // buildL3SystemPrompt builds a two-segment System Prompt for the L3 Worker.
 //
@@ -1342,6 +1360,9 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
+	if hasMCPServer(tmpl.MCPServers, "builtin-lsp") {
+		b.WriteString(lspToolAwarenessSection)
+	}
 
 	return b.String()
 }
