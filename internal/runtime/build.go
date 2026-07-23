@@ -557,7 +557,7 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 				absAgents, _ := filepath.Abs(agentsDir)
 
 				isRolesFile := (absDir == absRoles) && (filename == "soul.md" || filename == "rules.md")
-				isGlobalFile := (absDir == absGlobal) && (filename == "user.md")
+				isGlobalFile := (absDir == absGlobal) && strings.HasSuffix(filename, ".md")
 				isGroupsFile := (absDir == absGroups) && strings.HasSuffix(filename, ".md")
 				isAgentsFile := (absDir == absAgents) && strings.HasSuffix(filename, ".md")
 
