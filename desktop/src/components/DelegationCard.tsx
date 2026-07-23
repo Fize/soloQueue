@@ -59,62 +59,62 @@ export function DelegationCard({
 
   return (
     <>
-      <div className="my-2">
+      <div className="my-1.5">
         <button
           onClick={() => {
             if (isClickable) setModalOpen(true)
           }}
           disabled={!isClickable}
           className={cn(
-            'w-full text-left rounded-xl border overflow-hidden transition-all',
-            isClickable
-              ? 'cursor-pointer hover:shadow-md hover:shadow-primary/5 border-primary/30 bg-gradient-to-r from-primary/8 via-primary/4 to-transparent'
-              : 'cursor-default border-border/50 bg-card/20'
+            'group relative flex w-full items-center gap-3 rounded-[12px] border p-2.5 text-left transition-all duration-200 ease-out outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
+            isClickable ? 'cursor-pointer hover:shadow-sm' : 'cursor-default',
+            running 
+              ? 'border-signal/20 bg-signal/5 hover:border-signal/30' 
+              : error 
+                ? 'border-destructive/20 bg-destructive/5 hover:border-destructive/30' 
+                : 'border-border/40 bg-card hover:border-border/60 hover:bg-muted/40'
           )}
         >
-          {/* Accent bar */}
+          {/* Subtle pulse for running state */}
+          {running && (
+            <div className="absolute inset-0 rounded-[12px] ring-1 ring-inset ring-signal/10 animate-pulse pointer-events-none" />
+          )}
+
+          {/* Icon */}
           <div
             className={cn(
-              'h-0.5 w-full',
-              running
-                ? 'bg-gradient-to-r from-primary to-purple-400'
-                : error
-                  ? 'bg-destructive/60'
-                  : 'bg-success/40'
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border shadow-sm transition-colors',
+              running 
+                ? 'border-signal/20 bg-background text-signal' 
+                : error 
+                  ? 'border-destructive/20 bg-destructive/10 text-destructive' 
+                  : 'border-success/20 bg-success/10 text-success'
             )}
-          />
+          >
+            {running ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : error ? (
+              <XCircle className="h-3.5 w-3.5" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            )}
+          </div>
 
-          <div className="flex items-center gap-2.5 px-3 py-2">
-            {/* Agent icon */}
-            <div
-              className={cn(
-                'h-7 w-7 rounded-lg flex items-center justify-center shrink-0',
-                running ? 'bg-signal/15' : error ? 'bg-destructive/10' : 'bg-success/10'
-              )}
-            >
-              {running ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-signal" />
-              ) : error ? (
-                <XCircle className="h-3.5 w-3.5 text-destructive" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-              )}
-            </div>
-
-            {/* Content */}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-xs text-foreground/90 truncate">
-                  {cleanName}
-                </span>
+          {/* Content */}
+          <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-xs font-semibold text-foreground/90">
+                {cleanName}
+              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
                 <span
                   className={cn(
-                    'text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md',
+                    'text-[10px] font-medium tracking-wide',
                     running
-                      ? 'bg-signal/15 text-signal'
+                      ? 'text-signal/80'
                       : error
-                        ? 'bg-destructive/10 text-destructive'
-                        : 'bg-success/10 text-success'
+                        ? 'text-destructive/80'
+                        : 'text-success/80'
                   )}
                 >
                   {running
@@ -126,21 +126,21 @@ export function DelegationCard({
                         : t('common.done')}
                 </span>
                 {isClickable && (
-                  <ExternalLink className="h-2.5 w-2.5 text-primary/40 shrink-0" />
+                  <ExternalLink className="h-3 w-3 text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100" />
                 )}
               </div>
-              {taskText && (
-                <p className="text-[11px] text-muted-foreground/60 truncate mt-0.5">{taskText}</p>
-              )}
             </div>
-
-            {/* Duration */}
-            {durationMs != null && durationMs > 0 && !running && (
-              <span className="text-[9px] text-muted-foreground/30 font-mono shrink-0">
-                {(durationMs / 1000).toFixed(1)}s
-              </span>
+            {taskText && (
+              <p className="truncate text-[11px] text-muted-foreground/60">{taskText}</p>
             )}
           </div>
+
+          {/* Duration */}
+          {durationMs != null && durationMs > 0 && !running && (
+            <span className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground/40">
+              {(durationMs / 1000).toFixed(1)}s
+            </span>
+          )}
         </button>
       </div>
 

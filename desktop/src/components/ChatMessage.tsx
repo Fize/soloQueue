@@ -9,6 +9,7 @@ import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useChatStore } from '@/stores/chatStore'
 import { SegmentView, LoadingIndicator } from './chat/SegmentView'
 import { WorkedSegment } from './chat/WorkedSegment'
+import { DelegationGroupView } from './chat/DelegationGroupView'
 import { MessageImageGallery } from './chat/ToolCallSegment'
 
 export interface ChatMessageProps {
@@ -131,6 +132,17 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
                         key={item.id}
                         group={item}
                         isUser={isUser}
+                        onUserInteraction={onUserInteraction}
+                      />
+                    )
+                  } else if (item.type === 'delegation_group') {
+                    return (
+                      <DelegationGroupView
+                        key={item.id}
+                        group={item}
+                        isUser={isUser}
+                        segments={message.segments}
+                        isStreaming={isStreaming}
                         onUserInteraction={onUserInteraction}
                       />
                     )
@@ -268,30 +280,28 @@ export interface GroupedWorked {
   isLast: boolean
 }
 
+export interface GroupedDelegation {
+  type: 'delegation_group'
+  id: string
+  segments: GroupedWorkedSegment[]
+}
+
 interface GroupedOther {
   type: 'other'
   segment: ChatMessage['segments'][number]
   index: number
 }
 
-type GroupedItem = GroupedWorked | GroupedOther
+type GroupedItem = GroupedWorked | GroupedDelegation | GroupedOther
 
 function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
   const grouped: GroupedItem[] = []
   let currentGroup: GroupedWorkedSegment[] = []
+  let currentDelegationGroup: GroupedWorkedSegment[] = []
 
-  const flush = () => {
+  const flushWorked = () => {
     if (currentGroup.length > 0) {
       const hasToolCalls = currentGroup.some((s) => s.segment.type === 'tool_call')
-      // Key the group by the ORIGINAL index of its first segment plus its
-      // length. This stays stable across streaming updates (the same group
-      // keeps the same id) and lets React preserve the DOM subtree even
-      // when groupSegments re-runs because a content/thinking segment was
-      // appended in place. The previous key included `grouped.length` and
-      // a type-stringify of every segment, both of which change on every
-      // streaming tick and caused React to unmount/remount the entire
-      // WorkedSegment subtree (which also tore down MarkdownPreview and
-      // forced a full markdown re-parse).
       const firstOriginalIndex = currentGroup[0].originalIndex
       grouped.push({
         type: 'worked',
@@ -304,29 +314,44 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
     }
   }
 
+  const flushDelegation = () => {
+    if (currentDelegationGroup.length > 0) {
+      const firstOriginalIndex = currentDelegationGroup[0].originalIndex
+      grouped.push({
+        type: 'delegation_group',
+        id: `delegation-${firstOriginalIndex}-${currentDelegationGroup.length}`,
+        segments: [...currentDelegationGroup],
+      })
+      currentDelegationGroup = []
+    }
+  }
+
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]
 
-    // Skip empty thinking segments unless it's the last segment in the entire message
     if (seg.type === 'thinking' && !seg.text.trim()) {
       if (i !== segments.length - 1) {
         continue
       }
     }
 
-    // Skip tool_confirm segments entirely for rendering, they are handled by the StickyToolConfirmPanel
     if (seg.type === 'tool_confirm') {
       continue
     }
 
-    // Delegation segments (active subagent sessions) and delegate_* tool calls
-    // are rendered as standalone cards — keep them outside the worked group.
-    const isStandalone =
-      seg.type === 'delegation' || (seg.type === 'tool_call' && seg.name.startsWith('delegate_'))
-    if (!isStandalone && (seg.type === 'thinking' || seg.type === 'tool_call' || seg.type === 'compact')) {
+    const isDelegation =
+      seg.type === 'delegation' || 
+      (seg.type === 'tool_call' && (seg.name.startsWith('delegate_') || seg.name === 'request_team_help'))
+
+    if (isDelegation) {
+      flushWorked()
+      currentDelegationGroup.push({ segment: seg, originalIndex: i })
+    } else if (seg.type === 'thinking' || seg.type === 'tool_call' || seg.type === 'compact') {
+      flushDelegation()
       currentGroup.push({ segment: seg, originalIndex: i })
     } else {
-      flush()
+      flushWorked()
+      flushDelegation()
       grouped.push({
         type: 'other',
         segment: seg,
@@ -334,7 +359,8 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
       })
     }
   }
-  flush()
+  flushWorked()
+  flushDelegation()
 
   for (let i = grouped.length - 1; i >= 0; i--) {
     if (grouped[i].type === 'worked') {

@@ -4,7 +4,7 @@ import type { AgentStreamState, Segment } from '@/types'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { Badge } from '@/components/ui/badge'
 import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from 'lucide-react'
-import { formatToolCallHeader } from '@/lib/utils'
+import { formatToolCallHeader, cn } from '@/lib/utils'
 import { DelegationCard } from '@/components/DelegationCard'
 
 function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
@@ -110,6 +110,109 @@ function ContentBlock({ text }: { text: string }) {
   )
 }
 
+type GroupedStreamItem = 
+  | { type: 'single'; segment: Segment; index: number }
+  | { type: 'delegation_group'; id: string; segments: { segment: Segment; index: number }[] }
+
+function groupStreamSegments(segments: Segment[]): GroupedStreamItem[] {
+  const grouped: GroupedStreamItem[] = []
+  let currentGroup: { segment: Segment; index: number }[] = []
+
+  const flush = () => {
+    if (currentGroup.length > 0) {
+      grouped.push({
+        type: 'delegation_group',
+        id: `del-group-${currentGroup[0].index}`,
+        segments: [...currentGroup]
+      })
+      currentGroup = []
+    }
+  }
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]
+    if (seg.type === 'tool_call' && (seg.name.startsWith('delegate_') || seg.name === 'request_team_help')) {
+      currentGroup.push({ segment: seg, index: i })
+    } else {
+      flush()
+      grouped.push({ type: 'single', segment: seg, index: i })
+    }
+  }
+  flush()
+  return grouped
+}
+
+function StreamDelegationGroup({ group }: { group: { segment: Segment; index: number }[] }) {
+  const isRunning = group.some(s => s.segment.type === 'tool_call' && !s.segment.done)
+  const [isExpanded, setIsExpanded] = useState(isRunning)
+  const [userToggled, setUserToggled] = useState(false)
+  const previousRunningRef = useRef<boolean>(isRunning)
+
+  useEffect(() => {
+    if (previousRunningRef.current === true && isRunning === false) {
+      if (!userToggled) {
+        setIsExpanded(false)
+      }
+    }
+    previousRunningRef.current = isRunning
+  }, [isRunning, userToggled])
+
+  const numTasks = group.length
+  const title = `Delegated ${numTasks} task${numTasks !== 1 ? 's' : ''}...`
+
+  return (
+    <div className="my-2 rounded-[12px] border border-border/40 bg-card overflow-hidden">
+      <button
+        onClick={() => {
+          setIsExpanded(!isExpanded)
+          setUserToggled(true)
+        }}
+        className={cn(
+          'w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-muted/40 outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
+          isExpanded ? 'border-b border-border/40 bg-muted/20' : ''
+        )}
+      >
+        <div className="flex items-center gap-2.5">
+          {isRunning ? (
+            <Loader2 className="h-4 w-4 animate-spin text-signal" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 text-success" />
+          )}
+          <span className="text-xs font-medium text-foreground/80">{title}</span>
+        </div>
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 text-muted-foreground/50 transition-transform duration-200',
+            isExpanded ? 'rotate-180' : ''
+          )}
+        />
+      </button>
+
+      {isExpanded && (
+        <div className="p-1.5 bg-muted/10">
+          {group.map((s) => {
+             const seg = s.segment
+             if (seg.type === 'tool_call') {
+               return (
+                  <DelegationCard
+                    key={seg.call_id || s.index}
+                    name={seg.name}
+                    args={seg.args}
+                    callId={seg.call_id || ''}
+                    done={seg.done}
+                    error={seg.error}
+                    durationMs={seg.duration_ms}
+                  />
+               )
+             }
+             return null
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface AgentStreamViewProps {
   state: AgentStreamState
 }
@@ -122,6 +225,8 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [state.segments.length, state.processing, state.error])
 
+  const grouped = groupStreamSegments(state.segments)
+
   return (
     <div className="space-y-3">
       {/* Status indicator */}
@@ -133,27 +238,19 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
       )}
 
       {/* Segments in chronological order */}
-      {state.segments.map((seg, i) => {
+      {grouped.map((item) => {
+        if (item.type === 'delegation_group') {
+          return <StreamDelegationGroup key={item.id} group={item.segments} />
+        }
+
+        const seg = item.segment
         switch (seg.type) {
           case 'thinking':
-            return <ThinkingBlock key={i} text={seg.text} />
+            return <ThinkingBlock key={item.index} text={seg.text} />
           case 'content':
-            return <ContentBlock key={i} text={seg.text} />
+            return <ContentBlock key={item.index} text={seg.text} />
           case 'tool_call':
-            if (seg.name.startsWith('delegate_')) {
-              return (
-                <DelegationCard
-                  key={seg.call_id || i}
-                  name={seg.name}
-                  args={seg.args}
-                  callId={seg.call_id || ''}
-                  done={seg.done}
-                  error={seg.error}
-                  durationMs={seg.duration_ms}
-                />
-              )
-            }
-            return <ToolCallCard key={seg.call_id || i} seg={seg} />
+            return <ToolCallCard key={seg.call_id || item.index} seg={seg} />
         }
       })}
 
