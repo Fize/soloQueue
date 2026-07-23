@@ -4,7 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"reflect"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -26,10 +27,6 @@ type Task struct {
 	NextRunAt      time.Time  `json:"next_run_at"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
-	QQSource       int        `json:"qq_source"`
-	QQOpenID       string     `json:"qq_openid"`
-	QQTargetOpenID string     `json:"qq_target_openid"`
-	QQChatID       string     `json:"qq_chat_id"`
 }
 
 const (
@@ -115,8 +112,10 @@ const maxSummaryLen = 500
 
 // DBStore manages persistent scheduled tasks in the shared SQLite database.
 type DBStore struct {
-	db *sql.DB
-	mu *sync.Mutex
+	db      *sql.DB
+	mu      *sync.Mutex
+	workDir string // base directory for cron log cleanup on task deletion
+	logf    func(format string, args ...any)
 }
 
 // NewDBStore creates a DBStore from a shared DB reference.
@@ -127,6 +126,16 @@ func NewDBStore(db *sqlitedb.DB) *DBStore {
 	}
 }
 
+// SetWorkDir configures the base directory for cron log cleanup on task deletion.
+func (s *DBStore) SetWorkDir(dir string) {
+	s.workDir = dir
+}
+
+// SetLogf configures a log callback for warnings (e.g. cleanup failures).
+func (s *DBStore) SetLogf(fn func(format string, args ...any)) {
+	s.logf = fn
+}
+
 // ListTasks returns all scheduled tasks.
 func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 	if err := ctx.Err(); err != nil {
@@ -134,7 +143,7 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
+		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
 		 FROM scheduled_tasks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: list tasks: %w", err)
@@ -146,9 +155,7 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 		var t Task
 		var lRun sql.NullString
 		var nRun, cAt, uAt string
-		var qqSource sql.NullInt64
-		var qqOpenID, qqTargetOpenID, qqChatID sql.NullString
-		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
+		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan task: %w", err)
 		}
@@ -161,20 +168,6 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 		t.CreatedAt, _ = time.ParseInLocation(time.RFC3339, cAt, time.Local)
 		t.UpdatedAt, _ = time.ParseInLocation(time.RFC3339, uAt, time.Local)
 
-		if qqSource.Valid {
-			t.QQSource = int(qqSource.Int64)
-		} else {
-			t.QQSource = -1
-		}
-		if qqOpenID.Valid {
-			t.QQOpenID = qqOpenID.String
-		}
-		if qqTargetOpenID.Valid {
-			t.QQTargetOpenID = qqTargetOpenID.String
-		}
-		if qqChatID.Valid {
-			t.QQChatID = qqChatID.String
-		}
 
 		tasks = append(tasks, t)
 	}
@@ -186,12 +179,10 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 	var t Task
 	var lRun sql.NullString
 	var nRun, cAt, uAt string
-	var qqSource sql.NullInt64
-	var qqOpenID, qqTargetOpenID, qqChatID sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
+		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
 		 FROM scheduled_tasks WHERE id = ?`, id).
-		Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
+		Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("cron store: task %q not found", id)
 	}
@@ -207,20 +198,6 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 	t.CreatedAt, _ = time.ParseInLocation(time.RFC3339, cAt, time.Local)
 	t.UpdatedAt, _ = time.ParseInLocation(time.RFC3339, uAt, time.Local)
 
-	if qqSource.Valid {
-		t.QQSource = int(qqSource.Int64)
-	} else {
-		t.QQSource = -1
-	}
-	if qqOpenID.Valid {
-		t.QQOpenID = qqOpenID.String
-	}
-	if qqTargetOpenID.Valid {
-		t.QQTargetOpenID = qqTargetOpenID.String
-	}
-	if qqChatID.Valid {
-		t.QQChatID = qqChatID.String
-	}
 
 	return &t, nil
 }
@@ -228,7 +205,7 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 // GetActiveTasks returns all tasks with 'active' status.
 func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id
+		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
 
 		 FROM scheduled_tasks WHERE status = 'active'`)
 	if err != nil {
@@ -241,9 +218,7 @@ func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 		var t Task
 		var lRun sql.NullString
 		var nRun, cAt, uAt string
-		var qqSource sql.NullInt64
-		var qqOpenID, qqTargetOpenID, qqChatID sql.NullString
-		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt, &qqSource, &qqOpenID, &qqTargetOpenID, &qqChatID)
+		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan active task: %w", err)
 		}
@@ -256,59 +231,12 @@ func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 		t.CreatedAt, _ = time.ParseInLocation(time.RFC3339, cAt, time.Local)
 		t.UpdatedAt, _ = time.ParseInLocation(time.RFC3339, uAt, time.Local)
 
-		if qqSource.Valid {
-			t.QQSource = int(qqSource.Int64)
-		} else {
-			t.QQSource = -1
-		}
-		if qqOpenID.Valid {
-			t.QQOpenID = qqOpenID.String
-		}
-		if qqTargetOpenID.Valid {
-			t.QQTargetOpenID = qqTargetOpenID.String
-		}
-		if qqChatID.Valid {
-			t.QQChatID = qqChatID.String
-		}
 
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
 }
 
-func getQQMessageMeta(ctx context.Context) (source int, openID, targetOpenID, chatID string, exists bool) {
-	val := ctx.Value("qq_message")
-	if val == nil {
-		return -1, "", "", "", false
-	}
-	v := reflect.ValueOf(val)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return -1, "", "", "", false
-	}
-
-	fSource := v.FieldByName("Source")
-	fOpenID := v.FieldByName("OpenID")
-	fTargetOpenID := v.FieldByName("TargetOpenID")
-	fChatID := v.FieldByName("ChatID")
-
-	source = -1
-	if fSource.IsValid() && (fSource.Kind() == reflect.Int || fSource.Kind() == reflect.Int64 || fSource.Kind() == reflect.Int32) {
-		source = int(fSource.Int())
-	}
-	if fOpenID.IsValid() && fOpenID.Kind() == reflect.String {
-		openID = fOpenID.String()
-	}
-	if fTargetOpenID.IsValid() && fTargetOpenID.Kind() == reflect.String {
-		targetOpenID = fTargetOpenID.String()
-	}
-	if fChatID.IsValid() && fChatID.Kind() == reflect.String {
-		chatID = fChatID.String()
-	}
-	return source, openID, targetOpenID, chatID, true
-}
 
 // CreateTask inserts a new task.
 func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task, error) {
@@ -330,12 +258,11 @@ func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task,
 		input.TargetAgent = "L1"
 	}
 
-	qqSource, qqOpenID, qqTargetOpenID, qqChatID, _ := getQQMessageMeta(ctx)
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO scheduled_tasks (id, title, task_level, expression, instruction, target_agent, status, next_run_at, created_at, updated_at, qq_source, qq_openid, qq_target_openid, qq_chat_id)
-		 VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
-		id, input.Title, input.TaskLevel, input.Expression, input.Instruction, input.TargetAgent, nRun, now, now, qqSource, qqOpenID, qqTargetOpenID, qqChatID)
+		`INSERT INTO scheduled_tasks (id, title, task_level, expression, instruction, target_agent, status, next_run_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+		id, input.Title, input.TaskLevel, input.Expression, input.Instruction, input.TargetAgent, nRun, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: create task: %w", err)
 	}
@@ -351,10 +278,6 @@ func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task,
 		NextRunAt:      input.NextRunAt,
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
-		QQSource:       qqSource,
-		QQOpenID:       qqOpenID,
-		QQTargetOpenID: qqTargetOpenID,
-		QQChatID:       qqChatID,
 	}, nil
 }
 
@@ -389,8 +312,8 @@ func (s *DBStore) updateTask(ctx context.Context, t *Task, requiredTarget string
 	now := time.Now().Format(time.RFC3339)
 	nRun := t.NextRunAt.Format(time.RFC3339)
 
-	query := `UPDATE scheduled_tasks SET title = ?, task_level = ?, expression = ?, instruction = ?, target_agent = ?, status = ?, next_run_at = ?, updated_at = ?, qq_source = ?, qq_openid = ?, qq_target_openid = ?, qq_chat_id = ? WHERE id = ?`
-	args := []any{t.Title, t.TaskLevel, t.Expression, t.Instruction, t.TargetAgent, t.Status, nRun, now, t.QQSource, t.QQOpenID, t.QQTargetOpenID, t.QQChatID, t.ID}
+	query := `UPDATE scheduled_tasks SET title = ?, task_level = ?, expression = ?, instruction = ?, target_agent = ?, status = ?, next_run_at = ?, updated_at = ? WHERE id = ?`
+	args := []any{t.Title, t.TaskLevel, t.Expression, t.Instruction, t.TargetAgent, t.Status, nRun, now, t.ID}
 	if requiredTarget != "" {
 		query += ` AND lower(target_agent) = lower(?)`
 		args = append(args, requiredTarget)
@@ -535,6 +458,15 @@ func (s *DBStore) deleteTask(ctx context.Context, id, requiredTarget string) err
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM cron_execution_history WHERE task_id = ?`, id); err != nil {
 		return fmt.Errorf("cron store: delete task history: %w", err)
 	}
+
+	// Clean up cron log files on disk.
+	if s.workDir != "" {
+		dir := filepath.Join(s.workDir, "logs", "cron", id)
+		if err := os.RemoveAll(dir); err != nil && s.logf != nil {
+			s.logf("cron store: failed to remove task log dir %s: %v", dir, err)
+		}
+	}
+
 	return nil
 }
 

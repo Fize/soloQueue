@@ -280,6 +280,10 @@ export function CronPage() {
   const [dialogSaving, setDialogSaving] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
 
+  // Custom shortcut state
+  const [customShortcutValue, setCustomShortcutValue] = useState('')
+  const [customShortcutUnit, setCustomShortcutUnit] = useState('min')
+
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<CronTask | null>(null)
 
@@ -519,7 +523,7 @@ export function CronPage() {
   }
 
   function formatTime(timeStr?: string) {
-    if (!timeStr) return '—'
+    if (!timeStr) return '\u2014'
     try {
       const date = new Date(timeStr)
       if (isNaN(date.getTime())) return timeStr
@@ -532,6 +536,40 @@ export function CronPage() {
     } catch {
       return timeStr
     }
+  }
+
+  // ── time picker & shortcut helpers ────────────────────────────────────
+
+  function pad(n: number) { return String(n).padStart(2, '0') }
+
+  /** Format a Date to "YYYY-MM-DD HH:mm:ss" for the backend expression. */
+  function formatDateTime(d: Date): string {
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  }
+
+  /** Parse expression → datetime-local picker value ("YYYY-MM-DDTHH:mm"), or "" if not a datetime. */
+  function toPickerValue(expr: string): string {
+    const match = expr.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?$/)
+    return match ? `${match[1]}T${match[2]}` : ''
+  }
+
+  /** Convert datetime-local picker value → "YYYY-MM-DD HH:mm:00" cron expression. */
+  function fromPickerValue(pickerVal: string): string {
+    if (!pickerVal) return ''
+    return pickerVal + ':00'
+  }
+
+  /** Compute a datetime string offset from now by the given minutes. */
+  function computeRelativeTime(minutes: number): string {
+    return formatDateTime(new Date(Date.now() + minutes * 60 * 1000))
+  }
+
+  /** Apply the custom shortcut (value + unit) to the expression. */
+  function handleCustomShortcut() {
+    const val = parseInt(customShortcutValue, 10)
+    if (isNaN(val) || val <= 0) return
+    const multipliers: Record<string, number> = { sec: 1000, min: 60000, hr: 3600000, day: 86400000 }
+    setExpression(formatDateTime(new Date(Date.now() + val * (multipliers[customShortcutUnit] || 60000))))
   }
 
   const filteredTasks = tasks.filter((task) => {
@@ -724,11 +762,75 @@ export function CronPage() {
               />
             </div>
 
-            {/* Expression */}
+            {/* Expression — Date/Time picker + shortcuts + manual input */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="cron-expr-input" className="text-xs font-medium text-muted-foreground">
+              <label className="text-xs font-medium text-muted-foreground">
                 {t('cron.scheduleExpr')}
               </label>
+
+              {/* Datetime picker */}
+              <input
+                type="datetime-local"
+                value={toPickerValue(expression)}
+                onChange={(e) => setExpression(fromPickerValue(e.target.value))}
+                className="flex h-8 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50 transition-colors [color-scheme:dark]"
+              />
+              <p className="text-[10px] text-muted-foreground/50 px-0.5">{t('cron.pickDateTime')}</p>
+
+              {/* Quick shortcut buttons */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] text-muted-foreground/70 shrink-0">{t('cron.quickShortcuts')}</span>
+                {[
+                  { label: t('cron.oneMinLater'), mins: 1 },
+                  { label: t('cron.fiveMinLater'), mins: 5 },
+                  { label: t('cron.tenMinLater'), mins: 10 },
+                  { label: t('cron.thirtyMinLater'), mins: 30 },
+                  { label: t('cron.oneHourLater'), mins: 60 },
+                  { label: t('cron.twoHoursLater'), mins: 120 },
+                ].map(({ label, mins }) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => setExpression(computeRelativeTime(mins))}
+                    className="h-6 px-2 rounded text-[10px] font-medium bg-muted/40 hover:bg-primary/15 hover:text-primary border border-border/40 hover:border-primary/30 transition-colors"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom shortcut row */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground/70 shrink-0">{t('cron.customShortcut')}</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={customShortcutValue}
+                  onChange={(e) => setCustomShortcutValue(e.target.value)}
+                  placeholder="30"
+                  className="h-6 w-16 rounded border border-border bg-transparent px-2 text-xs text-foreground text-center outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <select
+                  value={customShortcutUnit}
+                  onChange={(e) => setCustomShortcutUnit(e.target.value)}
+                  className="h-6 rounded border border-border bg-transparent px-1.5 text-[10px] text-foreground outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-ring/50 transition-colors cursor-pointer"
+                >
+                  <option value="sec">{t('cron.secondsUnit')}</option>
+                  <option value="min">{t('cron.minutesUnit')}</option>
+                  <option value="hr">{t('cron.hoursUnit')}</option>
+                  <option value="day">{t('cron.daysUnit')}</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCustomShortcut}
+                  className="h-6 px-2 rounded text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 hover:border-primary/30 transition-colors shrink-0"
+                >
+                  {t('cron.applyShortcut')}
+                </button>
+              </div>
+
+              {/* Divider + manual cron input */}
+              <span className="text-[10px] text-muted-foreground/40 pt-0.5">{t('cron.orTypeManually')}</span>
               <input
                 id="cron-expr-input"
                 type="text"

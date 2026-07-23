@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/cron"
@@ -95,12 +94,15 @@ func ServeCmd(version string) *cobra.Command {
 			mgr.SetMemoryManager(rt.MemoryManager)
 			mgr.SetIdleReaper(30*time.Minute, 200000)
 
-			// Initialize Scheduled Tasks (Cron & Timers) system
-			cronStore := cron.NewDBStore(rt.SharedDB)
-			builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
-			cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{
+		// Initialize Scheduled Tasks (Cron & Timers) system
+		cronStore := cron.NewDBStore(rt.SharedDB)
+		builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
+		// ── L2 Session Store (must be before cronScheduler for persistent session reuse) ──
+		l2Store := session.NewL2SessionStore(builder, workDir, log)
+		cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{
 				mgr:     mgr,
 				builder: builder,
+				l2Store: l2Store,
 				workDir: workDir,
 			}, log)
 			cronScheduler.SetModelResolver(func(taskLevel string) (cron.ResolvedModel, error) {
@@ -137,12 +139,12 @@ func ServeCmd(version string) *cobra.Command {
 			}
 			defer cronScheduler.Stop()
 
-			// ── Channel Registry for cron notification routing ──
-			chanRegistry := &channel.Registry{}
-			rt.ChannelRegistry = chanRegistry
-
-			// Wire channel notification routing into the scheduler.
-			cronScheduler.SetWorkDir(workDir)
+		// Wire channel notification routing into the scheduler.
+		cronScheduler.SetWorkDir(workDir)
+		cronStore.SetWorkDir(workDir)
+		cronStore.SetLogf(func(format string, args ...any) {
+			log.Warn(logger.CatApp, fmt.Sprintf(format, args...))
+		})
 
 			// Wire the cron store and scheduler into tools configuration
 			toolsCfg := rt.ReadToolsCfg()
@@ -156,19 +158,14 @@ func ServeCmd(version string) *cobra.Command {
 				return fmt.Errorf("init session: %w", err)
 			}
 
-			// ── L2 Session Store ──
-			// Manages multiple L2 sessions for direct conversation (web chat + QQ bots).
-			// Each L2 session has its own agent, timeline, and context window.
-			l2Store := session.NewL2SessionStore(builder, workDir, log)
-
-			// ── Daily memory flush (midnight) ──
+		// ── Daily memory flush (midnight) ──
 			if rt.MemoryManager != nil {
 				flusher := session.NewDailyMemoryFlusher(mgr, rt.MemoryEngine, log)
 				go flusher.Run(context.Background())
 			}
 
 			// ── Messaging channel integrations ──
-			qqBotManager := NewQQBotManager(cfg, mgr, l2Store, rt, cronScheduler, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)
+			qqBotManager := NewQQBotManager(cfg, mgr, l2Store, rt, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)
 			wechatBotManager := NewWechatBotManager(cfg, mgr, l2Store, rt, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)
 			qqBotManager.Reload()
 			wechatBotManager.Reload()
@@ -397,6 +394,7 @@ func VersionCmd(version string) *cobra.Command {
 type cronSessionManagerWrapper struct {
 	mgr     *session.SessionManager
 	builder *session.Builder
+	l2Store *session.L2SessionStore
 	workDir string
 }
 
@@ -409,9 +407,9 @@ func (w cronSessionManagerWrapper) Session() cron.Session {
 }
 
 // GetSession returns a session for the given teamID.
-// For "L1" (or empty): returns the existing L1 session with no-op cleanup.
-// For other teams: creates a temporary L2 session via BuildL2ForCron with
-// a cron-specific log directory at workDir/logs/cron/<taskID>/.
+// For L1: returns the existing L1 session.
+// For L2 teams: first checks if a persistent qbot-bound session exists in
+// l2Store (reuses it), otherwise creates a temporary session via BuildL2ForCron.
 func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskID string) (cron.Session, bool, func(), error) {
 	if teamID == "" || strings.EqualFold(teamID, "L1") {
 		s := w.mgr.Session()
@@ -421,7 +419,14 @@ func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskI
 		return s, false, nil, nil
 	}
 
-	// Create a temporary L2 session for this L2 team.
+	// For L2 teams: check if a persistent qbot-bound session exists.
+	if w.l2Store != nil {
+		if s := w.l2Store.FindByGroup(teamID); s != nil {
+			return s, false, nil, nil // reuse persistent session
+		}
+	}
+
+	// No persistent session found — create a temporary one.
 	cronLogDir := filepath.Join(w.workDir, "logs", "cron", taskID)
 
 	// Ensure the cron log directory exists.
