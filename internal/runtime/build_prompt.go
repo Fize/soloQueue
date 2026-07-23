@@ -21,8 +21,8 @@ import (
 func (bc *buildContext) buildPrompt() error {
 	promptStart := time.Now()
 	promptCfg := &prompt.PromptConfig{
-		RolesDir:  filepath.Join(bc.workDir, "prompts", "roles"),
-		GlobalDir: filepath.Join(bc.workDir, "prompts", "global"),
+		RolesDir:  filepath.Join(bc.workDir, "persona", "roles"),
+		GlobalDir: filepath.Join(bc.workDir, "persona", "global"),
 	}
 	rulesCreated, err := promptCfg.EnsureFiles()
 	if err != nil {
@@ -66,8 +66,8 @@ func (bc *buildContext) buildPrompt() error {
 	}
 	bc.allTemplates = allTemplates
 
-	// ── L1 channel config from prompts/roles/channels.yaml ─────────────────
-	if l1Ch, l1Nc := loadL1ChannelConfig(bc.log, filepath.Join(bc.workDir, "prompts", "roles")); l1Ch != nil {
+	// ── L1 channel config from persona/roles/channels.yaml ─────────────────
+	if l1Ch, l1Nc := loadL1ChannelConfig(bc.log, filepath.Join(bc.workDir, "persona", "roles")); l1Ch != nil {
 		bc.l1Channels = l1Ch
 		bc.l1NotifyChannel = l1Nc
 	}
@@ -237,7 +237,7 @@ func validateAndWarnChannelBindings(log *logger.Logger, templates []agent.AgentT
 }
 
 // loadL1ChannelConfig reads L1 agent's channel bindings from
-// prompts/roles/channels.yaml. Returns nil channels if the file doesn't exist.
+// persona/roles/channels.yaml. Returns nil channels if the file doesn't exist.
 func loadL1ChannelConfig(log *logger.Logger, rolesDir string) (map[string]string, string) {
 	path := filepath.Join(rolesDir, "channels.yaml")
 	data, err := os.ReadFile(path)

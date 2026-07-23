@@ -186,7 +186,7 @@ Cron task results are delivered to channels (QQ/WeChat) via the session's active
 (`SendActiveMessage` for QQ, `SendText` for WeChat). This mechanism has several constraints:
 
 1. **Requires agent config**: The agent's template must set `notify_channel` to `"qq"` or
-   `"wechat"` (via YAML frontmatter or `~/.soloqueue/prompts/roles/channels.yaml` for L1).
+   `"wechat"` (via YAML frontmatter or `~/.soloqueue/persona/roles/channels.yaml` for L1).
    Without this, no channel notification is sent.
 
 2. **Requires recent user interaction**: The channel bridge only registers its sender after

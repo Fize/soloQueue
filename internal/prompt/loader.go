@@ -9,8 +9,8 @@ import (
 
 // PromptConfig specifies the prompt configuration for the main Agent.
 type PromptConfig struct {
-	RolesDir  string // e.g. "/Users/xxx/.soloqueue/prompts/roles"
-	GlobalDir string // e.g. "/Users/xxx/.soloqueue/prompts/global"
+	RolesDir  string // e.g. "/Users/xxx/.soloqueue/persona/roles"
+	GlobalDir string // e.g. "/Users/xxx/.soloqueue/persona/global"
 }
 
 // soulPath returns the soul.md path.
@@ -49,7 +49,7 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, groups map[string]Group
 		return "", fmt.Errorf("load rules: %w", err)
 	}
 
-	// Get workDir from RolesDir: RolesDir = <workDir>/prompts/roles
+	// Get workDir from RolesDir: RolesDir = <workDir>/persona/roles
 	workDir := filepath.Dir(filepath.Dir(p.RolesDir))
 
 	// 4. Build routing table dynamically (with team workspace directories)
@@ -72,6 +72,36 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, groups map[string]Group
 //   - Missing directory structure is created automatically.
 func (p *PromptConfig) EnsureFiles() (bool, error) {
 	rulesCreated := false
+
+	// Migrate old "prompts" directory to "persona"
+	workDir := filepath.Dir(filepath.Dir(p.RolesDir))
+	personaDir := filepath.Dir(p.RolesDir)
+	oldPromptsDir := filepath.Join(workDir, "prompts")
+
+	if _, oldErr := os.Stat(oldPromptsDir); oldErr == nil {
+		if _, err := os.Stat(personaDir); os.IsNotExist(err) {
+			_ = os.Rename(oldPromptsDir, personaDir)
+		} else {
+			// Both exist: copy missing files safely without deleting oldPromptsDir
+			_ = filepath.Walk(oldPromptsDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					return nil
+				}
+				rel, err := filepath.Rel(oldPromptsDir, path)
+				if err != nil {
+					return nil
+				}
+				targetPath := filepath.Join(personaDir, rel)
+				if _, targetErr := os.Stat(targetPath); os.IsNotExist(targetErr) {
+					if data, readErr := os.ReadFile(path); readErr == nil {
+						_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
+						_ = os.WriteFile(targetPath, data, 0o644)
+					}
+				}
+				return nil
+			})
+		}
+	}
 
 	// Make sure the directory structure exists.
 	dirs := []string{

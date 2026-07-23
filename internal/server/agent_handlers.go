@@ -391,7 +391,7 @@ type TeamListResponse struct {
 // handleGetAgentProfile returns the soul.md and rules.md content for the main agent.
 // GET /api/agents/{id}/profile
 func (m *Mux) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {
-	rolesDir := filepath.Join(m.workDir, "prompts", "roles")
+	rolesDir := filepath.Join(m.workDir, "persona", "roles")
 
 	soulPath := filepath.Join(rolesDir, "soul.md")
 	rulesPath := filepath.Join(rolesDir, "rules.md")
@@ -444,7 +444,7 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := &prompt.PromptConfig{
-		RolesDir: filepath.Join(m.workDir, "prompts", "roles"),
+		RolesDir: filepath.Join(m.workDir, "persona", "roles"),
 	}
 
 	if req.Soul != nil {
@@ -463,7 +463,7 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 
 	// Write L1 channel config to channels.yaml
 	if req.Channels != nil || req.NotifyChannel != nil {
-		chPath := filepath.Join(m.workDir, "prompts", "roles", "channels.yaml")
+		chPath := filepath.Join(m.workDir, "persona", "roles", "channels.yaml")
 		// Read existing config to merge
 		var l1ch struct {
 			Channels      map[string]string `yaml:"channels"`
@@ -500,7 +500,7 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return the updated profile
-	rolesDir := filepath.Join(m.workDir, "prompts", "roles")
+	rolesDir := filepath.Join(m.workDir, "persona", "roles")
 	soul, _ := os.ReadFile(filepath.Join(rolesDir, "soul.md"))
 	rules, _ := os.ReadFile(filepath.Join(rolesDir, "rules.md"))
 

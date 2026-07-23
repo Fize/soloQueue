@@ -13,8 +13,8 @@ import (
 
 func TestRegisterPromptHotReload(t *testing.T) {
 	tempDir := t.TempDir()
-	rolesDir := filepath.Join(tempDir, "prompts", "roles")
-	globalDir := filepath.Join(tempDir, "prompts", "global")
+	rolesDir := filepath.Join(tempDir, "persona", "roles")
+	globalDir := filepath.Join(tempDir, "persona", "global")
 	if err := os.MkdirAll(rolesDir, 0o755); err != nil {
 		t.Fatalf("failed to create temp roles dir: %v", err)
 	}

@@ -9,11 +9,11 @@ import (
 func TestEnsureFiles_CreatesRules(t *testing.T) {
 	dir := t.TempDir()
 	// Pre-create soul.md so that EnsureFiles does not return SoulNeededError.
-	rolesDir := filepath.Join(dir, "prompts", "roles")
+	rolesDir := filepath.Join(dir, "persona", "roles")
 	os.MkdirAll(rolesDir, 0o755)
 	os.WriteFile(filepath.Join(rolesDir, "soul.md"), []byte("test soul"), 0o644)
 
-	cfg := &PromptConfig{RolesDir: rolesDir, GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: rolesDir, GlobalDir: filepath.Join(dir, "persona", "global")}
 	rulesCreated, err := cfg.EnsureFiles()
 	if err != nil {
 		t.Fatalf("EnsureFiles: %v", err)
@@ -34,7 +34,7 @@ func TestEnsureFiles_CreatesRules(t *testing.T) {
 
 func TestEnsureFiles_SoulNeeded(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
 	_, err := cfg.EnsureFiles()
 	if err == nil {
@@ -49,7 +49,7 @@ func TestEnsureFiles_SoulNeeded(t *testing.T) {
 
 func TestEnsureFiles_Idempotent(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
 	// First: write soul, then EnsureFiles.
 	answers := DefaultProfileAnswers()
@@ -75,8 +75,8 @@ func TestEnsureFiles_Idempotent(t *testing.T) {
 
 func TestBuildPrompt_Integration(t *testing.T) {
 	dir := t.TempDir()
-	rolesDir := filepath.Join(dir, "prompts", "roles")
-	globalDir := filepath.Join(dir, "prompts", "global")
+	rolesDir := filepath.Join(dir, "persona", "roles")
+	globalDir := filepath.Join(dir, "persona", "global")
 	cfg := &PromptConfig{RolesDir: rolesDir, GlobalDir: globalDir}
 
 	// Create all required files.
@@ -125,7 +125,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 
 func TestBuildPrompt_NoUserCtx(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
 	cfg.WriteSoul(DefaultProfileAnswers())
 	cfg.EnsureFiles()
@@ -149,7 +149,7 @@ func TestBuildPrompt_NoUserCtx(t *testing.T) {
 
 func TestBuildPrompt_EmptyPlanDir(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
 	cfg.WriteSoul(DefaultProfileAnswers())
 	cfg.EnsureFiles()
@@ -219,7 +219,7 @@ func TestExtractSoulName(t *testing.T) {
 
 func TestReadSoulName(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
 	// Soul does not exist yet.
 	if name := ReadSoulName(cfg); name != "" {
@@ -237,7 +237,7 @@ func TestReadSoulName(t *testing.T) {
 
 func TestWriteSoul(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "prompts", "roles"), GlobalDir: filepath.Join(dir, "prompts", "global")}
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
 	answers := ProfileAnswers{
 		Name:        "XiaoQ",
@@ -256,6 +256,78 @@ func TestWriteSoul(t *testing.T) {
 	content := string(data)
 	if !contains(content, "You are XiaoQ") {
 		t.Error("soul should contain custom name")
+	}
+}
+
+func TestEnsureFiles_MigratesOldPromptsDir(t *testing.T) {
+	dir := t.TempDir()
+	oldRolesDir := filepath.Join(dir, "prompts", "roles")
+	if err := os.MkdirAll(oldRolesDir, 0o755); err != nil {
+		t.Fatalf("mkdir old roles dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(oldRolesDir, "soul.md"), []byte("legacy soul content"), 0o644); err != nil {
+		t.Fatalf("write legacy soul: %v", err)
+	}
+
+	cfg := &PromptConfig{
+		RolesDir:  filepath.Join(dir, "persona", "roles"),
+		GlobalDir: filepath.Join(dir, "persona", "global"),
+	}
+
+	_, err := cfg.EnsureFiles()
+	if err != nil {
+		t.Fatalf("EnsureFiles error: %v", err)
+	}
+
+	// Verify persona directory was created via migration
+	migratedSoul, err := os.ReadFile(filepath.Join(dir, "persona", "roles", "soul.md"))
+	if err != nil {
+		t.Fatalf("read migrated soul: %v", err)
+	}
+	if string(migratedSoul) != "legacy soul content" {
+		t.Errorf("migrated soul content mismatch, got %q", string(migratedSoul))
+	}
+}
+
+func TestEnsureFiles_BothDirectoriesExist(t *testing.T) {
+	dir := t.TempDir()
+
+	// 1. Create old prompts directory with missing_in_persona.md and soul.md
+	oldRolesDir := filepath.Join(dir, "prompts", "roles")
+	os.MkdirAll(oldRolesDir, 0o755)
+	os.WriteFile(filepath.Join(oldRolesDir, "soul.md"), []byte("old soul"), 0o644)
+	os.WriteFile(filepath.Join(oldRolesDir, "extra.md"), []byte("extra content"), 0o644)
+
+	// 2. Create new persona directory with new soul.md
+	newRolesDir := filepath.Join(dir, "persona", "roles")
+	os.MkdirAll(newRolesDir, 0o755)
+	os.WriteFile(filepath.Join(newRolesDir, "soul.md"), []byte("new soul"), 0o644)
+
+	cfg := &PromptConfig{
+		RolesDir:  newRolesDir,
+		GlobalDir: filepath.Join(dir, "persona", "global"),
+	}
+
+	_, err := cfg.EnsureFiles()
+	if err != nil {
+		t.Fatalf("EnsureFiles error: %v", err)
+	}
+
+	// 3. Verify persona/roles/soul.md preserved "new soul"
+	newSoul, err := os.ReadFile(filepath.Join(newRolesDir, "soul.md"))
+	if err != nil || string(newSoul) != "new soul" {
+		t.Errorf("persona/roles/soul.md should preserve new content, got %q, err %v", string(newSoul), err)
+	}
+
+	// 4. Verify persona/roles/extra.md was merged from prompts
+	extra, err := os.ReadFile(filepath.Join(newRolesDir, "extra.md"))
+	if err != nil || string(extra) != "extra content" {
+		t.Errorf("extra.md should be merged from old prompts, got %q, err %v", string(extra), err)
+	}
+
+	// 5. Verify old prompts directory is preserved to prevent unintended data deletion
+	if _, err := os.Stat(filepath.Join(dir, "prompts")); os.IsNotExist(err) {
+		t.Error("old prompts directory should be preserved safely without accidental deletion")
 	}
 }
 
