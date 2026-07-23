@@ -263,13 +263,15 @@ export function useChatStream() {
   )
 
   const cancel = useCallback(() => {
-    const requestId = activeRequestIdRef.current
     const sid = activeSessionId
-    if (!requestId || !sid) return
+    if (!sid) return
+    
+    const store = useChatStore.getState()
+    const requestId = activeRequestIdRef.current || store.routeSessions[sid]?.requestId
+    if (!requestId) return
 
     // Immediately update local state so the stop button reverts to the send
     // button without waiting for the server chat_done round-trip.
-    const store = useChatStore.getState()
     store.setStreaming(false, sid)
     store.setDelegating(false, sid)
     store.setSystemCommandRunning(false, sid)
