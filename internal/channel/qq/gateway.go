@@ -315,6 +315,7 @@ func (g *Gateway) handleC2CMessage(ctx context.Context, raw json.RawMessage) {
 		Source:       SourceC2C,
 		Content:      event.Content,
 		ImageURLs:    ImageURLs(event.Attachments),
+		AudioURL:     AudioURL(event.Attachments),
 		Files:        ExtractFiles(event.Attachments),
 		OpenID:       event.Author.UserOpenid,
 		TargetOpenID: event.Author.UserOpenid,

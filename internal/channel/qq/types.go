@@ -141,7 +141,7 @@ type QQFile struct {
 func ExtractFiles(atts []QQAttachment) []QQFile {
 	var files []QQFile
 	for _, a := range atts {
-		if !strings.Contains(a.ContentType, "image") && a.URL != "" {
+		if !strings.Contains(a.ContentType, "image") && !strings.Contains(a.ContentType, "audio") && a.URL != "" {
 			files = append(files, QQFile{
 				URL:         a.URL,
 				ContentType: a.ContentType,
