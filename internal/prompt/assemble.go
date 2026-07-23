@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -9,7 +10,7 @@ import (
 // If userCtx is empty, the <user_context> section is skipped.
 // recentMemory is the path to the short-term memory directory (if not empty, injects file location + Read/Grep tool instructions, but not actual content).
 // If permanentMemory is not empty, injects instructions for RecallMemory/Remember long-term memory tools (but not actual content).
-func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir, exploreDir string, mcpServers []string) string {
+func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir, exploreDir string, mcpServers []string, userRules map[string]string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "<identity>\n%s\n</identity>", escapePromptData(strings.TrimSpace(profile)))
@@ -21,6 +22,20 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 
 	if userCtx != "" {
 		fmt.Fprintf(&b, "\n\n<user_context>\n%s\n</user_context>", escapePromptData(strings.TrimSpace(userCtx)))
+	}
+
+	if len(userRules) > 0 {
+		b.WriteString("\n\n<user_rules>")
+		// Sort keys for deterministic output
+		keys := make([]string, 0, len(userRules))
+		for k := range userRules {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, name := range keys {
+			fmt.Fprintf(&b, "\n## %s\n%s\n", escapePromptData(name), escapePromptData(strings.TrimSpace(userRules[name])))
+		}
+		b.WriteString("</user_rules>")
 	}
 
 	if recentMemory != "" {

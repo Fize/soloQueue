@@ -319,6 +319,12 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	// Live agents status endpoint
 	r.Get("/api/agents/live", m.handleGetLiveAgents)
 
+	// Global rules CRUD for L1 agent
+	r.Get("/api/agents/l1/global-rules", m.handleListGlobalRules)
+	r.Get("/api/agents/l1/global-rules/{filename}", m.handleGetGlobalRule)
+	r.Put("/api/agents/l1/global-rules/{filename}", m.handleSaveGlobalRule)
+	r.Delete("/api/agents/l1/global-rules/{filename}", m.handleDeleteGlobalRule)
+
 	// Agent config/profile routes (specific sub-paths registered before {name} catch-all)
 	r.Get("/api/agents/{id}/profile", m.handleGetAgentProfile)
 	r.Put("/api/agents/{id}/profile", m.handleUpdateAgentProfile)

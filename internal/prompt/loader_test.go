@@ -368,3 +368,45 @@ func stringContains(s, substr string) bool {
 	}
 	return false
 }
+
+func TestLoadGlobalRules(t *testing.T) {
+	dir := t.TempDir()
+	globalDir := filepath.Join(dir, "global")
+	os.MkdirAll(globalDir, 0o755)
+
+	os.WriteFile(filepath.Join(globalDir, "user.md"), []byte("user content"), 0o644)
+	os.WriteFile(filepath.Join(globalDir, "rules1.md"), []byte("rule 1"), 0o644)
+	os.WriteFile(filepath.Join(globalDir, "rules2.md"), []byte("rule 2"), 0o644)
+	os.WriteFile(filepath.Join(globalDir, "not-md.txt"), []byte("not md"), 0o644)
+	os.MkdirAll(filepath.Join(globalDir, "subdir.md"), 0o755)
+
+	rules, err := LoadGlobalRules(globalDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(rules) != 2 {
+		t.Errorf("expected 2 rules, got %d", len(rules))
+	}
+
+	if rules["rules1.md"] != "rule 1" {
+		t.Errorf("expected rule 1 content, got %s", rules["rules1.md"])
+	}
+
+	if rules["rules2.md"] != "rule 2" {
+		t.Errorf("expected rule 2 content, got %s", rules["rules2.md"])
+	}
+
+	if _, ok := rules["user.md"]; ok {
+		t.Error("user.md should be excluded")
+	}
+
+	// Test non-existent dir
+	rules, err = LoadGlobalRules(filepath.Join(dir, "non-existent"))
+	if err != nil {
+		t.Fatalf("unexpected error for non-existent dir: %v", err)
+	}
+	if rules != nil {
+		t.Error("expected nil rules for non-existent dir")
+	}
+}

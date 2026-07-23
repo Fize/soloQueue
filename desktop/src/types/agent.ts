@@ -61,6 +61,16 @@ export interface UpdateAgentProfileRequest {
   notify_channel?: string | null;
 }
 
+export interface GlobalRuleFile {
+  filename: string;
+  size: number;
+}
+
+export interface GlobalRuleContent {
+  filename: string;
+  content: string;
+}
+
 export interface UpdateAgentConfigRequest {
   raw_config?: string;
   system_prompt?: string;

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -993,4 +994,155 @@ func (m *Mux) handleGetLiveAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.writeJSON(w, http.StatusOK, liveAgents)
+}
+
+// ─── Global Rules CRUD for L1 Agent ──────────────────────────────────────────
+
+var validGlobalRuleFilename = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*\.md$`)
+
+func isValidGlobalRuleFilename(name string) bool {
+	return validGlobalRuleFilename.MatchString(name) && name != "user.md"
+}
+
+// GlobalRuleFileResponse represents a file in the global rules directory.
+type GlobalRuleFileResponse struct {
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+}
+
+// GlobalRuleContentResponse represents the content of a global rule file.
+type GlobalRuleContentResponse struct {
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
+}
+
+// handleListGlobalRules returns a list of custom rule files in persona/global.
+// GET /api/agents/l1/global-rules
+func (m *Mux) handleListGlobalRules(w http.ResponseWriter, r *http.Request) {
+	globalDir := filepath.Join(m.workDir, "persona", "global")
+	entries, err := os.ReadDir(globalDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			m.writeJSON(w, http.StatusOK, []GlobalRuleFileResponse{})
+			return
+		}
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read global directory"})
+		return
+	}
+
+	var files []GlobalRuleFileResponse
+	for _, entry := range entries {
+		if entry.IsDir() || !isValidGlobalRuleFilename(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, GlobalRuleFileResponse{
+			Filename: entry.Name(),
+			Size:     info.Size(),
+		})
+	}
+
+	m.writeJSON(w, http.StatusOK, files)
+}
+
+// handleGetGlobalRule returns the content of a specific global rule file.
+// GET /api/agents/l1/global-rules/{filename}
+func (m *Mux) handleGetGlobalRule(w http.ResponseWriter, r *http.Request) {
+	filename := chi.URLParam(r, "filename")
+	if !isValidGlobalRuleFilename(filename) {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid filename"})
+		return
+	}
+
+	path := filepath.Join(m.workDir, "persona", "global", filename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "file not found"})
+			return
+		}
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read file"})
+		return
+	}
+
+	m.writeJSON(w, http.StatusOK, GlobalRuleContentResponse{
+		Filename: filename,
+		Content:  string(data),
+	})
+}
+
+// handleSaveGlobalRule creates or updates a global rule file.
+// PUT /api/agents/l1/global-rules/{filename}
+func (m *Mux) handleSaveGlobalRule(w http.ResponseWriter, r *http.Request) {
+	filename := chi.URLParam(r, "filename")
+	if !isValidGlobalRuleFilename(filename) {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid filename"})
+		return
+	}
+
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	globalDir := filepath.Join(m.workDir, "persona", "global")
+	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create global directory"})
+		return
+	}
+
+	path := filepath.Join(globalDir, filename)
+	if err := os.WriteFile(path, []byte(req.Content), 0o644); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write file"})
+		return
+	}
+
+	if m.rebuildPrompt != nil {
+		if err := m.rebuildPrompt(); err != nil {
+			m.log.Warn("failed to rebuild system prompt after saving global rule", "err", err.Error())
+		}
+	}
+
+	info, _ := os.Stat(path)
+	var size int64
+	if info != nil {
+		size = info.Size()
+	}
+
+	m.writeJSON(w, http.StatusOK, GlobalRuleFileResponse{
+		Filename: filename,
+		Size:     size,
+	})
+}
+
+// handleDeleteGlobalRule deletes a global rule file.
+// DELETE /api/agents/l1/global-rules/{filename}
+func (m *Mux) handleDeleteGlobalRule(w http.ResponseWriter, r *http.Request) {
+	filename := chi.URLParam(r, "filename")
+	if !isValidGlobalRuleFilename(filename) {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid filename"})
+		return
+	}
+
+	path := filepath.Join(m.workDir, "persona", "global", filename)
+	if err := os.Remove(path); err != nil {
+		if !os.IsNotExist(err) {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to delete file"})
+			return
+		}
+	}
+
+	if m.rebuildPrompt != nil {
+		if err := m.rebuildPrompt(); err != nil {
+			m.log.Warn("failed to rebuild system prompt after deleting global rule", "err", err.Error())
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

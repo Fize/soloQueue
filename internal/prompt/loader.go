@@ -61,8 +61,11 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, groups map[string]Group
 	// 6. Compute explore directory from workDir
 	exploreDir := ExploreDir(workDir)
 
-	// 7. Assemble XML
-	return assembleWithXML(soul, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir, exploreDir, mcpServers), nil
+	// 7. Load global rules
+	userRules, _ := LoadGlobalRules(p.GlobalDir)
+
+	// 8. Assemble XML
+	return assembleWithXML(soul, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir, exploreDir, mcpServers, userRules), nil
 }
 
 // EnsureFiles checks and fills in any missing prompt files.
@@ -180,6 +183,34 @@ func readMD(path string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// LoadGlobalRules scans the global directory for all *.md files except user.md
+// and returns their content as a map of filename to content.
+func LoadGlobalRules(globalDir string) (map[string]string, error) {
+	entries, err := os.ReadDir(globalDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read global dir %s: %w", globalDir, err)
+	}
+
+	rules := make(map[string]string)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") || entry.Name() == "user.md" {
+			continue
+		}
+
+		path := filepath.Join(globalDir, entry.Name())
+		content, err := readMD(path)
+		if err != nil {
+			continue // Skip files that failed to read
+		}
+
+		rules[entry.Name()] = content
+	}
+	return rules, nil
 }
 
 // ReadSoulName reads soul.md and extracts the assistant name.

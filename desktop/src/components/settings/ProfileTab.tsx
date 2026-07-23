@@ -1,13 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getAgentProfile, updateAgentProfile, getQQBotsConfig, getWeChatBotsConfig } from '@/lib/api'
-import type { AgentProfile } from '@/types'
+import { getAgentProfile, updateAgentProfile, getQQBotsConfig, getWeChatBotsConfig, listGlobalRules, getGlobalRule, saveGlobalRule, deleteGlobalRule } from '@/lib/api'
+import type { AgentProfile, GlobalRuleFile } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
-import { Save, Heart, Scale, Eye, Pencil, Loader2 } from 'lucide-react'
+import { Save, Heart, Scale, Eye, Pencil, Loader2, FileText } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  return `${(bytes / 1024).toFixed(1)} KB`
+}
 
 // ─── Editor Section ────────────────────────────────────────────────────────
 
@@ -123,6 +128,163 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
             {t('common.cancel')}
           </Button>
           {saveError && <span className="text-[10px] text-destructive">{saveError}</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Custom Rules Section ───────────────────────────────────────────────────
+
+function CustomRulesSection() {
+  const [rules, setRules] = useState<GlobalRuleFile[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [newFilename, setNewFilename] = useState('')
+  const [editingFile, setEditingFile] = useState<string | null>(null)
+  const [editContent, setEditContent] = useState('')
+  const [saving, setSaving] = useState(false)
+  const { t } = useTranslation()
+
+  const loadRules = useCallback(async () => {
+    try {
+      setLoading(true)
+      const data = await listGlobalRules()
+      setRules(data || [])
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadRules()
+  }, [loadRules])
+
+  const handleCreate = async () => {
+    if (!newFilename.trim()) return
+    try {
+      setSaving(true)
+      const fname = newFilename.trim() + '.md'
+      await saveGlobalRule(fname, '# ' + newFilename)
+      setNewFilename('')
+      setCreating(false)
+      await loadRules()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (filename: string) => {
+    if (!window.confirm(t('profile.deleteRuleConfirm'))) return
+    try {
+      await deleteGlobalRule(filename)
+      if (editingFile === filename) {
+        setEditingFile(null)
+      }
+      await loadRules()
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const startEdit = async (filename: string) => {
+    try {
+      const data = await getGlobalRule(filename)
+      setEditingFile(filename)
+      setEditContent(data.content)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const saveEdit = async () => {
+    if (!editingFile) return
+    try {
+      setSaving(true)
+      await saveGlobalRule(editingFile, editContent)
+      setEditingFile(null)
+      await loadRules()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="border rounded-lg bg-card p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-foreground" />
+          <h3 className="text-sm font-bold text-foreground">{t('profile.customRules')}</h3>
+          <Badge variant="secondary" className="text-[10px] shrink-0">{rules.length} files</Badge>
+        </div>
+        <Button size="sm" onClick={() => setCreating(!creating)}>
+          + {t('profile.addRuleFile')}
+        </Button>
+      </div>
+      
+      <p className="text-xs text-muted-foreground mb-4">{t('profile.customRulesDesc')}</p>
+      
+      {creating && (
+        <div className="mb-4 flex items-center gap-2 p-3 border rounded bg-muted/30">
+          <input 
+            className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            placeholder={t('profile.newRuleFilename')} 
+            value={newFilename} 
+            onChange={e => setNewFilename(e.target.value)}
+          />
+          <span className="text-sm">.md</span>
+          <Button size="sm" onClick={handleCreate} disabled={saving}>{t('profile.createRule')}</Button>
+          <Button size="sm" variant="outline" onClick={() => setCreating(false)}>{t('common.cancel')}</Button>
+        </div>
+      )}
+      
+      {loading ? (
+        <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
+      ) : rules.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t('profile.noCustomRules')}</p>
+      ) : (
+        <div className="space-y-2">
+          {rules.map(file => (
+            <div key={file.filename} className="flex items-center justify-between p-3 border rounded">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">{file.filename}</span>
+                <Badge variant="outline" className="text-[10px]">{formatFileSize(file.size)}</Badge>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => startEdit(file.filename)}>{t('common.edit')}</Button>
+                <Button size="sm" variant="destructive" onClick={() => handleDelete(file.filename)}>{t('profile.deleteRule')}</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {editingFile && (
+        <div className="mt-4 border rounded p-4 bg-muted/10">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-bold">Editing: {editingFile}</h4>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={saveEdit} disabled={saving}>
+                {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                {t('common.save')}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setEditingFile(null)} disabled={saving}>{t('common.cancel')}</Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">{t('profile.customRulesEditHint')}</p>
+          <Textarea 
+            value={editContent} 
+            onChange={e => setEditContent(e.target.value)} 
+            className="min-h-[300px] font-mono text-xs leading-relaxed" 
+            spellCheck={false}
+          />
         </div>
       )}
     </div>
@@ -316,6 +478,7 @@ export function ProfileTab() {
         onSave={handleSaveRules}
         saving={savingRules}
       />
+      <CustomRulesSection />
     </div>
   )
 }

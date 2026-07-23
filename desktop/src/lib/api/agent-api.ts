@@ -17,6 +17,8 @@ import type {
   UpdateCronTaskRequest,
   CronExecutionRecord,
   CronHistoryDetail,
+  GlobalRuleFile,
+  GlobalRuleContent,
 } from "@/types";
 import { request } from "./core";
 
@@ -56,6 +58,27 @@ export async function getTeams(): Promise<TeamListResponse> {
 
 export async function getLiveAgents(): Promise<AgentListResponse> {
   return request<AgentListResponse>("/agents/live");
+}
+
+export async function listGlobalRules(): Promise<GlobalRuleFile[]> {
+  return request<GlobalRuleFile[]>('/agents/l1/global-rules');
+}
+
+export async function getGlobalRule(filename: string): Promise<GlobalRuleContent> {
+  return request<GlobalRuleContent>(`/agents/l1/global-rules/${encodeURIComponent(filename)}`);
+}
+
+export async function saveGlobalRule(filename: string, content: string): Promise<GlobalRuleFile> {
+  return request<GlobalRuleFile>(`/agents/l1/global-rules/${encodeURIComponent(filename)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function deleteGlobalRule(filename: string): Promise<void> {
+  await request<void>(`/agents/l1/global-rules/${encodeURIComponent(filename)}`, {
+    method: 'DELETE',
+  });
 }
 
 // ─── Team CRUD APIs ─────────────────────────────────────────────────────────
