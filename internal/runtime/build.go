@@ -71,10 +71,6 @@ func Build(
 		return nil, err
 	}
 	bc.teamstore = teamstore.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"), bc.sharedDB)
-	// Migrate direct workspaces to projects table
-	if err := bc.teamstore.MigrateWorkspacesToProjects(context.Background()); err != nil {
-		bc.log.Warn(logger.CatApp, "failed to migrate team workspaces to projects", "err", err.Error())
-	}
 	if err := bc.teamstore.EnsureBuiltinTechTeam(context.Background()); err != nil {
 		bc.log.Warn(logger.CatApp, "failed to ensure built-in technical team", "err", err.Error())
 	}

@@ -48,13 +48,6 @@ func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile) string
 				} else if l.Group != "" {
 					fmt.Fprintf(&b, "\n## %s\n", l.Group)
 				}
-				// Display workspace directories for this group
-				if gf, ok := groups[l.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
-					b.WriteString("Workspaces:\n")
-					for _, ws := range gf.Frontmatter.Workspaces {
-						fmt.Fprintf(&b, "  - %s: %s\n", ws.Name, ws.Path)
-					}
-				}
 			}
 
 			toolName := "delegate_" + strings.ReplaceAll(l.Name, " ", "_")

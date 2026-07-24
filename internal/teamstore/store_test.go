@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
 func TestStoreCRUD(t *testing.T) {
@@ -23,9 +21,6 @@ func TestStoreCRUD(t *testing.T) {
 	team := &Team{
 		Name:        "Devs",
 		Description: "Development Team",
-		Workspaces: []Workspace{
-			{Name: "code", Path: "/workspace/code"},
-		},
 	}
 	err := store.CreateTeam(ctx, team)
 	if err != nil {
@@ -46,13 +41,9 @@ func TestStoreCRUD(t *testing.T) {
 	if retrievedTeam.Name != "Devs" || retrievedTeam.Description != "Development Team" {
 		t.Errorf("mismatch in retrieved team: %+v", retrievedTeam)
 	}
-	if len(retrievedTeam.Workspaces) != 1 || retrievedTeam.Workspaces[0].Name != "code" {
-		t.Errorf("mismatch in workspaces: %+v", retrievedTeam.Workspaces)
-	}
 
 	// 3. Update Team
 	retrievedTeam.Description = "Updated Devs"
-	retrievedTeam.Workspaces = append(retrievedTeam.Workspaces, Workspace{Name: "docs", Path: "/workspace/docs"})
 	err = store.UpdateTeam(ctx, "Devs", retrievedTeam)
 	if err != nil {
 		t.Fatalf("failed to update team: %v", err)
@@ -62,7 +53,7 @@ func TestStoreCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get updated team: %v", err)
 	}
-	if updatedTeam.Description != "Updated Devs" || len(updatedTeam.Workspaces) != 2 {
+	if updatedTeam.Description != "Updated Devs" {
 		t.Errorf("updated team values mismatch: %+v", updatedTeam)
 	}
 
@@ -165,103 +156,7 @@ func TestStoreCRUD(t *testing.T) {
 	}
 }
 
-func TestStoreWorkspaceMigration(t *testing.T) {
-	tempDir := t.TempDir()
-	groupsDir := filepath.Join(tempDir, "groups")
-	agentsDir := filepath.Join(tempDir, "agents")
-	dbPath := filepath.Join(tempDir, "soloqueue.db")
 
-	db, err := sqlitedb.Open(dbPath)
-	if err != nil {
-		t.Fatalf("failed to open test db: %v", err)
-	}
-	defer db.Close()
-
-	store := NewStore(groupsDir, agentsDir, db)
-	ctx := context.Background()
-
-	// 1. Create a raw team file with direct workspaces under groupsDir.
-	teamMD := `---
-name: QA
-workspaces:
-  - name: qacode
-    path: /workspace/qa
----
-QA team description.
-`
-	_ = os.MkdirAll(groupsDir, 0755)
-	err = os.WriteFile(filepath.Join(groupsDir, "qa.md"), []byte(teamMD), 0644)
-	if err != nil {
-		t.Fatalf("failed to write raw team file: %v", err)
-	}
-
-	// 2. Run the migration.
-	err = store.MigrateWorkspacesToProjects(ctx)
-	if err != nil {
-		t.Fatalf("failed to run workspaces migration: %v", err)
-	}
-
-	// 3. Check if the project was inserted into the database.
-	proj, err := store.GetProject(ctx, "qa-qacode")
-	if err != nil {
-		t.Fatalf("project was not migrated to DB: %v", err)
-	}
-	if proj.Name != "qacode" || proj.Path != "/workspace/qa" {
-		t.Errorf("mismatch in migrated project: %+v", proj)
-	}
-
-	// 4. Check if the team file has been updated to remove Workspaces and add Projects.
-	retrievedTeam, err := store.GetTeamByName(ctx, "QA")
-	if err != nil {
-		t.Fatalf("failed to get migrated team: %v", err)
-	}
-	if len(retrievedTeam.Workspaces) != 1 || retrievedTeam.Workspaces[0].Path != "/workspace/qa" {
-		t.Errorf("mismatch in team workspaces: %+v", retrievedTeam.Workspaces)
-	}
-
-	// Verify project association is stored in team record.
-	if len(retrievedTeam.Projects) != 1 || retrievedTeam.Projects[0] != "qa-qacode" {
-		t.Errorf("mismatch in team projects association: %+v", retrievedTeam.Projects)
-	}
-
-	// 5. If database is not empty, running migration again should NOT create new projects or modify file projects if we add a new workspace.
-	// Write a new workspace to qa.md.
-	teamMD2 := `---
-name: QA
-workspaces:
-  - name: extra
-    path: /workspace/extra
-projects:
-  - qa-qacode
----
-QA team description.
-`
-	err = os.WriteFile(filepath.Join(groupsDir, "qa.md"), []byte(teamMD2), 0644)
-	if err != nil {
-		t.Fatalf("failed to write raw team file: %v", err)
-	}
-
-	// Run migration again. Since DB is not empty, it should NOT migrate "extra" into DB.
-	err = store.MigrateWorkspacesToProjects(ctx)
-	if err != nil {
-		t.Fatalf("failed to run migration again: %v", err)
-	}
-
-	// Verify "qa-extra" does NOT exist in DB.
-	_, err = store.GetProject(ctx, "qa-extra")
-	if err == nil {
-		t.Error("expected qa-extra project not to be created since DB is not empty")
-	}
-
-	// Verify the qa.md file workspaces block is cleared, but projects is still only ["qa-qacode"].
-	retrievedTeam2, err := store.GetTeamByName(ctx, "QA")
-	if err != nil {
-		t.Fatalf("failed to get migrated team: %v", err)
-	}
-	if len(retrievedTeam2.Projects) != 1 || retrievedTeam2.Projects[0] != "qa-qacode" {
-		t.Errorf("expected projects list to remain unchanged, got: %+v", retrievedTeam2.Projects)
-	}
-}
 
 func TestBuiltinEngineeringTeam(t *testing.T) {
 	tempDir := t.TempDir()

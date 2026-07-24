@@ -134,11 +134,6 @@ var (
 
 // --- Path extraction ---
 
-// convertWorkspaces converts []prompt.Workspace to []teamstore.Workspace.
-func convertWorkspaces(src []prompt.Workspace) []teamstore.Workspace {
-	return teamstore.WorkspaceFromPrompt(src)
-}
-
 // pathArgs is a generic struct for extracting the "path" field from tool args.
 type pathArgs struct {
 	Path  string     `json:"path"`
@@ -275,8 +270,6 @@ func (w *reloadWrapper) reloadGroup(ctx context.Context, path string) string {
 		storeTeam := &teamstore.Team{
 			Name:        gf.Frontmatter.Name,
 			Description: gf.Body,
-			Workspaces:  convertWorkspaces(gf.Frontmatter.Workspaces),
-			Projects:    gf.Frontmatter.Projects,
 		}
 		existing, err := w.cfg.TeamStore.GetTeamByName(ctx, gf.Frontmatter.Name)
 		if err == nil && existing != nil {

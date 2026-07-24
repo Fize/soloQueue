@@ -28,27 +28,10 @@ type AgentFrontmatter struct {
 
 // GroupFrontmatter corresponds to the YAML frontmatter of ~/.soloqueue/groups/*.md.
 type GroupFrontmatter struct {
-	ID         string      `yaml:"id,omitempty"`
-	Name       string      `yaml:"name"`
-	Workspaces []Workspace `yaml:"workspaces,omitempty"`
-	Projects   []string    `yaml:"projects,omitempty"`
-	CreatedAt  string      `yaml:"created_at,omitempty"`
-	UpdatedAt  string      `yaml:"updated_at,omitempty"`
-}
-
-// Workspace describes a team's associated workspace.
-type Workspace struct {
-	Name     string         `yaml:"name"`
-	Path     string         `yaml:"path"`
-	AutoWork AutoWorkConfig `yaml:"autoWork"`
-}
-
-// AutoWorkConfig describes the automatic work configuration.
-type AutoWorkConfig struct {
-	Enabled                 bool `yaml:"enabled"`
-	InitialCooldownMinutes  int  `yaml:"initialCooldownMinutes"`
-	PostTaskCooldownMinutes int  `yaml:"postTaskCooldownMinutes"`
-	MaxIntervalsPerDay      int  `yaml:"maxIntervalsPerDay"`
+	ID        string `yaml:"id,omitempty"`
+	Name      string `yaml:"name"`
+	CreatedAt string `yaml:"created_at,omitempty"`
+	UpdatedAt string `yaml:"updated_at,omitempty"`
 }
 
 // GroupFile parse result: frontmatter + markdown body (group description).

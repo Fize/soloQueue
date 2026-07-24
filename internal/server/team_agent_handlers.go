@@ -14,14 +14,12 @@ import (
 
 // TeamResponse is the response for GET/POST/PUT /api/teams/{name}.
 type TeamResponse struct {
-	ID          string                `json:"id"`
-	Name        string                `json:"name"`
-	Description string                `json:"description"`
-	Workspaces  []teamstore.Workspace `json:"workspaces"`
-	Projects    []string              `json:"projects"`
-	Agents      []AgentResponse       `json:"agents,omitempty"`
-	CreatedAt   string                `json:"created_at"`
-	UpdatedAt   string                `json:"updated_at"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Agents      []AgentResponse `json:"agents,omitempty"`
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
 }
 
 // AgentResponse is the response for agent CRUD endpoints.
@@ -46,20 +44,10 @@ type AgentResponse struct {
 
 // teamToResponse converts a teamstore.Team to a TeamResponse.
 func teamToResponse(t *teamstore.Team, agents []AgentResponse) TeamResponse {
-	ws := t.Workspaces
-	if ws == nil {
-		ws = []teamstore.Workspace{}
-	}
-	projects := t.Projects
-	if projects == nil {
-		projects = []string{}
-	}
 	return TeamResponse{
 		ID:          t.ID,
 		Name:        t.Name,
 		Description: t.Description,
-		Workspaces:  ws,
-		Projects:    projects,
 		Agents:      agents,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
@@ -123,20 +111,10 @@ func (m *Mux) handleListTeams(w http.ResponseWriter, r *http.Request) {
 				ModelID:     a.Model,
 			})
 		}
-		ws := t.Workspaces
-		if ws == nil {
-			ws = []teamstore.Workspace{}
-		}
-		projs := t.Projects
-		if projs == nil {
-			projs = []string{}
-		}
 		result = append(result, TeamInfoResponse{
 			ID:          t.ID,
 			Name:        t.Name,
 			Description: t.Description,
-			Workspaces:  ws,
-			Projects:    projs,
 			Agents:      agtResp,
 			CreatedAt:   t.CreatedAt,
 			UpdatedAt:   t.UpdatedAt,
@@ -149,10 +127,8 @@ func (m *Mux) handleListTeams(w http.ResponseWriter, r *http.Request) {
 
 // createTeamRequest is the JSON body for POST /api/teams.
 type createTeamRequest struct {
-	Name        string                `json:"name"`
-	Description string                `json:"description"`
-	Workspaces  []teamstore.Workspace `json:"workspaces"`
-	Projects    []string              `json:"projects"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // handleCreateTeam creates a new team.
@@ -171,8 +147,6 @@ func (m *Mux) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 	t := &teamstore.Team{
 		Name:        req.Name,
 		Description: req.Description,
-		Workspaces:  req.Workspaces,
-		Projects:    req.Projects,
 	}
 	if err := m.teamstore.CreateTeam(r.Context(), t); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -206,9 +180,7 @@ func (m *Mux) handleGetTeam(w http.ResponseWriter, r *http.Request) {
 
 // updateTeamRequest is the JSON body for PUT /api/teams/{name}.
 type updateTeamRequest struct {
-	Description *string                `json:"description,omitempty"`
-	Workspaces  *[]teamstore.Workspace `json:"workspaces,omitempty"`
-	Projects    *[]string              `json:"projects,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 // handleUpdateTeam updates an existing team.
@@ -232,12 +204,6 @@ func (m *Mux) handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
 
 	if req.Description != nil {
 		existing.Description = *req.Description
-	}
-	if req.Workspaces != nil {
-		existing.Workspaces = *req.Workspaces
-	}
-	if req.Projects != nil {
-		existing.Projects = *req.Projects
 	}
 
 	if err := m.teamstore.UpdateTeam(r.Context(), name, existing); err != nil {

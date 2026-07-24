@@ -5,9 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -117,44 +114,6 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("teamstore: delete project: %w", err)
-	}
-
-	// Clean up project association from all teams
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entries, err := os.ReadDir(s.groupsDir)
-	if err == nil {
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-				continue
-			}
-			path := filepath.Join(s.groupsDir, entry.Name())
-			info, err := entry.Info()
-			if err != nil {
-				continue
-			}
-			t, err := parseTeamFile(path, info)
-			if err != nil {
-				continue
-			}
-
-			// Check if project is associated
-			found := false
-			var updatedProjects []string
-			for _, pID := range t.Projects {
-				if pID == id {
-					found = true
-				} else {
-					updatedProjects = append(updatedProjects, pID)
-				}
-			}
-
-			if found {
-				t.Projects = updatedProjects
-				_ = s.writeTeamFile(path, t)
-			}
-		}
 	}
 
 	return nil

@@ -116,23 +116,9 @@ func loadFromTeamStore(store *teamstore.Store) (map[string]prompt.GroupFile, []p
 
 	groups := make(map[string]prompt.GroupFile, len(teams))
 	for _, t := range teams {
-		workspaces := make([]prompt.Workspace, 0, len(t.Workspaces))
-		for _, w := range t.Workspaces {
-			workspaces = append(workspaces, prompt.Workspace{
-				Name: w.Name,
-				Path: w.Path,
-				AutoWork: prompt.AutoWorkConfig{
-					Enabled:                 w.AutoWork.Enabled,
-					InitialCooldownMinutes:  w.AutoWork.InitialCooldownMinutes,
-					PostTaskCooldownMinutes: w.AutoWork.PostTaskCooldownMinutes,
-					MaxIntervalsPerDay:      w.AutoWork.MaxIntervalsPerDay,
-				},
-			})
-		}
 		groups[t.Name] = prompt.GroupFile{
 			Frontmatter: prompt.GroupFrontmatter{
-				Name:       t.Name,
-				Workspaces: workspaces,
+				Name: t.Name,
 			},
 			Body: t.Description,
 		}

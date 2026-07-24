@@ -5,8 +5,6 @@ package teamstore
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,28 +21,11 @@ import (
 
 // Team represents a team (group) stored in groups/ directory.
 type Team struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Workspaces  []Workspace `json:"workspaces"`
-	Projects    []string    `json:"projects"`
-	CreatedAt   string      `json:"created_at"`
-	UpdatedAt   string      `json:"updated_at"`
-}
-
-// Workspace describes a working directory associated with a team.
-type Workspace struct {
-	Name     string         `json:"name"`
-	Path     string         `json:"path"`
-	AutoWork AutoWorkConfig `json:"autoWork,omitempty"`
-}
-
-// AutoWorkConfig describes automatic work scheduling configuration.
-type AutoWorkConfig struct {
-	Enabled                 bool `json:"enabled"`
-	InitialCooldownMinutes  int  `json:"initialCooldownMinutes"`
-	PostTaskCooldownMinutes int  `json:"postTaskCooldownMinutes"`
-	MaxIntervalsPerDay      int  `json:"maxIntervalsPerDay"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // Agent represents an agent (team member) stored in agents/ directory.
@@ -148,7 +129,6 @@ func (s *Store) GetTeamByName(ctx context.Context, name string) (*Team, error) {
 		return nil, err
 	}
 
-	_ = s.resolveTeamWorkspaces(ctx, t)
 	return t, nil
 }
 
@@ -174,7 +154,6 @@ func (s *Store) ListTeams(ctx context.Context) ([]Team, error) {
 		}
 		t, err := parseTeamFile(path, info)
 		if err == nil {
-			_ = s.resolveTeamWorkspaces(ctx, t)
 			teams = append(teams, *t)
 		}
 	}
@@ -206,8 +185,6 @@ func (s *Store) UpdateTeam(ctx context.Context, name string, t *Team) error {
 	}
 
 	existing.Description = t.Description
-	existing.Workspaces = t.Workspaces
-	existing.Projects = t.Projects
 	existing.UpdatedAt = time.Now().Format(time.RFC3339)
 
 	return s.writeTeamFile(path, existing)
@@ -464,25 +441,8 @@ func (s *Store) writeTeamFile(path string, t *Team) error {
 	fm := prompt.GroupFrontmatter{
 		ID:        t.ID,
 		Name:      t.Name,
-		Projects:  t.Projects,
 		CreatedAt: t.CreatedAt,
 		UpdatedAt: t.UpdatedAt,
-	}
-	if t.Workspaces != nil {
-		workspaces := make([]prompt.Workspace, len(t.Workspaces))
-		for i, w := range t.Workspaces {
-			workspaces[i] = prompt.Workspace{
-				Name: w.Name,
-				Path: w.Path,
-				AutoWork: prompt.AutoWorkConfig{
-					Enabled:                 w.AutoWork.Enabled,
-					InitialCooldownMinutes:  w.AutoWork.InitialCooldownMinutes,
-					PostTaskCooldownMinutes: w.AutoWork.PostTaskCooldownMinutes,
-					MaxIntervalsPerDay:      w.AutoWork.MaxIntervalsPerDay,
-				},
-			}
-		}
-		fm.Workspaces = workspaces
 	}
 
 	fmBytes, err := yaml.Marshal(fm)
@@ -520,27 +480,6 @@ func (s *Store) writeAgentFile(path string, a *Agent) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
-
-// WorkspaceFromPrompt converts a prompt.Workspace slice to a teamstore.Workspace slice.
-func WorkspaceFromPrompt(src []prompt.Workspace) []Workspace {
-	if src == nil {
-		return nil
-	}
-	out := make([]Workspace, len(src))
-	for i, w := range src {
-		out[i] = Workspace{
-			Name: w.Name,
-			Path: w.Path,
-			AutoWork: AutoWorkConfig{
-				Enabled:                 w.AutoWork.Enabled,
-				InitialCooldownMinutes:  w.AutoWork.InitialCooldownMinutes,
-				PostTaskCooldownMinutes: w.AutoWork.PostTaskCooldownMinutes,
-				MaxIntervalsPerDay:      w.AutoWork.MaxIntervalsPerDay,
-			},
-		}
-	}
-	return out
-}
 func parseTeamFile(path string, info os.FileInfo) (*Team, error) {
 	gf, err := prompt.ParseGroupFile(path)
 	if err != nil {
@@ -563,17 +502,10 @@ func parseTeamFile(path string, info os.FileInfo) (*Team, error) {
 		updatedAt = info.ModTime().Format(time.RFC3339)
 	}
 
-	var workspaces []Workspace
-	if gf.Frontmatter.Workspaces != nil {
-		workspaces = WorkspaceFromPrompt(gf.Frontmatter.Workspaces)
-	}
-
 	return &Team{
 		ID:          id,
 		Name:        name,
 		Description: gf.Body,
-		Workspaces:  workspaces,
-		Projects:    gf.Frontmatter.Projects,
 		CreatedAt:   createdAt,
 		UpdatedAt:   updatedAt,
 	}, nil
@@ -617,157 +549,4 @@ func parseAgentFile(path string, info os.FileInfo) (*Agent, error) {
 		CreatedAt:     createdAt,
 		UpdatedAt:     updatedAt,
 	}, nil
-}
-
-func (s *Store) resolveTeamWorkspaces(ctx context.Context, t *Team) error {
-	if s.db == nil || len(t.Projects) == 0 {
-		return nil
-	}
-
-	for _, projID := range t.Projects {
-		p, err := s.GetProject(ctx, projID)
-		if err != nil {
-			continue
-		}
-		ws := Workspace{
-			Name: p.Name,
-			Path: p.Path,
-		}
-		exists := false
-		for _, existing := range t.Workspaces {
-			if existing.Path == ws.Path || existing.Name == ws.Name {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			t.Workspaces = append(t.Workspaces, ws)
-		}
-	}
-	return nil
-}
-
-// MigrateWorkspacesToProjects scans all group markdown files. If any team has workspaces
-// directly defined, it creates corresponding project records in the database, associates
-// them with the team, and updates the group markdown file (migrating them from workspaces to projects).
-// It also cleans up any orphaned/non-existent project IDs from the team's associated projects list.
-func (s *Store) MigrateWorkspacesToProjects(ctx context.Context) error {
-	if s.db == nil {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Check if database projects table already has data.
-	// If it does, we do NOT perform any workspace merging/creation.
-	var count int
-	errCount := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&count)
-	dbHasData := (errCount == nil && count > 0)
-
-	entries, err := os.ReadDir(s.groupsDir)
-	if err != nil {
-		return fmt.Errorf("migrate: read groups dir: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-		path := filepath.Join(s.groupsDir, entry.Name())
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		t, err := parseTeamFile(path, info)
-		if err != nil {
-			continue
-		}
-
-		workspacesPresent := len(t.Workspaces) > 0
-
-		// 1. If database has NO data, migrate workspaces to projects in database and associate them.
-		if !dbHasData && workspacesPresent {
-			for _, ws := range t.Workspaces {
-				// Check if a project with this name or path already exists in database
-				var existingID string
-				err := s.db.QueryRowContext(ctx,
-					`SELECT id FROM projects WHERE path = ? OR name = ?`,
-					ws.Path, ws.Name,
-				).Scan(&existingID)
-
-				if err != nil {
-					if errors.Is(err, sql.ErrNoRows) {
-						// Create a new project
-						projID := strings.ToLower(t.Name + "-" + ws.Name)
-						// Ensure unique ID in database by appending timestamp if it already exists
-						var tempID string
-						if errID := s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE id = ?`, projID).Scan(&tempID); errID == nil {
-							projID = fmt.Sprintf("%s-%d", projID, time.Now().UnixNano())
-						}
-
-						proj := &Project{
-							ID:          projID,
-							Name:        ws.Name,
-							Path:        ws.Path,
-							Description: fmt.Sprintf("Migrated from team %s", t.Name),
-						}
-
-						func() {
-							s.db.WMu.Lock()
-							defer s.db.WMu.Unlock()
-							now := time.Now().Format(time.RFC3339)
-							proj.CreatedAt = now
-							proj.UpdatedAt = now
-							_, _ = s.db.ExecContext(ctx,
-								`INSERT INTO projects (id, name, path, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-								proj.ID, proj.Name, proj.Path, proj.Description, proj.CreatedAt, proj.UpdatedAt,
-							)
-						}()
-						existingID = proj.ID
-					} else {
-						continue
-					}
-				}
-
-				// Associate project with the team
-				existsInTeam := false
-				for _, pID := range t.Projects {
-					if pID == existingID {
-						existsInTeam = true
-						break
-					}
-				}
-				if !existsInTeam {
-					t.Projects = append(t.Projects, existingID)
-				}
-			}
-		}
-
-		// 2. Clean up non-existent project IDs from the team's projects list.
-		// This runs regardless of dbHasData.
-		var validProjects []string
-		projectsChanged := false
-		for _, pID := range t.Projects {
-			var tempID string
-			errVal := s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE id = ?`, pID).Scan(&tempID)
-			if errVal == nil {
-				validProjects = append(validProjects, pID)
-			} else {
-				// Project doesn't exist in DB, filter it out
-				projectsChanged = true
-			}
-		}
-
-		// 3. Clear workspaces and rewrite file if we modified projects or need to clear obsolete workspaces
-		if (workspacesPresent && !dbHasData) || projectsChanged || (workspacesPresent && dbHasData) {
-			t.Workspaces = nil
-			if projectsChanged {
-				t.Projects = validProjects
-			}
-			_ = s.writeTeamFile(path, t)
-		}
-	}
-
-	return nil
 }

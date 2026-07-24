@@ -182,12 +182,6 @@ Designer team
 	if len(groups) != 2 {
 		t.Fatalf("len(groups) = %d, want 2", len(groups))
 	}
-	if groups["DevOps"].Body != "Development team" {
-		t.Errorf("DevOps body = %q, want %q", groups["DevOps"].Body, "Development team")
-	}
-	if len(groups["DevOps"].Frontmatter.Workspaces) != 1 {
-		t.Errorf("DevOps workspaces len = %d, want 1", len(groups["DevOps"].Frontmatter.Workspaces))
-	}
 	if groups["Design"].Body != "Designer team" {
 		t.Errorf("Design body = %q, want %q", groups["Design"].Body, "Designer team")
 	}

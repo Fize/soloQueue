@@ -1051,22 +1051,8 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 
 	// ── Segment 2: Dynamic Capability Area ──────────────────────────────
-	// 2a. Working Directory
-	b.WriteString("# Working Directory\n\n")
-	fmt.Fprintf(&b, "Your working directory is `%s`. All project files, source code, and configurations reside under this directory. Use this as the base for all file operations.\n", workDir)
-	if tmpl.Group != "" {
-		if gf, ok := groups[tmpl.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
-			b.WriteString("\nTeam workspaces:\n")
-			for _, ws := range gf.Frontmatter.Workspaces {
-				mark := " "
-				if ws.Path == workDir {
-					mark = "▶"
-				}
-				fmt.Fprintf(&b, "- **%s**: %s %s\n", ws.Name, ws.Path, mark)
-			}
-		}
-	}
-	b.WriteString("\n")
+	// 2a. Working Directory (Static instructions for 100% prompt cache hit rate)
+	b.WriteString("# Working Directory\n\nAll file and tool operations execute in the current working directory (CWD) by default. Relative file paths and shell commands operate natively in this directory. If needed, you can use `pwd` or directory inspection commands to verify the absolute path.\n\n")
 
 	// 2b. Team Context (from group file body)
 	if tmpl.Group != "" {
@@ -1334,22 +1320,8 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 		b.WriteString("\n\n")
 	}
 
-	// ── Working Directory ──────────────────────────────────
-	b.WriteString("# Working Directory\n\n")
-	fmt.Fprintf(&b, "Your working directory is `%s`. All project files, source code, and configurations reside under this directory. Use this as the base for all file operations.\n", workDir)
-	if tmpl.Group != "" {
-		if gf, ok := groups[tmpl.Group]; ok && len(gf.Frontmatter.Workspaces) > 0 {
-			b.WriteString("\nTeam workspaces:\n")
-			for _, ws := range gf.Frontmatter.Workspaces {
-				mark := " "
-				if ws.Path == workDir {
-					mark = "▶"
-				}
-				fmt.Fprintf(&b, "- **%s**: %s %s\n", ws.Name, ws.Path, mark)
-			}
-		}
-	}
-	b.WriteString("\n")
+	// ── Working Directory (Static instructions for 100% prompt cache hit rate) ──
+	b.WriteString("# Working Directory\n\nAll file and tool operations execute in the current working directory (CWD) by default. Relative file paths and shell commands operate natively in this directory. If needed, you can use `pwd` or directory inspection commands to verify the absolute path.\n\n")
 
 	// ── Segment 2: Framework Mandatory Area ──────────────────────────────
 	b.WriteString(prompt.EnvSection(workDir, exploreDir, false, false))

@@ -172,23 +172,10 @@ export interface SetDependenciesRequest {
 
 // ─── Team & Agent CRUD Types (DB-backed) ────────────────────────────────────
 
-export interface TeamWorkspace {
-  name: string;
-  path: string;
-  autoWork?: {
-    enabled: boolean;
-    initialCooldownMinutes: number;
-    postTaskCooldownMinutes: number;
-    maxIntervalsPerDay: number;
-  };
-}
-
 export interface TeamResponse {
   id: string;
   name: string;
   description: string;
-  workspaces: TeamWorkspace[];
-  projects?: string[];
   agents?: AgentResponse[];
   created_at: string;
   updated_at: string;
@@ -214,14 +201,10 @@ export interface AgentResponse {
 export interface CreateTeamRequest {
   name: string;
   description?: string;
-  workspaces?: TeamWorkspace[];
-  projects?: string[];
 }
 
 export interface UpdateTeamRequest {
   description?: string;
-  workspaces?: TeamWorkspace[];
-  projects?: string[];
 }
 
 export interface Project {

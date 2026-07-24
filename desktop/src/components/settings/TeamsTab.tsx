@@ -9,19 +9,17 @@ import {
   createAgent,
   updateAgent,
   deleteAgent,
-  listProjects,
   listModels,
   getAvailableMCPServers,
   getSkills,
   getQQBotsConfig,
   getWeChatBotsConfig,
 } from '@/lib/api'
-import type { TeamResponse, AgentResponse, Project, LLMModel } from '@/types'
+import type { TeamResponse, AgentResponse, LLMModel } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
@@ -198,8 +196,7 @@ interface TeamDialogProps {
 function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [allProjects, setAllProjects] = useState<Project[]>([])
-  const [associatedProjects, setAssociatedProjects] = useState<string[]>([])
+  const [descTab, setDescTab] = useState<'edit' | 'preview'>('edit')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { t } = useTranslation()
@@ -208,16 +205,14 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
 
   useEffect(() => {
     if (open) {
-      listProjects().then(setAllProjects).catch(console.error)
       if (editTeam) {
         setName(editTeam.name)
         setDescription(editTeam.description || '')
-        setAssociatedProjects(editTeam.projects || [])
       } else {
         setName('')
         setDescription('')
-        setAssociatedProjects([])
       }
+      setDescTab('edit')
       setError(null)
     }
   }, [open, editTeam])
@@ -234,13 +229,11 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
       if (isEdit) {
         await updateTeam(editTeam!.name, {
           description: description || undefined,
-          projects: associatedProjects,
         })
       } else {
         await createTeam({
           name: name.trim(),
           description: description || undefined,
-          projects: associatedProjects,
         })
       }
       onSave()
@@ -250,7 +243,7 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
     } finally {
       setSaving(false)
     }
-  }, [name, description, associatedProjects, isEdit, editTeam, t, onSave, onOpenChange])
+  }, [name, description, isEdit, editTeam, t, onSave, onOpenChange])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -269,7 +262,7 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
+      <DialogContent className="max-w-lg w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
         <DialogHeader className="shrink-0">
           <div className="flex items-center gap-2">
             <DialogTitle className="text-sm font-bold text-foreground">
@@ -295,63 +288,54 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
             />
           )}
 
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground">{t('teams.teamDescription')}</Label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              placeholder={t('teams.teamDescPlaceholder')}
-              className="text-xs"
-            />
-          </div>
+          <div className="flex flex-col gap-2 min-h-[220px]">
+            <Tabs
+              value={descTab}
+              onValueChange={(v: string) => setDescTab(v as 'edit' | 'preview')}
+              className="flex-grow flex flex-col"
+            >
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold text-muted-foreground">{t('teams.teamDescription')}</Label>
+                <TabsList className="bg-muted/60 p-0.5 rounded-md border border-border">
+                  <TabsTrigger
+                    value="edit"
+                    className="flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium"
+                  >
+                    <FileTextIcon className="h-3 w-3" />
+                    {t('teams.edit')}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="preview"
+                    className="flex items-center gap-1 rounded-[4px] px-2.5 py-1 text-xs font-medium"
+                  >
+                    <Eye className="h-3 w-3" />
+                    {t('teams.preview')}
+                  </TabsTrigger>
+                </TabsList>
+              </div>
 
-          <div className="flex flex-col gap-1.5 pt-1">
-            <Label className="text-xs font-semibold text-muted-foreground">{t('teams.associatedProjects')}</Label>
-            <div className="border border-border rounded-md p-2.5 max-h-[200px] overflow-y-auto space-y-2 bg-muted/10">
-              {allProjects.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic p-2 text-center">
-                  {t('teams.noProjects')}
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 gap-2">
-                  {allProjects.map((p) => {
-                    const checked = associatedProjects.includes(p.id)
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => {
-                          if (checked) {
-                            setAssociatedProjects((prev) => prev.filter((id) => id !== p.id))
-                          } else {
-                            setAssociatedProjects((prev) => [...prev, p.id])
-                          }
-                        }}
-                        className={`flex items-start gap-2.5 p-2 rounded-lg border cursor-pointer select-none transition-all ${
-                          checked
-                            ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
-                            : 'border-border bg-card hover:bg-muted/40'
-                        }`}
-                      >
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={() => {}} // Controlled by parent div click
-                          className="mt-0.5"
-                        />
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-xs font-medium text-foreground truncate">{p.name}</span>
-                          {p.description && (
-                            <span className="text-[10px] text-muted-foreground truncate mt-0.5 leading-tight">
-                              {p.description}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+              <TabsContent value="edit" className="flex-1 flex flex-col min-h-[180px] mt-2">
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="flex-grow min-h-[180px] font-mono text-xs w-full"
+                  placeholder={t('teams.teamDescPlaceholder')}
+                  spellCheck={false}
+                />
+              </TabsContent>
+              <TabsContent
+                value="preview"
+                className="flex-1 mt-2 min-h-[180px] max-h-[260px] overflow-y-auto rounded-md border border-border bg-muted/5 p-3 text-xs text-foreground prose prose-sm dark:prose-invert"
+              >
+                {description.trim() ? (
+                  <MarkdownPreview content={description} />
+                ) : (
+                  <span className="text-xs text-muted-foreground italic">
+                    {t('teams.noDescriptionYet') || 'No description provided.'}
+                  </span>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
 
@@ -938,7 +922,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 export default function TeamsTab() {
   const [teams, setTeams] = useState<TeamResponse[]>([])
   const [agents, setAgents] = useState<AgentResponse[]>([])
-  const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const { t } = useTranslation()
 
@@ -958,14 +941,12 @@ export default function TeamsTab() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const [teamsData, agentsData, projectsData] = await Promise.all([
+      const [teamsData, agentsData] = await Promise.all([
         listTeams(),
         listAgents(),
-        listProjects(),
       ])
       setTeams(teamsData)
       setAgents(agentsData)
-      setProjects(projectsData)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('teams.failedToLoad'))
     } finally {
@@ -1107,23 +1088,6 @@ export default function TeamsTab() {
                       <p className="text-xs text-muted-foreground truncate mt-0.5">
                         {team.description}
                       </p>
-                    )}
-                    {team.projects && team.projects.length > 0 && (
-                      <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                        {team.projects.map((projId) => {
-                          const proj = projects.find((p) => p.id === projId)
-                          const displayName = proj ? proj.name : projId
-                          return (
-                            <Badge
-                              key={projId}
-                              variant="secondary"
-                              className="text-[9px] px-1.5 py-0.5 h-4"
-                            >
-                              {displayName}
-                            </Badge>
-                          )
-                        })}
-                      </div>
                     )}
                   </div>
                   <div
