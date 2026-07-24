@@ -225,20 +225,25 @@ export function StatsTab() {
   }, [tokenStats, timeframe, fromDate, toDate])
 
   const routerChartData = useMemo(() => {
-    const grouped = new Map<string, { period: string; local: number; remote: number }>()
+    const grouped = new Map<string, { period: string; local: number; remote: number; error: number }>()
     for (const row of routerStats) {
       const p = row.period
-      if (!grouped.has(p)) grouped.set(p, { period: p, local: 0, remote: 0 })
+      if (!grouped.has(p)) grouped.set(p, { period: p, local: 0, remote: 0, error: 0 })
       const g = grouped.get(p)!
-      if (row.classification_source === 'local') g.local += row.count
-      else g.remote += row.count
+      if (row.classification_source === 'local') {
+        g.local += row.count
+      } else if (row.classification_source === 'local-fallback' || row.classification_source === 'error') {
+        g.error += row.count
+      } else {
+        g.remote += row.count
+      }
     }
     if (fromDate && toDate) {
       const fromD = new Date(fromDate.replace(' ', 'T'))
       const toD = new Date(toDate.replace(' ', 'T'))
       const buckets = generateBuckets(timeframe, fromD, toD)
       for (const b of buckets) {
-        if (!grouped.has(b)) grouped.set(b, { period: b, local: 0, remote: 0 })
+        if (!grouped.has(b)) grouped.set(b, { period: b, local: 0, remote: 0, error: 0 })
       }
     }
     return Array.from(grouped.values()).sort((a, b) => a.period.localeCompare(b.period))
@@ -453,6 +458,7 @@ export function StatsTab() {
                     <Legend wrapperStyle={{ fontSize: '12px' }} />
                   <Line type="monotone" dataKey="local" name={t('stats.local')} stroke="var(--color-chart-4)" strokeWidth={2} dot={routerChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
                   <Line type="monotone" dataKey="remote" name={t('stats.remote')} stroke="var(--color-chart-5)" strokeWidth={2} dot={routerChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="error" name={t('stats.error')} stroke="var(--color-destructive)" strokeWidth={2} dot={routerChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

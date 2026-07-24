@@ -78,14 +78,15 @@ func (s *Session) SetLastLevel(level string) {
 
 // RouteResult is a minimal routing decision passed to the session layer.
 type RouteResult struct {
-	ProviderID      string // LLM provider to use (e.g., "deepseek"); empty = default
-	ModelID         string // API model to use (e.g., "deepseek-v4-pro")
-	ThinkingEnabled bool   // whether to enable thinking mode
-	ReasoningEffort string // "high" | "max" | ""
-	ThinkingType    string // thinking.type value: "enabled" (default) or "adaptive"
-	Level           string // classification level label (e.g., "L1-SimpleSingleFile")
-	ContextWindow   int    // model context window capacity (tokens); 0 = unchanged
-	Vision          bool   // model supports multimodal image_url content
+	ProviderID        string // LLM provider to use (e.g., "deepseek"); empty = default
+	ModelID           string // API model to use (e.g., "deepseek-v4-pro")
+	ThinkingEnabled   bool   // whether to enable thinking mode
+	ReasoningEffort   string // "high" | "max" | ""
+	ThinkingType      string // thinking.type value: "enabled" (default) or "adaptive"
+	Level             string // classification level label (e.g., "L1-SimpleSingleFile")
+	ContextWindow     int    // model context window capacity (tokens); 0 = unchanged
+	Vision            bool   // model supports multimodal image_url content
+	ClassifierWarning string // non-empty when classification degraded (for desktop notification)
 }
 
 // TaskRouterFunc classifies a user prompt and returns model routing parameters.
@@ -381,6 +382,15 @@ func (s *Session) IsQBot() bool {
 // SetIsQBot sets the QBot status for the session.
 func (s *Session) SetIsQBot(val bool) {
 	s.isQBot.Store(val)
+}
+
+// ClassifierWarning returns the classifier degradation warning, if any.
+// Non-empty when the task router encountered an error or LLM fallback.
+// Callers should send a desktop notification to inform the user.
+func (s *Session) ClassifierWarning() string {
+	s.lastLevelMu.RLock()
+	defer s.lastLevelMu.RUnlock()
+	return s.lastRouteResult.ClassifierWarning
 }
 
 // CW returns the underlying ContextWindow pointer without locking.
@@ -1151,12 +1161,14 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			routerCtx := telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageRouter)
 			result, err = s.Router(routerCtx, prompt, priorLevel, s.cw.BuildPayload())
 			if err != nil {
-				s.logger.DebugContext(ctx, logger.CatApp, "task router failed, using default model",
+				s.logger.WarnContext(ctx, logger.CatApp, "task router failed, using default model",
 					"session_id", s.ID,
 					"err", err.Error(),
 				)
 				// Don't return — proceed with defaults (no model override)
-				result = RouteResult{}
+				result = RouteResult{
+					ClassifierWarning: "Task classification degraded: " + err.Error(),
+				}
 			}
 		}
 

@@ -615,35 +615,60 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 	return func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error) {
 		// Use the router package's Route method directly
 		decision, err := rtr.Route(ctx, prompt, parseClassificationLevel(priorLevel), history)
-		if err != nil {
-			return RouteResult{}, err
-		}
 
+		// Always record classification in usage_metrics for observability.
+		// On error the level is "Unknown" and source is "error" — still
+		// valuable for diagnosing classifier failures.
 		if rt.SharedDB != nil {
 			teamID, _ := telemetry.TelemetryFromContext(ctx)
 			bgCtx := context.Background()
+
+			level := decision.Level.String()
+			source := decision.Classification.Source
+			if err != nil {
+				source = "error"
+			}
 
 			go func() {
 				_ = rt.SharedDB.InsertRouterClassification(
 					bgCtx,
 					telemetry.UsageRouter, // usageType
 					teamID,
-					decision.Level.String(),
-					decision.Classification.Source,
+					level,
+					source,
 				)
 			}()
 		}
 
+		if err != nil {
+			return RouteResult{}, err
+		}
+
 		return RouteResult{
-			ProviderID:      decision.ProviderID,
-			ModelID:         decision.ModelID,
-			ThinkingEnabled: decision.ThinkingEnabled,
-			ReasoningEffort: decision.ReasoningEffort,
-			ThinkingType:    decision.ThinkingType,
-			Level:           decision.Level.String(),
-			ContextWindow:   decision.ContextWindow,
-			Vision:          decision.Vision,
+			ProviderID:        decision.ProviderID,
+			ModelID:           decision.ModelID,
+			ThinkingEnabled:   decision.ThinkingEnabled,
+			ReasoningEffort:   decision.ReasoningEffort,
+			ThinkingType:      decision.ThinkingType,
+			Level:             decision.Level.String(),
+			ContextWindow:     decision.ContextWindow,
+			Vision:            decision.Vision,
+			ClassifierWarning: classifierWarning(decision),
 		}, nil
+	}
+}
+
+// classifierWarning returns a human-readable warning when the classification
+// degraded. Returns empty string when everything is normal.
+func classifierWarning(decision router.RouteDecision) string {
+	src := decision.Classification.Source
+	switch src {
+	case "local-fallback":
+		return "LLM classifier unavailable; using local rules only. Task level may be inaccurate."
+	case "llm-error":
+		return "Classification degraded: LLM classifier error. Using fallback model."
+	default:
+		return ""
 	}
 }
 

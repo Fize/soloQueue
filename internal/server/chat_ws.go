@@ -276,6 +276,20 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		return
 	}
 
+	// Notify desktop when classification degraded (LLM error, fallback used).
+	if cw := sess.ClassifierWarning(); cw != "" {
+		client.sendJSON(WSMessage{
+			Type: "notification",
+			Notification: &NotificationPayload{
+				Category:  "classifier",
+				Level:     "warning",
+				Title:     "Task classification degraded",
+				Body:      cw,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			},
+		})
+	}
+
 	// Consume agent events and forward to client.
 	go h.forwardAgentEvents(client, msg.RequestID, reqCancel, ch, msg.SessionID, msg.Prompt)
 }

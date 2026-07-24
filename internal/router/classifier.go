@@ -107,6 +107,10 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorL
 			llmResult, err = dc.llm.Classify(ctx, prompt, priorLevel, history)
 			if err != nil {
 				llmErr = err.Error()
+				llmResult.Source = "local-fallback"
+				finalSource = "llm-error"
+			} else {
+				finalSource = "llm-only"
 			}
 			finalResult := llmResult
 			if err == nil {
@@ -114,7 +118,6 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorL
 				finalResult = dc.applyHybrid(finalResult, priorLevel)
 				hybridApplied = finalResult.Level != priorBeforeHybrid
 			}
-			finalSource = "llm-only"
 			dc.recordDecision(ctx, prompt, ftResult, llmResult, llmInvoked, llmErr, finalResult, finalSource, hybridApplied, priorLevel)
 			return finalResult, err
 		}
@@ -175,12 +178,13 @@ func (dc *DefaultClassifier) Classify(ctx context.Context, prompt string, priorL
 	llmResult, llmErrVal = dc.llm.Classify(ctx, prompt, priorLevel, history)
 	if llmErrVal != nil {
 		llmErr = llmErrVal.Error()
-		dc.logger.DebugContext(ctx, logger.CatApp, "LLM classifier error, using fast-track",
+		dc.logger.WarnContext(ctx, logger.CatApp, "LLM classifier error, using fast-track",
 			"err", llmErr,
 		)
 		priorBeforeHybrid = ftResult.Level
 		result := dc.applyHybrid(ftResult, priorLevel)
 		hybridApplied = result.Level != priorBeforeHybrid
+		result.Source = "local-fallback"
 		finalSource = "llm-error"
 		dc.recordDecision(ctx, prompt, ftResult, llmResult, llmInvoked, llmErr, result, finalSource, hybridApplied, priorLevel)
 		return result, nil

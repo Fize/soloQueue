@@ -176,7 +176,7 @@ func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ Classifi
 			Level:      LevelSimpleSingleFile,
 			Confidence: 50,
 			Reason:     "LLM classifier timeout/error; defaulting to L1",
-		}, nil // swallow error, return safe default
+		}, err // return error for upstream observability
 	}
 
 	// 6. Parse JSON response
