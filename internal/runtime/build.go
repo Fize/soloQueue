@@ -16,16 +16,15 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	lsp "github.com/xiaobaitu/soloqueue/internal/lsp"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
+	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
@@ -33,6 +32,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -86,12 +86,12 @@ func Build(
 
 	bc.settings = bc.cfg.Get() // refresh with file-backed configuration
 
-	// Surface a one-time notice if a legacy settings.toml is present in the
+	// Surface a one-time notice if a legacy settings.yaml is present in the
 	// work dir. The TOML migration path has been removed; settings.yaml is the
 	// single source of truth. Operators should remove the file manually.
-	if legacyToml := filepath.Join(bc.workDir, "settings.toml"); legacyTomlExists(legacyToml) {
+	if legacyToml := filepath.Join(bc.workDir, "settings.yaml"); legacyTomlExists(legacyToml) {
 		bc.log.Info(logger.CatApp,
-			"legacy settings.toml detected and ignored; settings.yaml is the single source of truth — remove it manually",
+			"legacy settings.yaml detected and ignored; settings.yaml is the single source of truth — remove it manually",
 			"path", legacyToml)
 	}
 
@@ -588,7 +588,7 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 	log.Debug(logger.CatApp, "prompt hot-reload: watching directories", "roles", rolesDir, "groups", groupsDir, "agents", agentsDir)
 }
 
-// legacyTomlExists reports whether a legacy settings.toml is present at the
+// legacyTomlExists reports whether a legacy settings.yaml is present at the
 // given path. The TOML migration path has been removed; this helper is only
 // used to surface a one-time notice in the log.
 func legacyTomlExists(path string) bool {

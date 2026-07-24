@@ -67,13 +67,13 @@ Other subcommands: `version`.
 
 - Work directory: `~/.soloqueue/` (`config.DefaultWorkDir()`)
 - Agent templates: `~/.soloqueue/agents/*.md` (YAML frontmatter + markdown; hot-reload via fsnotify)
-- Config: `~/.soloqueue/settings.toml` (TOML; hot-reload via fsnotify)
+- Config: `~/.soloqueue/settings.yaml` (TOML; hot-reload via fsnotify)
 - MCP servers: `~/.soloqueue/mcp.json` (hot-reload)
 - Skills: `~/.soloqueue/skills/*.md` (hot-reload)
 - Timeline JSONL: `~/.soloqueue/logs/timelines/`
 - Task level persistence: `logs/timelines/l2-<id>/level` — stores last routing level so restarted sessions preserve task context (prevents "这个功能做完了吗" being misclassified as L0)
 - Shared SQLite: `~/.soloqueue/soloqueue.db`
-- Config loading order (low→high priority): compiled defaults → `settings.toml` → `settings.local.toml`
+- Config loading order (low→high priority): compiled defaults → `settings.yaml` → `settings.local.toml`
 - Ignored by git: `.soloqueue/`, `.codebuddy/`, `.envsoloqueue`, `logs/`
 
 ## Architecture

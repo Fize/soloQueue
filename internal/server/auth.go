@@ -48,9 +48,9 @@ func (m *Mux) handleGetWSToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveEffectiveAuth sets m.effectiveAuthUser and m.effectiveAuthPass.
-// Priority: settings.toml [auth] → SOLOQUEUE_AUTH_USER/PASSWORD env vars → auto-generated.
+// Priority: settings.yaml [auth] → SOLOQUEUE_AUTH_USER/PASSWORD env vars → auto-generated.
 func (m *Mux) resolveEffectiveAuth() {
-	// 1. settings.toml [auth]
+	// 1. settings.yaml [auth]
 	if m.authConfig.User != "" {
 		m.effectiveAuthUser = m.authConfig.User
 		m.effectiveAuthPass = m.authConfig.Password
@@ -136,7 +136,6 @@ func isLocalhostAccess(r *http.Request) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-
 // newLocalhostRequest is a test helper that creates an HTTP request with
 // Host and RemoteAddr set to loopback addresses so that isLocalhostAccess
 // returns true. Use in tests that don't specifically exercise auth behavior.
@@ -146,4 +145,3 @@ func newLocalhostRequest(method, target string, body io.Reader) *http.Request {
 	req.RemoteAddr = "127.0.0.1:12345"
 	return req
 }
-

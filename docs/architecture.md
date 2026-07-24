@@ -303,7 +303,7 @@ The config system is the runtime control plane. It owns the global settings sche
 
 ### Core Features
 
-- **Layered Loading**: `defaults -> settings.toml -> settings.local.toml`
+- **Layered Loading**: `defaults -> settings.yaml -> settings.local.toml`
 - **Hot Reload**: `fsnotify`-based file watching with 200ms debounce
 - **Type-Safe**: Generic `Loader[T]` with concurrent-safe snapshot access
 - **Atomic Saves**: Temp-file-plus-rename pattern

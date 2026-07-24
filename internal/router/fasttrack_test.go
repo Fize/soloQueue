@@ -284,7 +284,7 @@ func TestFastTrackClassifier_ExtractFilePaths(t *testing.T) {
 		},
 		{
 			name:      "Relative paths",
-			prompt:    "Update ./package.json and ../config/settings.toml",
+			prompt:    "Update ./package.json and ../config/settings.yaml",
 			wantCount: 2,
 		},
 	}

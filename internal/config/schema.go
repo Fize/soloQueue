@@ -50,14 +50,14 @@ type SimulationConfig struct {
 // SpeechConfig controls local speech-to-text via whisper.cpp.
 type SpeechConfig struct {
 	Enabled  bool   `json:"enabled" yaml:"enabled,omitempty"`
-	Model    string `json:"model"   yaml:"model,omitempty"`    // tiny / base / small / medium
+	Model    string `json:"model"   yaml:"model,omitempty"`      // tiny / base / small / medium
 	ModelDir string `json:"modelDir" yaml:"model_dir,omitempty"` // "" = ~/.soloqueue/models
 }
 
 // ─── Top-level Settings ───────────────────────────────────────────────────────
 
 // Settings is the complete structure for global configuration
-// Corresponds to ~/.soloqueue/settings.toml
+// Corresponds to ~/.soloqueue/settings.yaml
 //
 // Note: UI-specific states (theme / language, etc.) are persisted by the frontend itself (localStorage /
 // Tauri Store), not in backend settings file —— backend does not do i18n, logs
@@ -367,7 +367,7 @@ type LSPMCPConfig struct {
 	Servers []LSPMCPEntry `json:"servers,omitempty" yaml:"servers"`
 }
 
-// LSPMCPEntry is a single LSP server entry in settings.toml.
+// LSPMCPEntry is a single LSP server entry in settings.yaml.
 // When the servers list is empty, all built-in servers are used.
 type LSPMCPEntry struct {
 	ID         string   `json:"id" yaml:"id"`

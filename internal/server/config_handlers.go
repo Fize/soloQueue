@@ -22,7 +22,7 @@ func (m *Mux) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 	m.writeJSON(w, http.StatusOK, settings)
 }
 
-// handleGetConfigToml returns the raw settings.toml content.
+// handleGetConfigToml returns the raw settings.yaml content.
 // GET /api/config/toml
 // handleGetConfigYAML returns the raw settings.yaml content.
 // GET /api/config/yaml

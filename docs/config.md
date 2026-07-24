@@ -13,7 +13,7 @@ SoloQueue uses a hybrid configuration model. Runtime settings are split between 
                               │
                               ▼
                    ┌──────────────────────┐
-                   │  settings.toml /     │  --> Contains Auth, Log, Agent blocks
+                   │  settings.yaml /     │  --> Contains Auth, Log, Agent blocks
                    │  settings.local.toml │
                    └──────────┬───────────┘
                               │
@@ -26,12 +26,12 @@ SoloQueue uses a hybrid configuration model. Runtime settings are split between 
                    └──────────────────────┘
 ```
 
-### TOML Files (`settings.toml` & `settings.local.toml`)
+### TOML Files (`settings.yaml` & `settings.local.toml`)
 
-- **Location**: `~/.soloqueue/settings.toml` (shared user config) and `~/.soloqueue/settings.local.toml` (optional machine-specific override).
+- **Location**: `~/.soloqueue/settings.yaml` (shared user config) and `~/.soloqueue/settings.local.toml` (optional machine-specific override).
 - **Scope**: Used for process bootstrap parameters, authentication, logging options, and core agent server settings.
 - **Serialization Rules (`MarshalTOML`)**: When settings are edited in the UI and saved back to the file system, SoloQueue customizes serialization:
-  - Only `Auth`, `Log`, and `Agent` blocks are written back to `settings.toml`.
+  - Only `Auth`, `Log`, and `Agent` blocks are written back to `settings.yaml`.
   - Migrated blocks are **excluded** from TOML serialization to prevent conflicts with database values.
 
 ### SQLite Database (`soloqueue.db`)
@@ -51,7 +51,7 @@ SoloQueue uses a hybrid configuration model. Runtime settings are split between 
 At startup, the `config.Loader` initializes settings by merging inputs in ascending priority:
 
 1. **Compiled Defaults** (`defaults.go`): Hardcoded fallback values.
-2. **Global File** (`settings.toml`): Shared parameters.
+2. **Global File** (`settings.yaml`): Shared parameters.
 3. **Local File** (`settings.local.toml`): Local process overrides.
 
 ### Merge Rules

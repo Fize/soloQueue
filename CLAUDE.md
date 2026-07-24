@@ -87,14 +87,14 @@ Key types: `Registry` (agent lookup), `DefaultFactory` (agent creation), `Superv
 
 ### Config & hot-reload
 
-`~/.soloqueue/` is the work directory (`config.DefaultWorkDir()`). Config loading order (low→high priority): compiled defaults → `settings.toml` → `settings.local.toml`. Agent templates (`~/.soloqueue/agents/*.md`), MCP servers (`~/.soloqueue/mcp.json`), and skills (`~/.soloqueue/skills/*.md`) all hot-reload via fsnotify.
+`~/.soloqueue/` is the work directory (`config.DefaultWorkDir()`). Config loading order (low→high priority): compiled defaults → `settings.yaml` → `settings.local.toml`. Agent templates (`~/.soloqueue/agents/*.md`), MCP servers (`~/.soloqueue/mcp.json`), and skills (`~/.soloqueue/skills/*.md`) all hot-reload via fsnotify.
 
 Data paths under `~/.soloqueue/`: timeline JSONL in `logs/timelines/`, shared SQLite in `soloqueue.db`. Git-ignored locally: `.soloqueue/`, `.codebuddy/`, `.envsoloqueue`, `logs/`.
 
 ### Memory engine
 
 - **Short-term**: `internal/memory/` — conversation-scoped memory manager
-- **Long-term**: `internal/memoryengine/` — config-driven hybrid search: BM25 (SQLite FTS5) + Knowledge Graph (in-process entity-relationship graph with PPR/BFS traversal) + optional vector search. Replaces the old `internal/permanent/` system. Configured via `[embedding] provider = "none" | "openai"` in settings.toml. Default "none" uses dual-hybrid BM25+KG with zero dependencies.
+- **Long-term**: `internal/memoryengine/` — config-driven hybrid search: BM25 (SQLite FTS5) + Knowledge Graph (in-process entity-relationship graph with PPR/BFS traversal) + optional vector search. Replaces the old `internal/permanent/` system. Configured via `[embedding] provider = "none" | "openai"` in settings.yaml. Default "none" uses dual-hybrid BM25+KG with zero dependencies.
 - **Embeddings** (`internal/memoryengine/embedding/`): Embedder interface with OpenAI (remote API) implementation.
 - **Vector store** (`internal/memoryengine/vectorstore/`): SQLite-backed cosine similarity over BLOBs. Only active when embedding provider != "none".
 
