@@ -22,6 +22,7 @@ import { useRuntimeStore } from "@/stores/runtimeStore";
 import { useConnectionStore } from "@/stores/connectionStore";
 
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment } from "@/types";
 import { useResizablePanes } from "@/hooks/useResizablePanes";
 import { SessionInspectorPanel } from "./chat/SessionInspectorPanel";
@@ -72,6 +73,7 @@ export function ChatPage() {
     activeSessionId ? s.status?.sessions?.[activeSessionId] : undefined
   );
   const backendRunning = useConnectionStore((s) => s.backendStatus.running);
+  const { t } = useTranslation();
 
   // macOS Inspector state
   const [showInspector, setShowInspector] = useState(false);
@@ -657,11 +659,10 @@ export function ChatPage() {
               <Bot className="h-8 w-8 animate-pulse" />
             </div>
             <h1 className="text-3xl font-extrabold tracking-tight text-foreground bg-gradient-to-r from-foreground to-foreground/75 bg-clip-text">
-              Welcome to SoloQueue Workspace
+              {t('chat.welcomeTitle')}
             </h1>
             <p className="text-sm text-muted-foreground max-w-md mx-auto text-center">
-              Select a team and project to start collaborative programming with
-              a multi-agent system.
+              {t('chat.welcomeDesc')}
             </p>
           </div>
 
@@ -850,18 +851,17 @@ export function ChatPage() {
                         <Bot className="h-8 w-8 animate-pulse" />
                       </div>
                       <h1 className="text-3xl font-extrabold tracking-tight text-foreground bg-gradient-to-r from-foreground to-foreground/75 bg-clip-text">
-                        Welcome to SoloQueue Workspace
+                        {t('chat.welcomeTitle')}
                       </h1>
                       <p className="text-sm text-muted-foreground max-w-md mx-auto text-center font-normal">
-                        Select a team and project to start collaborative programming with
-                        a multi-agent system.
+                        {t('chat.welcomeDesc')}
                       </p>
                     </div>
                   ) : (
                     <h1 className="text-3xl font-semibold text-foreground tracking-tight text-center">
                       {isL1Session
-                        ? "What should we build with L1 Orchestrator?"
-                        : `What should we build in ${selectedProject?.name || "soloQueue"}?`}
+                        ? t('chat.welcomeL1')
+                        : t('chat.welcomeL2', { project: selectedProject?.name || 'soloQueue' })}
                     </h1>
                   )}
 
