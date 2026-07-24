@@ -849,7 +849,7 @@ export function LLMSection({
               : models.filter((m) => m.providerId === providerFilter)
             return filteredModels.map((m) => (
             <div
-              key={m.id}
+              key={`${m.providerId}:${m.id}`}
               className="flex items-center justify-between p-3 rounded-lg border border-border/80 bg-card/40 hover:bg-muted/20 transition-colors"
             >
               <div className="flex items-center gap-3 min-w-0">
