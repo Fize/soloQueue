@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 // ─── metastore tests ────────────────────────────────────────────────────────
@@ -38,6 +39,9 @@ func TestLoadMeta_PreferMetaJSON(t *testing.T) {
 		Level:         "L2",
 		Plans:         []string{"plan/x.md"},
 		Baseline:      map[string]string{"file/a.go": "hash-a"},
+		CtxwinUsed:    4321,
+		CtxwinLimit:   131072,
+		CtxwinUpdated: time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
 	}
 	data, _ := json.Marshal(want)
 	writeRawFile(t, metaPath, data)
@@ -69,6 +73,11 @@ func TestLoadMeta_PreferMetaJSON(t *testing.T) {
 	}
 	if got.Baseline["file/a.go"] != "hash-a" {
 		t.Errorf("Baseline = %v, want hash-a for file/a.go", got.Baseline)
+	}
+	if got.CtxwinUsed != want.CtxwinUsed || got.CtxwinLimit != want.CtxwinLimit || !got.CtxwinUpdated.Equal(want.CtxwinUpdated) {
+		t.Errorf("ctxwin snapshot = (%d,%d,%s), want (%d,%d,%s)",
+			got.CtxwinUsed, got.CtxwinLimit, got.CtxwinUpdated,
+			want.CtxwinUsed, want.CtxwinLimit, want.CtxwinUpdated)
 	}
 
 	// Legacy files must still be on disk because LoadMeta only removes them

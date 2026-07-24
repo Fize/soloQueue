@@ -452,6 +452,12 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 	defer cancel()
 	defer client.removeActiveRequest(requestID)
 	defer h.finalizeRequest(sessionID, requestID)
+	defer func() {
+		if h.mux != nil && h.mux.l2Store != nil && strings.HasPrefix(sessionID, "l2:") {
+			id := strings.TrimPrefix(sessionID, "l2:")
+			h.mux.persistL2ContextUsage(sessionID, h.mux.l2Store.GetActivated(id))
+		}
+	}()
 
 	// streamBatchInterval is the maximum time a chat_chunk/reasoning_chunk
 	// delta is held before being flushed. This microbatch lets us collapse N

@@ -108,11 +108,11 @@ type Segment struct {
 // AgentStreamState holds the live streaming output for one agent
 // as an ordered timeline of segments.
 type AgentStreamState struct {
-	AgentID    string     `json:"agent_id"`
-	Processing bool       `json:"processing"`
-	Segments   []Segment  `json:"segments"`
-	Iteration  int        `json:"iteration"`
-	Error      string     `json:"error,omitempty"`
+	AgentID    string    `json:"agent_id"`
+	Processing bool      `json:"processing"`
+	Segments   []Segment `json:"segments"`
+	Iteration  int       `json:"iteration"`
+	Error      string    `json:"error,omitempty"`
 }
 
 // StartAgentWatch subscribes to an agent's Watch() and starts a goroutine that
@@ -774,6 +774,9 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 		// Populate L2 session runtimes
 		if m.l2Store != nil {
 			for _, entry := range m.l2Store.List() {
+				if entry.AgentInstanceID == "" {
+					continue
+				}
 				sid := "l2:" + entry.ID
 				info := SessionRuntimeInfo{
 					SessionID:   sid,
@@ -914,7 +917,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			if mp != nil {
 				re = mp.ReasoningEffort
 			}
-			
+
 			isQBot := false
 			levelLocked := false
 			lastLevel := ""

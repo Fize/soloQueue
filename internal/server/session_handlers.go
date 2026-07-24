@@ -372,7 +372,7 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
-				
+
 				if len(paths) > 0 {
 					entry := m.l2Store.GetEntry(l2ID)
 					if entry != nil && entry.Group != "" {
@@ -486,24 +486,37 @@ func (m *Mux) leaderAgentName(group string) string {
 	return ""
 }
 
+func (m *Mux) persistL2ContextUsage(sessionID string, sess *session.Session) {
+	if sess == nil || sess.CW() == nil || !strings.HasPrefix(sessionID, "l2:") {
+		return
+	}
+	id := strings.TrimPrefix(sessionID, "l2:")
+	used, limit, _ := sess.CW().TokenUsage()
+	_ = session.MergeAndSave(m.workDir, id, func(meta *session.SessionMeta) {
+		meta.CtxwinUsed = used
+		meta.CtxwinLimit = limit
+		meta.CtxwinUpdated = time.Now().UTC()
+	})
+}
+
 func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	type sessionInfo struct {
-		ID              string    `json:"id"`
-		Type            string    `json:"type"`
-		Name            string    `json:"name"`
-		Group           string    `json:"group,omitempty"`
-		AgentName       string    `json:"agent_name,omitempty"`
-		AgentInstanceID string    `json:"agent_instance_id,omitempty"`
-		ProjectPath     string    `json:"project_path,omitempty"`
+		ID              string `json:"id"`
+		Type            string `json:"type"`
+		Name            string `json:"name"`
+		Group           string `json:"group,omitempty"`
+		AgentName       string `json:"agent_name,omitempty"`
+		AgentInstanceID string `json:"agent_instance_id,omitempty"`
+		ProjectPath     string `json:"project_path,omitempty"`
 		// DesignDir is the absolute path to the design assets directory for this
 		// session. For project sessions: <project_path>/.soloqueue/design/.
 		// For no-project sessions: <workDir>/design/.
-		DesignDir       string    `json:"design_dir,omitempty"`
-		CreatedAt       time.Time `json:"created_at"`
-		IsQBot          bool      `json:"is_qbot"`
-		CtxwinUsed      int       `json:"ctxwin_used"`
-		CtxwinLimit     int       `json:"ctxwin_limit"`
-		Plans           []string  `json:"plans,omitempty"`
+		DesignDir   string    `json:"design_dir,omitempty"`
+		CreatedAt   time.Time `json:"created_at"`
+		IsQBot      bool      `json:"is_qbot"`
+		CtxwinUsed  int       `json:"ctxwin_used"`
+		CtxwinLimit int       `json:"ctxwin_limit"`
+		Plans       []string  `json:"plans,omitempty"`
 	}
 
 	// resolveDesignDir computes the design directory for a session.
@@ -522,6 +535,27 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessions := []sessionInfo{}
+	resolveL2ContextUsage := func(id, group, workDir string, activeUsed, activeLimit int) (int, int) {
+		if activeLimit > 0 {
+			return activeUsed, activeLimit
+		}
+		if meta, err := session.LoadMeta(m.workDir, id); err == nil && meta.CtxwinLimit > 0 {
+			return meta.CtxwinUsed, meta.CtxwinLimit
+		}
+		if m.l2Store == nil || m.l2Store.Builder() == nil {
+			return 0, 0
+		}
+		used, limit, err := m.l2Store.Builder().ReadL2ContextUsage(r.Context(), id, group, workDir)
+		if err != nil {
+			return 0, m.l2Store.DefaultContextLimit()
+		}
+		_ = session.MergeAndSave(m.workDir, id, func(meta *session.SessionMeta) {
+			meta.CtxwinUsed = used
+			meta.CtxwinLimit = limit
+			meta.CtxwinUpdated = time.Now().UTC()
+		})
+		return used, limit
+	}
 
 	// L1 is always present if initialized.
 	if m.sessionMgr != nil && m.sessionMgr.Session() != nil {
@@ -554,6 +588,13 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	// L2 sessions in conversationlog.
 	if m.l2Store != nil {
 		for _, info := range m.l2Store.List() {
+			activeUsed, activeLimit := 0, 0
+			if info.AgentInstanceID != "" {
+				activeUsed, activeLimit = info.CtxwinUsed, info.CtxwinLimit
+			}
+			ctxwinUsed, ctxwinLimit := resolveL2ContextUsage(
+				info.ID, info.Group, info.WorkDir, activeUsed, activeLimit,
+			)
 			name := info.Name
 			if name == "" {
 				name = fmt.Sprintf("New session (%s)", info.Group)
@@ -568,8 +609,8 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				ProjectPath:     info.WorkDir,
 				DesignDir:       resolveDesignDir(info.WorkDir, info.Group),
 				CreatedAt:       info.CreatedAt,
-				CtxwinUsed:      info.CtxwinUsed,
-				CtxwinLimit:     info.CtxwinLimit,
+				CtxwinUsed:      ctxwinUsed,
+				CtxwinLimit:     ctxwinLimit,
 				Plans:           info.Plans,
 			})
 		}
@@ -634,11 +675,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				name = fmt.Sprintf("Past session (%s)", group)
 			}
 
-
-			ctxwinUsed, ctxwinLimit := 0, 0
-			if m.l2Store != nil {
-				ctxwinLimit = m.l2Store.DefaultContextLimit()
-			}
+			ctxwinUsed, ctxwinLimit := resolveL2ContextUsage(id, group, projectPath, 0, 0)
 
 			sessions = append(sessions, sessionInfo{
 				ID:          "l2:" + id,
@@ -807,6 +844,7 @@ func (m *Mux) handleClearSession(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	m.persistL2ContextUsage(req.SessionID, sess)
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
 }
@@ -837,14 +875,15 @@ func (m *Mux) handleRewindSession(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	m.persistL2ContextUsage(req.SessionID, sess)
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "rewound"})
 }
 
 func (m *Mux) handleDeleteSessionMessages(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SessionID  string   `json:"session_id"`
-		TargetTs   []string `json:"target_ts_list"`
+		SessionID string   `json:"session_id"`
+		TargetTs  []string `json:"target_ts_list"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -871,6 +910,7 @@ func (m *Mux) handleDeleteSessionMessages(w http.ResponseWriter, r *http.Request
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	m.persistL2ContextUsage(req.SessionID, sess)
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -1031,8 +1071,8 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		if evt.EventType == timeline.EventControl && evt.Control != nil && evt.Control.Action == "summary" {
 			msgID := fmt.Sprintf("hist-%d", len(msgs))
 			msgs = append(msgs, historyMsg{
-				ID:        msgID,
-				Role:      "assistant",
+				ID:   msgID,
+				Role: "assistant",
 				Segments: []map[string]interface{}{
 					{
 						"type": "compact",
@@ -1308,7 +1348,6 @@ func parseDelegationResults(content string) map[string]string {
 	return results
 }
 
-
 func readAllTimelineEvents(dir string) ([]timeline.Event, error) {
 	files, err := timeline.ListTimelineFiles(dir, "timeline")
 	if err != nil {
@@ -1347,7 +1386,6 @@ func readTimelineFile(path string) ([]timeline.Event, error) {
 	}
 	return events, scanner.Err()
 }
-
 
 // resolveSession resolves a session from an optional session_id string.
 func (m *Mux) resolveSession(ctx context.Context, sessionID string) *session.Session {

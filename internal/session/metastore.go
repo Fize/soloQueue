@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // MetaFileName is the single on-disk file that holds all persisted metadata
@@ -34,6 +35,9 @@ type SessionMeta struct {
 	Plans         []string          `json:"plans,omitempty"`
 	Level         string            `json:"level,omitempty"`
 	Baseline      map[string]string `json:"baseline,omitempty"` // path→sha256, non-git projects only
+	CtxwinUsed    int               `json:"ctxwin_used,omitempty"`
+	CtxwinLimit   int               `json:"ctxwin_limit,omitempty"`
+	CtxwinUpdated time.Time         `json:"ctxwin_updated_at,omitempty"`
 }
 
 // ErrMetaSchemaMismatch is returned when meta.json exists with a different
