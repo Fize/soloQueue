@@ -51,7 +51,7 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 
 	fmt.Fprintf(&b, "\n\n<team_management>\n%s\n</team_management>", escapePromptData(strings.TrimSpace(teamMgmt)))
 
-	fmt.Fprintf(&b, "\n\n<rules>\n%s\n%s\n</rules>", escapePromptData(strings.TrimSpace(rules)), HardcodedL1Rules)
+	fmt.Fprintf(&b, "\n\n<rules>\n%s\n%s\n%s\n</rules>", strings.ReplaceAll(SharedAgentRules, "{{EXPLORE_DIR}}", exploreDir), escapePromptData(strings.TrimSpace(rules)), HardcodedL1Rules)
 
 	if len(mcpServers) > 0 {
 		b.WriteString("\n\n<mcp_servers>\n")

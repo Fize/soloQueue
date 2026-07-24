@@ -823,9 +823,8 @@ func TestL2EnforcedDirectives_ContainsPlanBeforeExecutionRule(t *testing.T) {
 }
 
 func TestL2EnforcedDirectives_ContainsExploreDirPlaceholder(t *testing.T) {
-	combined := l2EnforcedDirectivesPart1 + l2EnforcedPlanSection + l2EnforcedDirectivesPart2 + l2EnforcedPostPlan + l2EnforcedExplorationSection
-	if !strings.Contains(combined, "{{EXPLORE_DIR}}") {
-		t.Error("L2 enforced directives should contain '{{EXPLORE_DIR}}' placeholder")
+	if !strings.Contains(prompt.SharedAgentRules, "{{EXPLORE_DIR}}") {
+		t.Error("SharedAgentRules should contain '{{EXPLORE_DIR}}' placeholder")
 	}
 }
 
@@ -844,9 +843,8 @@ func TestL3EnforcedDirectives_ContainsFollowThePlanRule(t *testing.T) {
 }
 
 func TestL3EnforcedDirectives_ContainsExploreDirPlaceholder(t *testing.T) {
-	combined := l3EnforcedDirectives + l3EnforcedPostPlan + l3EnforcedExplorationSection
-	if !strings.Contains(combined, "{{EXPLORE_DIR}}") {
-		t.Error("L3 enforced directives should contain '{{EXPLORE_DIR}}' placeholder")
+	if !strings.Contains(prompt.SharedAgentRules, "{{EXPLORE_DIR}}") {
+		t.Error("SharedAgentRules should contain '{{EXPLORE_DIR}}' placeholder")
 	}
 }
 

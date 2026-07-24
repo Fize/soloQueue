@@ -40,7 +40,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	if !strings.Contains(result, "<team_management>\nteam management\n</team_management>") {
 		t.Error("missing or incorrect team_management section")
 	}
-	if !strings.Contains(result, "<rules>\nrules content\n") {
+	if !strings.Contains(result, "<rules>") || !strings.Contains(result, "rules content") {
 		t.Error("missing or incorrect rules section")
 	}
 	if !strings.Contains(result, "\n</rules>") {

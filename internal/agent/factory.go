@@ -944,51 +944,10 @@ BAD: delegate task1+task2+task3 in parallel → wait → update zero tasks in th
 GOOD: delegate task1+task2+task3 (all independent) → wait all → update plan file marking task1, task2, task3 as done → delegate next batch.
 `
 
-const l2EnforcedExplorationSection = `
-# 9. Exploration Artifacts
-When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to {{EXPLORE_DIR}} if the exploration is complex or the findings are worth sharing with other agents.
-
-## When to Save
-- Complex investigations with many files or nuanced conclusions
-- Investigations whose results may be reused by other agents in the same session
-- Simple one-off lookups can skip saving
-
-## Document Naming
-Format: {{EXPLORE_DIR}}/<task-slug>_<agent-id>.md
-Examples:
-- {{EXPLORE_DIR}}/explore_auth_flow_dev-leader.md
-- {{EXPLORE_DIR}}/investigate_race_condition_dev-leader.md
-
-## Document Content
-- Agent: your id/name
-- Created at: use current time when saving
-- Updated at: use current time when updating
-- Freshness window: same-day
-- Task: the original or summarized task description
-- Key Findings, Files Inspected, Reusable Context, Open Questions
-
-## Reuse Rules
-1. Before delegating an exploration task to a worker, check {{EXPLORE_DIR}} for an existing artifact with the same task-slug and your agent-id.
-2. If an artifact exists and was created today, read it first and pass its findings to the worker to avoid redundant exploration.
-3. If you create or reuse an artifact, include its path in your response to the orchestrator so other agents can access it.
-4. When delegating to a worker, you may ask the worker to write an artifact and return its path.
-`
-
 const l2EnforcedPostPlan = `
 # 10. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
 - If you CANNOT (ambiguous requirements, significant trade-offs, risk of unintended consequences) → escalate to the orchestrator with options and reasoning.
-`
-
-const l2EnforcedToolAwareness = `
-# 11. Tool Awareness — Skill Priority
-Before acting, scan ALL available tools — especially the Skill tool. Skills contain mandatory domain-specific workflows and methodologies. If a skill's description matches your task, you MUST invoke the Skill tool BEFORE delegating or self-executing. The skill may change your delegation strategy or provide essential context. Do NOT skip a matching skill — it is a protocol violation.
-
-When choosing among raw tools:
-- Prefer the Read tool for reading files. Using Bash with cat wastes tokens and bypasses the Read tool's size limit. Use Bash for running commands, not for reading text files. If a file exceeds the Read limit, use Bash with head/tail to read portions.
-
-# 12. Prefer Search Before Read
-Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens). If a file exceeds the limit, use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.
 `
 
 const l2EnforcedDirectivesPart2 = `
@@ -1024,28 +983,13 @@ You MUST delegate tasks to your team members whenever they have the capability t
 BAD: Task is "add a unit test for login" and you have a "test" worker → you write the test yourself.
 GOOD: Task is "add a unit test for login" and you have a "test" worker → you delegate to the "test" worker.
 
-# 7. Strict Scope Adherence
-Only delegate tasks that the user (via the orchestrator) explicitly requested. Do NOT add "while we're at it" sub-tasks, extra improvements, or tasks that were not in the original request.
-BAD: User asked "fix the null pointer crash" → you also delegate "refactor error handling" and "add unit tests for related functions".
-GOOD: User asked "fix the null pointer crash" → you delegate ONLY the null pointer fix.
-
-# 8. Cross-Layer English Communication
-All inter-layer communication MUST be in English. This includes:
-- Task descriptions you send to workers (delegate_* calls)
-- Result summaries you return to the orchestrator (your output)
-- Clarification requests
-BAD (to worker): "Check line 42 of /workspace/main.go for the panic and fix it"
-GOOD (to worker): "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
-BAD (to orchestrator): "Task completed, already fixed the styling issues on the login page"
-GOOD (to orchestrator): "Task completed. The CSS styling issue on the login page has been fixed."
-
-# 9. Task Approval Continuity
+# 7. Task Approval Continuity
 When a task has been agreed, the approval covers it end to end. In-scope steps do not need re-confirmation. If the next step is clearly decided, execute it directly. Only hand control back when:
 - The entire task is complete
 - You are waiting on external input
 - The next step requires the user's decision
 
-# 10. Communication Efficiency
+# 8. Communication Efficiency
 - Result summaries to the orchestrator must be 1-2 sentences. What was done and what was the outcome — nothing else.
 - One sentence per key update while working. Brief is good — silent is not.
 - Match responses to the task. A simple result gets a direct statement, not sections and formatting.
@@ -1168,6 +1112,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString(memoryEngineSection)
 		b.WriteString("\n\n")
 	}
+	b.WriteString(strings.ReplaceAll(prompt.SharedAgentRules, "{{EXPLORE_DIR}}", exploreDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart1, "{{PLAN_DIR}}", planDir))
 	if planDir != "" {
 		planSection := strings.ReplaceAll(l2EnforcedPlanSection, "{{PLAN_DIR}}", planDir)
@@ -1175,10 +1120,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString(planSection)
 	}
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart2, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l2EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
 	if hasMCPServer(tmpl.MCPServers, "builtin-lsp") {
 		b.WriteString(lspToolAwarenessSection)
 	}
@@ -1226,16 +1168,7 @@ SYSTEM ENFORCED EXECUTION RULES
 ========================================
 The following rules are ABSOLUTE and override any previous instructions.
 
-# 1. Strict Scope Adherence
-Only execute the exact task you were assigned. Do NOT modify files, add features, refactor code, or make any changes beyond what was explicitly requested.
-BAD: Task is "fix the null pointer on line 42" → you also refactor the surrounding function and add error handling.
-GOOD: Task is "fix the null pointer on line 42" → you fix ONLY the null pointer on line 42.
-
-# 2. English-Only Output
-Your output (results, summaries, error reports) MUST be in English. You are part of a multi-layer system where cross-layer communication must be English.
-BAD: "Fixed – resolved the null pointer issue on line 42"
-GOOD: "Fix completed. The null pointer issue on line 42 has been resolved."
-# 3. Follow the Plan — you MUST execute tasks one at a time and mark each:
+# 1. Follow the Plan — you MUST execute tasks one at a time and mark each:
 1. Locate the plan file path. If the leader provided a plan path, read that file. If no plan file path was provided, check the workspace for an existing plan or create your own:
    - Create a markdown plan file under ` + "`" + `{{PLAN_DIR}}/YYYY-MM-DD/<slug>.md` + "`" + ` (use fallback ` + "`" + `~/.soloqueue/plan/YYYY-MM-DD/<slug>.md` + "`" + ` if no workspace is active).
     - Write an H1 header ('# Title') and a '# Tasks' section containing checklist items ('- [ ]', '- [/]', '- [x]').
@@ -1252,50 +1185,10 @@ BAD: execute all work → report done at the end without updating the plan file 
 GOOD: execute task1 → mark done in file → execute task2 → mark done in file ... → report completion.
 `
 
-const l3EnforcedExplorationSection = `
-# 4. Exploration Artifacts
-When you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to {{EXPLORE_DIR}} if the exploration is complex or the findings are worth sharing with other agents.
-
-## When to Save
-- Complex investigations with many files or nuanced conclusions
-- Investigations whose results may be reused by other agents in the same session
-- Simple one-off lookups can skip saving
-
-## Document Naming
-Format: {{EXPLORE_DIR}}/<task-slug>_<agent-id>.md
-Examples:
-- {{EXPLORE_DIR}}/explore_auth_flow_backend-worker.md
-- {{EXPLORE_DIR}}/investigate_race_condition_backend-worker.md
-
-## Document Content
-- Agent: your id/name
-- Created at: use current time when saving
-- Updated at: use current time when updating
-- Freshness window: same-day
-- Task: the original or summarized task description
-- Key Findings, Files Inspected, Reusable Context, Open Questions
-
-## Reuse Rules
-1. Before starting a new exploration, check {{EXPLORE_DIR}} for an existing artifact with the same task-slug and your agent-id.
-2. If an artifact exists and was created today, read it first and reuse its findings when appropriate.
-3. If you create or reuse an artifact, include its path in your response to the leader so other agents can access it.
-`
-
 const l3EnforcedPostPlan = `
 # 5. Escalation Decision Rule
 - If you CAN make a reasonable decision based on context → decide autonomously and proceed.
 - If you CANNOT (ambiguous requirements, significant trade-offs) → escalate to the leader with options and reasoning.
-`
-
-const l3EnforcedToolAwareness = `
-# 6. Tool Awareness — Skill Priority
-Before executing, scan ALL available tools — especially the Skill tool. Skills contain mandatory domain-specific workflows and methodologies. If a skill's description matches your assigned task, you MUST invoke the Skill tool BEFORE using raw tools. The skill may define required steps, constraints, or workflows you must follow. Do NOT skip a matching skill — it is a protocol violation.
-
-When choosing among raw tools:
-- Prefer the Read tool for reading files. Using Bash with cat wastes tokens and bypasses the Read tool's size limit. Use Bash for running commands, not for reading text files. If a file exceeds the Read limit, use Bash with head/tail to read portions.
-
-# 7. Prefer Search Before Read
-Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens). If a file exceeds the limit, use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.
 `
 
 const lspToolAwarenessSection = `
@@ -1356,11 +1249,9 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 		b.WriteString(memoryEngineSection)
 		b.WriteString("\n\n")
 	}
+	b.WriteString(strings.ReplaceAll(prompt.SharedAgentRules, "{{EXPLORE_DIR}}", exploreDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l3EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
 	if hasMCPServer(tmpl.MCPServers, "builtin-lsp") {
 		b.WriteString(lspToolAwarenessSection)
 	}
