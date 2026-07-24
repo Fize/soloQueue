@@ -59,6 +59,7 @@ export function AgentDetailPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
+  const status = useRuntimeStore((s) => s.status)
 
   // Find agent in websocket stream or team list
   const data = useAgentStore((state) => state.agents)
@@ -110,7 +111,7 @@ export function AgentDetailPage() {
   const fetchProfile = useAgentStore((s) => s.fetchProfile)
   const fetchConfig = useAgentStore((s) => s.fetchConfig)
 
-  const profileAgentId = isL1 ? (agent?.id || 'main') : null
+  const profileAgentId = isL1 ? agent?.id || 'main' : null
   const configAgentId =
     !isL1 && effectiveId && effectiveId !== 'l1-agent' && effectiveId !== 'main'
       ? effectiveId
@@ -167,12 +168,20 @@ export function AgentDetailPage() {
     }
   }, [searchParams, hasAgent, agent?.state, isL1])
 
+  const fmtTokens = (v: number) => {
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+    if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`
+    return String(v)
+  }
+
   return (
     <div className="flex h-full flex-col min-w-0 bg-background overflow-hidden pb-16 md:pb-0">
-      <header className={cn(
-        "flex shrink-0 items-center justify-between border-b border-border/80 px-4 py-3 md:px-6 bg-card/65 backdrop-blur-md sticky top-0 z-10",
-        sidebarCollapsed && "pl-[115px]"
-      )}>
+      <header
+        className={cn(
+          'flex shrink-0 items-center justify-between border-b border-border/80 px-4 py-3 md:px-6 bg-card/65 backdrop-blur-md sticky top-0 z-10',
+          sidebarCollapsed && 'pl-[115px]'
+        )}
+      >
         <div className="flex items-center gap-3 min-w-0 electron-no-drag">
           <Button
             variant="ghost"
@@ -201,7 +210,7 @@ export function AgentDetailPage() {
                 </Badge>
               ) : null}
               {hasAgent ? (
-                <StatusBadge state={agent.state} size="sm" />
+                <StatusBadge state={agent.state} size="sm" errorCount={agent.error_count} iteration={agent.iteration} />
               ) : (
                 <Badge
                   variant="outline"
@@ -215,6 +224,28 @@ export function AgentDetailPage() {
               <p className="font-mono text-[9px] text-muted-foreground/60 truncate mt-0.5">
                 {agent.model_id} · {agent.instance_id}
               </p>
+            )}
+            {hasAgent && status && (
+              <div className="flex items-center gap-2 mt-1">
+                <div className="flex-1 h-1 bg-muted/60 rounded-full overflow-hidden max-w-[120px]">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${Math.min(status.context_pct || 0, 100)}%`,
+                      backgroundColor:
+                        (status.context_pct || 0) > 80
+                          ? 'var(--destructive)'
+                          : 'var(--color-signal)',
+                    }}
+                  />
+                </div>
+                <span className="text-[9px] font-mono text-muted-foreground/70 tabular-nums">
+                  {fmtTokens(status.current_tokens)}/{fmtTokens(status.max_tokens)}
+                </span>
+                <span className="text-[9px] font-mono text-muted-foreground/50 tabular-nums">
+                  P:{fmtTokens(status.prompt_tokens)} O:{fmtTokens(status.output_tokens)}
+                </span>
+              </div>
             )}
           </div>
         </div>
@@ -413,6 +444,66 @@ export function AgentDetailPage() {
                           </ScrollArea>
                         </GlassCard>
                       )}
+
+                      {/* Token Stats Card */}
+                      {status && (
+                        <GlassCard className="space-y-3">
+                          <h2 className="text-sm font-bold text-foreground border-b border-border/40 pb-2">
+                            Token Consumption
+                          </h2>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
+                                Prompt
+                              </span>
+                              <p className="text-lg font-bold tracking-tight text-foreground tabular-nums">
+                                {fmtTokens(Number(status.prompt_tokens))}
+                              </p>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
+                                Completion
+                              </span>
+                              <p className="text-lg font-bold tracking-tight text-foreground tabular-nums">
+                                {fmtTokens(Number(status.output_tokens))}
+                              </p>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
+                                Cache Hit
+                              </span>
+                              <p className="text-lg font-bold tracking-tight text-[var(--color-chart-3)] tabular-nums">
+                                {fmtTokens(Number(status.cache_hit_tokens))}
+                              </p>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
+                                Cache Miss
+                              </span>
+                              <p className="text-lg font-bold tracking-tight text-[var(--warning)] tabular-nums">
+                                {fmtTokens(Number(status.cache_miss_tokens))}
+                              </p>
+                            </div>
+                          </div>
+                          {Number(status.cache_hit_tokens) + Number(status.cache_miss_tokens) >
+                            0 && (
+                            <div className="flex items-center gap-2 pt-1 border-t border-border/20">
+                              <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
+                                Cache Hit Rate
+                              </span>
+                              <span className="text-xs font-bold tabular-nums text-[var(--color-chart-3)]">
+                                {Math.round(
+                                  (Number(status.cache_hit_tokens) /
+                                    (Number(status.cache_hit_tokens) +
+                                      Number(status.cache_miss_tokens))) *
+                                    100
+                                )}
+                                %
+                              </span>
+                            </div>
+                          )}
+                        </GlassCard>
+                      )}
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground py-8 text-center italic">
@@ -454,7 +545,9 @@ export function AgentDetailPage() {
                               {t('agent.taskLevel')}
                             </dt>
                             <dd className="font-semibold text-foreground">
-                              {agent.task_level ? t('agent.level', { level: agent.task_level }) : '-'}
+                              {agent.task_level
+                                ? t('agent.level', { level: agent.task_level })
+                                : '-'}
                             </dd>
                           </div>
                           <div className="space-y-1 sm:col-span-2">

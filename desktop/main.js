@@ -75,11 +75,7 @@ if (process.platform === 'darwin') {
     Object.assign(process.env, env)
 
     // Fallback: Ensure common macOS developer paths are present in PATH
-    const standardPaths = [
-      '/opt/homebrew/bin',
-      '/opt/homebrew/sbin',
-      '/usr/local/bin',
-    ]
+    const standardPaths = ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin']
     const currentPaths = (process.env.PATH || '').split(':')
     standardPaths.forEach((p) => {
       if (p && !currentPaths.includes(p)) {
@@ -122,9 +118,9 @@ let isQuitting = false
 // 16x16 monochrome template PNGs (base64). macOS auto-recolors template images
 // to match the menu-bar appearance (light/dark). Three states: ok / warn / err.
 const TRAY_ICONS = {
-  ok:   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKklEQVR4nGNgGBHgP7macGGKNBNlyMAaQIxmqhgyiMOAGENIBmRpoh8AAJfUULCLnTuwAAAAAElFTkSuQmCC',
+  ok: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKklEQVR4nGNgGBHgP7macGGKNBNlyMAaQIxmqhgyiMOAGENIBmRpoh8AAJfUULCLnTuwAAAAAElFTkSuQmCC',
   warn: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKElEQVR4nGNgGLbgPw5MkWaiDMGnkChDCCkYSQaQHYjoCqmeFoYjAAAFQzfJHJQvAQAAAABJRU5ErkJggg==',
-  err:  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMElEQVR4nGNgGHbgP4XyeBURpRmXYpI0o2siSzNFNlPFBRSFAUWxQJV0QKklQw0AAGmyEe8LI08gAAAAAElFTkSuQmCC',
+  err: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMElEQVR4nGNgGHbgP4XyeBURpRmXYpI0o2siSzNFNlPFBRSFAUWxQJV0QKklQw0AAGmyEe8LI08gAAAAAElFTkSuQmCC',
 }
 
 function makeTrayImage(name) {
@@ -160,7 +156,15 @@ function buildTrayTooltip(status) {
   }
   if (status.backendRunning) {
     const sec = Math.floor((status.uptime || 0) / 1000)
-    return `SoloQueue — Local backend running (${sec}s)`
+    const fmt = (v) =>
+      v >= 1_000_000
+        ? `${(v / 1_000_000).toFixed(1)}M`
+        : v >= 1_000
+          ? `${(v / 1_000).toFixed(1)}k`
+          : String(v)
+    const prompt = fmt(status.promptTokens || 0)
+    const output = fmt(status.outputTokens || 0)
+    return `SoloQueue — ${sec}s | P:${prompt} O:${output}`
   }
   return 'SoloQueue — Backend not running'
 }
@@ -189,7 +193,19 @@ function buildTrayMenu(status) {
   } else if (status?.isChecking && !status.backendRunning) {
     lines.push({ label: '⏳ Starting local backend...', enabled: false })
   } else if (status?.backendRunning) {
-    lines.push({ label: '✓ Local backend running', enabled: false })
+    const fmt = (v) =>
+      v >= 1_000_000
+        ? `${(v / 1_000_000).toFixed(1)}M`
+        : v >= 1_000
+          ? `${(v / 1_000).toFixed(1)}k`
+          : String(v)
+    const prompt = fmt(status.promptTokens || 0)
+    const output = fmt(status.outputTokens || 0)
+    const cache = fmt(status.cacheHitTokens || 0)
+    lines.push({ label: `✓ Running  P:${prompt}  O:${output}`, enabled: false })
+    if (Number(status.cacheHitTokens || 0) > 0) {
+      lines.push({ label: `  Cache hit: ${cache}`, enabled: false })
+    }
   } else {
     lines.push({ label: '○ Backend not running', enabled: false })
   }
@@ -244,7 +260,11 @@ function createTray() {
 
 function destroyTray() {
   if (tray) {
-    try { tray.destroy() } catch { /* ignore */ }
+    try {
+      tray.destroy()
+    } catch {
+      /* ignore */
+    }
     tray = null
   }
 }
@@ -258,7 +278,6 @@ ipcMain.on('tray:update-status', (_event, status) => {
     pendingTrayStatus = status
   }
 })
-
 
 // ── Go binary path resolution ──────────────────────────────
 function getGoBinaryPath() {
@@ -285,7 +304,9 @@ function checkHealth() {
   return new Promise((resolve) => {
     const req = http.get(`http://127.0.0.1:${BACKEND_PORT}/healthz`, (res) => {
       let data = ''
-      res.on('data', (chunk) => { data += chunk })
+      res.on('data', (chunk) => {
+        data += chunk
+      })
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data)
@@ -332,7 +353,9 @@ async function spawnGoBackend() {
   if (isActive) {
     const isHealthy = await checkHealth()
     if (isHealthy) {
-      console.log(`[Electron] Go backend is already running on port ${BACKEND_PORT}. Bypassing launch.`)
+      console.log(
+        `[Electron] Go backend is already running on port ${BACKEND_PORT}. Bypassing launch.`
+      )
       externalGoInstance = true
       backendStartTime = Date.now() // Estimate uptime start from now
       sendBackendStatus(true)
@@ -367,11 +390,15 @@ async function spawnGoBackend() {
 
   return new Promise((resolve) => {
     // Bind to 127.0.0.1 via default flag in serve command
-    goProcess = spawn(binary, ['serve', '--port', String(BACKEND_PORT), '--host', '127.0.0.1', '--verbose'], {
-      cwd: workDir,
-      stdio: ['ignore', 'ignore', stderrFd || 'ignore'],
-      env: { ...process.env, SOLOQUEUE_WORK_DIR: workDir, GOTRACEBACK: 'crash' },
-    })
+    goProcess = spawn(
+      binary,
+      ['serve', '--port', String(BACKEND_PORT), '--host', '127.0.0.1', '--verbose'],
+      {
+        cwd: workDir,
+        stdio: ['ignore', 'ignore', stderrFd || 'ignore'],
+        env: { ...process.env, SOLOQUEUE_WORK_DIR: workDir, GOTRACEBACK: 'crash' },
+      }
+    )
 
     const handleUnexpectedExit = (code, signal) => {
       goProcess = null
@@ -382,8 +409,10 @@ async function spawnGoBackend() {
         if (restartAttempts < MAX_RESTART_ATTEMPTS) {
           restartAttempts++
           const delay = Math.min(1000 * Math.pow(2, restartAttempts - 1), 10000)
-          console.log(`[Electron] Go backend exited unexpectedly (code: ${code}, signal: ${signal}). Auto-restarting in ${delay}ms... (attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS})`)
-          
+          console.log(
+            `[Electron] Go backend exited unexpectedly (code: ${code}, signal: ${signal}). Auto-restarting in ${delay}ms... (attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS})`
+          )
+
           if (restartTimer) clearTimeout(restartTimer)
           restartTimer = setTimeout(async () => {
             const res = await spawnGoBackend()
@@ -393,7 +422,9 @@ async function spawnGoBackend() {
             }
           }, delay)
         } else {
-          console.error(`[Electron] Go backend failed to restart after ${MAX_RESTART_ATTEMPTS} attempts. Auto-restart disabled.`)
+          console.error(
+            `[Electron] Go backend failed to restart after ${MAX_RESTART_ATTEMPTS} attempts. Auto-restart disabled.`
+          )
         }
       }
     }
@@ -437,16 +468,22 @@ function killGoProcess() {
     goProcess.kill('SIGTERM')
     setTimeout(() => {
       if (goProcess) {
-        try { goProcess.kill('SIGKILL') } catch { /* ignore */ }
+        try {
+          goProcess.kill('SIGKILL')
+        } catch {
+          /* ignore */
+        }
       }
     }, 5000)
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 function sendBackendStatus(running) {
   mainWindow?.webContents.send('backend:status-changed', {
     running,
-    pid: externalGoInstance ? 'EXTERNAL' : (goProcess?.pid || null),
+    pid: externalGoInstance ? 'EXTERNAL' : goProcess?.pid || null,
     uptime: running && backendStartTime ? Date.now() - backendStartTime : null,
   })
 }
@@ -454,8 +491,9 @@ function sendBackendStatus(running) {
 function getBackendStatus() {
   return {
     running: externalGoInstance || goProcess !== null,
-    pid: externalGoInstance ? 'EXTERNAL' : (goProcess?.pid || null),
-    uptime: (externalGoInstance || goProcess) && backendStartTime ? Date.now() - backendStartTime : null,
+    pid: externalGoInstance ? 'EXTERNAL' : goProcess?.pid || null,
+    uptime:
+      (externalGoInstance || goProcess) && backendStartTime ? Date.now() - backendStartTime : null,
   }
 }
 
@@ -484,8 +522,8 @@ function createWindow() {
   mainWindow.webContents.on('before-input-event', (event, input) => {
     const isMac = process.platform === 'darwin'
     const toggleDevTools = isMac
-      ? (input.meta && input.alt && input.code.toLowerCase() === 'keyi')
-      : (input.control && input.shift && input.code.toLowerCase() === 'keyi')
+      ? input.meta && input.alt && input.code.toLowerCase() === 'keyi'
+      : input.control && input.shift && input.code.toLowerCase() === 'keyi'
 
     if (toggleDevTools && input.type === 'keyDown') {
       mainWindow.webContents.toggleDevTools()
@@ -636,11 +674,11 @@ function createMenu() {
     {
       label: 'Window',
       submenu: [
-        { role: 'close' },       // Cmd+W
-        { role: 'minimize' },    // Cmd+M
+        { role: 'close' }, // Cmd+W
+        { role: 'minimize' }, // Cmd+M
         { role: 'zoom' },
         { type: 'separator' },
-        { role: 'front' },       // Bring All to Front
+        { role: 'front' }, // Bring All to Front
       ],
     },
   ]
@@ -657,20 +695,14 @@ function createMenu() {
 // webRequest.onBeforeSendHeaders filter that conditionally injects the
 // Basic Auth header based on the current remote config state.
 
-let remoteAuthHeader = null  // "Basic <base64>" or null
+let remoteAuthHeader = null // "Basic <base64>" or null
 
 async function refreshRemoteAuthConfig() {
   try {
     const [remoteUrl, username, password] = await Promise.all([
-      mainWindow.webContents.executeJavaScript(
-        'localStorage.getItem("soloqueue_remote_url")'
-      ),
-      mainWindow.webContents.executeJavaScript(
-        'localStorage.getItem("soloqueue_remote_username")'
-      ),
-      mainWindow.webContents.executeJavaScript(
-        'localStorage.getItem("soloqueue_remote_password")'
-      ),
+      mainWindow.webContents.executeJavaScript('localStorage.getItem("soloqueue_remote_url")'),
+      mainWindow.webContents.executeJavaScript('localStorage.getItem("soloqueue_remote_username")'),
+      mainWindow.webContents.executeJavaScript('localStorage.getItem("soloqueue_remote_password")'),
     ])
 
     if (remoteUrl && username && password) {

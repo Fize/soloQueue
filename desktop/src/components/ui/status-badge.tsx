@@ -36,9 +36,11 @@ export interface StatusBadgeProps {
   className?: string
   showLabel?: boolean
   size?: 'sm' | 'md'
+  errorCount?: number
+  iteration?: number
 }
 
-export function StatusBadge({ state, className, showLabel = true, size = 'md' }: StatusBadgeProps) {
+export function StatusBadge({ state, className, showLabel = true, size = 'md', errorCount, iteration }: StatusBadgeProps) {
   const config = stateConfig[state]
   const isProcessing = state === 'processing'
 
@@ -61,18 +63,28 @@ export function StatusBadge({ state, className, showLabel = true, size = 'md' }:
         )}
       />
       {showLabel && config.label}
+      {iteration != null && iteration > 0 && (
+        <span className="ml-1 opacity-70">#{iteration}</span>
+      )}
+      {errorCount != null && errorCount > 0 && (
+        <span className="ml-1 inline-flex items-center gap-0.5 text-[var(--destructive)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--destructive)]" />
+          <span className="text-[10px] font-semibold">{errorCount}</span>
+        </span>
+      )}
     </span>
   )
 }
 
 /** Dot-only indicator for compact displays */
-export function StatusDot({ state, className }: { state: AgentState; className?: string }) {
+export function StatusDot({ state, className, errorCount }: { state: AgentState; className?: string; errorCount?: number }) {
   const config = stateConfig[state]
+  const dotColor = errorCount != null && errorCount > 0 ? 'bg-[var(--destructive)]' : config.dotColor
   return (
     <span
       className={cn(
         'h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-background',
-        config.dotColor,
+        dotColor,
         state === 'processing' && 'animate-pulse',
         className
       )}

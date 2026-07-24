@@ -608,6 +608,7 @@ function TreeItem({
   isPast = false,
   state,
   sessionId,
+  errorCount,
 }: {
   icon?: typeof Bot
   label: string
@@ -620,6 +621,7 @@ function TreeItem({
   isPast?: boolean
   state?: string
   sessionId?: string
+  errorCount?: number
 }) {
   const pl = 28 + (indent - 1) * 16 // indent=1→28px, indent=2→44px
   return (
@@ -650,6 +652,9 @@ function TreeItem({
                           : 'bg-muted-foreground/40'
                     )}
                   />
+                )}
+                {errorCount != null && errorCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[var(--destructive)] border border-card" />
                 )}
               </div>
               <span className="truncate text-left flex-1 font-medium">

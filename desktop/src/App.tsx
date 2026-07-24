@@ -14,23 +14,53 @@ import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
 
 // Lazy-loaded route components — split into separate chunks for faster initial load
-const ChatPage = lazy(() => import('@/components/ChatPage').then(m => ({ default: m.ChatPage })))
-const AssistantPage = lazy(() => import('@/components/AssistantPage').then(m => ({ default: m.AssistantPage })))
-const AgentDetailPage = lazy(() => import('@/components/AgentDetailPage').then(m => ({ default: m.AgentDetailPage })))
-const CronPage = lazy(() => import('@/components/CronPage').then(m => ({ default: m.CronPage })))
-const SimulationListPage = lazy(() => import('@/components/SimulationListPage').then(m => ({ default: m.SimulationListPage })))
-const SimulationDetailPage = lazy(() => import('@/components/SimulationDetailPage').then(m => ({ default: m.SimulationDetailPage })))
-const SettingsLayout = lazy(() => import('@/components/SettingsLayout').then(m => ({ default: m.SettingsLayout })))
-const ModelsTab = lazy(() => import('@/components/settings/ModelsTab').then(m => ({ default: m.ModelsTab })))
-const MemoryTab = lazy(() => import('@/components/settings/MemoryTab').then(m => ({ default: m.MemoryTab })))
-const SafetyTab = lazy(() => import('@/components/settings/SafetyTab').then(m => ({ default: m.SafetyTab })))
-const AgentsTab = lazy(() => import('@/components/settings/AgentsTab').then(m => ({ default: m.AgentsTab })))
-const CapabilitiesTab = lazy(() => import('@/components/settings/CapabilitiesTab').then(m => ({ default: m.CapabilitiesTab })))
-const ChannelsTab = lazy(() => import('@/components/settings/ChannelsTab').then(m => ({ default: m.ChannelsTab })))
-const ProjectsTab = lazy(() => import('@/components/settings/ProjectsTab').then(m => ({ default: m.ProjectsTab })))
-const ConnectionTab = lazy(() => import('@/components/settings/ConnectionTab').then(m => ({ default: m.ConnectionTab })))
-const StatsTab = lazy(() => import('@/components/settings/StatsTab').then(m => ({ default: m.StatsTab })))
-const GeneralTab = lazy(() => import('@/components/settings/GeneralTab').then(m => ({ default: m.GeneralTab })))
+const ChatPage = lazy(() => import('@/components/ChatPage').then((m) => ({ default: m.ChatPage })))
+const AssistantPage = lazy(() =>
+  import('@/components/AssistantPage').then((m) => ({ default: m.AssistantPage }))
+)
+const AgentDetailPage = lazy(() =>
+  import('@/components/AgentDetailPage').then((m) => ({ default: m.AgentDetailPage }))
+)
+const CronPage = lazy(() => import('@/components/CronPage').then((m) => ({ default: m.CronPage })))
+const SimulationListPage = lazy(() =>
+  import('@/components/SimulationListPage').then((m) => ({ default: m.SimulationListPage }))
+)
+const SimulationDetailPage = lazy(() =>
+  import('@/components/SimulationDetailPage').then((m) => ({ default: m.SimulationDetailPage }))
+)
+const SettingsLayout = lazy(() =>
+  import('@/components/SettingsLayout').then((m) => ({ default: m.SettingsLayout }))
+)
+const ModelsTab = lazy(() =>
+  import('@/components/settings/ModelsTab').then((m) => ({ default: m.ModelsTab }))
+)
+const MemoryTab = lazy(() =>
+  import('@/components/settings/MemoryTab').then((m) => ({ default: m.MemoryTab }))
+)
+const SafetyTab = lazy(() =>
+  import('@/components/settings/SafetyTab').then((m) => ({ default: m.SafetyTab }))
+)
+const AgentsTab = lazy(() =>
+  import('@/components/settings/AgentsTab').then((m) => ({ default: m.AgentsTab }))
+)
+const CapabilitiesTab = lazy(() =>
+  import('@/components/settings/CapabilitiesTab').then((m) => ({ default: m.CapabilitiesTab }))
+)
+const ChannelsTab = lazy(() =>
+  import('@/components/settings/ChannelsTab').then((m) => ({ default: m.ChannelsTab }))
+)
+const ProjectsTab = lazy(() =>
+  import('@/components/settings/ProjectsTab').then((m) => ({ default: m.ProjectsTab }))
+)
+const ConnectionTab = lazy(() =>
+  import('@/components/settings/ConnectionTab').then((m) => ({ default: m.ConnectionTab }))
+)
+const StatsTab = lazy(() =>
+  import('@/components/settings/StatsTab').then((m) => ({ default: m.StatsTab }))
+)
+const GeneralTab = lazy(() =>
+  import('@/components/settings/GeneralTab').then((m) => ({ default: m.GeneralTab }))
+)
 function RouteFallback() {
   return (
     <div
@@ -121,8 +151,12 @@ function ConnectionStatusBar() {
       uptime: backendStatus.uptime,
       isChecking,
       connectionError,
+      promptTokens: runtimeStatus?.prompt_tokens ?? 0,
+      outputTokens: runtimeStatus?.output_tokens ?? 0,
+      cacheHitTokens: runtimeStatus?.cache_hit_tokens ?? 0,
+      cacheMissTokens: runtimeStatus?.cache_miss_tokens ?? 0,
     })
-  }, [mode, remoteUrl, backendStatus.running, backendStatus.uptime, isChecking, connectionError])
+  }, [mode, remoteUrl, backendStatus.running, backendStatus.uptime, isChecking, connectionError, runtimeStatus])
 
   // ── Electron mode: connection status is surfaced via the macOS menu bar Tray.
   //    See `tray:update-status` in main.js. The in-app bar would conflict with
@@ -145,7 +179,9 @@ function ConnectionStatusBar() {
         },
       },
     })
-    return () => { toast.dismiss('connection-error') }
+    return () => {
+      toast.dismiss('connection-error')
+    }
   }, [connectionError, setConnectionError, setIsChecking])
 
   if (isElectron && backendStatus.running) return null
@@ -167,7 +203,8 @@ function ConnectionStatusBar() {
           className="h-full animate-indeterminate-bar"
           style={{
             width: '60%',
-            background: 'linear-gradient(90deg, var(--color-signal) 0%, color-mix(in srgb, var(--color-signal) 60%, var(--color-accent)) 100%)',
+            background:
+              'linear-gradient(90deg, var(--color-signal) 0%, color-mix(in srgb, var(--color-signal) 60%, var(--color-accent)) 100%)',
             borderRadius: '2px',
           }}
         />
@@ -181,7 +218,8 @@ function ConnectionStatusBar() {
 
   if (connectionError) {
     return (
-      <div className="h-[28px] w-full shrink-0 flex items-center gap-2 px-4 text-xs font-medium text-white"
+      <div
+        className="h-[28px] w-full shrink-0 flex items-center gap-2 px-4 text-xs font-medium text-white"
         style={{ backgroundColor: 'var(--color-destructive)' }}
       >
         <Server className="h-3.5 w-3.5" />
@@ -212,6 +250,7 @@ function App() {
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const inspectorPanelWidth = useRuntimeStore((s) => s.inspectorPanelWidth)
+  const runtimeStatus = useRuntimeStore((s) => s.status)
   const [isHovered, setIsHovered] = useState(false)
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -248,7 +287,7 @@ function App() {
     try {
       localStorage.setItem(
         LAST_CHAT_ROUTE_KEY,
-        `${location.pathname}${location.search}${location.hash}`,
+        `${location.pathname}${location.search}${location.hash}`
       )
     } catch {
       // localStorage may be unavailable; persistence is best-effort.
@@ -322,7 +361,8 @@ function App() {
         theme={theme}
         position="top-center"
         toastOptions={{
-          className: 'text-sm font-medium bg-card border border-border text-foreground rounded-lg shadow-lg',
+          className:
+            'text-sm font-medium bg-card border border-border text-foreground rounded-lg shadow-lg',
         }}
       />
       <div className="flex h-full w-full bg-background overflow-hidden relative">
@@ -386,40 +426,43 @@ function App() {
             {/* Routes */}
             <div className="flex-1 overflow-hidden h-full">
               <Suspense fallback={<RouteFallback />}>
-              <Routes>
-                <Route path="/" element={<Navigate to={getLastChatRoute()} replace />} />
-                <Route path="/new-chat" element={<Navigate to="/chat" replace />} />
-                <Route path="/assistant" element={<AssistantPage />} />
-                <Route path="/chat/:sessionId?" element={<ChatPage />} />
-                <Route path="/agents/:id" element={<AgentDetailPage />} />
-                <Route path="/cron" element={<CronPage />} />
-                <Route path="/simulations" element={<SimulationListPage />} />
-                <Route path="/simulations/:id" element={<SimulationDetailPage />} />
-                <Route path="/stats" element={
-                  <div className="h-full w-full overflow-y-auto bg-background">
-                    <div className="flex justify-center p-6 md:p-8">
-                      <div className="w-full max-w-5xl space-y-6">
-                        <StatsTab />
+                <Routes>
+                  <Route path="/" element={<Navigate to={getLastChatRoute()} replace />} />
+                  <Route path="/new-chat" element={<Navigate to="/chat" replace />} />
+                  <Route path="/assistant" element={<AssistantPage />} />
+                  <Route path="/chat/:sessionId?" element={<ChatPage />} />
+                  <Route path="/agents/:id" element={<AgentDetailPage />} />
+                  <Route path="/cron" element={<CronPage />} />
+                  <Route path="/simulations" element={<SimulationListPage />} />
+                  <Route path="/simulations/:id" element={<SimulationDetailPage />} />
+                  <Route
+                    path="/stats"
+                    element={
+                      <div className="h-full w-full overflow-y-auto bg-background">
+                        <div className="flex justify-center p-6 md:p-8">
+                          <div className="w-full max-w-5xl space-y-6">
+                            <StatsTab />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                } />
-                <Route path="/settings" element={<SettingsLayout />}>
-                  <Route index element={<Navigate to="general" replace />} />
-                  <Route path="general" element={<GeneralTab />} />
-                  <Route path="connection" element={<ConnectionTab />} />
-                  <Route path="projects" element={<ProjectsTab />} />
-                  <Route path="models" element={<ModelsTab />} />
-                  <Route path="memory" element={<MemoryTab />} />
-                  <Route path="safety" element={<SafetyTab />} />
-                  <Route path="agents" element={<AgentsTab />} />
-                  <Route path="capabilities" element={<CapabilitiesTab />} />
-                  <Route path="channels" element={<ChannelsTab />} />
-                  <Route path="qqbot" element={<Navigate to="../channels" replace />} />
-                  <Route path="stats" element={<StatsTab />} />
-                </Route>
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
+                    }
+                  />
+                  <Route path="/settings" element={<SettingsLayout />}>
+                    <Route index element={<Navigate to="general" replace />} />
+                    <Route path="general" element={<GeneralTab />} />
+                    <Route path="connection" element={<ConnectionTab />} />
+                    <Route path="projects" element={<ProjectsTab />} />
+                    <Route path="models" element={<ModelsTab />} />
+                    <Route path="memory" element={<MemoryTab />} />
+                    <Route path="safety" element={<SafetyTab />} />
+                    <Route path="agents" element={<AgentsTab />} />
+                    <Route path="capabilities" element={<CapabilitiesTab />} />
+                    <Route path="channels" element={<ChannelsTab />} />
+                    <Route path="qqbot" element={<Navigate to="../channels" replace />} />
+                    <Route path="stats" element={<StatsTab />} />
+                  </Route>
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
               </Suspense>
             </div>
           </main>
