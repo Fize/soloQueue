@@ -16,29 +16,16 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // ─── RunCommand ─────────────────────────────────────────────────────────────
 
 // RunCommandOptions contains command execution options.
-type RunCommandOptions struct {
-	// Timeout is the execution timeout. 0 means no limit.
-	Timeout time.Duration
-	// Stdin is optional standard input.
-	Stdin string
-	// MaxOutput is the maximum output size for stdout/stderr. 0 means no limit.
-	MaxOutput int64
-	// WorkingDirectory optional working directory for command execution; empty = default
-	WorkingDirectory string
-}
+type RunCommandOptions = sandbox.RunCommandOptions
 
 // RunCommandResult contains the result of a command execution.
-type RunCommandResult struct {
-	ExitCode  int
-	Stdout    []byte
-	Stderr    []byte
-	Truncated bool
-}
+type RunCommandResult = sandbox.RunCommandResult
 
 // ─── ReadFile ───────────────────────────────────────────────────────────────
 
@@ -134,7 +121,8 @@ type HTTPResponse struct {
 // It provides local filesystem and network access for shell commands,
 // file I/O, globbing, grep, and HTTP requests.
 type Sandbox struct {
-	log *logger.Logger
+	log          *logger.Logger
+	dockerRunner *sandbox.DockerRunner
 }
 
 // NewSandbox creates the local executor.
@@ -145,6 +133,16 @@ func NewSandbox() *Sandbox {
 // SetLogger sets the logger; nil disables logging.
 func (s *Sandbox) SetLogger(l *logger.Logger) {
 	s.log = l
+}
+
+// SetDockerRunner sets the DockerRunner instance for sandbox execution.
+func (s *Sandbox) SetDockerRunner(r *sandbox.DockerRunner) {
+	s.dockerRunner = r
+}
+
+// DockerRunner returns the current DockerRunner instance.
+func (s *Sandbox) DockerRunner() *sandbox.DockerRunner {
+	return s.dockerRunner
 }
 
 // ─── ReadFile ───────────────────────────────────────────────────────────────

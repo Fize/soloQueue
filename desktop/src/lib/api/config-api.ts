@@ -5,6 +5,7 @@ import type {
   DefaultModelsConfig,
   SessionConfig,
   ToolsConfig,
+  SandboxConfig,
   EmbeddingConfig,
   QQBotConfig,
   WeChatAccountView,
@@ -123,6 +124,19 @@ export async function updateToolsConfig(
   data: ToolsConfig,
 ): Promise<ToolsConfig> {
   return request<ToolsConfig>("/config/tools", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getSandboxConfig(): Promise<SandboxConfig> {
+  return request<SandboxConfig>("/config/sandbox");
+}
+
+export async function updateSandboxConfig(
+  data: SandboxConfig,
+): Promise<SandboxConfig> {
+  return request<SandboxConfig>("/config/sandbox", {
     method: "PUT",
     body: JSON.stringify(data),
   });

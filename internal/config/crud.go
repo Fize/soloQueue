@@ -223,3 +223,11 @@ func (s *GlobalService) UpdateSpeech(speech SpeechConfig) error {
 	})
 	return err
 }
+
+// UpdateSandbox replaces the sandbox configuration.
+func (s *GlobalService) UpdateSandbox(sandbox SandboxConfig) error {
+	_, err := s.Set(func(st *Settings) {
+		st.Sandbox = sandbox
+	})
+	return err
+}

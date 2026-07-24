@@ -29,6 +29,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -130,6 +131,9 @@ type Config struct {
 	// ── Image generation ─────────────────────────────────────
 	// ImageModels lists image generation models. If any model has Enabled set, the ImageGenerate tool is registered.
 	ImageModels []ImgModelCfg
+
+	// ── Docker Sandbox ───────────────────────────────────────
+	SandboxEnabled bool
 }
 
 // ImgModelCfg contains runtime image model configuration.
@@ -155,6 +159,20 @@ type ImgModelCfg struct {
 func ensureSandbox(cfg *Config) {
 	if cfg.Sandbox == nil {
 		cfg.Sandbox = NewSandbox()
+	}
+	if cfg.Sandbox.log == nil && cfg.Logger != nil {
+		cfg.Sandbox.SetLogger(cfg.Logger)
+	}
+	if cfg.SandboxEnabled && cfg.Sandbox.DockerRunner() == nil {
+		runner, err := sandbox.NewDockerRunner(cfg.Logger)
+		if err == nil {
+			cfg.Sandbox.SetDockerRunner(runner)
+		} else if cfg.Logger != nil {
+			cfg.Logger.LogError(nil, logger.CatTool, "sandbox: initialize docker runner failed", err)
+		}
+	} else if !cfg.SandboxEnabled && cfg.Sandbox.DockerRunner() != nil {
+		_ = cfg.Sandbox.DockerRunner().Stop(nil)
+		cfg.Sandbox.SetDockerRunner(nil)
 	}
 }
 

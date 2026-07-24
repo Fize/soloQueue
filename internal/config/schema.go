@@ -54,6 +54,11 @@ type SpeechConfig struct {
 	ModelDir string `json:"modelDir" yaml:"model_dir,omitempty"` // "" = ~/.soloqueue/models
 }
 
+// SandboxConfig controls Docker sandbox execution.
+type SandboxConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled,omitempty"`
+}
+
 // ─── Top-level Settings ───────────────────────────────────────────────────────
 
 // Settings is the complete structure for global configuration
@@ -67,6 +72,7 @@ type Settings struct {
 	Auth          AuthConfig          `json:"auth" yaml:"auth,omitempty"`
 	Log           LogConfig           `json:"log" yaml:"log,omitempty"`
 	Tools         ToolsConfig         `json:"tools" yaml:"tools,omitempty"`
+	Sandbox       SandboxConfig       `json:"sandbox" yaml:"sandbox,omitempty"`
 	Providers     []LLMProvider       `json:"providers" yaml:"providers,omitempty"`
 	Models        []LLMModel          `json:"models" yaml:"models,omitempty"`
 	Embedding     EmbeddingConfig     `json:"embedding" yaml:"embedding,omitempty"`
@@ -419,6 +425,7 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"wechat_bots", "WeChat iLink bot integrations", s.WechatBots},
 		{"lspmcp", "Built-in LSP-based MCP servers", s.LSPMCP},
 		{"tools", "Tool execution limits", s.Tools},
+		{"sandbox", "Docker sandbox settings (experimental)", s.Sandbox},
 		{"simulation", "Simulation engine defaults", s.Simulation},
 		{"speech", "Local speech-to-text via whisper.cpp", s.Speech},
 		{"agent", "MCP server whitelists: nil/omitted = load all; [] = load none", s.Agent},

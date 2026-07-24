@@ -269,7 +269,7 @@ func (s *Stack) OnConfigChange() error {
 	}
 
 	// Update tools config dynamically, preserving runtime dependencies and fields
-	newToolsCfg := settings.Tools.ToToolsConfig()
+	newToolsCfg := settings.Tools.ToToolsConfigWithSandbox(settings.Sandbox)
 	newToolsCfg.MemoryEngine = s.ToolsCfg.MemoryEngine
 	newToolsCfg.PlanDir = s.ToolsCfg.PlanDir
 	newToolsCfg.CronStore = s.ToolsCfg.CronStore

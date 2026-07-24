@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import {
   getToolsConfig,
   updateToolsConfig,
+  getSandboxConfig,
+  updateSandboxConfig,
   getSessionConfig,
   updateSessionConfig,
   getSimulationConfig,
@@ -9,10 +11,11 @@ import {
   listProviders,
   listModels,
 } from '@/lib/api'
-import type { ToolsConfig, SessionConfig, SimulationConfig, LLMProvider, LLMModel } from '@/types'
+import type { ToolsConfig, SandboxConfig, SessionConfig, SimulationConfig, LLMProvider, LLMModel } from '@/types'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
 import { ToolsSection } from './ConfigTab/ToolsSection'
+import { SandboxSection } from './ConfigTab/SandboxSection'
 import { SessionSection } from './ConfigTab/SessionSection'
 import { SimulationSection } from './ConfigTab/SimulationSection'
 
@@ -20,6 +23,7 @@ export function SafetyTab() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
   const [toolsConfig, setToolsConfig] = useState<ToolsConfig | null>(null)
+  const [sandboxConfig, setSandboxConfig] = useState<SandboxConfig | null>(null)
   const [sessionConfig, setSessionConfig] = useState<SessionConfig | null>(null)
   const [simulationConfig, setSimulationConfig] = useState<SimulationConfig | null>(null)
   const [providers, setProviders] = useState<LLMProvider[]>([])
@@ -28,14 +32,16 @@ export function SafetyTab() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [dbTools, dbSession, dbSimulation, dbProviders, dbModels] = await Promise.all([
+      const [dbTools, dbSandbox, dbSession, dbSimulation, dbProviders, dbModels] = await Promise.all([
         getToolsConfig(),
+        getSandboxConfig().catch(() => ({ enabled: false })),
         getSessionConfig(),
         getSimulationConfig(),
         listProviders(),
         listModels(),
       ])
       setToolsConfig(dbTools)
+      setSandboxConfig(dbSandbox)
       setSessionConfig(dbSession)
       setSimulationConfig(dbSimulation)
       setProviders(dbProviders || [])
@@ -56,6 +62,17 @@ export function SafetyTab() {
     try {
       await updateToolsConfig(toolsConfig)
       toast.success(t('config.toastToolsUpdated'))
+      loadData()
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
+  const handleSaveSandbox = async () => {
+    if (!sandboxConfig) return
+    try {
+      await updateSandboxConfig(sandboxConfig)
+      toast.success('Docker Sandbox 设置已更新')
       loadData()
     } catch (err) {
       toast.error((err as Error).message)
@@ -94,6 +111,14 @@ export function SafetyTab() {
 
   return (
     <div className="space-y-8 pb-10">
+      {sandboxConfig && (
+        <SandboxSection
+          config={sandboxConfig}
+          onChange={setSandboxConfig}
+          onSave={handleSaveSandbox}
+        />
+      )}
+
       {toolsConfig && (
         <ToolsSection
           config={toolsConfig}

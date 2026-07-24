@@ -8,6 +8,11 @@ import (
 
 // ToToolsConfig converts config.ToolsConfig to tools.Config.
 func (tc ToolsConfig) ToToolsConfig() tools.Config {
+	return tc.ToToolsConfigWithSandbox(SandboxConfig{})
+}
+
+// ToToolsConfigWithSandbox converts config.ToolsConfig and config.SandboxConfig to tools.Config.
+func (tc ToolsConfig) ToToolsConfigWithSandbox(sandbox SandboxConfig) tools.Config {
 	return tools.Config{
 		MaxFileSize:        defaultInt64(tc.MaxFileSize, 1<<20),
 		MaxMatches:         DefaultInt(tc.MaxMatches, 100),
@@ -30,6 +35,8 @@ func (tc ToolsConfig) ToToolsConfig() tools.Config {
 		WebSearchTimeout: msToDuration(tc.WebSearchTimeoutMs, 10*time.Minute),
 
 		ImageModels: toImgModelCfgs(tc.ImageModels),
+
+		SandboxEnabled: sandbox.Enabled,
 	}
 }
 

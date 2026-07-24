@@ -208,6 +208,10 @@ export interface SpeechConfig {
   modelDir: string;  // "" = ~/.soloqueue/models
 }
 
+export interface SandboxConfig {
+  enabled: boolean;
+}
+
 export interface SpeechStatus {
   enabled: boolean;
   model: string;
@@ -233,6 +237,7 @@ export interface AppConfig {
   session: SessionConfig;
   log: LogConfig;
   tools: ToolsConfig;
+  sandbox?: SandboxConfig;
   providers: LLMProvider[];
   models: LLMModel[];
   embedding: EmbeddingConfig;

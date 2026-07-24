@@ -17,6 +17,10 @@ import (
 )
 
 func (s *Sandbox) RunCommand(ctx context.Context, cmd string, opts RunCommandOptions) (RunCommandResult, error) {
+	if s.dockerRunner != nil {
+		return s.dockerRunner.RunCommand(ctx, cmd, opts)
+	}
+
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)

@@ -993,3 +993,34 @@ func downloadSpeechModel(model, destPath string) (string, error) {
 
 	return "", nil
 }
+
+// ─── Sandbox Config ──────────────────────────────────────────────────────
+
+// GET /api/config/sandbox
+func (m *Mux) handleGetSandboxConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
+		return
+	}
+	settings := m.configSvc.Get()
+	m.writeJSON(w, http.StatusOK, settings.Sandbox)
+}
+
+// PUT /api/config/sandbox
+func (m *Mux) handleUpdateSandboxConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
+		return
+	}
+	var cfg config.SandboxConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := m.configSvc.UpdateSandbox(cfg); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	m.writeJSON(w, http.StatusOK, cfg)
+}
