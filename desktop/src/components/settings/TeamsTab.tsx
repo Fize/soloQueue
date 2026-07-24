@@ -208,11 +208,12 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
       if (editTeam) {
         setName(editTeam.name)
         setDescription(editTeam.description || '')
+        setDescTab('preview')
       } else {
         setName('')
         setDescription('')
+        setDescTab('edit')
       }
-      setDescTab('edit')
       setError(null)
     }
   }, [open, editTeam])
@@ -262,7 +263,7 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
+      <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
         <DialogHeader className="shrink-0">
           <div className="flex items-center gap-2">
             <DialogTitle className="text-sm font-bold text-foreground">
@@ -575,7 +576,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
+      <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
         <DialogHeader className="shrink-0">
           <div className="flex items-center gap-2.5">
             <DialogTitle className="text-sm font-bold text-foreground">
