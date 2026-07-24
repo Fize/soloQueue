@@ -100,6 +100,7 @@ function ConnectionStatusBar() {
   const setBackendStatus = useConnectionStore((s) => s.setBackendStatus)
   const setIsChecking = useConnectionStore((s) => s.setIsChecking)
   const setConnectionError = useConnectionStore((s) => s.setConnectionError)
+  const connectionStatus = useRuntimeStore((s) => s.connectionStatus)
 
   // Aggregate token scalars for tray sync — subscribe individually so
   // unrelated runtime field changes (agent_streams, context_pct, etc.)
@@ -195,6 +196,10 @@ function ConnectionStatusBar() {
   if (isElectron && backendStatus.running) return null
 
   if (mode === 'remote') {
+    // Hide the bar when the remote WebSocket connection is healthy,
+    // mirroring the local-mode behavior that hides when the backend is running.
+    if (connectionStatus === 'connected') return null
+
     const hasUrl = !!remoteUrl
     return (
       <div
