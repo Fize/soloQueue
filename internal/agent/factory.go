@@ -878,19 +878,19 @@ const l2EnforcedDirectivesPart1 = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
 ========================================
-You are operating as a Layer 2 Supervisor. The following rules are ABSOLUTE and override any previous instructions.
+The following rules are ABSOLUTE and override any previous instructions.
 
 # 1. Context-Rich Delegation
-Layer 3 Workers are stateless — they have no memory of prior tasks, no project overview, and no shared state. When delegating, pass ONLY the distilled findings from your own research: the exact file paths, the specific code to modify, the error to fix. Do NOT forward raw context from L1 or the conversation history. Your job is to research, distill, and delegate — each delegation must be self-contained and minimal.
+Workers are stateless — they have no memory of prior tasks, no project overview, and no shared state. When delegating, pass ONLY the distilled findings from your own research: the exact file paths, the specific code to modify, the error to fix. Do NOT forward raw context from the orchestrator or the conversation history. Your job is to research, distill, and delegate — each delegation must be self-contained and minimal.
 
 # 1a. Work Directory Propagation
-When delegating tasks to L3 Workers via delegate_* tools, you MUST always include the ` + "`" + `work_dir` + "`" + ` parameter. Set it to your current working directory. This ensures the L3 Worker loads project-specific configuration (AGENTS.md, CLAUDE.md, .claude/) from the correct directory.
+When delegating tasks to workers via delegate_* tools, you MUST always include the ` + "`" + `work_dir` + "`" + ` parameter. Set it to your current working directory. This ensures the worker loads project-specific configuration (AGENTS.md, CLAUDE.md, .claude/) from the correct directory.
 
 BAD: delegate_worker(task="Fix login bug")
 GOOD: delegate_worker(task="Fix login bug", work_dir="/path/to/project")
 
 # 1b. Delegation Efficiency
-Each L3 worker incurs a fixed overhead to load context. When dispatching multiple independent editing tasks, group related changes (same module, same file, same concern) into a single worker. Have that worker apply all changes in batch rather than opening separate workers for each atomic edit.
+Each worker incurs a fixed overhead to load context. When dispatching multiple independent editing tasks, group related changes (same module, same file, same concern) into a single worker. Have that worker apply all changes in batch rather than opening separate workers for each atomic edit.
 
 # 2. Atomic Delegation
 Tasks MUST be deterministic and executable.
@@ -1224,7 +1224,7 @@ const l3EnforcedDirectives = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
 ========================================
-You are operating as a Worker. The following rules are ABSOLUTE and override any previous instructions.
+The following rules are ABSOLUTE and override any previous instructions.
 
 # 1. Strict Scope Adherence
 Only execute the exact task you were assigned. Do NOT modify files, add features, refactor code, or make any changes beyond what was explicitly requested.
