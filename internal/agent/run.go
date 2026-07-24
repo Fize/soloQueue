@@ -8,14 +8,14 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// jobWatchdogGrace is the time to wait for a job to finish after ctx
-// cancellation before declaring it stuck and continuing the run loop.
-const jobWatchdogGrace = 1 * time.Second
+// jobWatchdogGrace is the time to wait for spawned async goroutines (tracked
+// via taskWg) to exit after ctx cancellation. This replaces the old 1-second
+// hard timeout with a bounded wait that respects the WaitGroup.
+const jobWatchdogGrace = 10 * time.Second
 
-// runJob runs fn(ctx) in a goroutine with a watchdog. If the context is
-// cancelled and fn doesn't return within jobWatchdogGrace, a warning is
-// logged and runJob returns. The fn goroutine will eventually terminate
-// on its own (e.g., when orphan processes finish / a.emit detects ctx.Done).
+// runJob runs fn(ctx) in a goroutine with a watchdog. After fn returns,
+// it waits for all async goroutines tracked by taskWg to complete before
+// closing done. This prevents orphan goroutines when the agent is stopped.
 func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
 	done := make(chan struct{}, 1)
 	go func() {
@@ -26,6 +26,7 @@ func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
 				a.logError(ctx, logger.CatActor, "agent job panic", err)
 				a.cancel()
 			}
+			a.taskWg.Wait()
 			close(done)
 		}()
 		fn(ctx)
@@ -37,7 +38,7 @@ func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
 		case <-done:
 		case <-time.After(jobWatchdogGrace):
 			a.logError(ctx, logger.CatActor, "job did not stop after context cancellation",
-				fmt.Errorf("job stuck for %s after ctx.Done", jobWatchdogGrace),
+				fmt.Errorf("job stuck for %s after ctx.Done (async goroutines may be orphaned)", jobWatchdogGrace),
 				"grace_period", jobWatchdogGrace.String(),
 			)
 		}

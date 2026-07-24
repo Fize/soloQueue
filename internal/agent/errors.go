@@ -22,10 +22,6 @@ import "errors"
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 var (
-	// ErrAgentNotFound Target agent not found in Registry
-	ErrAgentNotFound = errors.New("agent: not found")
-	// ErrAgentAlreadyExists ID already exists during Register
-	ErrAgentAlreadyExists = errors.New("agent: already exists")
 	// ErrAgentNil nil agent passed to Register
 	ErrAgentNil = errors.New("agent: nil")
 	// ErrEmptyID agent's Definition.ID is empty

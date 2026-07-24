@@ -265,6 +265,12 @@ func (a *Agent) execToolsWithAsync(
 				)
 				close(relayCh)
 				<-relayDone
+				// Ensure the target agent is reaped even when AskStream fails
+				// (e.g., due to context cancellation). Without this, spawned
+				// L2/L3 agents leak when /cancel fires.
+				if dn, ok := action.Target.(iface.DoneNotifier); ok {
+					dn.OnDelegationDone()
+				}
 				replyCh <- delegateResult{err: err}
 				return
 			}
@@ -357,7 +363,9 @@ func (a *Agent) execToolsWithAsync(
 
 		// Start all asynchronous goroutines (state is now safely persisted)
 		for _, action := range asyncActions {
+			a.taskWg.Add(1)
 			go func(act func()) {
+				defer a.taskWg.Done()
 				defer func() {
 					if r := recover(); r != nil {
 						a.RecordError(fmt.Errorf("async action goroutine panic: %v", r))
@@ -369,7 +377,9 @@ func (a *Agent) execToolsWithAsync(
 
 		// Start result collection goroutines (one for each delegatedTask)
 		for _, task := range tasks {
+			a.taskWg.Add(1)
 			go func(t *delegatedTask) {
+				defer a.taskWg.Done()
 				defer func() {
 					if r := recover(); r != nil {
 						a.RecordError(fmt.Errorf("watchDelegatedTask goroutine panic: %v", r))
@@ -426,7 +436,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 					a.resumeTurn(task.turn)
 				})
 			}
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(10 * time.Millisecond):
 			// Genuinely cancelled — fill a synthetic error result and
 			// ensure resumeTurn is still triggered so out gets closed.
 			task.turn.results[task.callIndex] = "error: delegation cancelled"

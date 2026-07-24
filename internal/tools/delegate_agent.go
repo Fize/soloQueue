@@ -139,6 +139,10 @@ func (t *DelegateAgentTool) Execute(ctx context.Context, rawArgs string) (string
 	// Call synchronous execution
 	resultCh, err := target.AskStream(ctx, args.Task)
 	if err != nil {
+		// Ensure the spawned agent is reaped even on AskStream failure.
+		if dn, ok := target.(iface.DoneNotifier); ok {
+			dn.OnDelegationDone()
+		}
 		return "", err
 	}
 

@@ -412,8 +412,11 @@ type SelfReapableAdapter struct {
 }
 
 func (ra *SelfReapableAdapter) OnDelegationDone() {
-	ra.supervisor.ReapAll(10 * time.Second)
+	// Stop L2 first so it cannot submit new work to children during cleanup.
 	ra.supervisor.Agent().Stop(10 * time.Second)
+	// Then reap all children (each child has its own reapableAdapter that
+	// already called ReapChild on completion; this is defensive cleanup).
+	ra.supervisor.ReapAll(10 * time.Second)
 	if ra.supervisor.factory != nil && ra.supervisor.factory.Registry() != nil {
 		ra.supervisor.factory.Registry().Unregister(ra.Agent.InstanceID)
 	}

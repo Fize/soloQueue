@@ -92,6 +92,11 @@ type Agent struct {
 	turnMu     sync.RWMutex
 	asyncTurns map[int]*asyncTurnState // iter → turn asynchronous state
 
+	// taskWg tracks spawned async goroutines (execToolsWithAsync, watchDelegatedTask).
+	// When Stop is called, runJob waits for taskWg before closing done, ensuring
+	// all spawned goroutines have completed and are not left as orphans.
+	taskWg sync.WaitGroup
+
 	// Priority mailbox (L1 enabled; nil means a regular job channel)
 	priorityMailbox *PriorityMailbox
 
@@ -622,6 +627,19 @@ func (a *Agent) clearWork() {
 	a.runtime.toolArgs = ""
 	a.runtime.state = StateIdle
 	a.runtimeMu.Unlock()
+}
+
+// cleanupAsyncTurns removes all pending async turn state entries. Called when
+// streamLoop exits without yielding (cancel, error, normal completion) before
+// the out channel is closed. Without this, async goroutines that complete after
+// close(out) will call resumeTurn, which tries to emit to the closed channel
+// and panics (send on closed channel).
+func (a *Agent) cleanupAsyncTurns() {
+	a.turnMu.Lock()
+	for iter := range a.asyncTurns {
+		delete(a.asyncTurns, iter)
+	}
+	a.turnMu.Unlock()
 }
 
 // ─── Event subscription (Watch mode) ────────────────────────────────────

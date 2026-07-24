@@ -731,6 +731,11 @@ func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.Context
 	a.setWorkStart(prompt)
 	yielded := a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
 	if !yielded {
+		// When the stream exits without yielding (cancel, error, or normal
+		// completion), clean up any pending async turns BEFORE close(out).
+		// Otherwise, async goroutines that complete after this point will
+		// try to resumeTurn → emit to the now-closed channel → PANIC.
+		a.cleanupAsyncTurns()
 		a.clearWork()
 	}
 	return yielded

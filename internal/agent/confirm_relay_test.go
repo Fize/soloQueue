@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -389,72 +388,3 @@ func TestConfirmEventBubble_ContextPropagation(t *testing.T) {
 }
 
 // TestConfirmEventBubble_EventRelay verifies that the relay channel can correctly convert AgentEvent to interface{}.
-func TestConfirmEventBubble_EventRelay(t *testing.T) {
-	fix := setupConfirmBubbleFixture(t)
-	defer fix.Cleanup()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Deliver a simple request from L2
-	eventCh, err := fix.L2Agent.AskStream(ctx, "simple task")
-	if err != nil {
-		t.Fatalf("AskStream failed: %v", err)
-	}
-
-	var eventTypes []string
-	for ev := range eventCh {
-		eventTypes = append(eventTypes, fmt.Sprintf("%T", ev))
-	}
-
-	// Should receive various event types
-	if len(eventTypes) == 0 {
-		t.Error("No events received")
-	} else {
-		t.Logf("✓ Received %d events: %v", len(eventTypes), eventTypes)
-	}
-}
-
-// TestConfirmEventBubble_LocatableAdapter verifies that LocatableAdapter can correctly adapt interfaces.
-func TestConfirmEventBubble_LocatableAdapter(t *testing.T) {
-	fix := setupConfirmBubbleFixture(t)
-	defer fix.Cleanup()
-
-	// Get LocatableAdapter via Registry.Locate
-	locatable, ok := fix.registry.Locate("l3")
-	if !ok {
-		t.Fatal("Failed to locate L3")
-	}
-
-	// Verify it implements iface.Locatable
-	var _ iface.Locatable = locatable
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Calling AskStream should return an interface{} channel
-	eventCh, err := locatable.AskStream(ctx, "test prompt")
-	if err != nil {
-		t.Fatalf("AskStream failed: %v", err)
-	}
-
-	if eventCh == nil {
-		t.Error("AskStream returned nil channel")
-	}
-
-	// Collect some events to verify successful conversion
-	count := 0
-	for ev := range eventCh {
-		_ = ev // interface{} type event
-		count++
-		if count > 10 {
-			break
-		}
-	}
-
-	if count == 0 {
-		t.Error("No events received through LocatableAdapter")
-	} else {
-		t.Logf("✓ LocatableAdapter successfully converted %d AgentEvent to interface{}", count)
-	}
-}

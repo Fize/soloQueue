@@ -35,20 +35,26 @@ func (b *channelAdapterBase) SetRegistry(reg *agent.Registry) {
 	b.registry = reg
 }
 
-// reapSupervisorChildren stops any orphaned supervisor children still in Processing state.
+// reapSupervisorChildren stops any orphaned supervisor children that are not
+// cleanly idle. Children in StateStopped or StateStopping were previously
+// skipped, causing them to permanently leak in the supervisor children map
+// and registry after /cancel fired. ReapChild unregisters and stops them
+// regardless of current state.
 func (b *channelAdapterBase) reapSupervisorChildren(tag string) {
 	if b.supervisorsFn == nil {
 		return
 	}
 	for _, sv := range b.supervisorsFn() {
 		for _, child := range sv.Children() {
-			if child.State() == agent.StateProcessing {
-				if reapErr := sv.ReapChild(child.InstanceID, 10*time.Second); reapErr != nil {
-					b.log.WarnContext(context.Background(), logger.CatApp, tag+": reap child failed",
-						"instance_id", child.InstanceID,
-						"err", reapErr.Error(),
-					)
-				}
+			if child.State() == agent.StateIdle {
+				continue
+			}
+			if reapErr := sv.ReapChild(child.InstanceID, 10*time.Second); reapErr != nil {
+				b.log.WarnContext(context.Background(), logger.CatApp, tag+": reap child failed",
+					"instance_id", child.InstanceID,
+					"state", child.State().String(),
+					"err", reapErr.Error(),
+				)
 			}
 		}
 	}

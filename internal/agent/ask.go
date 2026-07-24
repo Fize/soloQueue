@@ -303,6 +303,16 @@ func (a *Agent) submitHighPriority(jb job) error {
 		return ErrNotStarted
 	}
 
+	// Fast path: agent already exited. Without this check, async delegation
+	// callbacks (resumeTurn) can be posted to the priority mailbox after the
+	// run goroutine has already drained and exited, causing the job to be
+	// silently dropped and never executed.
+	select {
+	case <-agentDone:
+		return ErrStopped
+	default:
+	}
+
 	if pm != nil {
 		pm.SubmitHigh(jb)
 		return nil

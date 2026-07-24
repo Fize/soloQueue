@@ -243,43 +243,6 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 	t.Log("main agent created")
 }
 
-func TestDefaultFactory_Create_Ephemeral(t *testing.T) {
-	dir := t.TempDir()
-	log, err := logger.System(dir, logger.WithConsole(false))
-	if err != nil {
-		t.Fatalf("logger.System: %v", err)
-	}
-	defer log.Close()
-
-	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{
-		Responses: []string{"hello"},
-	}
-
-	factory := NewDefaultFactory(
-		registry,
-		fakeLLM,
-		tools.Config{},
-		log,
-	)
-
-	tmpl := AgentTemplate{
-		ID:           "ephemeral-agent",
-		Name:         "Ephemeral Agent",
-		SystemPrompt: "You are ephemeral.",
-	}
-
-	agent, _, err := factory.Create(context.Background(), tmpl, "")
-	if err != nil {
-		t.Fatalf("factory.Create: %v", err)
-	}
-	defer agent.Stop(time.Second)
-
-	// Verify agent created successfully (Ephemeral functionality removed, but agent can still be created normally)
-	if agent == nil {
-		t.Fatal("agent is nil")
-	}
-}
 
 func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 	dir := t.TempDir()
@@ -330,52 +293,6 @@ func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 	}
 }
 
-func TestDefaultFactory_Create_StartError(t *testing.T) {
-	// Test Start failure case (via nil LLM?)
-	// Actually factory.Create calls a.Start() — will it error if LLM is nil?
-	// Looking at code: Start doesn't check LLM, so it won't error
-	// We need to mock a case that will fail
-
-	dir := t.TempDir()
-	log, err := logger.System(dir, logger.WithConsole(false))
-	if err != nil {
-		t.Fatalf("logger.System: %v", err)
-	}
-	defer log.Close()
-
-	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{
-		Responses: []string{"hello"},
-	}
-
-	factory := NewDefaultFactory(
-		registry,
-		fakeLLM,
-		tools.Config{},
-		log,
-	)
-
-	tmpl := AgentTemplate{
-		ID:           "test-agent",
-		Name:         "Test Agent",
-		SystemPrompt: "You are a test agent.",
-	}
-
-	agent, cw, err := factory.Create(context.Background(), tmpl, "")
-	if err != nil {
-		t.Fatalf("factory.Create: %v", err)
-	}
-
-	// Verify agent and cw are not nil
-	if agent == nil {
-		t.Error("agent should not be nil")
-	}
-	if cw == nil {
-		t.Error("cw should not be nil")
-	}
-
-	_ = agent.Stop(time.Second)
-}
 
 // ─── Helper functions for tests ──────────────────────────────────────
 

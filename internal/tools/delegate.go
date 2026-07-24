@@ -257,6 +257,10 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 			if s, ok := targetAgent.(interface{ Stop(time.Duration) error }); ok {
 				go func() { _ = s.Stop(5 * time.Second) }()
 			}
+			// Ensure the spawned agent is reaped even on AskStream failure.
+			if dn, ok := targetAgent.(iface.DoneNotifier); ok {
+				dn.OnDelegationDone()
+			}
 			return "", fmt.Errorf("delegation to %s timed out after %s", dt.LeaderID, timeout)
 		}
 
@@ -266,6 +270,10 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 				"err", err.Error(),
 				"duration_ms", time.Since(start).Milliseconds(),
 			)
+		}
+		// Ensure the spawned agent is reaped even on AskStream failure.
+		if dn, ok := targetAgent.(iface.DoneNotifier); ok {
+			dn.OnDelegationDone()
 		}
 		return "", err
 	}
