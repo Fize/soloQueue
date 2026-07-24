@@ -28,8 +28,8 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('useChatStream characterization', () => {
-  it('CHARACTERIZATION: sending in B updates activeRequestIdRef in the hook instance', async () => {
+describe('useChatStream', () => {
+  it('cancelling a request in session A only affects session A active request', async () => {
     const { result } = renderHook(() => useChatStream())
 
     // 1. Send message in session A

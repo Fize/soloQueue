@@ -306,7 +306,7 @@ describe('chatStore', () => {
     expect(msgs[2].segments[0]).toEqual({ type: 'content', text: 'newer response' })
   })
 
-  it('CHARACTERIZATION: deleteL2Session cleanup is incomplete for streaming and helper session maps', async () => {
+  it('deleteL2Session cleanup is complete for streaming and helper session maps', async () => {
     const sid = 'l2:delete-test-123'
     useChatStore.setState({
       sessions: [{ id: sid, type: 'l2', name: 'Delete test', createdAt: '' }],
@@ -323,11 +323,8 @@ describe('chatStore', () => {
     const state = useChatStore.getState()
     expect(state.sessions.find((s) => s.id === sid)).toBeUndefined()
     expect(state.messages[sid]).toBeUndefined()
-
-    // CHARACTERIZATION: These session maps are currently NOT cleared by deleteL2Session:
-    // Phase 4 will ensure complete store cleanup for deleted sessions.
-    expect(state.streamingSessions[sid]).toBe(true)
-    expect(state.systemCommandSessions[sid]).toBe(true)
-    expect(state.delegatingSessions[sid]).toBe(true)
+    expect(state.streamingSessions[sid]).toBeUndefined()
+    expect(state.systemCommandSessions[sid]).toBeUndefined()
+    expect(state.delegatingSessions[sid]).toBeUndefined()
   })
 })

@@ -152,6 +152,9 @@ export const useChatStore = create<ChatState>((set) => ({
         const { [id]: _more, ...restHasMore } = s.historyHasMore
         const { [id]: _cursor, ...restCursor } = s.historyCursor
         const { [id]: _route, ...restRoutes } = s.routeSessions
+        const { [id]: _streaming, ...restStreaming } = s.streamingSessions
+        const { [id]: _system, ...restSystem } = s.systemCommandSessions
+        const { [id]: _delegating, ...restDelegating } = s.delegatingSessions
         return {
           sessions: s.sessions.filter((sess) => sess.id !== id),
           activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
@@ -161,6 +164,9 @@ export const useChatStore = create<ChatState>((set) => ({
           historyHasMore: restHasMore,
           historyCursor: restCursor,
           routeSessions: restRoutes,
+          streamingSessions: restStreaming,
+          systemCommandSessions: restSystem,
+          delegatingSessions: restDelegating,
         }
       })
     } catch {
