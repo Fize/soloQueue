@@ -404,6 +404,22 @@ export function SessionTree() {
                                       indent={2}
                                     />
                                   ))}
+                                  {listExpanded && hidden.map((s) => (
+                                    <TreeItem
+                                      key={s.id}
+                                      sessionId={s.id}
+                                      label={s.name || 'New chat'}
+                                      isPast={s.name ? s.name.startsWith('Past') : false}
+                                      active={activeSessionId === s.id}
+                                      onClick={() => {
+                                        setActiveSession(s.id)
+                                        navigate(`/chat/${s.id}`)
+                                      }}
+                                      onDelete={(e) => handleDelete(e, s.id)}
+                                      disabled={!!streamingSessions[s.id]}
+                                      indent={2}
+                                    />
+                                  ))}
                                   {hidden.length > 0 && (
                                     <button
                                       type="button"
@@ -424,22 +440,6 @@ export function SessionTree() {
                                       </span>
                                     </button>
                                   )}
-                                  {listExpanded && hidden.map((s) => (
-                                    <TreeItem
-                                      key={s.id}
-                                      sessionId={s.id}
-                                      label={s.name || 'New chat'}
-                                      isPast={s.name ? s.name.startsWith('Past') : false}
-                                      active={activeSessionId === s.id}
-                                      onClick={() => {
-                                        setActiveSession(s.id)
-                                        navigate(`/chat/${s.id}`)
-                                      }}
-                                      onDelete={(e) => handleDelete(e, s.id)}
-                                      disabled={!!streamingSessions[s.id]}
-                                      indent={2}
-                                    />
-                                  ))}
                                 </div>
                               )
                             })()}
@@ -478,6 +478,22 @@ export function SessionTree() {
                                 indent={1}
                               />
                             ))}
+                            {listExpanded && hidden.map((s) => (
+                              <TreeItem
+                                key={s.id}
+                                sessionId={s.id}
+                                label={s.name || 'New chat'}
+                                isPast={s.name ? s.name.startsWith('Past') : false}
+                                active={activeSessionId === s.id}
+                                onClick={() => {
+                                  setActiveSession(s.id)
+                                  navigate(`/chat/${s.id}`)
+                                }}
+                                onDelete={(e) => handleDelete(e, s.id)}
+                                disabled={!!streamingSessions[s.id]}
+                                indent={1}
+                              />
+                            ))}
                             {hidden.length > 0 && (
                               <button
                                 type="button"
@@ -498,22 +514,6 @@ export function SessionTree() {
                                 </span>
                               </button>
                             )}
-                            {listExpanded && hidden.map((s) => (
-                              <TreeItem
-                                key={s.id}
-                                sessionId={s.id}
-                                label={s.name || 'New chat'}
-                                isPast={s.name ? s.name.startsWith('Past') : false}
-                                active={activeSessionId === s.id}
-                                onClick={() => {
-                                  setActiveSession(s.id)
-                                  navigate(`/chat/${s.id}`)
-                                }}
-                                onDelete={(e) => handleDelete(e, s.id)}
-                                disabled={!!streamingSessions[s.id]}
-                                indent={1}
-                              />
-                            ))}
                           </div>
                         )
                       })()}
@@ -544,6 +544,22 @@ export function SessionTree() {
                                 indent={1}
                               />
                             ))}
+                            {listExpanded && hidden.map((s) => (
+                              <TreeItem
+                                key={s.id}
+                                sessionId={s.id}
+                                label={s.name || 'New chat'}
+                                isPast={s.name ? s.name.startsWith('Past') : false}
+                                active={activeSessionId === s.id}
+                                onClick={() => {
+                                  setActiveSession(s.id)
+                                  navigate(`/chat/${s.id}`)
+                                }}
+                                onDelete={(e) => handleDelete(e, s.id)}
+                                disabled={!!streamingSessions[s.id]}
+                                indent={1}
+                              />
+                            ))}
                             {hidden.length > 0 && (
                               <button
                                 type="button"
@@ -564,22 +580,6 @@ export function SessionTree() {
                                 </span>
                               </button>
                             )}
-                            {listExpanded && hidden.map((s) => (
-                              <TreeItem
-                                key={s.id}
-                                sessionId={s.id}
-                                label={s.name || 'New chat'}
-                                isPast={s.name ? s.name.startsWith('Past') : false}
-                                active={activeSessionId === s.id}
-                                onClick={() => {
-                                  setActiveSession(s.id)
-                                  navigate(`/chat/${s.id}`)
-                                }}
-                                onDelete={(e) => handleDelete(e, s.id)}
-                                disabled={!!streamingSessions[s.id]}
-                                indent={1}
-                              />
-                            ))}
                           </div>
                         )
                       })()}
