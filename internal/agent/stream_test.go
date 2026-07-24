@@ -184,6 +184,33 @@ func TestAsk_WrapsStreamCorrectly(t *testing.T) {
 
 // ─── Reasoning (deepseek-reasoner) ──────────────────────────────────────────
 
+func TestProcessStreamEvents_EmitsReasoningBeforeContentWithinSameDelta(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, nil, nil)
+	in := make(chan llm.Event, 2)
+	out := make(chan AgentEvent, 2)
+	in <- llm.Event{
+		Type:                  llm.EventDelta,
+		ReasoningContentDelta: "reasoning",
+		ContentDelta:          "answer",
+	}
+	in <- llm.Event{Type: llm.EventDone, FinishReason: llm.FinishStop}
+	close(in)
+
+	acc := &streamAccumulator{tcSlots: make(map[int]*llm.ToolCall)}
+	if err := a.processStreamEvents(context.Background(), 0, in, out, time.Now(), acc); err != nil {
+		t.Fatalf("processStreamEvents: %v", err)
+	}
+
+	first := <-out
+	second := <-out
+	if got, ok := first.(ReasoningDeltaEvent); !ok || got.Delta != "reasoning" {
+		t.Errorf("first event = %#v, want reasoning delta", first)
+	}
+	if got, ok := second.(ContentDeltaEvent); !ok || got.Delta != "answer" {
+		t.Errorf("second event = %#v, want content delta", second)
+	}
+}
+
 // TestAskStream_EmitsReasoningDeltas: reasoning_content_delta → ReasoningDeltaEvent.
 func TestAskStream_EmitsReasoningDeltas(t *testing.T) {
 	fake := &FakeLLM{

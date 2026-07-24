@@ -182,3 +182,50 @@ done:
 		t.Errorf("expected second frame to be tool_start, got %s", types[1])
 	}
 }
+
+func TestForwardAgentEvents_PreservesReasoningContentOrderAcrossMicrobatch(t *testing.T) {
+	client := &Client{
+		send:           make(chan []byte, 64),
+		ctx:            context.Background(),
+		activeRequests: make(map[string]*activeRequest),
+	}
+	reqCancel := func() {}
+	client.addActiveRequest("req-test", reqCancel)
+
+	ch := make(chan iface.AgentEvent, 16)
+	ch <- agent.ReasoningDeltaEvent{Iter: 0, Delta: "Invest"}
+	ch <- agent.ReasoningDeltaEvent{Iter: 0, Delta: "Lab."}
+	ch <- agent.ContentDeltaEvent{Iter: 0, Delta: "好了"}
+	ch <- agent.ContentDeltaEvent{Iter: 0, Delta: "，我对 SoloQueue 有了解。"}
+	ch <- agent.ToolExecStartEvent{Iter: 0, CallID: "c1", Name: "delegate_team", Args: "{}"}
+	close(ch)
+
+	(&Hub{}).forwardAgentEvents(client, "req-test", reqCancel, ch, "l1", "")
+
+	var msgs []WSMessage
+	for {
+		select {
+		case data := <-client.send:
+			var msg WSMessage
+			if err := json.Unmarshal(data, &msg); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			msgs = append(msgs, msg)
+		default:
+			goto done
+		}
+	}
+done:
+	if len(msgs) != 3 {
+		t.Fatalf("got %d frames, want 3: %#v", len(msgs), msgs)
+	}
+	if msgs[0].Type != "reasoning_chunk" || msgs[0].Delta != "InvestLab." {
+		t.Errorf("first frame = %#v, want combined reasoning chunk", msgs[0])
+	}
+	if msgs[1].Type != "chat_chunk" || msgs[1].Delta != "好了，我对 SoloQueue 有了解。" {
+		t.Errorf("second frame = %#v, want combined content chunk", msgs[1])
+	}
+	if msgs[2].Type != "tool_start" {
+		t.Errorf("third frame = %#v, want tool_start", msgs[2])
+	}
+}

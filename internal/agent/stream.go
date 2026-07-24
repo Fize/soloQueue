@@ -81,18 +81,21 @@ func (a *Agent) processStreamEvents(
 			}
 			switch ev.Type {
 			case llm.EventDelta:
-				if ev.ContentDelta != "" {
-					acc.content.WriteString(ev.ContentDelta)
-					if !a.emit(ctx, out, ContentDeltaEvent{
-						Iter: iter, Delta: ev.ContentDelta,
-					}) {
-						return ctx.Err()
-					}
-				}
+				// DeepSeek can include the final reasoning fragment and the first
+				// visible-content fragment in one SSE delta. Reasoning semantically
+				// precedes the answer, so preserve that order in the event stream.
 				if ev.ReasoningContentDelta != "" {
 					acc.reasoning.WriteString(ev.ReasoningContentDelta)
 					if !a.emit(ctx, out, ReasoningDeltaEvent{
 						Iter: iter, Delta: ev.ReasoningContentDelta,
+					}) {
+						return ctx.Err()
+					}
+				}
+				if ev.ContentDelta != "" {
+					acc.content.WriteString(ev.ContentDelta)
+					if !a.emit(ctx, out, ContentDeltaEvent{
+						Iter: iter, Delta: ev.ContentDelta,
 					}) {
 						return ctx.Err()
 					}

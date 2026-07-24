@@ -371,45 +371,49 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 	// batcher and are flushed immediately.
 	const streamBatchInterval = 30 * time.Millisecond
 
-	// Batcher state — drained on every loop iteration so the goroutine never
-	// blocks waiting for the timer when there is no high-frequency traffic.
+	// Batcher state. A batch contains only one delta type: keeping independent
+	// content/reasoning buffers and flushing them in a fixed order would reorder
+	// a reasoning→content transition that occurs within the same 30 ms window.
 	var (
-		pendingContent   strings.Builder
-		pendingReasoning strings.Builder
-		haveContent      bool
-		haveReasoning    bool
-		flushTimer       *time.Timer
-		flushC           <-chan time.Time
+		pendingDelta strings.Builder
+		pendingType  string
+		flushTimer   *time.Timer
+		flushC       <-chan time.Time
 	)
 
-	flush := func() {
-		if haveContent {
+	flush := func() bool {
+		if pendingType != "" {
 			if !client.sendJSON(WSMessage{
-				Type:      "chat_chunk",
+				Type:      pendingType,
 				RequestID: requestID,
-				Delta:     pendingContent.String(),
+				Delta:     pendingDelta.String(),
 			}) {
-				return
+				return false
 			}
-			pendingContent.Reset()
-			haveContent = false
-		}
-		if haveReasoning {
-			if !client.sendJSON(WSMessage{
-				Type:      "reasoning_chunk",
-				RequestID: requestID,
-				Delta:     pendingReasoning.String(),
-			}) {
-				return
-			}
-			pendingReasoning.Reset()
-			haveReasoning = false
+			pendingDelta.Reset()
+			pendingType = ""
 		}
 		if flushTimer != nil {
 			flushTimer.Stop()
 			flushTimer = nil
 		}
 		flushC = nil
+		return true
+	}
+
+	appendDelta := func(msgType, delta string) bool {
+		if pendingType != "" && pendingType != msgType {
+			if !flush() {
+				return false
+			}
+		}
+		pendingType = msgType
+		pendingDelta.WriteString(delta)
+		if flushTimer == nil {
+			flushTimer = time.NewTimer(streamBatchInterval)
+			flushC = flushTimer.C
+		}
+		return true
 	}
 
 	for {
@@ -426,27 +430,23 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 
 			// Fast path: batchable high-frequency deltas.
 			if cd, ok := agEv.(agent.ContentDeltaEvent); ok {
-				pendingContent.WriteString(cd.Delta)
-				haveContent = true
-				if flushTimer == nil {
-					flushTimer = time.NewTimer(streamBatchInterval)
-					flushC = flushTimer.C
+				if !appendDelta("chat_chunk", cd.Delta) {
+					return
 				}
 				continue
 			}
 			if rd, ok := agEv.(agent.ReasoningDeltaEvent); ok {
-				pendingReasoning.WriteString(rd.Delta)
-				haveReasoning = true
-				if flushTimer == nil {
-					flushTimer = time.NewTimer(streamBatchInterval)
-					flushC = flushTimer.C
+				if !appendDelta("reasoning_chunk", rd.Delta) {
+					return
 				}
 				continue
 			}
 
 			// Structural event: flush pending text first so the client sees
 			// the new structural frame AFTER the full text preceding it.
-			flush()
+			if !flush() {
+				return
+			}
 
 			// Auto-generate session name after first exchange for L2 sessions.
 			if doneEv, ok := agEv.(agent.DoneEvent); ok {
@@ -538,7 +538,9 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 			}
 
 		case <-flushC:
-			flush()
+			if !flush() {
+				return
+			}
 		}
 	}
 }
