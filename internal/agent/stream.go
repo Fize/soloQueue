@@ -392,6 +392,13 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 					"Your tool_call arguments were incomplete. " +
 					"Please retry with shorter content or split into multiple writes.")
 			}
+			// Emit ErrorEvent so consumers (cron scheduler, UI) know the
+			// turn ended abnormally and can retry. Without this, downstream
+			// treats the error-in-content DoneEvent as success.
+			truncErr := fmt.Errorf("output truncated (max_tokens reached): tool_call arguments incomplete")
+			a.logError(ctx, logger.CatLLM, "emitting ErrorEvent for truncated tool_calls", truncErr)
+			a.emit(ctx, out, ErrorEvent{Err: truncErr})
+			return false
 		}
 
 		// Exit: LLM produced no tool calls → return final content
