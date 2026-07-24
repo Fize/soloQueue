@@ -79,6 +79,9 @@ type cronTask struct {
 	enqueued time.Time
 }
 
+// CronStartCallback is called when a cron task execution begins.
+type CronStartCallback func(taskID, taskTitle string)
+
 // CronDoneCallback is called when a cron task execution completes.
 // taskID and taskTitle identify the task; success indicates the result;
 // summary is a brief human-readable description (first line of reply or error).
@@ -104,6 +107,10 @@ type Scheduler struct {
 	timers      map[string]*time.Timer
 	oneTimeRuns map[string]string
 	stopped     bool
+
+	// OnTaskStart is called when a cron task begins execution.
+	// Set from the server layer to integrate with WebSocket notifications.
+	OnTaskStart CronStartCallback
 
 	// OnTaskComplete is called when a cron task finishes execution.
 	// Set from the server layer to integrate with WebSocket notifications.
@@ -341,6 +348,14 @@ func (s *Scheduler) executeL1Task(t Task) {
 	s.runL1Task(ctx, t, l1Session)
 }
 
+// notifyTaskStarted is a helper that calls OnTaskStart if set.
+func (s *Scheduler) notifyTaskStarted(t Task) {
+	if s.OnTaskStart == nil {
+		return
+	}
+	s.OnTaskStart(t.ID, t.Title)
+}
+
 // notifyTaskComplete is a helper that calls OnTaskComplete if set, extracting
 // a short summary from the reply text or error message.
 func (s *Scheduler) notifyTaskComplete(t Task, success bool, summary string) {
@@ -368,6 +383,8 @@ const continuationPrompt = "[SYSTEM NOTICE] The previous streaming response was 
 // runL1Task executes a single L1 task on the given session.
 func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	start := time.Now()
+
+	s.notifyTaskStarted(t)
 
 	cronCtx := s.buildCronContext(t)
 
@@ -438,7 +455,11 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 		errMsg = drainErr.Error()
 	}
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
-	s.notifyTaskComplete(t, status == "success", firstLineSummary(result.replyText))
+	if status != "success" {
+		s.notifyTaskComplete(t, false, "执行失败: "+errMsg)
+	} else {
+		s.notifyTaskComplete(t, true, firstLineSummary(result.replyText))
+	}
 
 	// Deliver result through the session's bound channel (QQ/WeChat).
 	if status == "success" && result.replyText != "" {
@@ -497,6 +518,8 @@ func (s *Scheduler) executeL2Task(t Task) {
 	}
 
 	start := time.Now()
+
+	s.notifyTaskStarted(t)
 
 	cronCtx := s.buildCronContext(t)
 	resolved, ch, err := s.askWithTaskModel(cronCtx, t, l2Session)
@@ -574,7 +597,11 @@ func (s *Scheduler) executeL2Task(t Task) {
 		errMsg = drainErr.Error()
 	}
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
-	s.notifyTaskComplete(t, status == "success", firstLineSummary(replyText))
+	if status != "success" {
+		s.notifyTaskComplete(t, false, "执行失败: "+errMsg)
+	} else {
+		s.notifyTaskComplete(t, true, firstLineSummary(replyText))
+	}
 
 	// Deliver result through the session's bound channel (QQ/WeChat).
 	if status == "success" && replyText != "" {

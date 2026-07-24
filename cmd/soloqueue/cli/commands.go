@@ -244,7 +244,10 @@ func ServeCmd(version string) *cobra.Command {
 			mux.SetHub(wsHub)
 			go wsHub.Run()
 
-			// Wire cron task completion notifications to WebSocket.
+			// Wire cron task start/complete notifications to WebSocket.
+			cronScheduler.OnTaskStart = func(taskID, taskTitle string) {
+				wsHub.SendNotification("cron", "info", taskTitle, "开始执行...")
+			}
 			cronScheduler.OnTaskComplete = func(taskID, taskTitle string, success bool, summary string) {
 				lv := "error"
 				if success {
