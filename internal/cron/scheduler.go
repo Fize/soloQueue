@@ -358,9 +358,19 @@ func (s *Scheduler) notifyTaskStarted(t Task) {
 
 // notifyTaskComplete is a helper that calls OnTaskComplete if set, extracting
 // a short summary from the reply text or error message.
+// When summary is empty (e.g. replyText starts with "\n" or agent produced
+// only tool calls with no text), a fallback message is used so the desktop
+// notification always has a visible body.
 func (s *Scheduler) notifyTaskComplete(t Task, success bool, summary string) {
 	if s.OnTaskComplete == nil {
 		return
+	}
+	if summary == "" {
+		if success {
+			summary = "执行完成"
+		} else {
+			summary = "执行失败"
+		}
 	}
 	s.OnTaskComplete(t.ID, t.Title, success, summary)
 }

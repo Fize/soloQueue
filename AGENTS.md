@@ -7,6 +7,17 @@ Tactical guidance for AI coding agents working in this repository.
 
 ## Build
 
+### Prerequisite: pnpm approve-builds
+
+The `.npmrc` requires `onlyBuiltDependencies` for `electron` and `esbuild`. Before first `pnpm install`, run:
+
+```bash
+cd portal && pnpm approve-builds esbuild    # or: pnpm approve-builds
+cd desktop && pnpm approve-builds           # approves both electron + esbuild
+```
+
+The Makefile does this automatically. Without it, `pnpm install` fails.
+
 ### Linux / macOS (make)
 
 ```bash
@@ -20,7 +31,7 @@ make package-desktop  # Package Electron app (PLATFORM=mac|win|linux)
 make clean            # Remove all build artifacts
 ```
 
-The Go binary embeds `internal/server/dist/` via `//go:embed`. `make build-web` also copies `skills/` into dist so embedded skills are available at runtime.
+The Go binary embeds `internal/server/dist/` via `//go:embed`. `go run ./cmd/soloqueue serve` without a pre-built dist works but the portal will be blank. Always `make build-web` (or `make build`) first for a working UI.
 
 ### Windows (PowerShell)
 
@@ -40,6 +51,17 @@ go test -run TestReplayInto ./internal/timeline/...  # single test
 ```
 
 Use `rtk go test ./...` for compact output (hides pass lines, shows only failures).
+
+## Frontend lint & tests
+
+```bash
+cd desktop && pnpm lint            # ESLint
+cd desktop && pnpm test            # Vitest
+cd desktop && pnpm test:watch      # Vitest watch mode
+```
+
+The portal has no lint or test scripts configured.
+No Go linter (golangci-lint, go vet) is wired into the Makefile.
 
 ## Running locally
 
@@ -111,6 +133,7 @@ internal/ctxwin/        context window (tiktoken, dual-waterline compaction)
 internal/iface/         shared interfaces (breaks agent↔tools cycle)
 internal/llm/           provider-agnostic LLM protocol + DeepSeek transport
 internal/logger/        structured logging (file + console)
+internal/lsp/           LSP client (gopls, typescript-language-server, ruff)
 internal/mcp/           MCP server manager + config
 internal/memory/        short-term memory manager (daily .md files)
 internal/memoryengine/  long-term memory: BM25 (FTS5) + KG + optional vector
@@ -130,6 +153,8 @@ internal/timeline/      append-only JSONL event sourcing
 internal/tools/         Tool implementations + Sandbox execution backend
 desktop/                Electron app (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
 portal/                 Lightweight web portal (React 19 + Vite + TailwindCSS v4, embedded in Go binary)
+sandbox/                Docker-based tool execution sandbox (Dockerfile)
+skills/                 Bundled skill definitions, copied into embedded dist at build time
 ```
 
 ### Simulation engine (`internal/simulation/`)
@@ -179,6 +204,18 @@ Config-driven hybrid search: BM25 (SQLite FTS5) + Knowledge Graph (in-process, p
 - **Test conventions**: no `TestMain` or shared fixtures. Self-contained per package.
 - **Package manager**: `pnpm` (NOT npm). Lockfile: `pnpm-lock.yaml`.
 - **Frontend**: State management via Zustand stores (`desktop/src/stores/`). Real-time updates via WebSocket. `@/` path alias maps to `src/`.
+
+## No CI
+
+There are no GitHub Actions workflows or pre-commit hooks configured in this repo.
+
+## workflow.md
+
+`workflow.md` at the repo root is a **pending design document** for a not-yet-implemented workflow execution engine (`internal/workflow/`). The package does not exist yet. Do not reference it as implemented code.
+
+## README stale note
+
+`README.md` references `cd web` — there is no `web/` directory. Use `portal/` (lightweight, embedded in Go) or `desktop/` (Electron).
 
 ## Cron notification limitations
 

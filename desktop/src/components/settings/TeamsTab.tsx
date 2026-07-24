@@ -53,6 +53,7 @@ function MultiSelect({ label, placeholder, options, selected, onChange, builtinN
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null)
   
   const handleRemove = (item: string) => {
@@ -64,6 +65,8 @@ function MultiSelect({ label, placeholder, options, selected, onChange, builtinN
       onChange([...selected, item])
     }
     setSearch('')
+    // Explicitly close dropdown after selection
+    setIsOpen(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -75,17 +78,23 @@ function MultiSelect({ label, placeholder, options, selected, onChange, builtinN
         onChange([...selected, newItem])
       }
       setSearch('')
+      setIsOpen(false)
     }
   }
 
+  // Close dropdown when clicking outside both the container AND the portaled dropdown
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      const insideContainer = containerRef.current?.contains(target) ?? false
+      const insideDropdown = dropdownRef.current?.contains(target) ?? false
+      if (!insideContainer && !insideDropdown) {
         setIsOpen(false)
       }
     }
-    document.addEventListener('mousedown', handleOutsideClick)
-    return () => document.removeEventListener('mousedown', handleOutsideClick)
+    // Use pointerdown instead of mousedown to be compatible with Base UI's DismissibleLayer
+    document.addEventListener('pointerdown', handleOutsideClick)
+    return () => document.removeEventListener('pointerdown', handleOutsideClick)
   }, [])
 
   useEffect(() => {
@@ -113,8 +122,10 @@ function MultiSelect({ label, placeholder, options, selected, onChange, builtinN
 
   const dropdown = isOpen && dropdownPos && (filteredOptions.length > 0 || search.trim()) && createPortal(
     <div
+      ref={dropdownRef}
       className="fixed z-[9999] max-h-48 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 duration-100"
       style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
+      onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="p-1">
         {filteredOptions.map(opt => (
