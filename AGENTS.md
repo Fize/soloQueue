@@ -2,7 +2,6 @@
 
 Tactical guidance for AI coding agents working in this repository.
 
-> **Note**: If you're using Claude Code (claude.ai/code), also read [CLAUDE.md](CLAUDE.md).
 > For detailed architecture docs, browse [docs/](docs/README.md).
 
 ## Build
@@ -89,13 +88,13 @@ Other subcommands: `version`.
 
 - Work directory: `~/.soloqueue/` (`config.DefaultWorkDir()`)
 - Agent templates: `~/.soloqueue/agents/*.md` (YAML frontmatter + markdown; hot-reload via fsnotify)
-- Config: `~/.soloqueue/settings.yaml` (TOML; hot-reload via fsnotify)
+- Config: `~/.soloqueue/settings.yaml` (YAML; hot-reload via fsnotify)
 - MCP servers: `~/.soloqueue/mcp.json` (hot-reload)
 - Skills: `~/.soloqueue/skills/*.md` (hot-reload)
 - Timeline JSONL: `~/.soloqueue/logs/timelines/`
 - Task level persistence: `logs/timelines/l2-<id>/level` — stores last routing level so restarted sessions preserve task context (prevents "这个功能做完了吗" being misclassified as L0)
 - Shared SQLite: `~/.soloqueue/soloqueue.db`
-- Config loading order (low→high priority): compiled defaults → `settings.yaml` → `settings.local.toml`
+- Config loading order (low→high priority): compiled defaults → `settings.yaml`
 - Ignored by git: `.soloqueue/`, `.codebuddy/`, `.envsoloqueue`, `logs/`
 
 ## Architecture
@@ -126,8 +125,10 @@ Agents at each level use different system prompts and tool sets. The router outp
 ```
 cmd/soloqueue/          cobra entrypoint (main.go + cli/)
 internal/agent/         actor-model agent (LLM + tool loop + mailbox)
+internal/channel/       shared channel contracts plus QQ and WeChat implementations
 internal/compactor/     LLM-based context compression
-internal/config/        hot-reload config (TOML schema + settings)
+internal/config/        hot-reload config (YAML schema + settings)
+internal/conversationlog/  short-term memory: LLM-driven conversation summaries
 internal/cron/          cron-based scheduled task execution
 internal/ctxwin/        context window (tiktoken, dual-waterline compaction)
 internal/iface/         shared interfaces (breaks agent↔tools cycle)
@@ -135,13 +136,12 @@ internal/llm/           provider-agnostic LLM protocol + DeepSeek transport
 internal/logger/        structured logging (file + console)
 internal/lsp/           LSP client (gopls, typescript-language-server, ruff)
 internal/mcp/           MCP server manager + config
-internal/memory/        short-term memory manager (daily .md files)
 internal/memoryengine/  long-term memory: BM25 (FTS5) + KG + optional vector
 internal/prompt/        prompt assembly, templates, team management
-internal/channel/       Shared channel contracts plus QQ and WeChat implementations
 internal/rotating/      size-based rotating file writer (shared by logger & timeline)
 internal/router/        L0-L3 task classification & model routing
 internal/runtime/       shared dependency container (Stack, built once)
+internal/sandbox/       Docker-based tool execution sandbox
 internal/server/        REST + WebSocket HTTP router (chi/v5)
 internal/session/       session manager (single active, inFlight atomic CAS)
 internal/simulation/    Generative Agents simulation engine
@@ -149,13 +149,19 @@ internal/skill/         Claude Code-compatible skill system
 internal/sqlitedb/      shared SQLite wrapper + schema migrations
 internal/team/          auto-reload for LLM-written agent/group files
 internal/teamstore/     filesystem-backed team & agent persistence
+internal/telemetry/     LLM token usage tracking (wraps LLMClient)
 internal/timeline/      append-only JSONL event sourcing
-internal/tools/         Tool implementations + Sandbox execution backend
+internal/tools/         tool implementations + sandbox execution backend
+internal/workflow/      YAML DAG workflow engine (v1) with outcome routing + bounded loops
 desktop/                Electron app (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
 portal/                 Lightweight web portal (React 19 + Vite + TailwindCSS v4, embedded in Go binary)
 sandbox/                Docker-based tool execution sandbox (Dockerfile)
 skills/                 Bundled skill definitions, copied into embedded dist at build time
 ```
+
+### Workflow engine (`internal/workflow/`)
+
+YAML-defined DAG workflows with outcome-based routing and bounded loops. Each node is an agent task with input/output mapping. `Store` persists workflow state to SQLite. `Engine` executes DAG nodes, `Graph` resolves dependencies, and `Schema`/`Validate` handle definition parsing and validation.
 
 ### Simulation engine (`internal/simulation/`)
 
@@ -181,6 +187,10 @@ Config-driven hybrid search: BM25 (SQLite FTS5) + Knowledge Graph (in-process, p
 - RRF fusion (k=60) deduplicates by `content_hash`; same memory found by multiple pipelines gets a combined score.
 - Salience uses Ebbinghaus decay computed at query-time — no background job needed.
 
+### Short-term memory (`internal/conversationlog/`)
+
+LLM-driven conversation summaries triggered on context window compaction. `Manager` coordinates summarization and persistence to daily `.md` files under the work directory. Shared via `Stack.MemoryManager`.
+
 ## Critical invariants
 
 1. **System prompts must NOT be written to timeline.** The session builder pushes them with `replayMode=true`.
@@ -204,14 +214,15 @@ Config-driven hybrid search: BM25 (SQLite FTS5) + Knowledge Graph (in-process, p
 - **Test conventions**: no `TestMain` or shared fixtures. Self-contained per package.
 - **Package manager**: `pnpm` (NOT npm). Lockfile: `pnpm-lock.yaml`.
 - **Frontend**: State management via Zustand stores (`desktop/src/stores/`). Real-time updates via WebSocket. `@/` path alias maps to `src/`.
+- **TelemetryClient** (`internal/telemetry/`): wraps `agent.LLMClient` to log token usage to SQLite on every Chat/ChatStream call.
+
+## /init command
+
+The `/init` slash command (L2 sessions only) triggers the agent to explore the project directory and create or update `AGENTS.md`. The prompt instructs the agent to read the existing file, explore for changes, and write an updated version.
 
 ## No CI
 
 There are no GitHub Actions workflows or pre-commit hooks configured in this repo.
-
-## workflow.md
-
-`workflow.md` at the repo root is a **pending design document** for a not-yet-implemented workflow execution engine (`internal/workflow/`). The package does not exist yet. Do not reference it as implemented code.
 
 ## README stale note
 
