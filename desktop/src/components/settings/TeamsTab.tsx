@@ -65,11 +65,14 @@ function MultiSelect({ label, placeholder, options, selected, onChange, builtinN
       onChange([...selected, item])
     }
     setSearch('')
-    // Explicitly close dropdown after selection
-    setIsOpen(false)
+    // Keep dropdown open for multi-selection; close only via outside click or Escape
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setIsOpen(false)
+      return
+    }
     if (e.key === 'Enter' && search.trim()) {
       e.preventDefault()
       e.stopPropagation()
@@ -78,7 +81,7 @@ function MultiSelect({ label, placeholder, options, selected, onChange, builtinN
         onChange([...selected, newItem])
       }
       setSearch('')
-      setIsOpen(false)
+      // Keep dropdown open for rapid multi-selection via keyboard
     }
   }
 
