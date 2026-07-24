@@ -786,7 +786,7 @@ export const translations = {
       avgLlmConf: 'Avg LLM Confidence',
     },
     chat: {
-      title: 'Assistant & Sessions',
+      title: 'Chat',
       newChat: 'New Chat',
       thinking: 'Thinking...',
       placeholder: 'Type a message, press Enter to send...',
@@ -1942,7 +1942,7 @@ export const translations = {
       avgLlmConf: '平均 LLM 置信度',
     },
     chat: {
-      title: '会话',
+      title: '聊天',
       newChat: '新建会话',
       thinking: '思考中...',
       placeholder: '输入消息，回车发送...',

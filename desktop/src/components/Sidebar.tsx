@@ -32,7 +32,6 @@ import { useTranslation } from '@/lib/i18n'
 const mainNav = [
   { to: '/simulations', icon: Play, key: 'sidebar.simulations' as const },
   { to: '/cron', icon: Clock, key: 'sidebar.scheduledTasks' as const },
-  { to: '/assistant', icon: Bot, key: 'sidebar.assistant' as const },
   { to: '/stats', icon: BarChart2, key: 'sidebar.usageStats' as const },
 ]
 
@@ -219,6 +218,30 @@ function NavView({
               </button>
             </div>
           )
+        })()}
+
+        {/* Assistant — moved below New Chat, above the chat tree */}
+        {(() => {
+          const item = { to: '/assistant', icon: Bot, key: 'sidebar.assistant' as const };
+          const active = location.pathname.startsWith(item.to);
+          return (
+            <div key={item.to}>
+              <button
+                onClick={() => onNav(item.to)}
+                className={cn(
+                  'flex items-center rounded-md text-xs font-medium transition-all duration-150 cursor-pointer',
+                  narrow ? 'w-full justify-center px-0 py-2' : 'w-full gap-2 px-2.5 py-1.5',
+                  active
+                    ? 'bg-primary text-white shadow-sm font-semibold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+                )}
+                title={narrow ? t(item.key) : undefined}
+              >
+                <item.icon className="h-3.5 w-3.5 shrink-0" />
+                {showText && <span className="whitespace-nowrap">{t(item.key)}</span>}
+              </button>
+            </div>
+          );
         })()}
 
         {/* Chats tree — toggle only, no navigation. Active on /chat/:id
