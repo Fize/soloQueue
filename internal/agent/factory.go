@@ -88,8 +88,19 @@ type AgentFactory interface {
 	// Empty string means use the factory's global workDir (~/.soloqueue).
 	Create(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, *ctxwin.ContextWindow, error)
 
+	// CreateWithOptions creates an agent with additional configuration.
+	// ExtraSystemPrompt is appended to the system prompt.
+	// ExtraTools are added to the agent's tool set (after built-in tools).
+	CreateWithOptions(ctx context.Context, tmpl AgentTemplate, workDir string, opts CreateOptions) (*Agent, *ctxwin.ContextWindow, error)
+
 	// Registry returns the internal Agent Registry (for use by Supervisor)
 	Registry() *Registry
+}
+
+// CreateOptions provides optional overrides for agent creation.
+type CreateOptions struct {
+	ExtraSystemPrompt string
+	ExtraTools        []tools.Tool
 }
 
 // ─── DefaultFactory ────────────────────────────────────────────────────────
@@ -265,6 +276,13 @@ func (f *DefaultFactory) Log() *logger.Logger {
 // workDir is the project working directory for this agent.
 // If empty, the factory's global workDir (~/.soloqueue) is used.
 func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, *ctxwin.ContextWindow, error) {
+	return f.CreateWithOptions(ctx, tmpl, workDir, CreateOptions{})
+}
+
+// CreateWithOptions creates an agent with additional configuration.
+// ExtraSystemPrompt is appended to the system prompt.
+// ExtraTools are added to the agent's tool set after built-in tools.
+func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTemplate, workDir string, opts CreateOptions) (*Agent, *ctxwin.ContextWindow, error) {
 	var a *Agent
 	// Snapshot hot-reloadable fields under read lock for a consistent agent creation.
 	f.mu.RLock()
@@ -624,7 +642,7 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	}
 
 	// 4. Build Option list
-	opts := []Option{
+	agentOpts := []Option{
 		WithTools(allTools...),
 		WithSkills(skillList...),
 		WithAgentWorkDir(effectiveWorkDir),
@@ -646,8 +664,16 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 		// Not enabled for now; L2 synchronously blocks waiting for L3, so priority is not needed
 	}
 
+	// 4b. Apply CreateOptions: extra tools and system prompt
+	if len(opts.ExtraTools) > 0 {
+		agentOpts = append(agentOpts, WithTools(opts.ExtraTools...))
+	}
+	if opts.ExtraSystemPrompt != "" {
+		def.SystemPrompt += "\n\n" + opts.ExtraSystemPrompt
+	}
+
 	// 5. Create Agent
-	a = NewAgent(def, llm, f.log, opts...)
+	a = NewAgent(def, llm, f.log, agentOpts...)
 
 	// 7. Create ContextWindow
 	//   Use the context window size from the model config; fallback to DefaultContextWindow if not configured
@@ -1150,7 +1176,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart2, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{EXPLORE_DIR}}", "explore"))
+	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
 	if hasMCPServer(tmpl.MCPServers, "builtin-lsp") {
@@ -1332,7 +1358,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	}
 	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{EXPLORE_DIR}}", "explore"))
+	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
 	if hasMCPServer(tmpl.MCPServers, "builtin-lsp") {

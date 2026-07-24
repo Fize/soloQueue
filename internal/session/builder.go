@@ -22,6 +22,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
+	workflowtool "github.com/xiaobaitu/soloqueue/internal/workflow/tool"
 )
 
 // Builder encapsulates session creation logic. Each Build() call produces
@@ -358,6 +359,14 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				allTools = append(allTools, mcpTools...)
 			}
 		}
+	}
+
+	// Workflow tools for L1 (v1)
+	if b.RT.WorkflowStore != nil && b.RT.WorkflowEngine != nil {
+		allTools = append(allTools,
+			workflowtool.NewListTool(b.RT.WorkflowStore, sessLog),
+			workflowtool.NewRunTool(b.RT.WorkflowStore, b.RT.WorkflowEngine, sessLog),
+		)
 	}
 
 	a = agent.NewAgent(def, llmClient, sessLog,

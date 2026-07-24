@@ -26,6 +26,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
 
 // Stack holds runtime dependencies, initialized once by Build to avoid duplication.
@@ -66,6 +67,10 @@ type Stack struct {
 	L1NotifyChannel string
 
 	SimulationEngine *simulation.SimulationEngine // multi-agent simulation engine (nil = disabled)
+
+	// Workflow support (v1)
+	WorkflowStore  *workflow.Store
+	WorkflowEngine *workflow.Engine
 
 	// compactorInstance stores the concrete type for internal use.
 	compactorInstance *compactor.LLMCompactor

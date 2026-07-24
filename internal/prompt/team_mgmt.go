@@ -11,8 +11,8 @@ import (
 // MultiWrite, MultiEdit). File changes are automatically synced to a database
 // and reflected in the Web UI.
 func buildTeamManagementSection(workDir string) string {
-	groupsDir := "groups"
-	agentsDir := "agents"
+	groupsDir := filepath.Join(workDir, "groups")
+	agentsDir := filepath.Join(workDir, "agents")
 
 	s := `## CRITICAL: When to Use This Capability
 

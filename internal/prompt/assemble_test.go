@@ -6,7 +6,7 @@ import (
 )
 
 func TestAssembleWithXML_Full(t *testing.T) {
-	exploreDir := "explore/"
+	exploreDir := "/home/user/.soloqueue/explore"
 	result := assembleWithXML(
 		"profile content",
 		"user context",
@@ -68,7 +68,7 @@ func TestAssembleWithXML_NoUserCtx(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
-		"explore/",
+		"/home/user/.soloqueue/explore",
 		nil,
 		nil,
 	)
@@ -89,7 +89,7 @@ func TestAssembleWithXML_EmptyPlanDir(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
-		"explore/",
+		"/home/user/.soloqueue/explore",
 		nil,
 		nil,
 	)
@@ -101,7 +101,7 @@ func TestAssembleWithXML_EmptyPlanDir(t *testing.T) {
 	if !strings.Contains(result, "<exploration_artifacts>") {
 		t.Error("exploration_artifacts section should always be present")
 	}
-	if !strings.Contains(result, "explore/") {
+	if !strings.Contains(result, "/home/user/.soloqueue/explore") {
 		t.Error("exploration_artifacts should contain explore directory path")
 	}
 	if !strings.Contains(result, "same-day") {
@@ -120,7 +120,7 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
-		"explore/",
+		"/home/user/.soloqueue/explore",
 		nil,
 		nil,
 	)
@@ -128,7 +128,7 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 	if !strings.Contains(result, "<exploration_artifacts>") {
 		t.Error("exploration_artifacts section should be present")
 	}
-	if !strings.Contains(result, "explore/") {
+	if !strings.Contains(result, "/home/user/.soloqueue/explore") {
 		t.Error("exploration_artifacts should contain explore directory path")
 	}
 	if !strings.Contains(result, "same-day") {
@@ -150,7 +150,7 @@ func TestAssembleWithXML_MCPServers(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
-		"explore/",
+		"/home/user/.soloqueue/explore",
 		[]string{"playwright", "github"},
 		nil,
 	)
@@ -177,7 +177,7 @@ func TestAssembleWithXML_NoMCPServers(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
-		"explore/",
+		"/home/user/.soloqueue/explore",
 		nil,
 		nil,
 	)
@@ -198,7 +198,7 @@ func TestAssembleWithXML_PermanentMemoryIsSelective(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
-		"explore/",
+		"/home/user/.soloqueue/explore",
 		nil,
 		nil,
 	)
@@ -305,8 +305,9 @@ func TestAssembleWithXML_EnvironmentNoWorkDir(t *testing.T) {
 	}
 }
 
-func TestAssembleWithXML_ExplorationArtifactsRelativePaths(t *testing.T) {
-	// The <exploration_artifacts> section should use relative "explore/" paths.
+func TestAssembleWithXML_ExplorationArtifactsAbsolutePaths(t *testing.T) {
+	// The <exploration_artifacts> section should use the absolute exploreDir
+	// path (a global configuration directory determined at runtime).
 	result := assembleWithXML(
 		"profile", "user",
 		"", "",
@@ -315,12 +316,8 @@ func TestAssembleWithXML_ExplorationArtifactsRelativePaths(t *testing.T) {
 		nil, nil,
 	)
 
-	// Should NOT contain absolute paths
-	if strings.Contains(result, "/home/user/.soloqueue/explore") {
-		t.Error("exploration_artifacts should not contain absolute exploreDir path")
-	}
-	// Should use relative paths
-	if !strings.Contains(result, "explore/") {
-		t.Error("exploration_artifacts should use relative 'explore/' paths")
+	// Should contain the absolute explore directory path
+	if !strings.Contains(result, "/home/user/.soloqueue/explore") {
+		t.Error("exploration_artifacts should contain absolute exploreDir path")
 	}
 }

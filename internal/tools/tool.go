@@ -133,6 +133,22 @@ type AsyncTool interface {
 	ExecuteAsync(ctx context.Context, args string) (*AsyncAction, error)
 }
 
+// TurnTerminator is an optional interface that tools may implement to signal
+// that an execution should end the current agent turn.
+//
+// When a tool implements this interface, the agent calls TerminatesTurn(result, err)
+// after every Execute call. If it returns true, the agent completes the current
+// turn without proceeding to the next LLM iteration — even if err != nil.
+//
+// This is used by workflow_handoff so that the workflow engine can receive the
+// handoff result without the agent calling additional tools or making another
+// LLM API call.
+type TurnTerminator interface {
+	Tool
+	// TerminatesTurn reports whether this execution ends the current turn.
+	TerminatesTurn(result string, err error) bool
+}
+
 // ─── FallbackTool wrapper ───────────────────────────────────────────────────
 
 // FallbackTool wraps a Tool and prepends a fallback-only prefix to its

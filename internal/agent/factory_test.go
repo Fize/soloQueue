@@ -1813,9 +1813,13 @@ func TestBuildL2SystemPrompt_NilProjectAgents(t *testing.T) {
 	}
 }
 
-// ─── L2/L3 System Prompt: no internal path leaks ──────────────────────
+// ─── L2/L3 System Prompt: explore/plan/teams use absolute paths ──
+//
+// These are global configuration directories (~/.soloqueue/explore, ~/.soloqueue/plan,
+// ~/.soloqueue/groups, ~/.soloqueue/agents) — determined at runtime, not dependent
+// on the agent's current working context. See working_directory for relative path rules.
 
-func TestBuildL2SystemPrompt_NoAbsExploreDirPath(t *testing.T) {
+func TestBuildL2SystemPrompt_ContainsExploreDirAbsolutePath(t *testing.T) {
 	devTmpl := AgentTemplate{
 		ID:           "dev",
 		Name:         "Dev",
@@ -1827,15 +1831,11 @@ func TestBuildL2SystemPrompt_NoAbsExploreDirPath(t *testing.T) {
 	templates := map[string]AgentTemplate{"dev": devTmpl}
 	groups := map[string]prompt.GroupFile{}
 
-	// Pass a real-looking internal path as exploreDir
 	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
 
-	if strings.Contains(prompt, "/home/user/.soloqueue/explore") {
-		t.Error("L2 system prompt should not contain absolute exploreDir path")
-	}
-	// Should use relative "explore/" instead
-	if !strings.Contains(prompt, "explore/") {
-		t.Error("L2 system prompt should use relative 'explore/' paths")
+	// Explore directory should use the absolute path (global config dir)
+	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Error("L2 system prompt should contain absolute exploreDir path")
 	}
 }
 
@@ -1853,13 +1853,18 @@ func TestBuildL2SystemPrompt_EnvironmentNoWorkDir(t *testing.T) {
 
 	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
 
-	// The # Environment section should not contain absolute paths
-	if strings.Contains(prompt, "/home/user/.soloqueue") {
-		t.Error("L2 prompt Environment section should not contain workDir path")
+	// The # Environment section should NOT contain the workDir path
+	// (the env section hides the working directory; exploration_artifacts and
+	// plan sections are separate sections that may contain absolute paths)
+	if strings.Contains(prompt, "\n- Working Directory:") {
+		t.Error("L2 prompt Environment section should not contain 'Working Directory' line")
+	}
+	if strings.Contains(prompt, "\n- Exploration Artifacts:") {
+		t.Error("L2 prompt Environment section should not contain 'Exploration Artifacts' line")
 	}
 }
 
-func TestBuildL3SystemPrompt_NoAbsExploreDirPath(t *testing.T) {
+func TestBuildL3SystemPrompt_ContainsExploreDirAbsolutePath(t *testing.T) {
 	tmpl := AgentTemplate{
 		ID:           "backend",
 		Name:         "Backend",
@@ -1868,12 +1873,9 @@ func TestBuildL3SystemPrompt_NoAbsExploreDirPath(t *testing.T) {
 	}
 	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
-	if strings.Contains(prompt, "/home/user/.soloqueue/explore") {
-		t.Error("L3 system prompt should not contain absolute exploreDir path")
-	}
-	// Should use relative "explore/" instead
-	if !strings.Contains(prompt, "explore/") {
-		t.Error("L3 system prompt should use relative 'explore/' paths")
+	// Explore directory should use the absolute path
+	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Error("L3 system prompt should contain absolute exploreDir path")
 	}
 }
 
@@ -1886,8 +1888,11 @@ func TestBuildL3SystemPrompt_EnvironmentNoWorkDir(t *testing.T) {
 	}
 	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
 
-	if strings.Contains(prompt, "/home/user/.soloqueue") {
-		t.Error("L3 prompt Environment section should not contain workDir path")
+	if strings.Contains(prompt, "\n- Working Directory:") {
+		t.Error("L3 prompt Environment section should not contain 'Working Directory' line")
+	}
+	if strings.Contains(prompt, "\n- Exploration Artifacts:") {
+		t.Error("L3 prompt Environment section should not contain 'Exploration Artifacts' line")
 	}
 }
 

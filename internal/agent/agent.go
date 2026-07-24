@@ -100,6 +100,11 @@ type Agent struct {
 	// and auto-cleared when the ask completes. Thread-safe via atomic pointer.
 	modelOverride atomic.Pointer[ModelParams]
 
+	// turnTerminated is set by execToolStream when a TurnTerminator tool
+	// successfully completes and signals the turn should end. streamLoop
+	// checks this flag after postIteration and breaks the loop.
+	turnTerminated atomic.Bool
+
 	// runtime bundles all mutable runtime observability state under a single
 	// RWMutex. Includes lifecycle state, error tracking, circuit breaker,
 	// exit error, and work-tracking fields. Read by inspect_agent tool and API;

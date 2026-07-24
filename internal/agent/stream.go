@@ -439,6 +439,18 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			_ = ok
 			return false
 		}
+
+		// TurnTerminator: a tool (e.g. workflow_handoff) signaled that this turn
+		// is complete. Emit DoneEvent and exit the tool loop.
+		if a.turnTerminated.Load() {
+			a.turnTerminated.Store(false)
+			ok := a.emit(ctx, out, DoneEvent{
+				Content:          acc.content.String(),
+				ReasoningContent: acc.reasoning.String(),
+			})
+			_ = ok
+			return false
+		}
 	}
 
 	// Max iterations exceeded
@@ -1076,6 +1088,13 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	result, err := tool.Execute(toolCtx, args)
 	close(relayCh) // signal relay goroutine to exit
 	<-relayDone    // wait for relay to drain all events
+
+	// Check TurnTerminator: if the tool signals to end the turn, set the flag.
+	// streamLoop checks this after postIteration and breaks the tool loop.
+	if tt, ok := tool.(tools.TurnTerminator); ok && tt.TerminatesTurn(result, err) {
+		a.turnTerminated.Store(true)
+	}
+
 	dur := time.Since(start)
 
 	if err != nil {
