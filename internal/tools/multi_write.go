@@ -185,7 +185,7 @@ func (t *multiWriteTool) CheckConfirmation(raw string) (bool, string) {
 	if t.cfg.PlanDir != "" && len(a.Files) > 0 {
 		allPlan := true
 		for _, f := range a.Files {
-			abs, err := absPath(f.Path)
+			abs, err := absPath(f.Path, t.cfg.WorkDir)
 			if err != nil || !strings.HasPrefix(abs, t.cfg.PlanDir+string(filepath.Separator)) {
 				allPlan = false
 				break

@@ -1150,7 +1150,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	}
 	b.WriteString(strings.ReplaceAll(l2EnforcedDirectivesPart2, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
+	b.WriteString(strings.ReplaceAll(l2EnforcedExplorationSection, "{{EXPLORE_DIR}}", "explore"))
 	b.WriteString(strings.ReplaceAll(l2EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l2EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
 	if hasMCPServer(tmpl.MCPServers, "builtin-lsp") {
@@ -1332,7 +1332,7 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	}
 	b.WriteString(strings.ReplaceAll(l3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{PLAN_DIR}}", planDir))
-	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{EXPLORE_DIR}}", exploreDir))
+	b.WriteString(strings.ReplaceAll(l3EnforcedExplorationSection, "{{EXPLORE_DIR}}", "explore"))
 	b.WriteString(strings.ReplaceAll(l3EnforcedPostPlan, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(l3EnforcedToolAwareness, "{{PLAN_DIR}}", planDir))
 	if hasMCPServer(tmpl.MCPServers, "builtin-lsp") {

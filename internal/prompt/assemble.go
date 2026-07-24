@@ -15,10 +15,9 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 
 	fmt.Fprintf(&b, "<identity>\n%s\n</identity>", escapePromptData(strings.TrimSpace(profile)))
 
-	safeWorkDir := escapePromptData(workDir)
-	fmt.Fprintf(&b, "\n\n<working_directory>\nYour global working directory is `%s`. All soloQueue configuration, agent definitions, plans, memory, and data files reside under this directory. When writing or reading files within soloQueue's own directories, use `%s` paths.\n</working_directory>", safeWorkDir, safeWorkDir)
+	fmt.Fprintf(&b, "\n\n<working_directory>\nRelative file paths (e.g., `report.md`, `explore/findings.md`) are resolved against your configured working directory. Use relative paths for files within your workspace. The system resolves them to the correct location automatically.\n</working_directory>")
 
-	fmt.Fprintf(&b, "\n\n%s", EnvSection(safeWorkDir, escapePromptData(exploreDir), true, true))
+	fmt.Fprintf(&b, "\n\n%s", EnvSection(workDir, exploreDir, true, true))
 
 	if userCtx != "" {
 		fmt.Fprintf(&b, "\n\n<user_context>\n%s\n</user_context>", escapePromptData(strings.TrimSpace(userCtx)))
@@ -70,7 +69,7 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 	}
 
 	// Exploration Artifacts section
-	fmt.Fprintf(&b, "\n\n<exploration_artifacts>\nWhen you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to %s if the exploration is complex or the findings are worth sharing with other agents.\n\n## When to Save\n- Complex investigations with many files or nuanced conclusions\n- Investigations whose results may be reused by other agents in the same session\n- Simple one-off lookups can skip saving\n\n## Document Naming\nFormat: %s/<task-slug>_<agent-id>.md\nExamples:\n- %s/explore_auth_flow_orchestrator.md\n- %s/investigate_race_condition_dev-leader.md\n\n## Document Content\n- Agent: your id/name\n- Created at: use current time when saving\n- Updated at: use current time when updating\n- Freshness window: same-day\n- Task: the original or summarized task description\n- Key Findings, Files Inspected, Reusable Context, Open Questions\n\n## Reuse Rules\n1. Before starting a new exploration, check %s for an existing artifact with the same task-slug and agent-id.\n2. If an artifact exists and was created today, read it first and reuse its findings when appropriate.\n3. If you create or reuse an artifact, include its path in your response so other agents can access it.\n</exploration_artifacts>", exploreDir, exploreDir, exploreDir, exploreDir, exploreDir)
+	fmt.Fprintf(&b, "\n\n<exploration_artifacts>\nWhen you perform exploration tasks (reading files, searching code, investigating issues), you SHOULD save a markdown artifact to the `%s` directory if the exploration is complex or the findings are worth sharing with other agents.\n\n## When to Save\n- Complex investigations with many files or nuanced conclusions\n- Investigations whose results may be reused by other agents in the same session\n- Simple one-off lookups can skip saving\n\n## Document Naming\nFormat: %s/<task-slug>_<agent-id>.md\nExamples:\n- %s/explore_auth_flow_orchestrator.md\n- %s/investigate_race_condition_dev-leader.md\n\n## Document Content\n- Agent: your id/name\n- Created at: use current time when saving\n- Updated at: use current time when updating\n- Freshness window: same-day\n- Task: the original or summarized task description\n- Key Findings, Files Inspected, Reusable Context, Open Questions\n\n## Reuse Rules\n1. Before starting a new exploration, check the `%s` directory for an existing artifact with the same task-slug and agent-id.\n2. If an artifact exists and was created today, read it first and reuse its findings when appropriate.\n3. If you create or reuse an artifact, include its path in your response so other agents can access it.\n</exploration_artifacts>", "explore", "explore", "explore", "explore", "explore")
 
 	return b.String()
 }

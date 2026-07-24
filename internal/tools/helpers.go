@@ -17,7 +17,7 @@ func isPlanDirFile(path, planDir string) bool {
 	if planDir == "" {
 		return false
 	}
-	abs, err := absPath(path)
+	abs, err := absPath(path, "")
 	return err == nil && strings.HasPrefix(abs, planDir+string(filepath.Separator))
 }
 

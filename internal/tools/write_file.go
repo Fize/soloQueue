@@ -101,7 +101,7 @@ func (t *writeFileTool) Execute(ctx context.Context, raw string) (string, error)
 
 // writeFileImpl is the internal implementation; multi_write calls it directly to keep semantics consistent.
 func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwrite bool) (string, error) {
-	abs, err := absPath(path)
+	abs, err := absPath(path, cfg.WorkDir)
 	if err != nil {
 		return "", err
 	}

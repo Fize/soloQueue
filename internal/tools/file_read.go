@@ -95,7 +95,7 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 		maxTokens = ReadDefaultMaxTokens
 	}
 
-	abs, err := absPath(a.Path)
+	abs, err := absPath(a.Path, t.cfg.WorkDir)
 	if err != nil {
 		return "", err
 	}

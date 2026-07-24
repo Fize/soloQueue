@@ -33,10 +33,9 @@ func EnvSection(workDir, exploreDir string, xml bool, includeTimeInstruction boo
 	b.WriteString(runtime.GOARCH)
 	b.WriteString("\n- Shell: ")
 	b.WriteString(ShellDesc())
-	b.WriteString("\n- Working Directory: ")
-	b.WriteString(workDir)
-	b.WriteString("\n- Exploration Artifacts: ")
-	b.WriteString(exploreDir)
+	// NOTE: Working Directory and Exploration Artifacts are intentionally
+	// NOT exposed here. Relative paths are resolved by the tool chain
+	// against the configured workDir. See <working_directory> for rules.
 	if includeTimeInstruction {
 		b.WriteString("\n- Current Local Time: To obtain the current local time/date, run a shell command (e.g., `date` on Unix/macOS or `Get-Date` on Windows) using the execution tools, or check the timestamp in the latest user message.")
 	}

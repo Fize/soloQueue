@@ -6,7 +6,7 @@ import (
 )
 
 func TestAssembleWithXML_Full(t *testing.T) {
-	exploreDir := "/home/user/.soloqueue/explore"
+	exploreDir := "explore/"
 	result := assembleWithXML(
 		"profile content",
 		"user context",
@@ -68,7 +68,7 @@ func TestAssembleWithXML_NoUserCtx(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
-		"/home/user/.soloqueue/explore",
+		"explore/",
 		nil,
 		nil,
 	)
@@ -89,7 +89,7 @@ func TestAssembleWithXML_EmptyPlanDir(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
-		"/home/user/.soloqueue/explore",
+		"explore/",
 		nil,
 		nil,
 	)
@@ -101,7 +101,7 @@ func TestAssembleWithXML_EmptyPlanDir(t *testing.T) {
 	if !strings.Contains(result, "<exploration_artifacts>") {
 		t.Error("exploration_artifacts section should always be present")
 	}
-	if !strings.Contains(result, "/home/user/.soloqueue/explore") {
+	if !strings.Contains(result, "explore/") {
 		t.Error("exploration_artifacts should contain explore directory path")
 	}
 	if !strings.Contains(result, "same-day") {
@@ -120,7 +120,7 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 		"rules content",
 		"/home/user/.soloqueue/plan",
 		"/home/user/.soloqueue",
-		"/home/user/.soloqueue/explore",
+		"explore/",
 		nil,
 		nil,
 	)
@@ -128,7 +128,7 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 	if !strings.Contains(result, "<exploration_artifacts>") {
 		t.Error("exploration_artifacts section should be present")
 	}
-	if !strings.Contains(result, "/home/user/.soloqueue/explore") {
+	if !strings.Contains(result, "explore/") {
 		t.Error("exploration_artifacts should contain explore directory path")
 	}
 	if !strings.Contains(result, "same-day") {
@@ -150,7 +150,7 @@ func TestAssembleWithXML_MCPServers(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
-		"/home/user/.soloqueue/explore",
+		"explore/",
 		[]string{"playwright", "github"},
 		nil,
 	)
@@ -177,7 +177,7 @@ func TestAssembleWithXML_NoMCPServers(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
-		"/home/user/.soloqueue/explore",
+		"explore/",
 		nil,
 		nil,
 	)
@@ -198,7 +198,7 @@ func TestAssembleWithXML_PermanentMemoryIsSelective(t *testing.T) {
 		"rules content",
 		"",
 		"/home/user/.soloqueue",
-		"/home/user/.soloqueue/explore",
+		"explore/",
 		nil,
 		nil,
 	)
@@ -240,5 +240,87 @@ func TestAssembleWithXML_EscapesDynamicSectionBoundaries(t *testing.T) {
 	}
 	if !strings.Contains(result, "&lt;/identity&gt;") {
 		t.Fatal("escaped dynamic content should remain visible as inert data")
+	}
+}
+
+func TestAssembleWithXML_WorkingDirectoryNoAbsPath(t *testing.T) {
+	// The <working_directory> section should tell the LLM to use relative paths
+	// but NOT expose the absolute workDir path on disk.
+	result := assembleWithXML(
+		"profile", "user",
+		"", "",
+		"routing", "team mgmt", "rules",
+		"", "/home/user/.soloqueue", "/home/user/.soloqueue/explore",
+		nil, nil,
+	)
+
+	// Locate the <working_directory> section
+	start := strings.Index(result, "<working_directory>")
+	end := strings.Index(result, "</working_directory>")
+	if start == -1 || end == -1 {
+		t.Fatal("missing <working_directory> section")
+	}
+	section := result[start : end+len("</working_directory>")]
+
+	// Should NOT contain the absolute internal path
+	if strings.Contains(section, "/home/user/.soloqueue") {
+		t.Error("<working_directory> should not expose absolute workDir path")
+	}
+	// Should contain the relative path guidance
+	if !strings.Contains(section, "relative") && !strings.Contains(section, "Relative") {
+		t.Error("<working_directory> should advise using relative paths")
+	}
+}
+
+func TestAssembleWithXML_EnvironmentNoWorkDir(t *testing.T) {
+	// The <environment> section should not leak workDir / exploreDir paths.
+	result := assembleWithXML(
+		"profile", "user",
+		"", "",
+		"routing", "team mgmt", "rules",
+		"", "/home/user/.soloqueue", "/home/user/.soloqueue/explore",
+		nil, nil,
+	)
+
+	// Locate the <environment> section
+	start := strings.Index(result, "<environment>")
+	end := strings.Index(result, "</environment>")
+	if start == -1 || end == -1 {
+		t.Fatal("missing <environment> section")
+	}
+	section := result[start : end+len("</environment>")]
+
+	if strings.Contains(section, "/home/user/") {
+		t.Error("<environment> should not expose workDir paths")
+	}
+	if strings.Contains(section, "Working Directory") {
+		t.Error("<environment> should not contain 'Working Directory' line")
+	}
+	if strings.Contains(section, "Exploration Artifacts") {
+		t.Error("<environment> should not contain 'Exploration Artifacts' line")
+	}
+	// But it should still contain OS info
+	if !strings.Contains(section, "Operating System") {
+		t.Error("<environment> should still contain OS info")
+	}
+}
+
+func TestAssembleWithXML_ExplorationArtifactsRelativePaths(t *testing.T) {
+	// The <exploration_artifacts> section should use relative "explore/" paths.
+	result := assembleWithXML(
+		"profile", "user",
+		"", "",
+		"routing", "team mgmt", "rules",
+		"", "/home/user/.soloqueue", "/home/user/.soloqueue/explore",
+		nil, nil,
+	)
+
+	// Should NOT contain absolute paths
+	if strings.Contains(result, "/home/user/.soloqueue/explore") {
+		t.Error("exploration_artifacts should not contain absolute exploreDir path")
+	}
+	// Should use relative paths
+	if !strings.Contains(result, "explore/") {
+		t.Error("exploration_artifacts should use relative 'explore/' paths")
 	}
 }

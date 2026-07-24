@@ -11,15 +11,14 @@ import (
 
 // absPath normalizes an input path to an absolute, cleaned path.
 //
+// Relative paths (not starting with / or ~) are resolved against workDir.
+// When workDir is empty, falls back to process CWD (for callers that don't
+// have a configured working directory, e.g. isPlanDirFile or tests).
+//
 // Returns:
 //   - abs: the cleaned absolute path (os-native separators)
 //   - err: ErrInvalidArgs if the path is empty or cannot be resolved
-//
-// Strategy:
-//  1. Expand ~ to the user's home directory
-//  2. filepath.Abs converts to absolute (relative paths resolved against CWD)
-//  3. filepath.Clean removes .. / . / redundant separators
-func absPath(input string) (string, error) {
+func absPath(input, workDir string) (string, error) {
 	if input == "" {
 		return "", fmt.Errorf("%w: empty path", ErrInvalidArgs)
 	}
@@ -29,6 +28,12 @@ func absPath(input string) (string, error) {
 		if err == nil {
 			input = filepath.Join(home, input[1:]) // strip leading ~
 		}
+	}
+	// Resolve relative paths against workDir (not process CWD).
+	// This ensures tool paths are consistent with the configured working
+	// directory, matching the behaviour of shell commands (RunCommand).
+	if workDir != "" && !filepath.IsAbs(input) {
+		input = filepath.Join(workDir, input)
 	}
 	abs, err := filepath.Abs(input)
 	if err != nil {

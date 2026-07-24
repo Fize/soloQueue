@@ -74,7 +74,7 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", err
 	}
 
-	absDir, err := absPath(a.Dir)
+	absDir, err := absPath(a.Dir, t.cfg.WorkDir)
 	if err != nil {
 		return "", err
 	}

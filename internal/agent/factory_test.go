@@ -775,7 +775,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 		"designer": otherTmpl,
 	}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
+	prompt := buildL2SystemPrompt(devTmpl, templates, nil, "/home/user/.soloqueue/plan", "/home/user/.soloqueue", "explore/", nil, false)
 
 	// Segment 1: user-defined
 	if !strings.Contains(prompt, "You are a dev supervisor.") {
@@ -805,7 +805,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 	if !strings.Contains(prompt, "Exploration Artifacts") {
 		t.Error("L2 prompt should contain exploration artifacts rule")
 	}
-	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+	if !strings.Contains(prompt, "explore/") {
 		t.Error("L2 prompt should contain explore directory path")
 	}
 	if !strings.Contains(prompt, "same-day") {
@@ -875,11 +875,11 @@ func TestBuildL2SystemPrompt_ContainsExploreDirPath(t *testing.T) {
 
 	groups := map[string]prompt.GroupFile{}
 
-	exploreDir := "/home/user/.soloqueue/explore"
+	exploreDir := "explore/"
 	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", exploreDir, nil, false)
 
 	// Verify L2 prompt contains explore directory path
-	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+	if !strings.Contains(prompt, "explore/") {
 		t.Errorf("L2 prompt should contain explore directory path %q", exploreDir)
 	}
 }
@@ -900,7 +900,7 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 
 	groups := map[string]prompt.GroupFile{}
 
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "", "/home/user/.soloqueue", "explore/", nil, false)
 
 	// When planDir is empty, plan-related rules should not appear
 	if strings.Contains(prompt, "MANDATORY Plan Before Execution") {
@@ -914,7 +914,7 @@ func TestBuildL2SystemPrompt_EmptyPlanDir(t *testing.T) {
 	if !strings.Contains(prompt, "Exploration Artifacts") {
 		t.Error("L2 prompt should contain exploration artifacts rule even when planDir is empty")
 	}
-	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+	if !strings.Contains(prompt, "explore/") {
 		t.Error("L2 prompt should contain explore directory path even when planDir is empty")
 	}
 }
@@ -936,7 +936,7 @@ func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	groups := map[string]prompt.GroupFile{}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, planDir, "/home/user/.soloqueue", "explore/", nil, false)
 
 	// Verify Tasks structure convention is reflected in L2 prompt
 	if !strings.Contains(prompt, "Tasks") {
@@ -953,7 +953,7 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "explore/", false)
 
 	// Verify L3 prompt contains "Follow the Plan" rule
 	if !strings.Contains(prompt, "Follow the Plan") {
@@ -964,7 +964,7 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	if !strings.Contains(prompt, "Exploration Artifacts") {
 		t.Error("L3 prompt should contain exploration artifacts rule")
 	}
-	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+	if !strings.Contains(prompt, "explore/") {
 		t.Error("L3 prompt should contain explore directory path")
 	}
 	if !strings.Contains(prompt, "same-day") {
@@ -980,11 +980,11 @@ func TestBuildL3SystemPrompt_ContainsExploreDirPath(t *testing.T) {
 		SystemPrompt: "You are a backend worker.",
 	}
 
-	exploreDir := "/home/user/.soloqueue/explore"
+	exploreDir := "explore/"
 	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", exploreDir, false)
 
 	// Verify L3 prompt contains explore directory path
-	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+	if !strings.Contains(prompt, "explore/") {
 		t.Errorf("L3 prompt should contain explore directory path, got: %s", prompt)
 	}
 }
@@ -997,7 +997,7 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 		SystemPrompt: "You are a backend worker.",
 	}
 
-	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
+	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", "explore/", false)
 
 	// When planDir is empty, unreplaced placeholders should not appear
 	if strings.Contains(prompt, "{{PLAN_DIR}}") {
@@ -1008,7 +1008,7 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 	if !strings.Contains(prompt, "Exploration Artifacts") {
 		t.Error("L3 prompt should contain exploration artifacts rule even when planDir is empty")
 	}
-	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+	if !strings.Contains(prompt, "explore/") {
 		t.Error("L3 prompt should contain explore directory path even when planDir is empty")
 	}
 }
@@ -1022,7 +1022,7 @@ func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "explore/", false)
 
 	// Verify Tasks structure convention is reflected in L3 prompt
 	if !strings.Contains(prompt, "Tasks") {
@@ -1810,6 +1810,84 @@ func TestBuildL2SystemPrompt_NilProjectAgents(t *testing.T) {
 
 	if !strings.Contains(promptStr, "Frontend") {
 		t.Error("L2 prompt should list global peer even when projectAgents is nil")
+	}
+}
+
+// ─── L2/L3 System Prompt: no internal path leaks ──────────────────────
+
+func TestBuildL2SystemPrompt_NoAbsExploreDirPath(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+	templates := map[string]AgentTemplate{"dev": devTmpl}
+	groups := map[string]prompt.GroupFile{}
+
+	// Pass a real-looking internal path as exploreDir
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
+
+	if strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Error("L2 system prompt should not contain absolute exploreDir path")
+	}
+	// Should use relative "explore/" instead
+	if !strings.Contains(prompt, "explore/") {
+		t.Error("L2 system prompt should use relative 'explore/' paths")
+	}
+}
+
+func TestBuildL2SystemPrompt_EnvironmentNoWorkDir(t *testing.T) {
+	devTmpl := AgentTemplate{
+		ID:           "dev",
+		Name:         "Dev",
+		Description:  "Dev agent",
+		SystemPrompt: "You are a dev supervisor.",
+		IsLeader:     true,
+		Group:        "DevOps",
+	}
+	templates := map[string]AgentTemplate{"dev": devTmpl}
+	groups := map[string]prompt.GroupFile{}
+
+	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", nil, false)
+
+	// The # Environment section should not contain absolute paths
+	if strings.Contains(prompt, "/home/user/.soloqueue") {
+		t.Error("L2 prompt Environment section should not contain workDir path")
+	}
+}
+
+func TestBuildL3SystemPrompt_NoAbsExploreDirPath(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
+
+	if strings.Contains(prompt, "/home/user/.soloqueue/explore") {
+		t.Error("L3 system prompt should not contain absolute exploreDir path")
+	}
+	// Should use relative "explore/" instead
+	if !strings.Contains(prompt, "explore/") {
+		t.Error("L3 system prompt should use relative 'explore/' paths")
+	}
+}
+
+func TestBuildL3SystemPrompt_EnvironmentNoWorkDir(t *testing.T) {
+	tmpl := AgentTemplate{
+		ID:           "backend",
+		Name:         "Backend",
+		Description:  "Backend worker",
+		SystemPrompt: "You are a backend worker.",
+	}
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
+
+	if strings.Contains(prompt, "/home/user/.soloqueue") {
+		t.Error("L3 prompt Environment section should not contain workDir path")
 	}
 }
 

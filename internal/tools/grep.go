@@ -97,7 +97,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", fmt.Errorf("%w: invalid pattern: %v", ErrInvalidArgs, err)
 	}
 
-	absDir, err := absPath(a.Dir)
+	absDir, err := absPath(a.Dir, t.cfg.WorkDir)
 	if err != nil {
 		return "", err
 	}
