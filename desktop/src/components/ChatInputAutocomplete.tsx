@@ -19,6 +19,7 @@ export const BUILTIN_SLASH_COMMANDS: AutocompleteItem[] = [
   { label: 'compact',   description: 'chat.slashCompact', type: 'command' },
   { label: 'clear',     description: 'chat.slashClear',                 type: 'command' },
   { label: 'cancel',    description: 'chat.slashCancel',                    type: 'command' },
+  { label: 'init',      description: 'chat.slashInit',                type: 'command' },
   { label: 'help',      description: 'chat.slashHelp',                type: 'command' },
   { label: 'version',   description: 'chat.slashVersion',                    type: 'command' },
   // ── Routing level locks ──────────────────────────────────────────────────

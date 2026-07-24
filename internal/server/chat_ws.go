@@ -114,63 +114,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		finalPrompt = fmt.Sprintf("%s\n\n[Uploaded files:\n%s\n]", msg.Prompt, strings.Join(blocks, "\n"))
 	}
 
-	if msg.DesignMode {
-		designDir := ""
-		if strings.HasPrefix(msg.SessionID, "l2:") {
-			id := strings.TrimPrefix(msg.SessionID, "l2:")
-			if h.mux.l2Store != nil {
-				if entry := h.mux.l2Store.GetEntry(id); entry != nil {
-					if entry.WorkDir != "" {
-						designDir = filepath.Join(filepath.Clean(expandTilde(entry.WorkDir)), ".soloqueue", "design")
-					} else {
-						designDir = filepath.Join(h.mux.workDir, "workspace", entry.Group, "design")
-					}
-				}
-			}
-		} else {
-			designDir = filepath.Join(h.mux.workDir, "design")
-		}
-
-		if msg.SelectedElement != nil && msg.SelectedElement.Selector != "" {
-			elementBlock := fmt.Sprintf("\n\n[SELECTED DOM ELEMENT:\n- Selector: `%s`\n- Content: `%s`\n- HTML Hint: `%s`\n- File: `%s`]",
-				msg.SelectedElement.Selector,
-				msg.SelectedElement.Text,
-				msg.SelectedElement.HTMLHint,
-				msg.SelectedElement.FilePath,
-			)
-			finalPrompt += elementBlock
-		}
-
-		if msg.HasDrawings && msg.ActiveDesignFile != "" {
-			filename := filepath.Base(msg.ActiveDesignFile)
-			drawingBlock := fmt.Sprintf("\n\n[USER DRAWINGS/ANNOTATIONS DETECTED: The user has drawn visual markings/annotations on the HTML preview for file `%s`. The drawing coordinates/strokes are saved directly in `<script id=\"sketch-data\" type=\"application/json\">` inside that HTML file. You MUST read this file and pay close attention to where the user circled, pointed, or highlighted to correctly address the request.]", filename)
-			finalPrompt += drawingBlock
-		}
-
-		if designDir != "" {
-			directive := fmt.Sprintf("\n\n[CRITICAL DIRECTIVE: Design preview mode is active. You MUST save any previewable HTML, CSS, JS, asset files, or drawings directly to the designated design directory: `%s`. Storing them in any other directory is a STRICT PROTOCOL VIOLATION and will break the user's real-time interface rendering. Ensure your files are generated or modified exactly in this location.]", designDir)
-			finalPrompt += directive
-		}
-	}
-
-	// Request lifetime is owned by the session/global registry, not by the
-	// WebSocket connection. A disconnected client merely loses its forwarder.
-	reqCtx, reqCancel := context.WithCancel(context.Background())
-	reqCtx = session.WithRejectBusyQueue(reqCtx)
-	if len(images) > 0 {
-		reqCtx = context.WithValue(reqCtx, ctxwin.ImageContextKey, images)
-	}
-	client.addActiveRequest(msg.RequestID, reqCancel)
-	forwarderStarted := false
-	defer func() {
-		if !forwarderStarted {
-			reqCancel()
-			client.removeActiveRequest(msg.RequestID)
-		}
-	}()
-
-	sess.SetIsQBot(false)
-
 	// ── Pre-AskStream slash command interceptor (bypass LLM) ──
 	trimmed := strings.TrimSpace(finalPrompt)
 	lowerTrimmed := strings.ToLower(trimmed)
@@ -236,6 +179,9 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 
 	case lowerTrimmed == "/init":
 		// /init is only available in L2 sessions with a project workDir.
+		// Resolve workDir and build an LLM prompt for project initialization.
+		// The prompt is then sent through AskStream so the agent can explore
+		// the project with tools and produce a context-aware AGENTS.md.
 		workDir := ""
 		if strings.HasPrefix(msg.SessionID, "l2:") {
 			id := strings.TrimPrefix(msg.SessionID, "l2:")
@@ -262,35 +208,69 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			})
 			return
 		}
-		if err := session.InitProject(workDir); err != nil {
-			client.sendJSON(WSMessage{
-				Type:      "chat_chunk",
-				RequestID: msg.RequestID,
-				Delta:     "Init failed: " + err.Error(),
-			})
-			client.sendJSON(WSMessage{
-				Type:             "chat_done",
-				RequestID:        msg.RequestID,
-				Content:          "Init failed: " + err.Error(),
-				ReasoningContent: "",
-			})
-		} else {
-			okMsg := "AGENTS.md created/updated in " + workDir
-			client.sendJSON(WSMessage{
-				Type:      "chat_chunk",
-				RequestID: msg.RequestID,
-				Delta:     okMsg,
-			})
-			client.sendJSON(WSMessage{
-				Type:             "chat_done",
-				RequestID:        msg.RequestID,
-				Content:          okMsg,
-				ReasoningContent: "",
-			})
-		}
-		return
+		// Build the LLM prompt and let it fall through to AskStream.
+		finalPrompt = session.BuildInitPrompt(workDir)
+		// Skip DesignMode additions — they would corrupt the init prompt.
+		msg.DesignMode = false
 
 	}
+
+	if msg.DesignMode {
+		designDir := ""
+		if strings.HasPrefix(msg.SessionID, "l2:") {
+			id := strings.TrimPrefix(msg.SessionID, "l2:")
+			if h.mux.l2Store != nil {
+				if entry := h.mux.l2Store.GetEntry(id); entry != nil {
+					if entry.WorkDir != "" {
+						designDir = filepath.Join(filepath.Clean(expandTilde(entry.WorkDir)), ".soloqueue", "design")
+					} else {
+						designDir = filepath.Join(h.mux.workDir, "workspace", entry.Group, "design")
+					}
+				}
+			}
+		} else {
+			designDir = filepath.Join(h.mux.workDir, "design")
+		}
+
+		if msg.SelectedElement != nil && msg.SelectedElement.Selector != "" {
+			elementBlock := fmt.Sprintf("\n\n[SELECTED DOM ELEMENT:\n- Selector: `%s`\n- Content: `%s`\n- HTML Hint: `%s`\n- File: `%s`]",
+				msg.SelectedElement.Selector,
+				msg.SelectedElement.Text,
+				msg.SelectedElement.HTMLHint,
+				msg.SelectedElement.FilePath,
+			)
+			finalPrompt += elementBlock
+		}
+
+		if msg.HasDrawings && msg.ActiveDesignFile != "" {
+			filename := filepath.Base(msg.ActiveDesignFile)
+			drawingBlock := fmt.Sprintf("\n\n[USER DRAWINGS/ANNOTATIONS DETECTED: The user has drawn visual markings/annotations on the HTML preview for file `%s`. The drawing coordinates/strokes are saved directly in `<script id=\"sketch-data\" type=\"application/json\">` inside that HTML file. You MUST read this file and pay close attention to where the user circled, pointed, or highlighted to correctly address the request.]", filename)
+			finalPrompt += drawingBlock
+		}
+
+		if designDir != "" {
+			directive := fmt.Sprintf("\n\n[CRITICAL DIRECTIVE: Design preview mode is active. You MUST save any previewable HTML, CSS, JS, asset files, or drawings directly to the designated design directory: `%s`. Storing them in any other directory is a STRICT PROTOCOL VIOLATION and will break the user's real-time interface rendering. Ensure your files are generated or modified exactly in this location.]", designDir)
+			finalPrompt += directive
+		}
+	}
+
+	// Request lifetime is owned by the session/global registry, not by the
+	// WebSocket connection. A disconnected client merely loses its forwarder.
+	reqCtx, reqCancel := context.WithCancel(context.Background())
+	reqCtx = session.WithRejectBusyQueue(reqCtx)
+	if len(images) > 0 {
+		reqCtx = context.WithValue(reqCtx, ctxwin.ImageContextKey, images)
+	}
+	client.addActiveRequest(msg.RequestID, reqCancel)
+	forwarderStarted := false
+	defer func() {
+		if !forwarderStarted {
+			reqCancel()
+			client.removeActiveRequest(msg.RequestID)
+		}
+	}()
+
+	sess.SetIsQBot(false)
 
 	// Call AskStream.
 	ch, askErr := sess.AskStream(reqCtx, finalPrompt)
