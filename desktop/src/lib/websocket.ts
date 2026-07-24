@@ -11,6 +11,7 @@ import type {
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useConnectionStore } from '@/stores/connectionStore'
+import { useChatStore } from '@/stores/chatStore'
 import { request } from '@/lib/api/core'
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
@@ -80,6 +81,7 @@ class WebSocketManager {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 1000
   private maxReconnectDelay = 30000
+  private sessionRevisions: Record<string, number> = {}
   private intentionalClose = false
   private pingTimer: ReturnType<typeof setInterval> | null = null
 
@@ -110,6 +112,7 @@ class WebSocketManager {
 
     this.ws.onopen = () => {
       this.reconnectDelay = 1000
+      this.sessionRevisions = {}
       this.setStatus('connected')
       this.startPingInterval()
       this.flushPendingMessages()
@@ -317,6 +320,46 @@ class WebSocketManager {
     // State / simulation messages.
     if (msg.type === 'state') {
       if (msg.runtime) {
+        if (msg.runtime.sessions) {
+          const currentSessions = useRuntimeStore.getState().status?.sessions || {}
+          const accepted: NonNullable<RuntimeStatus['sessions']> = {}
+          for (const [sessionId, next] of Object.entries(msg.runtime.sessions)) {
+            const previousRevision = this.sessionRevisions[sessionId]
+            if (previousRevision === undefined || next.revision > previousRevision) {
+              accepted[sessionId] = next
+              this.sessionRevisions[sessionId] = next.revision
+            } else if (currentSessions[sessionId]) {
+              accepted[sessionId] = currentSessions[sessionId]
+            }
+          }
+          msg.runtime.sessions = accepted
+          const chat = useChatStore.getState()
+          for (const [sessionId, runtime] of Object.entries(accepted)) {
+            const active = runtime.state !== 'idle' && runtime.state !== 'error'
+            const wasActive = !!chat.streamingSessions[sessionId]
+            if (active) {
+              chat.setStreaming(true, sessionId)
+              chat.setDelegating(runtime.delegating, sessionId)
+              if (runtime.request_id) {
+                const existing = chat.routeSessions[sessionId]
+                chat.setRoute({
+                  requestId: runtime.request_id,
+                  sessionId,
+                  taskLevel: existing?.taskLevel || '',
+                  modelId: existing?.modelId || '',
+                  providerId: existing?.providerId,
+                  agentInstanceId: existing?.agentInstanceId,
+                })
+              }
+            } else if (wasActive) {
+              chat.setStreaming(false, sessionId)
+              chat.setDelegating(false, sessionId)
+              const requestId = chat.routeSessions[sessionId]?.requestId
+              if (requestId) chat.clearRoute(sessionId, requestId)
+              void chat.loadHistory(sessionId)
+            }
+          }
+        }
         if (msg.runtime.agent_streams) {
           for (const [id, stream] of Object.entries(msg.runtime.agent_streams)) {
             this.cachedStreams[id] = stream

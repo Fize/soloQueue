@@ -277,27 +277,37 @@ func (rm *RuntimeMetrics) AgentStreams() map[string]*AgentStreamState {
 	return out
 }
 
-// ─── Response Types ─────────────────────────────────────────────────────────
+// SessionRuntimeInfo holds per-session runtime state for WebSocket state broadcasts.
+type SessionRuntimeInfo struct {
+	SessionID   string `json:"session_id"`
+	RequestID   string `json:"request_id,omitempty"`
+	State       string `json:"state"` // "idle", "starting", "streaming", "delegating", "cancelling"
+	Revision    uint64 `json:"revision"`
+	CtxwinUsed  int    `json:"ctxwin_used"`
+	CtxwinLimit int    `json:"ctxwin_limit"`
+	Delegating  bool   `json:"delegating"`
+}
 
 // RuntimeStatusResponse is the JSON response for GET /api/runtime.
 type RuntimeStatusResponse struct {
-	Phase             string                       `json:"phase"`
-	PromptTokens      int64                        `json:"prompt_tokens"`
-	OutputTokens      int64                        `json:"output_tokens"`
-	CacheHitTokens    int64                        `json:"cache_hit_tokens"`
-	CacheMissTokens   int64                        `json:"cache_miss_tokens"`
-	ContextPct        int                          `json:"context_pct"`
-	CurrentTokens     int                          `json:"current_tokens"`
-	MaxTokens         int                          `json:"max_tokens"`
-	CurrentIter       int                          `json:"current_iter"`
-	ContentDeltas     int                          `json:"content_deltas"`
-	ActiveDelegations int                          `json:"active_delegations"`
-	TotalAgents       int                          `json:"total_agents"`
-	RunningAgents     int                          `json:"running_agents"`
-	IdleAgents        int                          `json:"idle_agents"`
-	TotalErrors       int                          `json:"total_errors"`
-	HTTPAddr          string                       `json:"http_addr"`
-	AgentStreams      map[string]*AgentStreamState `json:"agent_streams"`
+	Phase             string                        `json:"phase"`
+	PromptTokens      int64                         `json:"prompt_tokens"`
+	OutputTokens      int64                         `json:"output_tokens"`
+	CacheHitTokens    int64                         `json:"cache_hit_tokens"`
+	CacheMissTokens   int64                         `json:"cache_miss_tokens"`
+	ContextPct        int                           `json:"context_pct"`
+	CurrentTokens     int                           `json:"current_tokens"`
+	MaxTokens         int                           `json:"max_tokens"`
+	CurrentIter       int                           `json:"current_iter"`
+	ContentDeltas     int                           `json:"content_deltas"`
+	ActiveDelegations int                           `json:"active_delegations"`
+	TotalAgents       int                           `json:"total_agents"`
+	RunningAgents     int                           `json:"running_agents"`
+	IdleAgents        int                           `json:"idle_agents"`
+	TotalErrors       int                           `json:"total_errors"`
+	HTTPAddr          string                        `json:"http_addr"`
+	AgentStreams      map[string]*AgentStreamState  `json:"agent_streams"`
+	Sessions          map[string]SessionRuntimeInfo `json:"sessions,omitempty"`
 }
 
 // AgentInfoResponse is a single agent in the list.
@@ -697,9 +707,9 @@ func (m *Mux) handleUpdateAgentConfig(w http.ResponseWriter, r *http.Request) {
 
 // ─── Public Builders (shared by REST handlers and WebSocket Hub) ─────────────
 
-// buildRuntimeStatus constructs a RuntimeStatusResponse from the current metrics
-// and agent counts. Returns nil if runtimeMetrics is nil.
-func (m *Mux) buildRuntimeStatus() *RuntimeStatusResponse {
+// buildRuntimeStatus constructs a RuntimeStatusResponse from current metrics,
+// agent counts, and per-session runtime states. Returns nil if runtimeMetrics is nil.
+func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 	if m.runtimeMetrics == nil {
 		return nil
 	}
@@ -736,6 +746,52 @@ func (m *Mux) buildRuntimeStatus() *RuntimeStatusResponse {
 		}
 	}
 
+	sessions := make(map[string]SessionRuntimeInfo)
+	if hub != nil && hub.requests != nil {
+		// Populate L1 session runtime if initialized
+		if m.sessionMgr != nil {
+			if l1Sess := m.sessionMgr.Session(); l1Sess != nil {
+				used, limit := 0, 0
+				if l1Sess.CW() != nil {
+					used, limit, _ = l1Sess.CW().TokenUsage()
+				}
+				info := SessionRuntimeInfo{
+					SessionID:   "l1",
+					State:       "idle",
+					Revision:    hub.GetSessionRevision("l1"),
+					CtxwinUsed:  used,
+					CtxwinLimit: limit,
+				}
+				if req, active := hub.requests.GetBySession("l1"); active {
+					info.RequestID = req.RequestID
+					info.State = string(req.State)
+					info.Delegating = req.Delegating
+				}
+				sessions["l1"] = info
+			}
+		}
+
+		// Populate L2 session runtimes
+		if m.l2Store != nil {
+			for _, entry := range m.l2Store.List() {
+				sid := "l2:" + entry.ID
+				info := SessionRuntimeInfo{
+					SessionID:   sid,
+					State:       "idle",
+					Revision:    hub.GetSessionRevision(sid),
+					CtxwinUsed:  entry.CtxwinUsed,
+					CtxwinLimit: entry.CtxwinLimit,
+				}
+				if req, active := hub.requests.GetBySession(sid); active {
+					info.RequestID = req.RequestID
+					info.State = string(req.State)
+					info.Delegating = req.Delegating
+				}
+				sessions[sid] = info
+			}
+		}
+	}
+
 	return &RuntimeStatusResponse{
 		Phase:             phase,
 		PromptTokens:      promptTokens,
@@ -754,6 +810,7 @@ func (m *Mux) buildRuntimeStatus() *RuntimeStatusResponse {
 		TotalErrors:       totalErrors,
 		HTTPAddr:          httpAddr,
 		AgentStreams:      m.runtimeMetrics.AgentStreams(),
+		Sessions:          sessions,
 	}
 }
 
@@ -803,7 +860,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			}
 		}
 		if lastLevel == "" && m.l2Store != nil {
-			if sess := m.l2Store.FindActiveSessionByAgentID(a.Def.ID); sess != nil {
+			if sess := m.l2Store.FindByAgentInstanceID(a.InstanceID); sess != nil {
 				isQBot = sess.IsQBot()
 				levelLocked = sess.LevelLocked()
 				lastLevel = sess.CurrentLevel()
@@ -862,7 +919,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			levelLocked := false
 			lastLevel := ""
 			if m.l2Store != nil {
-				if sess := m.l2Store.FindActiveSessionByAgentID(a.Def.ID); sess != nil {
+				if sess := m.l2Store.FindByAgentInstanceID(a.InstanceID); sess != nil {
 					isQBot = sess.IsQBot()
 					levelLocked = sess.LevelLocked()
 					lastLevel = sess.CurrentLevel()

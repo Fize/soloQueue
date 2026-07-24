@@ -94,15 +94,14 @@ func ServeCmd(version string) *cobra.Command {
 			mgr.SetMemoryManager(rt.MemoryManager)
 			mgr.SetIdleReaper(30*time.Minute, 200000)
 
-		// Initialize Scheduled Tasks (Cron & Timers) system
-		cronStore := cron.NewDBStore(rt.SharedDB)
-		builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
-		// ── L2 Session Store (must be before cronScheduler for persistent session reuse) ──
-		l2Store := session.NewL2SessionStore(builder, workDir, log)
-		cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{
+			// Initialize Scheduled Tasks (Cron & Timers) system
+			cronStore := cron.NewDBStore(rt.SharedDB)
+			builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
+			// ── L2 Session Store ──
+			l2Store := session.NewL2SessionStore(builder, workDir, log)
+			cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{
 				mgr:     mgr,
 				builder: builder,
-				l2Store: l2Store,
 				workDir: workDir,
 			}, log)
 			cronScheduler.SetModelResolver(func(taskLevel string) (cron.ResolvedModel, error) {
@@ -139,12 +138,12 @@ func ServeCmd(version string) *cobra.Command {
 			}
 			defer cronScheduler.Stop()
 
-		// Wire channel notification routing into the scheduler.
-		cronScheduler.SetWorkDir(workDir)
-		cronStore.SetWorkDir(workDir)
-		cronStore.SetLogf(func(format string, args ...any) {
-			log.Warn(logger.CatApp, fmt.Sprintf(format, args...))
-		})
+			// Wire channel notification routing into the scheduler.
+			cronScheduler.SetWorkDir(workDir)
+			cronStore.SetWorkDir(workDir)
+			cronStore.SetLogf(func(format string, args ...any) {
+				log.Warn(logger.CatApp, fmt.Sprintf(format, args...))
+			})
 
 			// Wire the cron store and scheduler into tools configuration
 			toolsCfg := rt.ReadToolsCfg()
@@ -158,7 +157,7 @@ func ServeCmd(version string) *cobra.Command {
 				return fmt.Errorf("init session: %w", err)
 			}
 
-		// ── Daily memory flush (midnight) ──
+			// ── Daily memory flush (midnight) ──
 			if rt.MemoryManager != nil {
 				flusher := session.NewDailyMemoryFlusher(mgr, rt.MemoryEngine, log)
 				go flusher.Run(context.Background())
@@ -281,9 +280,7 @@ func ServeCmd(version string) *cobra.Command {
 						return
 					case <-ticker.C:
 						cur, maxTokens := 0, 0
-						if l2Active := l2Store.ActiveSession(); l2Active != nil && l2Active.CW() != nil {
-							cur, maxTokens, _ = l2Active.CW().TokenUsage()
-						} else if s := mgr.Session(); s != nil && s.CW() != nil {
+						if s := mgr.Session(); s != nil && s.CW() != nil {
 							cur, maxTokens, _ = s.CW().TokenUsage()
 						}
 						if maxTokens > 0 {
@@ -397,7 +394,6 @@ func VersionCmd(version string) *cobra.Command {
 type cronSessionManagerWrapper struct {
 	mgr     *session.SessionManager
 	builder *session.Builder
-	l2Store *session.L2SessionStore
 	workDir string
 }
 
@@ -411,8 +407,7 @@ func (w cronSessionManagerWrapper) Session() cron.Session {
 
 // GetSession returns a session for the given teamID.
 // For L1: returns the existing L1 session.
-// For L2 teams: first checks if a persistent qbot-bound session exists in
-// l2Store (reuses it), otherwise creates a temporary session via BuildL2ForCron.
+// L2 Cron runs always use an isolated temporary session.
 func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskID string) (cron.Session, bool, func(), error) {
 	if teamID == "" || strings.EqualFold(teamID, "L1") {
 		s := w.mgr.Session()
@@ -422,14 +417,6 @@ func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskI
 		return s, false, nil, nil
 	}
 
-	// For L2 teams: check if a persistent qbot-bound session exists.
-	if w.l2Store != nil {
-		if s := w.l2Store.FindByGroup(teamID); s != nil {
-			return s, false, nil, nil // reuse persistent session
-		}
-	}
-
-	// No persistent session found — create a temporary one.
 	cronLogDir := filepath.Join(w.workDir, "logs", "cron", taskID)
 
 	// Ensure the cron log directory exists.

@@ -268,4 +268,66 @@ describe('chatStore', () => {
     expect(useChatStore.getState().sessions).toEqual([])
     expect(useChatStore.getState().sessionsLoading).toBe(false)
   })
+
+  // ── Phase 0.3 Characterization Tests ──────────────────────────────────────────
+
+  it('appendAssistantContent targets the assigned assistant message ID', () => {
+    const sid = 'session-target-test'
+    useChatStore.setState({
+      activeSessionId: sid,
+      messages: {
+        [sid]: [
+          {
+            id: 'asst-1',
+            role: 'assistant',
+            timestamp: '',
+            segments: [{ type: 'content', text: 'hello' }],
+          },
+          {
+            id: 'user-2',
+            role: 'user',
+            timestamp: '',
+            segments: [{ type: 'content', text: 'later prompt' }],
+          },
+          {
+            id: 'asst-2',
+            role: 'assistant',
+            timestamp: '',
+            segments: [{ type: 'content', text: 'newer response' }],
+          },
+        ],
+      },
+    })
+
+    useChatStore.getState().appendAssistantContent(sid, 'asst-1', ' delta')
+
+    const msgs = useChatStore.getState().messages[sid]
+    expect(msgs[0].segments[0]).toEqual({ type: 'content', text: 'hello delta' })
+    expect(msgs[2].segments[0]).toEqual({ type: 'content', text: 'newer response' })
+  })
+
+  it('CHARACTERIZATION: deleteL2Session cleanup is incomplete for streaming and helper session maps', async () => {
+    const sid = 'l2:delete-test-123'
+    useChatStore.setState({
+      sessions: [{ id: sid, type: 'l2', name: 'Delete test', createdAt: '' }],
+      activeSessionId: sid,
+      messages: { [sid]: [] },
+      streamingSessions: { [sid]: true },
+      systemCommandSessions: { [sid]: true },
+      delegatingSessions: { [sid]: true },
+      routeSessions: { [sid]: { requestId: 'r1', sessionId: sid } },
+    })
+
+    await useChatStore.getState().deleteL2Session(sid)
+
+    const state = useChatStore.getState()
+    expect(state.sessions.find((s) => s.id === sid)).toBeUndefined()
+    expect(state.messages[sid]).toBeUndefined()
+
+    // CHARACTERIZATION: These session maps are currently NOT cleared by deleteL2Session:
+    // Phase 4 will ensure complete store cleanup for deleted sessions.
+    expect(state.streamingSessions[sid]).toBe(true)
+    expect(state.systemCommandSessions[sid]).toBe(true)
+    expect(state.delegatingSessions[sid]).toBe(true)
+  })
 })

@@ -21,16 +21,16 @@ function isSystemSlashCommand(prompt: string): boolean {
 }
 
 export function useChatStream() {
-  const activeRequestIdRef = useRef<string | null>(null)
+  const activeRequestsRef = useRef<Record<string, string>>({})
 
   const {
     activeSessionId,
     titleGenerated,
     addMessage,
-    appendToLastAssistantContent,
-    appendToLastAssistantThinking,
-    appendToLastAssistantCompact,
-    updateLastAssistantSegment,
+    appendAssistantContent,
+    appendAssistantThinking,
+    appendAssistantCompact,
+    updateAssistantSegment,
     updateToolCallResult,
     setStreaming,
     setSystemCommandRunning,
@@ -55,6 +55,7 @@ export function useChatStream() {
       const state = useChatStore.getState()
       const sid = sessionIdOverride || state.activeSessionId
       if (!sid || !prompt.trim()) return
+      if (state.streamingSessions[sid]) return
 
       const trimmedPrompt = prompt.trim().toLowerCase()
       const isClear = trimmedPrompt === '/clear'
@@ -80,27 +81,10 @@ export function useChatStream() {
         })
       }
 
-      // If already streaming on this session, just queue server-side.
-      // The server's PendingQueue will inject it into the context window
-      // on the next agent iteration. No new handler or assistant needed.
       const isDesignMode = useRuntimeStore.getState().isDesignMode
-      if (state.streamingSessions[sid]) {
-        wsManager.send({
-          type: 'chat_send',
-          request_id: generateRequestId(),
-          session_id: sid,
-          prompt,
-          files,
-          design_mode: isDesignMode,
-          selected_element: selectedElement,
-          active_design_file: activeDesignFile,
-          has_drawings: hasDrawings,
-        })
-        return
-      }
 
       const requestId = generateRequestId()
-      activeRequestIdRef.current = requestId
+      activeRequestsRef.current[sid] = requestId
       setRoute({
         requestId,
         sessionId: sid,
@@ -134,7 +118,7 @@ export function useChatStream() {
         setSystemCommandRunning(false, sid)
         setDelegating(false, sid)
         clearRoute(sid, requestId)
-        activeRequestIdRef.current = null
+        delete activeRequestsRef.current[sid]
         wsManager.unregisterChat(requestId)
       }
 
@@ -151,17 +135,17 @@ export function useChatStream() {
         },
         onChunk: (delta) => {
           if (isCompact) {
-            appendToLastAssistantCompact(sid, delta)
+            appendAssistantCompact(sid, asstId, delta)
           } else {
-            appendToLastAssistantContent(sid, delta)
+            appendAssistantContent(sid, asstId, delta)
           }
           if (shouldGenTitle) finalContent += delta
         },
         onReasoning: (delta) => {
-          appendToLastAssistantThinking(sid, delta)
+          appendAssistantThinking(sid, asstId, delta)
         },
         onToolStart: (data) => {
-          updateLastAssistantSegment(sid, {
+          updateAssistantSegment(sid, asstId, {
             type: 'tool_call',
             callId: data.call_id,
             name: data.name,
@@ -180,7 +164,7 @@ export function useChatStream() {
           )
         },
         onToolConfirm: (data) => {
-          updateLastAssistantSegment(sid, {
+          updateAssistantSegment(sid, asstId, {
             type: 'tool_confirm',
             callId: data.call_id,
             name: data.name,
@@ -210,7 +194,7 @@ export function useChatStream() {
           useChatStore.getState().loadHistory(sid)
         },
         onError: (error) => {
-          updateLastAssistantSegment(sid, { type: 'error', text: error })
+          updateAssistantSegment(sid, asstId, { type: 'error', text: error })
           finishRequest()
           useChatStore.getState().loadHistory(sid)
         },
@@ -245,10 +229,10 @@ export function useChatStream() {
       activeSessionId,
       titleGenerated,
       addMessage,
-      appendToLastAssistantContent,
-      appendToLastAssistantThinking,
-      appendToLastAssistantCompact,
-      updateLastAssistantSegment,
+      appendAssistantContent,
+      appendAssistantThinking,
+      appendAssistantCompact,
+      updateAssistantSegment,
       updateToolCallResult,
       setStreaming,
       setSystemCommandRunning,
@@ -265,9 +249,9 @@ export function useChatStream() {
   const cancel = useCallback(() => {
     const sid = activeSessionId
     if (!sid) return
-    
+
     const store = useChatStore.getState()
-    const requestId = activeRequestIdRef.current || store.routeSessions[sid]?.requestId
+    const requestId = activeRequestsRef.current[sid] || store.routeSessions[sid]?.requestId
     if (!requestId) return
 
     // Immediately update local state so the stop button reverts to the send
@@ -277,7 +261,7 @@ export function useChatStream() {
     store.setSystemCommandRunning(false, sid)
     store.clearRoute(sid, requestId)
     store.cancelRunningDelegations(sid)
-    activeRequestIdRef.current = null
+    delete activeRequestsRef.current[sid]
     // Unregister the chat handler to prevent buffered WS chunks from
     // appending to messages after the cancel has been initiated.
     wsManager.unregisterChat(requestId)

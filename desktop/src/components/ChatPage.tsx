@@ -68,6 +68,9 @@ export function ChatPage() {
   const loadingMore = useRef(false);
   const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   const connectionStatus = useRuntimeStore((s) => s.connectionStatus);
+  const sessionRuntime = useRuntimeStore((s) =>
+    activeSessionId ? s.status?.sessions?.[activeSessionId] : undefined
+  );
   const backendRunning = useConnectionStore((s) => s.backendStatus.running);
 
   // macOS Inspector state
@@ -868,8 +871,8 @@ export function ChatPage() {
                       {...sharedInputProps}
                       activeSessionId={activeSessionId || undefined}
                       showL2Selectors={!isL1Session}
-                      ctxwinUsed={activeSession?.ctxwin_used ?? 0}
-                      ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
+                      ctxwinUsed={sessionRuntime?.ctxwin_used ?? activeSession?.ctxwin_used ?? 0}
+                      ctxwinLimit={sessionRuntime?.ctxwin_limit ?? activeSession?.ctxwin_limit ?? 0}
                       atRootDir={activeSession?.project_path || ""}
                       processing={streaming || delegating}
                     />
@@ -956,8 +959,8 @@ export function ChatPage() {
                   activeSessionId={activeSessionId || undefined}
                   showL2Selectors={!isL1Session}
                   readOnlySelectors={true}
-                  ctxwinUsed={activeSession?.ctxwin_used ?? 0}
-                  ctxwinLimit={activeSession?.ctxwin_limit ?? 0}
+                  ctxwinUsed={sessionRuntime?.ctxwin_used ?? activeSession?.ctxwin_used ?? 0}
+                  ctxwinLimit={sessionRuntime?.ctxwin_limit ?? activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
                   processing={streaming || delegating || !!pendingConfirm}
                 />

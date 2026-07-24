@@ -24,30 +24,66 @@ import (
 // It resolves the target session, calls AskStream, and forwards all agent events
 // as WebSocket messages to the client.
 func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
-	if h.mux == nil || h.mux.sessionMgr == nil {
+	ref, parseErr := session.ParseSessionID(msg.SessionID)
+	if parseErr != nil {
 		client.sendJSON(WSMessage{
 			Type:      "chat_error",
 			RequestID: msg.RequestID,
-			Error:     "session manager not configured",
+			SessionID: msg.SessionID,
+			Error:     "invalid session_id",
 		})
 		return
 	}
+	sessionID := ref.String()
+	streamStarted := false
 
 	if msg.Prompt == "" {
 		client.sendJSON(WSMessage{
 			Type:      "chat_error",
 			RequestID: msg.RequestID,
+			SessionID: sessionID,
 			Error:     "prompt cannot be empty",
 		})
 		return
 	}
 
+	// Reserve request in global ActiveRequestRegistry.
+	// Rejects duplicate/concurrent sends to the same session with session_busy.
+	_, err := h.requests.Reserve(sessionID, msg.RequestID, "")
+	if err != nil {
+		client.sendJSON(WSMessage{
+			Type:      "session_busy",
+			RequestID: msg.RequestID,
+			SessionID: sessionID,
+			Error:     "session is currently busy processing another request",
+		})
+		return
+	}
+	defer func() {
+		if !streamStarted {
+			h.finalizeRequest(sessionID, msg.RequestID)
+		}
+	}()
+	h.NextSessionRevision(sessionID)
+	h.Notify()
+
+	if h.mux == nil || h.mux.sessionMgr == nil {
+		client.sendJSON(WSMessage{
+			Type:      "chat_error",
+			RequestID: msg.RequestID,
+			SessionID: sessionID,
+			Error:     "session manager not configured",
+		})
+		return
+	}
+
 	// Resolve session.
-	sess, err := h.resolveSession(msg.SessionID)
+	sess, err := h.resolveSession(sessionID)
 	if err != nil {
 		client.sendJSON(WSMessage{
 			Type:      "chat_error",
 			RequestID: msg.RequestID,
+			SessionID: sessionID,
 			Error:     err.Error(),
 		})
 		return
@@ -117,12 +153,21 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		}
 	}
 
-	// Create a derived context from client ctx so disconnect cancels this request.
-	reqCtx, reqCancel := context.WithCancel(client.ctx)
+	// Request lifetime is owned by the session/global registry, not by the
+	// WebSocket connection. A disconnected client merely loses its forwarder.
+	reqCtx, reqCancel := context.WithCancel(context.Background())
+	reqCtx = session.WithRejectBusyQueue(reqCtx)
 	if len(images) > 0 {
 		reqCtx = context.WithValue(reqCtx, ctxwin.ImageContextKey, images)
 	}
 	client.addActiveRequest(msg.RequestID, reqCancel)
+	forwarderStarted := false
+	defer func() {
+		if !forwarderStarted {
+			reqCancel()
+			client.removeActiveRequest(msg.RequestID)
+		}
+	}()
 
 	sess.SetIsQBot(false)
 
@@ -270,11 +315,10 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 
 	// Routing is complete before AskStream returns. Send its request-scoped
 	// result before any reasoning/content/tool event can be forwarded.
-	if !client.sendJSON(buildChatRouteMessage(sess, msg.RequestID, msg.SessionID)) {
-		reqCancel()
-		client.removeActiveRequest(msg.RequestID)
-		return
-	}
+	client.sendJSON(buildChatRouteMessage(sess, msg.RequestID, msg.SessionID))
+	_ = h.requests.SetRoute(msg.RequestID, sess.Agent.InstanceID)
+	h.NextSessionRevision(sessionID)
+	h.Notify()
 
 	// Notify desktop when classification degraded (LLM error, fallback used).
 	if cw := sess.ClassifierWarning(); cw != "" {
@@ -291,7 +335,16 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	}
 
 	// Consume agent events and forward to client.
+	streamStarted = true
+	forwarderStarted = true
 	go h.forwardAgentEvents(client, msg.RequestID, reqCancel, ch, msg.SessionID, msg.Prompt)
+}
+
+func (h *Hub) finalizeRequest(sessionID, requestID string) {
+	if h.requests != nil && h.requests.Finalize(sessionID, requestID) {
+		h.NextSessionRevision(sessionID)
+		h.Notify()
+	}
 }
 
 func buildChatRouteMessage(sess *session.Session, requestID, sessionID string) WSMessage {
@@ -315,16 +368,32 @@ func buildChatRouteMessage(sess *session.Session, requestID, sessionID string) W
 }
 
 func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
+	ref, err := session.ParseSessionID(msg.SessionID)
+	if err != nil {
+		return
+	}
+	sessionID := ref.String()
+
+	// Validate ownership via global ActiveRequestRegistry
+	req, ok := h.requests.GetBySession(sessionID)
+	if !ok || (msg.RequestID != "" && req.RequestID != msg.RequestID) {
+		// Session has no active request or request_id mismatch — drop
+		return
+	}
+
+	_ = h.requests.SetState(req.RequestID, RequestStateCancelling)
+	h.NextSessionRevision(sessionID)
+	h.Notify()
+
 	// Send immediate confirmation to client so it knows cancel was received.
 	client.sendJSON(WSMessage{
 		Type:      "chat_cancel_confirmed",
-		RequestID: msg.RequestID,
+		RequestID: req.RequestID,
+		SessionID: sessionID,
 	})
 
-	// Cancel the current request tree. The shared context reaches local child
-	// agents and cross-team delegations without stopping reusable sessions.
 	if h.mux != nil {
-		sess, err := h.resolveSession(msg.SessionID)
+		sess, err := h.resolveSession(sessionID)
 		if err == nil {
 			_ = sess.CancelCurrent("User cancelled")
 		}
@@ -333,10 +402,15 @@ func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 	// Notify client that the task is done (cancelled).
 	client.sendJSON(WSMessage{
 		Type:             "chat_done",
-		RequestID:        msg.RequestID,
+		RequestID:        req.RequestID,
+		SessionID:        sessionID,
 		Content:          "Task cancelled.",
 		ReasoningContent: "",
 	})
+
+	h.requests.Finalize(sessionID, req.RequestID)
+	h.NextSessionRevision(sessionID)
+	h.Notify()
 }
 
 // handleToolConfirm forwards a tool confirmation choice to the agent.
@@ -345,7 +419,23 @@ func (h *Hub) handleToolConfirm(client *Client, msg *ClientMessage) {
 		return
 	}
 
-	sess, err := h.resolveSession(msg.SessionID)
+	ref, err := session.ParseSessionID(msg.SessionID)
+	if err != nil {
+		return
+	}
+	sessionID := ref.String()
+
+	if msg.RequestID != "" {
+		if _, err := h.requests.Validate(sessionID, msg.RequestID); err != nil {
+			return
+		}
+		if err := h.requests.ResolvePendingCall(msg.RequestID, msg.CallID); err != nil {
+			// Call ID does not belong to active request — drop
+			return
+		}
+	}
+
+	sess, err := h.resolveSession(sessionID)
 	if err != nil {
 		return
 	}
@@ -361,6 +451,7 @@ func (h *Hub) handleToolConfirm(client *Client, msg *ClientMessage) {
 func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel context.CancelFunc, ch <-chan iface.AgentEvent, sessionID string, prompt string) {
 	defer cancel()
 	defer client.removeActiveRequest(requestID)
+	defer h.finalizeRequest(sessionID, requestID)
 
 	// streamBatchInterval is the maximum time a chat_chunk/reasoning_chunk
 	// delta is held before being flushed. This microbatch lets us collapse N
@@ -381,14 +472,16 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 		flushC       <-chan time.Time
 	)
 
-	flush := func() bool {
+	deliveryAttached := true
+	flush := func() {
 		if pendingType != "" {
-			if !client.sendJSON(WSMessage{
+			if deliveryAttached && !client.sendJSON(WSMessage{
 				Type:      pendingType,
 				RequestID: requestID,
+				SessionID: sessionID,
 				Delta:     pendingDelta.String(),
 			}) {
-				return false
+				deliveryAttached = false
 			}
 			pendingDelta.Reset()
 			pendingType = ""
@@ -398,14 +491,11 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 			flushTimer = nil
 		}
 		flushC = nil
-		return true
 	}
 
-	appendDelta := func(msgType, delta string) bool {
+	appendDelta := func(msgType, delta string) {
 		if pendingType != "" && pendingType != msgType {
-			if !flush() {
-				return false
-			}
+			flush()
 		}
 		pendingType = msgType
 		pendingDelta.WriteString(delta)
@@ -413,7 +503,6 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 			flushTimer = time.NewTimer(streamBatchInterval)
 			flushC = flushTimer.C
 		}
-		return true
 	}
 
 	for {
@@ -430,23 +519,17 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 
 			// Fast path: batchable high-frequency deltas.
 			if cd, ok := agEv.(agent.ContentDeltaEvent); ok {
-				if !appendDelta("chat_chunk", cd.Delta) {
-					return
-				}
+				appendDelta("chat_chunk", cd.Delta)
 				continue
 			}
 			if rd, ok := agEv.(agent.ReasoningDeltaEvent); ok {
-				if !appendDelta("reasoning_chunk", rd.Delta) {
-					return
-				}
+				appendDelta("reasoning_chunk", rd.Delta)
 				continue
 			}
 
 			// Structural event: flush pending text first so the client sees
 			// the new structural frame AFTER the full text preceding it.
-			if !flush() {
-				return
-			}
+			flush()
 
 			// Auto-generate session name after first exchange for L2 sessions.
 			if doneEv, ok := agEv.(agent.DoneEvent); ok {
@@ -511,6 +594,7 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 									client.sendJSON(WSMessage{
 										Type:      "session_plans",
 										RequestID: requestID,
+										SessionID: sessionID,
 										Plans:     updatedEntry.Plans,
 									})
 								}
@@ -520,39 +604,48 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 				}
 			}
 
-			wsMsg := convertAgentEvent(agEv, requestID)
+			if confirmEv, ok := agEv.(agent.ToolNeedsConfirmEvent); ok {
+				_ = h.requests.RegisterPendingCall(requestID, confirmEv.CallID)
+			}
+
+			wsMsg := convertAgentEvent(agEv, requestID, sessionID)
 			if wsMsg == nil {
 				continue
 			}
 
-			// Track delegation state for Stop button logic.
+			// Track delegation state for Stop button and global registry.
 			if wsMsg.Type == "delegation_start" {
 				client.setRequestDelegating(requestID, true)
+				_ = h.requests.SetDelegating(requestID, true)
+				h.NextSessionRevision(sessionID)
+				h.Notify()
 			}
 			if wsMsg.Type == "delegation_done" {
 				client.setRequestDelegating(requestID, false)
+				_ = h.requests.SetDelegating(requestID, false)
+				h.NextSessionRevision(sessionID)
+				h.Notify()
 			}
 
-			if !client.sendJSON(*wsMsg) {
-				return // client disconnected
+			if deliveryAttached && !client.sendJSON(*wsMsg) {
+				deliveryAttached = false
 			}
 
 		case <-flushC:
-			if !flush() {
-				return
-			}
+			flush()
 		}
 	}
 }
 
 // convertAgentEvent maps an internal AgentEvent to a WSMessage.
 // Returns nil for events that should not be forwarded (e.g., IterationDoneEvent).
-func convertAgentEvent(ev agent.AgentEvent, requestID string) *WSMessage {
+func convertAgentEvent(ev agent.AgentEvent, requestID, sessionID string) *WSMessage {
 	switch e := ev.(type) {
 	case agent.ToolExecStartEvent:
 		return &WSMessage{
 			Type:          "tool_start",
 			RequestID:     requestID,
+			SessionID:     sessionID,
 			CallID:        e.CallID,
 			Name:          e.Name,
 			Args:          e.Args,
@@ -567,6 +660,7 @@ func convertAgentEvent(ev agent.AgentEvent, requestID string) *WSMessage {
 		return &WSMessage{
 			Type:       "tool_done",
 			RequestID:  requestID,
+			SessionID:  sessionID,
 			CallID:     e.CallID,
 			Name:       e.Name,
 			Result:     e.Result,
@@ -578,6 +672,7 @@ func convertAgentEvent(ev agent.AgentEvent, requestID string) *WSMessage {
 		return &WSMessage{
 			Type:           "tool_confirm",
 			RequestID:      requestID,
+			SessionID:      sessionID,
 			CallID:         e.CallID,
 			Name:           e.Name,
 			Prompt:         e.Prompt,
@@ -588,6 +683,7 @@ func convertAgentEvent(ev agent.AgentEvent, requestID string) *WSMessage {
 		return &WSMessage{
 			Type:             "chat_done",
 			RequestID:        requestID,
+			SessionID:        sessionID,
 			Content:          e.Content,
 			ReasoningContent: e.ReasoningContent,
 		}
@@ -596,6 +692,7 @@ func convertAgentEvent(ev agent.AgentEvent, requestID string) *WSMessage {
 		return &WSMessage{
 			Type:      "chat_error",
 			RequestID: requestID,
+			SessionID: sessionID,
 			Error:     e.Err.Error(),
 		}
 
@@ -603,6 +700,7 @@ func convertAgentEvent(ev agent.AgentEvent, requestID string) *WSMessage {
 		return &WSMessage{
 			Type:      "delegation_start",
 			RequestID: requestID,
+			SessionID: sessionID,
 			NumTasks:  e.NumTasks,
 		}
 
@@ -610,6 +708,7 @@ func convertAgentEvent(ev agent.AgentEvent, requestID string) *WSMessage {
 		return &WSMessage{
 			Type:          "delegation_done",
 			RequestID:     requestID,
+			SessionID:     sessionID,
 			TargetAgentID: e.TargetAgentID,
 			AgentName:     e.TargetAgentName,
 			ResultContent: e.ResultContent,

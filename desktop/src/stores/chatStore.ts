@@ -28,10 +28,10 @@ interface ChatState {
   markTitleGenerated: (id: string) => void
 
   addMessage: (sessionId: string, message: ChatMessage) => void
-  updateLastAssistantSegment: (sessionId: string, segment: ChatSegment) => void
-  appendToLastAssistantContent: (sessionId: string, text: string) => void
-  appendToLastAssistantThinking: (sessionId: string, text: string) => void
-  appendToLastAssistantCompact: (sessionId: string, text: string) => void
+  updateAssistantSegment: (sessionId: string, messageId: string, segment: ChatSegment) => void
+  appendAssistantContent: (sessionId: string, messageId: string, text: string) => void
+  appendAssistantThinking: (sessionId: string, messageId: string, text: string) => void
+  appendAssistantCompact: (sessionId: string, messageId: string, text: string) => void
   updateToolCallResult: (
     sessionId: string,
     callId: string,
@@ -311,100 +311,91 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  updateLastAssistantSegment: (sessionId: string, segment: ChatSegment) => {
+  updateAssistantSegment: (sessionId: string, messageId: string, segment: ChatSegment) => {
     set((s) => {
       const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
-      const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') return s
-      const updated = { ...last, segments: [...last.segments, segment] }
-      return { messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), updated] } }
+      const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
+      if (idx === -1) return s
+      const target = msgs[idx]
+      const updated = { ...target, segments: [...target.segments, segment] }
+      msgs[idx] = updated
+      return { messages: { ...s.messages, [sid]: msgs } }
     })
   },
 
-  appendToLastAssistantContent: (sessionId: string, text: string) => {
+  appendAssistantContent: (sessionId: string, messageId: string, text: string) => {
     set((s) => {
       const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
-      const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') {
-        // Diagnostic: log when content is silently dropped. If this fires,
-        // it means the last message is not an assistant — likely due to a
-        // WebSocket reconnect clearing the handler or loadHistory overwrite.
+      const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
+      if (idx === -1) {
         if (text && text.trim()) {
-          const lastRole = last ? last.role : 'none'
-          console.warn(
-            `[chatStore] Dropping content delta (${text.length} chars) for session ${sid}: ` +
-            `lastMessageRole=${lastRole}, msgCount=${msgs.length}`
-          )
+          console.warn(`[chatStore] Dropping content delta (${text.length} chars) for session ${sid}: no assistant message found`)
         }
         return s
       }
-      const segs = [...last.segments]
+      const target = msgs[idx]
+      const segs = [...target.segments]
       const lastSeg = segs[segs.length - 1]
       if (lastSeg && lastSeg.type === 'content') {
         segs[segs.length - 1] = { ...lastSeg, text: lastSeg.text + text }
       } else {
         segs.push({ type: 'content', text })
       }
-      // Build the new per-session messages list without spreading the
-      // previous array; .concat creates one new array containing all
-      // existing references plus the freshly-cloned last message. The
-      // earlier `messages: [...msgs.slice(0, -1), { ...last, ... }]`
-      // pattern also created one new array but allocated an intermediate
-      // slice; .concat is more direct.
+      msgs[idx] = { ...target, segments: segs }
       return {
         messages: {
           ...s.messages,
-          [sid]: msgs.slice(0, -1).concat({ ...last, segments: segs }),
+          [sid]: msgs,
         },
       }
     })
   },
 
-  appendToLastAssistantThinking: (sessionId: string, text: string) => {
+  appendAssistantThinking: (sessionId: string, messageId: string, text: string) => {
     set((s) => {
       const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
-      const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') {
+      const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
+      if (idx === -1) {
         if (text && text.trim()) {
-          const lastRole = last ? last.role : 'none'
-          console.warn(
-            `[chatStore] Dropping thinking delta (${text.length} chars) for session ${sid}: ` +
-            `lastMessageRole=${lastRole}, msgCount=${msgs.length}`
-          )
+          console.warn(`[chatStore] Dropping thinking delta (${text.length} chars) for session ${sid}: no assistant message found`)
         }
         return s
       }
-      const segs = [...last.segments]
+      const target = msgs[idx]
+      const segs = [...target.segments]
       const lastSeg = segs[segs.length - 1]
       if (lastSeg && lastSeg.type === 'thinking') {
         segs[segs.length - 1] = { ...lastSeg, text: lastSeg.text + text }
       } else {
         segs.push({ type: 'thinking', text })
       }
+      msgs[idx] = { ...target, segments: segs }
       return {
-        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+        messages: { ...s.messages, [sid]: msgs },
       }
     })
   },
 
-  appendToLastAssistantCompact: (sessionId: string, text: string) => {
+  appendAssistantCompact: (sessionId: string, messageId: string, text: string) => {
     set((s) => {
       const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
-      const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') return s
-      const segs = [...last.segments]
+      const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
+      if (idx === -1) return s
+      const target = msgs[idx]
+      const segs = [...target.segments]
       const lastSeg = segs[segs.length - 1]
       if (lastSeg && lastSeg.type === 'compact') {
         segs[segs.length - 1] = { ...lastSeg, text: lastSeg.text + text }
       } else {
         segs.push({ type: 'compact', text })
       }
+      msgs[idx] = { ...target, segments: segs }
       return {
-        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+        messages: { ...s.messages, [sid]: msgs },
       }
     })
   },

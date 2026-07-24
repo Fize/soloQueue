@@ -22,12 +22,12 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
@@ -46,6 +46,19 @@ var (
 	// ErrNoActiveTask is returned when there is no active task to cancel
 	ErrNoActiveTask = errors.New("session: no active task")
 )
+
+type rejectBusyQueueKey struct{}
+
+// WithRejectBusyQueue marks a desktop request that must be rejected rather
+// than inserted into the session pending queue when the session is busy.
+func WithRejectBusyQueue(ctx context.Context) context.Context {
+	return context.WithValue(ctx, rejectBusyQueueKey{}, true)
+}
+
+func rejectsBusyQueue(ctx context.Context) bool {
+	v, _ := ctx.Value(rejectBusyQueueKey{}).(bool)
+	return v
+}
 
 // Version is the current version of soloqueue. It is set at startup by the main command.
 var Version = "0.1.0"
@@ -167,11 +180,11 @@ type Session struct {
 	metaL2ID    string
 	// gitBaseRef captures the HEAD commit hash at session start (git repos).
 	// Persisted in meta.json; read by the Changes tab to diff against this ref.
-	gitBaseRef     string
-	metaBaseline   map[string]string // path→sha256 snapshot, non-git projects only
+	gitBaseRef   string
+	metaBaseline map[string]string // path→sha256 snapshot, non-git projects only
 
-	memoryHook     MemoryHook           // optional callback for short-term memory (nil = disabled)
-	memoryManager  *conversationlog.Manager      // for dedup cursor; set alongside memoryHook
+	memoryHook    MemoryHook               // optional callback for short-term memory (nil = disabled)
+	memoryManager *conversationlog.Manager // for dedup cursor; set alongside memoryHook
 
 	idleTimeout      time.Duration // 0 = disabled; auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum CW tokens to trigger compact
@@ -193,15 +206,15 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	}
 
 	s := &Session{
-		ID:             id,
-		TeamID:         teamID,
-		Agent:          a,
-		Created:        time.Now(),
-		cw:             cw,
-		tl:             tl,
-		logger:         l,
-		pending:        &PendingQueue{},
-		activeCancels:  make(map[uint64]activeTurnCancel),
+		ID:            id,
+		TeamID:        teamID,
+		Agent:         a,
+		Created:       time.Now(),
+		cw:            cw,
+		tl:            tl,
+		logger:        l,
+		pending:       &PendingQueue{},
+		activeCancels: make(map[uint64]activeTurnCancel),
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 
@@ -978,7 +991,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			s.logger.InfoContext(ctx, logger.CatApp, "compact rejected: session busy, message queued",
 				"session_id", s.ID,
 			)
-			s.pending.Enqueue(prompt)
+			if !rejectsBusyQueue(ctx) {
+				s.pending.Enqueue(prompt)
+			}
 			return nil, ErrQueued
 		}
 		s.touch()
@@ -1031,7 +1046,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			s.logger.InfoContext(ctx, logger.CatApp, "clear rejected: session busy, message queued",
 				"session_id", s.ID,
 			)
-			s.pending.Enqueue(prompt)
+			if !rejectsBusyQueue(ctx) {
+				s.pending.Enqueue(prompt)
+			}
 			return nil, ErrQueued
 		}
 		s.touch()
@@ -1096,7 +1113,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			"session_id", s.ID,
 			"prompt_len", len(prompt),
 		)
-		s.pending.Enqueue(prompt)
+		if !rejectsBusyQueue(ctx) {
+			s.pending.Enqueue(prompt)
+		}
 		return nil, ErrQueued
 	}
 	clientCtx := ctx
@@ -1301,9 +1320,9 @@ enqueued:
 		var finalReasoning string
 		var gotDone bool
 		var eventCount int
-		var accContent strings.Builder   // accumulates streamed content for partial flush on non-normal exit
+		var accContent strings.Builder // accumulates streamed content for partial flush on non-normal exit
 		var accReasoning strings.Builder
-		var lastPushedContent string      // tracks last content pushed to cw (avoids duplicate partial flush)
+		var lastPushedContent string // tracks last content pushed to cw (avoids duplicate partial flush)
 		var rollbackOnce sync.Once
 		rollbackTurn := func() {
 			rollbackOnce.Do(func() {
@@ -1781,7 +1800,6 @@ func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 
 	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown completed")
 }
-
 
 // ─── Level lock helpers ─────────────────────────────────────────────────────
 

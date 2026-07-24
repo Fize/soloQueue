@@ -138,6 +138,16 @@ export interface AgentStreamState {
   error?: string;
 }
 
+export interface SessionRuntimeState {
+  session_id: string;
+  request_id?: string;
+  state: 'idle' | 'starting' | 'streaming' | 'delegating' | 'cancelling' | 'error';
+  revision: number;
+  ctxwin_used: number;
+  ctxwin_limit: number;
+  delegating: boolean;
+}
+
 export interface RuntimeStatus {
   phase: string;
   prompt_tokens: number;
@@ -156,6 +166,7 @@ export interface RuntimeStatus {
   total_errors: number;
   http_addr: string;
   agent_streams: Record<string, AgentStreamState>;
+  sessions?: Record<string, SessionRuntimeState>;
 }
 
 // ─── Dependency Types ─────────────────────────────────────────────────────────

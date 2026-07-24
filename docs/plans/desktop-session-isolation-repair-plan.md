@@ -1,6 +1,6 @@
 # Desktop Session Isolation Repair Plan
 
-Status: proposed; ready for implementation after approval
+Status: implementation-ready; decisions closed
 Scope: L1/L2 session identity, lifecycle, request ownership, WebSocket delivery, context-window metrics, desktop state isolation, rendering, reconnect recovery, Cron/channel reuse, and regression coverage
 Primary symptom: L1 `ctxwin` sometimes displays a fixed value and active replies sometimes stop updating
 
@@ -15,10 +15,12 @@ Adopt the following decisions:
 4. Treat persisted history, live request state, and aggregate runtime metrics as separate data sources. A renderer must not substitute one for another.
 5. Remove the global “active L2 session” as a source of context-window or UI state.
 6. Make session deletion a complete lifecycle operation, not just removal from a map and deletion of timeline files.
-7. Preserve queued-input behavior, but make the active response update its assigned assistant message instead of “the last assistant message”.
+7. Reject a second desktop send while the same session is active. Keep the text as a per-session draft and return a stable `session_busy` error; queued-input redesign is deferred.
 8. Use deterministic reconnect recovery through per-session runtime state and history reload. Streaming replay/resume is out of scope for this repair.
 9. Reuse an interactive session from Cron or a channel only by exact session ID. Never select a session by group or agent template alone.
 10. Keep genuinely global data global: connection status, auth, model/configuration catalogs, teams, skills, language, and layout preferences do not need per-session copies.
+11. Store active requests in a server-global registry keyed by session and request, independent of a WebSocket client's lifetime.
+12. Put session runtime snapshots in the existing WebSocket `state` payload and order them with a per-session monotonic `revision`.
 
 The repair is complete only when identity and cleanup invariants hold across the backend, protocol, store, and renderer. Fixing the displayed `ctxwin` number alone is insufficient.
 
@@ -41,9 +43,11 @@ The repair is complete only when identity and cleanup invariants hold across the
 - Persisting historical model/level badges for every old message.
 - Resuming and replaying partial token streams after reconnect.
 - Supporting multiple simultaneous active requests inside the same session.
+- Desktop queued-input processing while a session is busy. The draft remains editable, but it is not sent until the current request is terminal.
 - Replacing Zustand, WebSocket, the actor model, or timeline event sourcing.
 - Redesigning the entire desktop application around a new state framework.
 - Changing L0-L3 routing semantics, compaction policy, or memory behavior.
+- Durable delete tombstones, trash directories, or recovery of timeline-directory deletion failures.
 - Cleaning unrelated dead code or reorganizing unrelated packages.
 
 ## 3. Current failure model
@@ -111,6 +115,8 @@ These invariants are the contract for all implementation and tests.
 4. A desktop request record additionally contains the target assistant message ID.
 5. Cancel and tool-confirm operations must match the owning session and request before mutating anything.
 6. A late event from an old request may be logged and ignored; it must not alter a newer request.
+7. Active request ownership survives WebSocket disconnect. Client attachment and request ownership are separate concepts.
+8. The normal desktop path rejects a second request before appending messages. If a stale client loses the backend reservation race, it removes only that request's exact optimistic message pair and preserves the draft.
 
 ### 4.3 Data ownership
 
@@ -124,6 +130,7 @@ These invariants are the contract for all implementation and tests.
 | Draft, mentions, attachments | session ID |
 | Design file, strokes, selected target | session ID |
 | Changes request and result | session ID plus request generation |
+| Session runtime snapshot | session ID plus monotonic revision |
 | Connection/auth/config/team/skill state | application global |
 
 ### 4.4 Lifecycle
@@ -145,7 +152,7 @@ inactive -> activating -> active -> deleting -> deleted
 
 ### 5.1 Canonical session ID parsing
 
-Add a small parser in `internal/session`, for example:
+Add `internal/session/id.go` with:
 
 ```go
 type SessionKind uint8
@@ -198,7 +205,7 @@ Required tests:
 
 ### 5.3 Complete L2 destruction
 
-Keep `Session.Close` as resource closure, but add one runtime-aware teardown path owned by the builder/store, for example `Builder.DestroyL2`.
+Keep `Session.Close` as resource closure, but add one runtime-aware teardown path owned by the builder/store: `Builder.DestroyL2`.
 
 Teardown order:
 
@@ -219,7 +226,7 @@ If a step fails:
 - Return/join the errors after all cleanup attempts.
 - Do not restore the session to active state.
 - Log `session_id`, `agent_instance_id`, cleanup step, and error.
-- A user deletion response is successful only when runtime ownership is gone. A timeline deletion failure returns an error but must not resurrect runtime state.
+- A user deletion response is successful only when current-process runtime ownership is gone. A timeline-directory deletion failure returns an error; durable retry, tombstone, and recovery behavior are outside this repair.
 
 `Shutdown` must use the same teardown path with `deletePersistentData=false`.
 
@@ -232,11 +239,30 @@ Delete `L2SessionStore.activeSession`, `ActiveSession`, and `SetActiveSession`.
 History reads must not mutate runtime selection. Reading `/api/session/history` should:
 
 - read timeline data;
-- obtain context usage from the exact resolved session when it is active;
-- use a persisted/replayed snapshot when activation is explicitly required;
+- obtain context usage from the exact session when it is already active;
+- otherwise use a persisted context-usage snapshot;
+- for a legacy session without a snapshot, use a read-only replay that creates no agent, supervisor, registry entry, timeline writer, or runtime watch;
 - never change another API's notion of “current”.
 
-If avoiding activation for a history-only request is feasible after the single-flight fix, prefer a read-only token calculation or metadata snapshot. If replay is still required for accurate usage, activation is allowed but remains session-local.
+History, list, changes, and metadata endpoints must never call `L2SessionStore.Get` or otherwise activate a session.
+
+Persist the following fields in `meta.json` after every successful turn and after clear, compact, and rewind:
+
+```go
+CtxwinUsed      int       `json:"ctxwin_used,omitempty"`
+CtxwinLimit     int       `json:"ctxwin_limit,omitempty"`
+CtxwinUpdatedAt time.Time `json:"ctxwin_updated_at,omitempty"`
+```
+
+Add `Builder.ReadL2ContextUsage` in `internal/session/context_usage.go` for legacy sessions:
+
+1. Resolve the leader template and model context limit without creating an agent.
+2. Create an ephemeral context window with no push hook, summary hook, compactor side effect, or writer.
+3. Push the system prompt in replay mode.
+4. Replay the active timeline tail.
+5. return `TokenUsage`.
+
+The helper is pure read and does not write the calculated snapshot. The next ordinary session mutation persists it. This keeps history free of activation and write side effects.
 
 ### 5.5 Per-session runtime snapshot
 
@@ -245,6 +271,7 @@ Keep aggregate runtime metrics for application-wide status, but add session-scop
 ```go
 type SessionRuntimeStatus struct {
     SessionID       string `json:"session_id"`
+    Revision        uint64 `json:"revision"`
     State           string `json:"state"`
     AgentInstanceID string `json:"agent_instance_id,omitempty"`
     RequestID       string `json:"request_id,omitempty"`
@@ -255,13 +282,36 @@ type SessionRuntimeStatus struct {
 }
 ```
 
-Expose it as a map keyed by canonical session ID in the existing state message or a dedicated `session_state` message.
+Expose it as `runtime.sessions`, a map keyed by canonical session ID in the existing WebSocket `state` message.
+
+Stable `State` values are `idle`, `processing`, `delegating`, `cancelling`, and `error`. `RequestID` is present only while a request is active; an idle entry has an empty request ID.
+
+`RuntimeMetrics` owns the snapshot map and revision counters. Each `state` payload contains a full snapshot:
+
+- `l1` is always present after the L1 session is initialized.
+- Activated L2 sessions are present until teardown finalizes.
+- Inactive L2 sessions are absent; their list/history metadata supplies persisted ctxwin values.
+- Desktop removes a cached runtime entry only when it is absent from a full snapshot accepted in the current connection generation. Session existence/deletion remains authoritative in the generation-guarded session-list response.
+
+Revision rules:
+
+- Maintain one counter per session in the runtime snapshot owner.
+- Keep the counter for the lifetime of the backend process even after a session runtime entry is removed, so delete/recreate or deactivate/reactivate cannot reuse an older revision.
+- `RuntimeMetrics` increments the counter under its own snapshot lock whenever a registry or lifecycle caller publishes a visible transition.
+- Registry mutation completes before runtime publication. Never hold the registry lock and runtime snapshot lock simultaneously.
+- The shared request finalizer owns the ordering `finalize registry -> publish terminal/idle runtime`, so every terminal path produces one newer revision.
+- Never reset a live session's revision during WebSocket reconnect.
+- A backend restart may restart revisions because the client also receives a new connection generation.
+- On each new connection generation, desktop clears the last-applied revision map and accepts the first full snapshot.
+- Within one connection generation, desktop applies a session snapshot only when its revision is greater than the stored revision.
 
 Compatibility:
 
 - Keep `runtime.current_tokens` and `runtime.max_tokens` for one release if the portal still consumes them.
 - Desktop L1/L2 chat must stop reading these global fields.
 - Mark the legacy fields as aggregate/compatibility fields and remove the `ActiveSession` update loop.
+- Preserve global `prompt_tokens`, `output_tokens`, `cache_hit_tokens`, and `cache_miss_tokens`. The Electron tray is an explicit aggregate consumer of these counters.
+- The tray must subscribe to those four scalar values, not the full runtime object, and must update only when the displayed values change.
 
 Updates must be emitted on:
 
@@ -282,40 +332,85 @@ Build agent responses from instance ownership:
 
 Template IDs remain valid for configuration and team composition, not runtime identity.
 
-### 5.7 Request ownership in the WebSocket hub
+### 5.7 Server-global request ownership
 
-Extend the server-side active request record:
+Add one request registry owned by the server/Hub, not by an individual `Client`:
 
 ```go
-type activeRequest struct {
+type ActiveRequestRegistry struct {
+    mu        sync.RWMutex
+    bySession map[string]*ActiveRequest
+    byRequest map[string]*ActiveRequest
+}
+
+type ActiveRequest struct {
     SessionID       string
     RequestID       string
     AgentInstanceID string
-    Cancel          context.CancelFunc
+    OwnerClientID   string
+    State           RequestState
+    StartedAt       time.Time
     Delegating      bool
+    PendingCallIDs  map[string]struct{}
 }
 ```
 
+`OwnerClientID` is diagnostic/attachment metadata, not the lifetime owner. The registry entry survives client disconnect until request finalization.
+`RequestState` has the closed set `starting`, `streaming`, `delegating`, and `cancelling`; terminal requests are removed rather than retained in the registry.
+
+Required registry operations:
+
+```go
+Reserve(sessionID, requestID, ownerClientID string) (ActiveRequest, error)
+GetBySession(sessionID string) (ActiveRequest, bool)
+Validate(sessionID, requestID string) (ActiveRequest, error)
+SetRoute(requestID, agentInstanceID string) error
+SetState(requestID string, state RequestState) error
+SetDelegating(requestID string, value bool) error
+RegisterPendingCall(requestID, callID string) error
+ResolvePendingCall(requestID, callID string) error
+Finalize(sessionID, requestID string) bool
+```
+
+All mutations take the registry lock once and update both indexes atomically. No caller holds the registry lock while calling `Session`, `Agent`, client send, or runtime notification code.
+Registry reads return value snapshots rather than internal pointers; `PendingCallIDs` is copied when exposed so callers cannot mutate registry state without the lock.
+
 Protocol rules:
 
-- `chat_send` registers `{session_id, request_id}` atomically before streaming.
-- A duplicate `request_id` is rejected.
-- `chat_cancel` succeeds only when both IDs match an active record owned by that client.
+- `chat_send` atomically reserves both the canonical session ID and request ID before calling `AskStream`.
+- Reservation fails with `session_busy` if the session already has an active request.
+- Reservation fails with `duplicate_request_id` if the request ID already exists.
+- Failure before `AskStream` releases the reservation through the same finalizer used by terminal events.
+- `chat_cancel` succeeds only when session ID and request ID resolve to the same registry record. A newly reconnected authenticated desktop client may cancel the request reported by `runtime.sessions[sessionID].request_id`.
 - `tool_confirm` includes `request_id` and is validated against the request/session/call.
+- A tool call ID is added to `PendingCallIDs` before its confirmation event is sent and removed on confirmation resolution or request finalization.
 - Mismatch returns a request-scoped error and performs no cancellation or confirmation.
 - Slash-command early-return paths always remove the active request via one `defer`.
 - Every outbound request event includes `session_id`.
+- Client disconnect detaches its event forwarder but does not delete the registry record and does not cancel the agent task.
+- Request done, error, explicit cancel, session deletion, and backend shutdown finalize the registry record exactly once.
 
-Use one finalization helper for done, error, cancel, disconnect, and slash commands so active-request cleanup cannot be skipped.
+Use one idempotent finalization helper for done, error, cancel, session deletion, shutdown, and slash commands so active-request cleanup cannot be skipped. Disconnect is a detach operation, not finalization.
+
+`Client.activeRequests` may remain only as a set of attached forwarders used for socket cleanup. It is not an authority for cancellation, confirmation, runtime status, or session busy checks.
+
+Cancellation flow:
+
+1. Validate the pair in the global registry.
+2. Resolve the exact session through the canonical session reference.
+3. Call `Session.CancelCurrent`.
+4. Emit the request-scoped cancellation terminal event.
+5. Finalize the registry entry exactly once.
+6. Publish a newer idle/cancelled session runtime revision.
 
 ### 5.8 WebSocket state broadcast
 
 Replace the reset-on-every-notification trailing debounce with bounded coalescing:
 
-- Start one short timer when the first notification arrives.
+- Start one non-resetting 50 ms timer when the first non-terminal notification arrives.
 - Ignore/coalesce subsequent notifications while it is pending.
-- Broadcast no later than the configured maximum interval.
-- Guarantee an immediate or bounded final broadcast on request terminal state.
+- Broadcast the latest full snapshot when the timer fires, so continuous updates cannot postpone delivery.
+- A request terminal transition cancels any pending timer and broadcasts its latest full snapshot immediately.
 
 Tests must run a continuous notification producer and prove that processing and done snapshots are both delivered.
 
@@ -354,15 +449,18 @@ Replace scattered request flags with one session-keyed runtime record:
 ```ts
 interface ActiveChatRequest {
   requestId: string
+  userMessageId: string
   assistantMessageId: string
   agentInstanceId?: string
-  status: 'starting' | 'streaming' | 'delegating' | 'cancelling'
+  status: 'starting' | 'streaming' | 'delegating' | 'cancelling' | 'detached'
   route?: ChatRouteInfo
   systemCommand: boolean
 }
 
 interface SessionChatRuntime {
   activeRequest?: ActiveChatRequest
+  runtimeRevision: number
+  connectionGeneration: number
   historyGeneration: number
   historyLoading: boolean
   historyHasMore: boolean
@@ -383,31 +481,35 @@ Remove:
 When sending:
 
 1. Resolve and freeze `sessionId`.
-2. Create `requestId`.
-3. Create the assistant placeholder and capture `assistantMessageId`.
-4. Store the active request atomically under that session.
-5. Register the handler with the same three IDs.
+2. Check `sessionRuntime[sessionId]` and the local session chat runtime. If either reports an active request, leave the input as a draft and do not append messages or send WebSocket data.
+3. Create `requestId`.
+4. Create the user message and assistant placeholder, and capture `assistantMessageId`.
+5. Store the active request atomically under that session.
+6. Register the handler with the same three IDs.
+7. Send `chat_send`.
 
 Every handler:
 
 - checks that the session still owns the request;
+- checks that the event `session_id` matches the captured session;
 - updates the exact assistant message by ID;
 - ignores late events from a superseded request;
 - finalizes only the matching request.
 
 Tool completion continues locating a segment by `callId`, but it must remain inside the request's assistant message when possible.
 
-### 6.3 Queued input behavior
+### 6.3 Busy-session input behavior
 
-Preserve the current server pending queue with an explicit UI contract:
+Desktop does not enqueue a second prompt while the same session is active.
 
-- A queued user message may be appended after the active assistant placeholder.
-- The active response continues updating its original assistant message by ID.
-- The queued send receives a `chat_queued` acknowledgment instead of an unhandled `chat_error`.
-- The queued message displays a queued state until the active turn consumes it.
-- Stop cancels the active request and clears queued prompts for that session unless product behavior is explicitly changed later.
+- Keep the textarea, mentions, and attachments in the session draft.
+- Disable the send action while the session runtime or local request state is active.
+- Keep Stop available as a separate action.
+- Re-check on the backend because two windows or a stale frontend can still race.
+- If the backend returns `session_busy`, remove only the exact optimistic `userMessageId`/`assistantMessageId` pair created by the rejected request; preserve the draft and existing active response.
+- Enable send when the matching terminal event or a newer idle session-runtime revision arrives.
 
-Do not create a second active request handler for the same session.
+Do not call `Session.pending.Enqueue` from a desktop WebSocket busy path. Internal/channel queue behavior is outside this desktop repair and must not be exposed as a second desktop request.
 
 ### 6.4 History request coordination
 
@@ -426,6 +528,7 @@ Rules:
 - Identical full-history loads coalesce.
 - A newer full reload aborts or invalidates the older generation.
 - A response applies only if its generation is still current.
+- A history response is rejected if the session runtime revision or active request changed after the load began.
 - `historyLoading` remains true until the current generation finishes.
 - `loadMore` is single-flight per session/cursor.
 - Messages merge/deduplicate by stable server message ID.
@@ -464,10 +567,13 @@ Use a deterministic non-resume policy:
 
 1. On socket close, mark each client-owned active request as detached and stop accepting its token events.
 2. Do not keep handlers alive under the assumption that a new socket will receive the old stream.
-3. On reconnect, fetch the per-session runtime snapshot.
-4. If the backend reports the session idle, clear local active state and reload history immediately.
-5. If it reports processing, show a session-scoped “processing after reconnect” state and reload history when the terminal runtime transition arrives.
-6. Add a bounded fallback poll so a missed state event cannot leave the UI stuck.
+3. Increment the desktop connection generation and reject events/snapshots from the old generation.
+4. On reconnect, receive or fetch the authoritative per-session runtime snapshot from the global request registry.
+5. Apply only snapshots from the current connection generation with a newer session revision.
+6. If the backend reports the session idle, clear local active state and reload history immediately.
+7. If it reports processing, replace the detached local request metadata with the authoritative request ID, show a session-scoped “processing after reconnect” state, and allow Stop through the global request registry.
+8. Reload history when a newer terminal runtime revision arrives.
+9. While a recovered request remains processing, if no accepted runtime revision arrives for 5 seconds, fetch `GET /api/runtime` once; repeat at 5-second intervals until a newer revision, terminal state, socket close, or component unmount. Never run the poll while normal revisions are arriving.
 
 The backend may continue the task after client disconnect because `AskStream` intentionally uses a non-cancelled execution context. This plan preserves that behavior while making the UI honest about the detached stream.
 
@@ -482,12 +588,7 @@ Make the backend session name authoritative:
 
 ### 6.9 Drafts, attachments, and mentions
 
-Choose one of these two explicit behaviors; use the first unless product direction changes:
-
-1. **Per-session drafts:** store text, mentions, and attachment metadata under session ID and restore them on switch.
-2. **Reset on switch:** clear and revoke everything when session ID changes.
-
-The implementation plan selects per-session drafts because it avoids accidental loss while preserving isolation.
+Use in-memory per-session drafts: store text, mentions, and attachment metadata under session ID and restore them on switch. Draft persistence across application restart is out of scope.
 
 Attachment rules:
 
@@ -528,16 +629,16 @@ After backend deletion succeeds, one action removes all data for the session:
 
 If the deleted session was active, navigate to the new-chat route and set `activeSessionId` to `null`.
 
-A stale session-list response must not re-add a deleted session. Track a request generation or deletion tombstone until a newer authoritative list response arrives.
+A stale session-list response must not re-add a deleted session. Track a frontend `deletedSessionIds` guard tied to the session-list request generation until a newer authoritative list response arrives. This is transient UI race protection, not durable deletion recovery.
 
 ## 7. API and protocol changes
 
 Additive server-to-client fields/messages:
 
 - `session_id` on every chat event.
-- `session_runtime` map or `session_state` message.
+- `runtime.sessions`, keyed by canonical session ID, inside the existing `state` message.
+- `revision` on every session runtime entry.
 - `session_id` on `AgentInfoResponse`.
-- `chat_queued` acknowledgment.
 - Request-scoped ownership errors with stable codes.
 
 Client-to-server changes:
@@ -551,8 +652,9 @@ Suggested stable error codes:
 | --- | --- |
 | `invalid_session_id` | Session ID is malformed |
 | `session_not_found` | Canonical session does not exist |
-| `session_activating` | Optional retryable activation state |
+| `session_activating` | Activation is in progress and the caller may retry |
 | `session_deleting` | Operation rejected during deletion |
+| `session_busy` | Session already owns an active request |
 | `duplicate_request_id` | Request ID is already registered |
 | `request_session_mismatch` | Request does not belong to session |
 | `request_not_active` | Request is already terminal or unknown |
@@ -565,10 +667,11 @@ Unknown additive fields remain safe for older clients. Because desktop and backe
 - Invalid identity: reject before resolving or mutating a session.
 - Duplicate activation: wait for the owner; never build a second instance.
 - Activation failure: clean partial resources, publish one error, allow retry.
+- Concurrent desktop send: reserve the session in the global request registry; reject the loser with `session_busy`.
 - Delete during work: cancel, reap, stop, unregister, close, then remove files.
 - Late WebSocket event: ignore after ownership check and emit a sampled diagnostic log.
-- History race: generation check prevents stale application.
-- Disconnect: detach UI stream; recover from session runtime/history.
+- History race: history generation plus session runtime revision prevents stale application.
+- Disconnect: detach UI stream without deleting global request ownership; recover from a newer session runtime revision and history.
 - Slow WebSocket client: dropping aggregate snapshots is allowed only because the next bounded snapshot is guaranteed. Request terminal events should use the request channel and must not depend solely on aggregate state.
 - Cleanup timeout: continue remaining cleanup, return a joined error, and expose the failed step in logs.
 
@@ -593,10 +696,12 @@ Add counters or structured diagnostics for:
 - duplicate activation prevented;
 - active session count;
 - active request count by session;
+- request registry reserve/finalize mismatch;
 - request/session mismatch;
 - ignored late events;
 - session cleanup failures by step;
 - reconnect recovery;
+- stale session-runtime revision discarded;
 - stale history response discarded;
 - broadcast delay/max coalescing interval.
 
@@ -608,12 +713,14 @@ Do not log prompts, auth tokens, attachment contents, or tool-confirmation secre
 
 Changes:
 
+- Restore a green desktop baseline first: subscribe to aggregate token scalars inside `ConnectionStatusBar`, remove the out-of-scope/unused `App` subscription, and avoid tray IPC/menu rebuilds when displayed token values did not change.
 - Add failing backend tests for concurrent activation, deletion cleanup, strict session parsing, request ownership, and debounce starvation.
-- Add failing desktop tests for A/B switching, queued input, stale history, reconnect, and exact assistant targets.
+- Add failing desktop tests for A/B switching, busy-session rejection, stale history, reconnect, runtime revisions, and exact assistant targets.
 - Capture current log/API reproduction steps in test comments or a short fixture note.
 
 Exit criteria:
 
+- `pnpm build` passes before session behavior changes begin.
 - Every P0 failure has a deterministic failing test.
 - Tests do not depend on real LLM calls.
 - `FakeLLM` and fake builders/registries are used.
@@ -628,22 +735,25 @@ Changes:
 - Shutdown reuse.
 - Remove global `activeSession`.
 - Exact agent-instance mapping.
+- Pure-read history context usage with persisted snapshots and legacy read-only replay.
 
 Exit criteria:
 
 - Concurrent activation creates one instance.
 - Delete and shutdown leave no registry/supervisor/watch entries.
 - No `ActiveSession` symbols remain.
+- History/list/changes/metadata requests create no agents or supervisors.
 - Existing timelines replay unchanged.
 
 ### Phase 2 — Protocol ownership and session runtime
 
 Changes:
 
-- Bind active requests to session/agent.
+- Add the server-global request registry and bind active requests to session/agent.
 - Validate cancel and confirmation ownership.
 - Add `session_id` to all events.
-- Add per-session runtime state.
+- Add per-session runtime state with monotonic revisions in the existing `state` payload.
+- Reject a second request for an active session with `session_busy`.
 - Fix slash-command cleanup.
 - Fix bounded state coalescing.
 - Remove group/template runtime selection.
@@ -651,6 +761,7 @@ Changes:
 Exit criteria:
 
 - Cross-session cancel/confirm attempts are rejected without side effects.
+- Request ownership survives client disconnect and can be cancelled after reconnect.
 - L1 and L2 context values can be observed simultaneously and independently.
 - Continuous notifications cannot starve a terminal snapshot.
 
@@ -661,14 +772,15 @@ Changes:
 - Replace `activeRequestIdRef`.
 - Store exact assistant message targets.
 - Update handlers and Stop logic.
-- Implement queued acknowledgment.
+- Disable send for a busy session while preserving its draft.
+- Apply session runtime only by connection generation and increasing revision.
 - Remove “last assistant” writes.
 - Unify L1/L2 rendering source precedence.
 
 Exit criteria:
 
 - A and B can stream concurrently without crossed content or Stop actions.
-- Queued input does not stop the visible response.
+- A second send in A is not transmitted or appended while A is active.
 - Old request completion cannot clear a new route/request.
 - L1 ctxwin comes from `sessionRuntime['l1']`.
 
@@ -694,9 +806,10 @@ Exit criteria:
 Changes:
 
 - Remove desktop consumers of legacy global ctxwin.
+- Preserve and test Electron tray consumption of aggregate prompt/output/cache counters using scalar subscriptions.
 - Search for old active-session, template-ID lookup, and last-assistant symbols.
 - Update architecture/session protocol documentation.
-- Decide portal migration timing before removing legacy runtime fields.
+- Keep the portal compatibility fields for this release. Their removal is not part of this plan and requires a separately tested portal migration.
 
 Exit criteria:
 
@@ -710,9 +823,10 @@ Expected primary files:
 
 | Area | Files |
 | --- | --- |
-| Session identity/lifecycle | `internal/session/l2_store.go`, new focused ID/lifecycle tests, `internal/session/builder.go`, `internal/session/session.go` |
-| Runtime/registry | `internal/runtime/stack.go`, `internal/agent/registry.go`, `internal/server/agent_handlers.go` |
-| WebSocket protocol | `internal/server/hub.go`, `internal/server/chat_ws.go`, server WebSocket tests |
+| Session identity/lifecycle | new `internal/session/id.go`, `internal/session/l2_store.go`, `internal/session/builder.go`, `internal/session/session.go`, focused ID/lifecycle tests |
+| Read-only context usage | new `internal/session/context_usage.go`, metadata persistence and tests |
+| Runtime/registry | `internal/runtime/stack.go`, `internal/agent/registry.go`, `internal/server/agent_handlers.go`, focused request-registry tests |
+| WebSocket protocol | new `internal/server/request_registry.go`, `internal/server/hub.go`, `internal/server/chat_ws.go`, server WebSocket tests |
 | REST/history/upload | `internal/server/session_handlers.go`, handler tests |
 | Cron ownership | `cmd/soloqueue/cli/commands.go`, Cron/session wrapper tests |
 | Desktop protocol types | `desktop/src/types/chat.ts`, `desktop/src/types/agent.ts` |
@@ -720,6 +834,7 @@ Expected primary files:
 | Desktop chat state | `desktop/src/stores/chatStore.ts`, `chatStore.test.ts` |
 | Request lifecycle | `desktop/src/hooks/useChatStream.ts`, new hook tests |
 | Main renderers | `desktop/src/components/AssistantPage.tsx`, `desktop/src/components/ChatPage.tsx` |
+| Aggregate Electron tray | `desktop/src/App.tsx`, `desktop/main.js`, focused formatting/update tests |
 | Draft/design/changes | `ChatInput.tsx`, `ChatDesignPanel.tsx`, `SessionChangesPanel.tsx` and focused tests |
 | Documentation | this plan and session/protocol architecture docs |
 
@@ -735,11 +850,17 @@ This list is a boundary, not permission for unrelated refactoring. A phase shoul
 - Delete while inactive, activating, active-idle, processing, delegating, and awaiting tool confirmation.
 - Repeated delete is internally idempotent.
 - Shutdown preserves timelines but removes runtime ownership.
+- History/list/changes/metadata requests do not activate inactive sessions.
+- Legacy history ctxwin calculation creates no agent, registry entry, supervisor, writer, or metadata write.
 - Strict IDs: empty, bare UUID, malformed prefix, empty L2 UUID, valid L1/L2.
+- Two simultaneous sends to one session produce one reservation and one `session_busy`.
 - Cancel with correct and incorrect request/session pairs.
 - Confirm with correct and incorrect request/session/call triples.
+- Disconnect removes the client attachment but retains the global active request.
+- A reconnected client can cancel the authoritative request ID.
+- Session runtime revisions increase and never regress within one backend process.
 - Slash commands leave zero active requests.
-- Continuous `Notify` traffic still broadcasts within the maximum interval.
+- Continuous `Notify` traffic still broadcasts within 50 ms, and a terminal transition broadcasts immediately.
 - Cron without an exact binding creates an isolated session.
 - Two sessions with the same leader template report independent metadata.
 
@@ -754,7 +875,8 @@ GOCACHE=/tmp/soloqueue-go-cache go test ./internal/cron ./cmd/soloqueue/cli/...
 
 - Send in A, switch to B, send, switch to A, Stop: only A is cancelled.
 - A completion after B starts does not clear B.
-- Queued user message does not redirect A's assistant deltas.
+- Sending again in active A is blocked, preserves the draft, and appends no messages.
+- A raced `session_busy` response removes only its optimistic unsent pair.
 - Tool events update the exact assistant/request.
 - Two concurrent history loads coalesce or discard the stale generation.
 - History completion cannot overwrite a live assistant placeholder.
@@ -762,10 +884,12 @@ GOCACHE=/tmp/soloqueue-go-cache go test ./internal/cron ./cmd/soloqueue/cli/...
 - Stale list response cannot resurrect a deleted session.
 - Fast reconnect while backend continues processing.
 - Reconnect after backend has completed.
+- Older session-runtime revision and prior-connection events are ignored.
 - Design/changes/upload response from A cannot apply to B.
 - Existing non-empty title is not regenerated after reload.
 - L1 and L2 display different simultaneous ctxwin values.
 - Historical assistant content does not suppress the current live fallback.
+- Electron tray receives aggregate token counters only when displayed scalar values change.
 
 Commands:
 
@@ -779,14 +903,16 @@ pnpm build
 
 | Scenario | Expected result |
 | --- | --- |
-| Open several L2 histories rapidly | One agent instance per session |
+| Open several inactive L2 histories rapidly | No agent/session runtime is created |
+| Send first prompt while multiple history reads run | Exactly one agent/session runtime is created |
 | L1 and L2 both contain history | Each displays its own ctxwin |
 | Stream in A while viewing B | A continues; B remains unchanged |
-| Stream in A and queue another prompt | Existing reply continues updating |
+| Stream in A and attempt another send | Send is blocked; draft remains; existing reply continues |
 | Stop A after visiting B | Only A stops |
 | Delete a processing L2 | Work stops and agent disappears from runtime |
 | Disconnect for under 8 seconds | UI recovers without a stuck stream |
 | Disconnect until task completes | Reconnect loads final persisted history |
+| Reconnect while task still runs, then Stop | Authoritative request is cancelled |
 | Run Cron for an L2 team | No arbitrary desktop timeline is modified |
 | Switch with draft/image/design target | State remains owned by its original session |
 | Restart backend | Stable titles/order/history and no orphan runtime objects |
@@ -804,11 +930,16 @@ The complete repair is accepted only when all are true:
 5. Delete and shutdown lifecycle tests prove registry/supervisor/watch cleanup.
 6. Invalid session IDs never fall back to L1.
 7. Cron/channel reuse requires an exact binding.
-8. History, reconnect, upload, changes, and design async results are generation/session guarded.
-9. L1/L2 context usage is independently rendered from session-scoped state.
-10. Old completion, error, cancel, and disconnect events cannot affect a newer request.
-11. All new regression tests, existing tests, desktop build, and `git diff --check` pass.
-12. Repository searches show no obsolete ownership symbols except documented compatibility fields.
+8. History endpoints are pure read and never activate an inactive session.
+9. History, reconnect, upload, changes, and design async results are generation/session guarded.
+10. L1/L2 context usage is independently rendered from session-scoped state.
+11. Active request ownership survives disconnect and can be controlled after reconnect.
+12. Session runtime revisions prevent older state from overwriting newer state.
+13. A busy session rejects a second desktop send without losing its draft.
+14. Old completion, error, cancel, and disconnect events cannot affect a newer request.
+15. Aggregate tray token counters remain correct and do not trigger updates for unrelated runtime object changes.
+16. All new regression tests, existing tests, desktop build, and `git diff --check` pass.
+17. Repository searches show no obsolete ownership symbols except documented compatibility fields.
 
 Suggested final searches:
 
@@ -831,25 +962,27 @@ Any remaining match must have a documented, tested reason.
 4. Preserve all timeline directories and `meta.json`.
 5. Monitor mismatch, cleanup-failure, and reconnect-recovery logs.
 6. Remove legacy global ctxwin fields only after confirming the portal has migrated.
+7. Preserve aggregate prompt/output/cache fields for the Electron tray and Stats consumers.
 
 ### Rollback
 
 - Phases should be separate scoped commits so protocol/frontend changes can be reverted independently.
 - Additive fields are safe to leave in the backend during a desktop rollback.
 - Do not roll back by restoring the global active-session pointer.
-- If session runtime broadcasting causes load issues, temporarily poll the session runtime endpoint; retain correct per-session ownership.
+- If session runtime broadcasting causes load issues, revert only the broadcast transport commit and use the defined 5-second runtime snapshot fallback; retain per-session ownership and revisions.
 - Timeline data requires no rollback migration.
 
 ## 15. Commit boundaries
 
 Recommended commits:
 
-1. `test: characterize desktop session isolation failures`
-2. `fix: serialize l2 activation and teardown`
-3. `fix: bind runtime and websocket requests to sessions`
-4. `fix: scope desktop chat requests and render targets`
-5. `fix: isolate history reconnect and session ui state`
-6. `docs: document session ownership and lifecycle`
+1. `fix: restore desktop runtime subscription baseline`
+2. `test: characterize desktop session isolation failures`
+3. `fix: serialize l2 activation and teardown`
+4. `fix: bind runtime and websocket requests to sessions`
+5. `fix: scope desktop chat requests and render targets`
+6. `fix: isolate history reconnect and session ui state`
+7. `docs: document session ownership and lifecycle`
 
 Each commit must:
 
@@ -859,13 +992,18 @@ Each commit must:
 - leave compatibility behavior explicit;
 - not stage unrelated user changes from a dirty worktree.
 
-## 16. Open decisions before implementation
+## 16. Closed implementation decisions
 
-These are bounded choices, not blockers to the overall design:
+Implementation proceeds with these fixed choices:
 
-1. Whether session runtime is embedded in the existing `state` payload or emitted as a dedicated message. Prefer the existing payload if size remains small.
-2. Whether legacy empty REST session IDs are supported for one release or rejected immediately. Prefer one-release normalization for REST only.
-3. Whether queued user messages show a visible “queued” badge. The protocol acknowledgment is required; the badge is optional presentation.
-4. Whether per-session drafts survive application restart. In-memory per-session isolation is required; persistence can remain out of scope.
+1. Session runtime is `runtime.sessions` inside the existing WebSocket `state` payload.
+2. Each session runtime entry carries a per-session monotonic `revision`; desktop additionally tracks WebSocket connection generation.
+3. Legacy empty session IDs are normalized to `l1` for documented REST endpoints for one compatibility release. WebSocket and upload endpoints reject them immediately.
+4. Desktop does not queue a second prompt while a session is active. It preserves the per-session draft and the backend returns `session_busy` for races or stale clients.
+5. Active request ownership lives in one server-global registry and survives WebSocket client disconnect.
+6. History/list/changes/metadata endpoints are pure read and never activate L2. Legacy ctxwin usage uses an ephemeral read-only replay.
+7. Drafts are isolated in memory by session and do not survive application restart.
+8. Global prompt/output/cache counters remain aggregate metrics for Stats and the Electron tray; session ctxwin never uses those fields.
+9. Durable deletion tombstones/trash recovery are explicitly outside this repair, as requested.
 
-No implementation should begin by changing these into broader product features.
+These choices are implementation constraints. Changing one requires updating the affected invariants, protocol tests, phase exit criteria, and acceptance criteria before code changes proceed.

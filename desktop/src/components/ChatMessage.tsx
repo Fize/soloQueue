@@ -254,9 +254,8 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
  * ChatMessageView is wrapped in React.memo so that re-renders triggered by
  * per-token chat_chunk updates skip previously-rendered messages whose
  * props (message / agentName / onUserInteraction) have not changed. The
- * chatStore's appendToLastAssistantContent deliberately keeps the
- * reference of all but the last message stable (only the last message
- * is cloned), so this memoization hits on every token.
+ * chatStore's request-targeted assistant updates keep references for all
+ * non-target messages stable, so this memoization hits on every token.
  */
 export const ChatMessageView = memo(
   ChatMessageViewInner,

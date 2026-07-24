@@ -2,11 +2,12 @@ package session
 
 import (
 	"context"
-	"sort"
-	"strings"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,17 +15,32 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
+type l2LifecycleState uint8
+
+const (
+	l2StateInactive l2LifecycleState = iota
+	l2StateActivating
+	l2StateActive
+	l2StateDeleting
+)
+
 // L2SessionEntry holds a single L2 session with its metadata.
 type L2SessionEntry struct {
-	ID         string    `json:"id"`         // UUID
-	Name       string    `json:"name"`       // auto-generated from first exchange
-	Group      string    `json:"group"`      // leader template group
-	ProjectID  string    `json:"project_id"` // optional project ID
-	WorkDir    string    `json:"work_dir"`   // working directory for agent (defaults to global)
-	Session    *Session  `json:"-"`          // the backing Session (nil if not yet activated)
-	CreatedAt  time.Time `json:"created_at"` // creation timestamp
-	GitBaseRef string    `json:"-"`          // git HEAD at session start (empty = non-git or not captured)
+	ID         string    `json:"id"`              // UUID
+	Name       string    `json:"name"`            // auto-generated from first exchange
+	Group      string    `json:"group"`           // leader template group
+	ProjectID  string    `json:"project_id"`      // optional project ID
+	WorkDir    string    `json:"work_dir"`        // working directory for agent (defaults to global)
+	Session    *Session  `json:"-"`               // the backing Session (nil if not yet activated)
+	CreatedAt  time.Time `json:"created_at"`      // creation timestamp
+	GitBaseRef string    `json:"-"`               // git HEAD at session start (empty = non-git or not captured)
 	Plans      []string  `json:"plans,omitempty"` // list of modified plan files
+
+	// Lifecycle state for single-flight activation and destruction coordination
+	state          l2LifecycleState
+	activationDone chan struct{}
+	activationErr  error
+	activationStop context.CancelFunc
 }
 
 // L2SessionInfo is the public metadata returned by List().
@@ -50,10 +66,9 @@ type L2SessionStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*L2SessionEntry // key: UUID
 
-	builder       *Builder
-	logger        *logger.Logger
-	workDir       string
-	activeSession *Session
+	builder *Builder
+	logger  *logger.Logger
+	workDir string
 }
 
 // NewL2SessionStore creates a new L2SessionStore.
@@ -211,61 +226,109 @@ func ResolveSessionNameFromTimeline(workDir, id string) string {
 	return ""
 }
 
-// Activate builds the backing Session for an L2 session entry.
-// Call when the user sends the first message to this session.
+// Activate builds the backing Session for an L2 session entry using single-flight coordination.
+// Concurrent callers wait for the same builder execution or receive the same error.
 func (s *L2SessionStore) Activate(ctx context.Context, id string) (*Session, error) {
-	s.mu.Lock()
-	entry, ok := s.sessions[id]
-	if !ok {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("L2 session %q not found", id)
-	}
+	for {
+		s.mu.Lock()
+		entry, ok := s.sessions[id]
+		if !ok {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("L2 session %q not found", id)
+		}
 
-	if entry.Session != nil {
-		sess := entry.Session
+		if entry.state == l2StateDeleting {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("L2 session %q is being deleted", id)
+		}
+
+		if entry.state == l2StateActive && entry.Session != nil {
+			sess := entry.Session
+			s.mu.Unlock()
+			return sess, nil
+		}
+
+		if entry.state == l2StateActivating {
+			doneCh := entry.activationDone
+			s.mu.Unlock()
+
+			select {
+			case <-doneCh:
+				// Activation attempt finished — loop to check state or retry
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		// Transition from inactive (or failed previous attempt) to activating
+		entry.state = l2StateActivating
+		doneCh := make(chan struct{})
+		entry.activationDone = doneCh
+		entry.activationErr = nil
+
+		buildCtx, cancel := context.WithCancel(context.Background())
+		entry.activationStop = cancel
+		group := entry.Group
+		workDir := entry.WorkDir
 		s.mu.Unlock()
+
+		// Build session outside store lock
+		var (
+			sess *Session
+			err  error
+		)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("panic during BuildL2: %v", r)
+				}
+			}()
+			sess, err = s.builder.BuildL2(buildCtx, id, group, workDir)
+		}()
+
+		s.mu.Lock()
+		if err != nil || entry.state == l2StateDeleting {
+			if entry.state != l2StateDeleting {
+				entry.state = l2StateInactive
+			}
+			entry.activationErr = err
+			close(doneCh)
+			s.mu.Unlock()
+			if sess != nil {
+				// Never run external cleanup while holding the store lock.
+				sess.Close()
+			}
+			if err != nil {
+				return nil, fmt.Errorf("activate L2 session %q: %w", id, err)
+			}
+			return nil, fmt.Errorf("activate L2 session %q cancelled by deletion", id)
+		}
+
+		entry.Session = sess
+		entry.state = l2StateActive
+		if entry.GitBaseRef == "" {
+			entry.GitBaseRef = sess.gitBaseRef
+		}
+		close(doneCh)
+		s.mu.Unlock()
+
+		if s.logger != nil {
+			s.logger.InfoContext(ctx, logger.CatApp, "L2 session activated",
+				"id", id,
+				"group", group,
+			)
+		}
+
 		return sess, nil
 	}
-	// Store metadata before unlocking (entry is still valid).
-	group := entry.Group
-	workDir := entry.WorkDir
-	s.mu.Unlock()
-
-	// Build the session outside the lock (may take time).
-	sess, err := s.builder.BuildL2(ctx, id, group, workDir)
-	if err != nil {
-		return nil, fmt.Errorf("activate L2 session %q: %w", id, err)
-	}
-
-	s.mu.Lock()
-	// Re-check entry — it may have been removed or activated concurrently.
-	if e, ok := s.sessions[id]; ok {
-		e.Session = sess
-		// Pull baseline info from the just-built session instead of re-reading
-		// meta.json. BuildL2 captured the baseline and exposed it on the
-		// session; this is cheaper than a disk round-trip and avoids the
-		// historical self-read loop.
-		if e.GitBaseRef == "" {
-			e.GitBaseRef = sess.gitBaseRef
-		}
-	}
-	s.mu.Unlock()
-
-	if s.logger != nil {
-		s.logger.InfoContext(ctx, logger.CatApp, "L2 session activated",
-			"id", id,
-			"group", group,
-		)
-	}
-
-	return sess, nil
 }
 
 // Get returns an active L2 session by ID. If the session exists but is not yet
 // activated, it activates it automatically.
 func (s *L2SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 	s.mu.RLock()
-	entry, ok := s.sessions[id]
+	_, ok := s.sessions[id]
 	s.mu.RUnlock()
 
 	if !ok {
@@ -276,15 +339,11 @@ func (s *L2SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 		}
 		// Entry should now exist after restoration.
 		s.mu.RLock()
-		entry, ok = s.sessions[id]
+		_, ok = s.sessions[id]
 		s.mu.RUnlock()
 		if !ok {
 			return nil, fmt.Errorf("L2 session %q not found", id)
 		}
-	}
-
-	if entry.Session != nil {
-		return entry.Session, nil
 	}
 
 	return s.Activate(ctx, id)
@@ -393,40 +452,100 @@ func (s *L2SessionStore) GetEntry(id string) *L2SessionEntry {
 	}
 }
 
-
-// Remove destroys an L2 session: stops the agent, closes the timeline, removes
-// the timeline directory from disk, and removes the entry from the store.
-func (s *L2SessionStore) Remove(ctx context.Context, id string) error {
+// DestroyL2 performs complete L2 destruction per §5.3 of the repair plan:
+// 1. Mark entry deleting
+// 2. Cancel current request tree
+// 3. Reap supervisor children
+// 4. Stop leader agent
+// 5. Unregister leader agent from AgentRegistry
+// 6. Close session resources (timeline writer, logger)
+// 7. Remove store entry
+// 8. Remove timeline directory if deletePersistentData is true
+func (s *L2SessionStore) DestroyL2(ctx context.Context, id string, deletePersistentData bool) error {
 	s.mu.Lock()
 	entry, ok := s.sessions[id]
 	if !ok {
 		s.mu.Unlock()
 		return fmt.Errorf("L2 session %q not found", id)
 	}
-	delete(s.sessions, id)
+
+	entry.state = l2StateDeleting
+	activationDone := entry.activationDone
+	if entry.activationStop != nil {
+		entry.activationStop()
+	}
 	s.mu.Unlock()
 
-	if entry.Session != nil {
-		entry.Session.Close()
+	var errs []string
+
+	if activationDone != nil {
+		select {
+		case <-activationDone:
+		case <-ctx.Done():
+			return fmt.Errorf("wait for L2 session %q activation cleanup: %w", id, ctx.Err())
+		}
 	}
 
-	// Remove timeline directory from disk.
-	tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
-	if err := os.RemoveAll(tlDir); err != nil && s.logger != nil {
-		s.logger.WarnContext(ctx, logger.CatApp, "L2 session: failed to remove timeline dir",
-			"id", id,
-			"dir", tlDir,
-			"err", err.Error(),
-		)
+	s.mu.Lock()
+	if current, exists := s.sessions[id]; !exists || current != entry {
+		s.mu.Unlock()
+		return nil
+	}
+	delete(s.sessions, id)
+	sess := entry.Session
+	s.mu.Unlock()
+
+	if sess != nil {
+		_ = sess.CancelCurrent("L2 session destroyed")
+
+		if sess.Supervisor != nil {
+			_ = sess.Supervisor.ReapAll(5 * time.Second)
+			if s.builder != nil && s.builder.RT != nil {
+				s.builder.RT.RemoveSupervisor(sess.Supervisor)
+			}
+		}
+
+		if sess.Agent != nil {
+			sess.Agent.Stop(5 * time.Second)
+
+			if s.builder != nil && s.builder.RT != nil && s.builder.RT.AgentRegistry != nil {
+				s.builder.RT.AgentRegistry.Unregister(sess.Agent.InstanceID)
+			}
+		}
+
+		sess.Close()
+	}
+
+	if deletePersistentData {
+		tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+id)
+		if err := os.RemoveAll(tlDir); err != nil {
+			errs = append(errs, fmt.Sprintf("failed to remove timeline dir: %v", err))
+			if s.logger != nil {
+				s.logger.WarnContext(ctx, logger.CatApp, "L2 session: failed to remove timeline dir",
+					"id", id,
+					"dir", tlDir,
+					"err", err.Error(),
+				)
+			}
+		}
 	}
 
 	if s.logger != nil {
-		s.logger.InfoContext(ctx, logger.CatApp, "L2 session removed",
+		s.logger.InfoContext(ctx, logger.CatApp, "L2 session destroyed",
 			"id", id,
+			"deletePersistentData", deletePersistentData,
 		)
 	}
 
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
 	return nil
+}
+
+// Remove destroys an L2 session and removes its timeline directory from disk.
+func (s *L2SessionStore) Remove(ctx context.Context, id string) error {
+	return s.DestroyL2(ctx, id, true)
 }
 
 // DefaultContextLimit resolves the default model context window limit.
@@ -486,36 +605,18 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 	return result
 }
 
-// FindByGroup returns the first activated persistent L2 session whose group
-// matches the given name (case-insensitive). Returns nil if none found.
-// This is used by the cron scheduler to reuse qbot-bound L2 sessions.
-func (s *L2SessionStore) FindByGroup(group string) *Session {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, entry := range s.sessions {
-		if strings.EqualFold(entry.Group, group) && entry.Session != nil {
-			return entry.Session
-		}
-	}
-	return nil
-}
-
-// Shutdown stops all L2 sessions and closes their resources.
+// Shutdown stops all L2 sessions and closes their resources without deleting persistent files.
 func (s *L2SessionStore) Shutdown() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for id, entry := range s.sessions {
-		if entry.Session != nil {
-			entry.Session.Close()
-		}
-		if s.logger != nil {
-			s.logger.DebugContext(context.Background(), logger.CatApp, "L2 session shut down",
-				"id", id,
-			)
-		}
+	ids := make([]string, 0, len(s.sessions))
+	for id := range s.sessions {
+		ids = append(ids, id)
 	}
-	s.sessions = make(map[string]*L2SessionEntry)
+	s.mu.Unlock()
+
+	for _, id := range ids {
+		_ = s.DestroyL2(context.Background(), id, false)
+	}
 }
 
 // UpdatePlanStatus adds a path to the session's Plans list if it doesn't already exist.
@@ -563,30 +664,30 @@ func (s *L2SessionStore) UpdatePlanStatus(id, path string) {
 	}
 }
 
-// FindActiveSessionByAgentID searches all active L2 sessions for one whose leader agent ID matches the target.
-func (s *L2SessionStore) FindActiveSessionByAgentID(agentID string) *Session {
+// FindByAgentInstanceID searches all active L2 sessions for one whose leader agent InstanceID matches.
+func (s *L2SessionStore) FindByAgentInstanceID(instanceID string) *Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, entry := range s.sessions {
-		if entry.Session != nil && entry.Session.Agent != nil && entry.Session.Agent.Def.ID == agentID {
+		if entry.Session != nil && entry.Session.Agent != nil && entry.Session.Agent.InstanceID == instanceID {
 			return entry.Session
 		}
 	}
 	return nil
 }
 
-// ActiveSession returns the currently active L2 session, or nil.
-func (s *L2SessionStore) ActiveSession() *Session {
+// GetActivated returns the active Session if it has already been activated, or nil.
+// It is pure-read and never triggers lazy activation.
+func (s *L2SessionStore) GetActivated(id string) *Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.activeSession
+	if entry, ok := s.sessions[id]; ok && entry.state == l2StateActive {
+		return entry.Session
+	}
+	return nil
 }
 
-// SetActiveSession marks a session as the currently active L2 session.
-func (s *L2SessionStore) SetActiveSession(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if entry, ok := s.sessions[id]; ok {
-		s.activeSession = entry.Session
-	}
+// Builder returns the underlying Builder instance.
+func (s *L2SessionStore) Builder() *Builder {
+	return s.builder
 }

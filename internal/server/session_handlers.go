@@ -942,13 +942,13 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(sessionID, "l2:")
 		dir = filepath.Join(m.workDir, "logs", "timelines", "l2-"+id)
 		if m.l2Store != nil {
-			// Get activates the L2 session (which replays history and calculates token usage)
-			sess, err := m.l2Store.Get(r.Context(), id)
-			if err == nil && sess != nil && sess.CW() != nil {
-				ctxwinUsed, ctxwinLimit, _ = sess.CW().TokenUsage()
-				m.l2Store.SetActiveSession(id)
+			if entry := m.l2Store.GetEntry(id); entry != nil {
+				if sess := m.l2Store.GetActivated(id); sess != nil && sess.CW() != nil {
+					ctxwinUsed, ctxwinLimit, _ = sess.CW().TokenUsage()
+				} else if builder := m.l2Store.Builder(); builder != nil {
+					ctxwinUsed, ctxwinLimit, _ = builder.ReadL2ContextUsage(r.Context(), id, entry.Group, entry.WorkDir)
+				}
 			} else {
-				// Fallback if activation fails or is not yet initialized
 				ctxwinLimit = m.l2Store.DefaultContextLimit()
 			}
 		}

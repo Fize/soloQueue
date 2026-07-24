@@ -92,8 +92,9 @@ export function AssistantPage() {
   }, [skills]);
 
   // Context window tokens
-  const ctxwinUsed = runtimeStatus?.current_tokens ?? 0;
-  const ctxwinLimit = runtimeStatus?.max_tokens ?? 0;
+  const l1Runtime = runtimeStatus?.sessions?.l1;
+  const ctxwinUsed = l1Runtime?.ctxwin_used ?? 0;
+  const ctxwinLimit = l1Runtime?.ctxwin_limit ?? 0;
 
   // ── Sync history upon agent state transitions (start/end processing) ──
   const prevL1AgentState = useRef<string | undefined>(undefined);

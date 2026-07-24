@@ -333,6 +333,29 @@ func TestSession_AskStream_ConcurrentRejected(t *testing.T) {
 	}
 }
 
+func TestSession_AskStream_RejectBusyDoesNotQueue(t *testing.T) {
+	fake := &agent.FakeLLM{
+		StreamDeltas: [][]string{{"x"}},
+		Delay:        200 * time.Millisecond,
+	}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+
+	ch, err := s.AskStream(context.Background(), "one")
+	if err != nil {
+		t.Fatalf("first AskStream: %v", err)
+	}
+	_, err = s.AskStream(WithRejectBusyQueue(context.Background()), "must not queue")
+	if !errors.Is(err, ErrQueued) {
+		t.Fatalf("second AskStream err = %v, want ErrQueued", err)
+	}
+	if s.pending.Len() != 0 {
+		t.Fatalf("desktop busy request entered pending queue: len=%d", s.pending.Len())
+	}
+	for range ch {
+	}
+}
+
 func TestSession_CancelCurrent_KeepsSessionReusable(t *testing.T) {
 	started := make(chan struct{})
 	var startedOnce sync.Once

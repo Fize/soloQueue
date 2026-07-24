@@ -411,6 +411,10 @@ export function ChatInput({
       return
     }
 
+    // Keep the current text/attachments as the session draft while a request
+    // is active. Desktop does not enqueue a second request.
+    if (streaming || processing) return
+
     // Replace @displayLabel → absolute path before sending to LLM
     let text = rawText
     atMentions.forEach((absPath, label) => {

@@ -101,6 +101,14 @@ function ConnectionStatusBar() {
   const setIsChecking = useConnectionStore((s) => s.setIsChecking)
   const setConnectionError = useConnectionStore((s) => s.setConnectionError)
 
+  // Aggregate token scalars for tray sync — subscribe individually so
+  // unrelated runtime field changes (agent_streams, context_pct, etc.)
+  // do not trigger a tray IPC round-trip.
+  const promptTokens = useRuntimeStore((s) => s.status?.prompt_tokens ?? 0)
+  const outputTokens = useRuntimeStore((s) => s.status?.output_tokens ?? 0)
+  const cacheHitTokens = useRuntimeStore((s) => s.status?.cache_hit_tokens ?? 0)
+  const cacheMissTokens = useRuntimeStore((s) => s.status?.cache_miss_tokens ?? 0)
+
   useEffect(() => {
     if (!isElectron) {
       setIsChecking(false)
@@ -151,12 +159,12 @@ function ConnectionStatusBar() {
       uptime: backendStatus.uptime,
       isChecking,
       connectionError,
-      promptTokens: runtimeStatus?.prompt_tokens ?? 0,
-      outputTokens: runtimeStatus?.output_tokens ?? 0,
-      cacheHitTokens: runtimeStatus?.cache_hit_tokens ?? 0,
-      cacheMissTokens: runtimeStatus?.cache_miss_tokens ?? 0,
+      promptTokens,
+      outputTokens,
+      cacheHitTokens,
+      cacheMissTokens,
     })
-  }, [mode, remoteUrl, backendStatus.running, backendStatus.uptime, isChecking, connectionError, runtimeStatus])
+  }, [mode, remoteUrl, backendStatus.running, backendStatus.uptime, isChecking, connectionError, promptTokens, outputTokens, cacheHitTokens, cacheMissTokens])
 
   // ── Electron mode: connection status is surfaced via the macOS menu bar Tray.
   //    See `tray:update-status` in main.js. The in-app bar would conflict with
@@ -250,7 +258,7 @@ function App() {
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const inspectorPanelWidth = useRuntimeStore((s) => s.inspectorPanelWidth)
-  const runtimeStatus = useRuntimeStore((s) => s.status)
+
   const [isHovered, setIsHovered] = useState(false)
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
