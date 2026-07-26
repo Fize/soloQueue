@@ -51,6 +51,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
 
 // Mux is the root HTTP handler.
@@ -84,6 +85,8 @@ type Mux struct {
 	onConfigChange    func() error     // callback on LLM config update
 	simEngine         *simulation.SimulationEngine
 	sharedDB          *sqlitedb.DB // for metric reporting
+	workflowStore     *workflow.Store
+	workflowRuns      *workflow.RunManager
 	distFS            fs.FS
 }
 
@@ -208,6 +211,11 @@ func WithSimulationEngine(engine *simulation.SimulationEngine) MuxOption {
 // WithSharedDB sets the SQLite DB for token and router stats.
 func WithSharedDB(db *sqlitedb.DB) MuxOption {
 	return func(m *Mux) { m.sharedDB = db }
+}
+
+// WithWorkflow enables the workflow definition and execution API.
+func WithWorkflow(store *workflow.Store, runs *workflow.RunManager) MuxOption {
+	return func(m *Mux) { m.workflowStore, m.workflowRuns = store, runs }
 }
 
 // WithDistFS overrides the embedded web assets and skills filesystem (useful for testing).
@@ -477,6 +485,25 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Delete("/", m.handleDeleteCronTask)
 			r.Get("/history", m.handleListCronHistory)
 			r.Get("/history/{execID}", m.handleGetCronHistory)
+		})
+	})
+
+	// Workflow routes. Keep validate and runs before the {name} route so they
+	// cannot be interpreted as workflow names.
+	r.Route("/api/workflows", func(r chi.Router) {
+		r.Get("/", m.handleListWorkflows)
+		r.Post("/", m.handleCreateWorkflow)
+		r.Post("/validate", m.handleValidateWorkflow)
+		r.Route("/{name}", func(r chi.Router) {
+			r.Get("/", m.handleGetWorkflow)
+			r.Put("/", m.handleUpdateWorkflow)
+			r.Delete("/", m.handleDeleteWorkflow)
+			r.Get("/runs", m.handleListWorkflowRuns)
+			r.Post("/runs", m.handleStartWorkflowRun)
+			r.Route("/runs/{runID}", func(r chi.Router) {
+				r.Get("/", m.handleGetWorkflowRun)
+				r.Post("/cancel", m.handleCancelWorkflowRun)
+			})
 		})
 	})
 

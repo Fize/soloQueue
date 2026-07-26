@@ -30,21 +30,17 @@ func (s *Store) EnsureDir() error {
 	return os.MkdirAll(s.Dir, 0755)
 }
 
-// Load reads and validates a workflow by name.
-// The name must match the filename and the YAML's "name" field.
-func (s *Store) Load(name string) (*ParsedWorkflow, error) {
+// ReadRaw returns the original YAML for a workflow after applying the same
+// path and size checks as Load. Keeping this separate from Load lets the HTTP
+// API round-trip comments and formatting unchanged.
+func (s *Store) ReadRaw(name string) ([]byte, error) {
 	if err := validateWorkflowName(name); err != nil {
 		return nil, err
 	}
-
 	filePath := filepath.Join(s.Dir, name+".yaml")
-
-	// Security: ensure the resolved path is within the store directory
 	if err := s.validatePath(filePath); err != nil {
 		return nil, err
 	}
-
-	// Check file size before reading
 	fi, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -55,11 +51,88 @@ func (s *Store) Load(name string) (*ParsedWorkflow, error) {
 	if fi.Size() > s.MaxFileBytes {
 		return nil, fmt.Errorf("workflow: file too large: %d bytes (max %d)", fi.Size(), s.MaxFileBytes)
 	}
-
-	// Read file
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("workflow: read %s: %w", filePath, err)
+	}
+	return data, nil
+}
+
+// Save validates and atomically replaces a workflow definition. The filename
+// and the YAML name must match so callers cannot create ambiguous definitions.
+func (s *Store) Save(name string, data []byte) (*WorkflowMeta, error) {
+	if err := validateWorkflowName(name); err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > s.MaxFileBytes {
+		return nil, fmt.Errorf("workflow: file too large: %d bytes (max %d)", len(data), s.MaxFileBytes)
+	}
+	pw, err := ParseWorkflow(data)
+	if err != nil {
+		return nil, err
+	}
+	if pw.Name != name {
+		return nil, fmt.Errorf("workflow: name mismatch: YAML declares %q but request is %q", pw.Name, name)
+	}
+	if err := s.EnsureDir(); err != nil {
+		return nil, fmt.Errorf("workflow: create store dir: %w", err)
+	}
+	filePath := filepath.Join(s.Dir, name+".yaml")
+	if err := s.validatePath(filePath); err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp(s.Dir, "."+name+"-*.tmp")
+	if err != nil {
+		return nil, fmt.Errorf("workflow: create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return nil, fmt.Errorf("workflow: write temp file: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return nil, fmt.Errorf("workflow: chmod temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return nil, fmt.Errorf("workflow: sync temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, fmt.Errorf("workflow: close temp file: %w", err)
+	}
+	if err := os.Rename(tmpName, filePath); err != nil {
+		return nil, fmt.Errorf("workflow: replace definition: %w", err)
+	}
+	return &WorkflowMeta{Name: pw.Name, Description: pw.Description, Version: pw.Version, Valid: true}, nil
+}
+
+// Delete removes one workflow definition. Active runs are intentionally not
+// affected because they execute from the parsed definition captured at start.
+func (s *Store) Delete(name string) error {
+	if err := validateWorkflowName(name); err != nil {
+		return err
+	}
+	filePath := filepath.Join(s.Dir, name+".yaml")
+	if err := s.validatePath(filePath); err != nil {
+		return err
+	}
+	if err := os.Remove(filePath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("workflow: not found: %s", name)
+		}
+		return fmt.Errorf("workflow: delete %s: %w", filePath, err)
+	}
+	return nil
+}
+
+// Load reads and validates a workflow by name.
+// The name must match the filename and the YAML's "name" field.
+func (s *Store) Load(name string) (*ParsedWorkflow, error) {
+	data, err := s.ReadRaw(name)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse and validate

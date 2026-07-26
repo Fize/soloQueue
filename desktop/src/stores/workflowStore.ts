@@ -1,0 +1,822 @@
+import { create } from 'zustand'
+import { parseDocument } from 'yaml'
+import type {
+  WorkflowMeta,
+  WorkflowDef,
+  GraphState,
+  GraphNode,
+  GraphEdge,
+  WorkflowRunSummary,
+  WorkflowRunDetail,
+} from '@/types'
+import {
+  cancelWorkflowRun,
+  createWorkflow as createWorkflowRequest,
+  deleteWorkflow as deleteWorkflowRequest,
+  getWorkflow,
+  getWorkflowRun,
+  listWorkflowRuns,
+  listWorkflows,
+  startWorkflowRun,
+  updateWorkflow as updateWorkflowRequest,
+  validateWorkflowYAML,
+} from '@/lib/api/workflow-api'
+
+// ─── YAML ↔ Graph Serialization ─────────────────────────────────────────
+
+// Serialize GraphState to YAML string
+export function graphToYAML(name: string, graph: GraphState, agents: Record<string, { template: string; model?: string }>): string {
+  const lines: string[] = []
+  lines.push(`name: ${name}`)
+  lines.push('description: ""')
+  lines.push('version: "1"')
+  lines.push('')
+  lines.push('defaults:')
+  lines.push('  node_timeout: 20m')
+  lines.push('  workflow_timeout: 45m')
+  lines.push('  max_node_runs: 50')
+  lines.push('  max_output_bytes: 131072')
+  lines.push('')
+  lines.push('agents:')
+  for (const [key, ref] of Object.entries(agents)) {
+    lines.push(`  ${key}:`)
+    lines.push(`    template: ${ref.template}`)
+    if (ref.model) lines.push(`    model: ${ref.model}`)
+  }
+  lines.push('')
+  const entryNodes = graph.nodes.filter(n => {
+    // A node is an entry if no edge targets it
+    const hasIncoming = graph.edges.some(e => e.target === n.id)
+    return !hasIncoming
+  })
+  lines.push('entry:')
+  for (const n of entryNodes) {
+    lines.push(`  - ${n.id}`)
+  }
+  lines.push('')
+  lines.push('nodes:')
+  for (const node of graph.nodes) {
+    lines.push(`  - id: ${node.id}`)
+    lines.push(`    agent: ${node.agent}`)
+    lines.push(`    prompt: |`)
+    const promptLines = node.prompt.split('\n')
+    for (const pl of promptLines) {
+      lines.push(`      ${pl}`)
+    }
+    if (node.timeout) lines.push(`    timeout: ${node.timeout}`)
+    if (node.join) {
+      lines.push('    join:')
+      lines.push(`      mode: ${node.join.mode}`)
+      lines.push('      from:')
+      for (const f of node.join.from) {
+        lines.push(`        - ${f}`)
+      }
+    }
+    lines.push('    outputs:')
+    for (const [outcome, output] of Object.entries(node.outputs)) {
+      lines.push(`      ${outcome}:`)
+      if (output.to.length > 0) {
+        lines.push('        to:')
+        for (const t of output.to) {
+          lines.push(`          - ${t}`)
+        }
+      } else {
+        lines.push('        to: []')
+      }
+      if (output.loop) {
+        lines.push(`        loop: true`)
+        lines.push(`        max_traversals: ${output.max_traversals}`)
+      }
+    }
+    if (node.onError && node.onError.strategy !== 'fail') {
+      lines.push('    on_error:')
+      lines.push(`      strategy: ${node.onError.strategy}`)
+      lines.push(`      max_attempts: ${node.onError.max_attempts}`)
+    }
+    // Persist position as YAML comment
+    lines.push(`    # @position: ${Math.round(node.position.x)},${Math.round(node.position.y)}`)
+  }
+  return lines.join('\n') + '\n'
+}
+
+// Applies visual changes to the existing document instead of recreating the
+// whole YAML file. This preserves top-level metadata, custom defaults and
+// comments unrelated to the graph.
+function mergeGraphIntoYAML(existingYAML: string, name: string, graph: GraphState, agents: Record<string, { template: string; model?: string }>): string {
+  const doc = parseDocument(existingYAML)
+  if (doc.errors.length > 0 || !doc.contents) return graphToYAML(name, graph, agents)
+  doc.set('name', name)
+  doc.set('agents', agents)
+  // entry is an explicit workflow semantic, not a presentation detail. Keep a
+  // user-authored list intact; only synthesize it for malformed legacy drafts.
+  if (!doc.get('entry')) {
+    doc.set('entry', graph.nodes.filter(n => !graph.edges.some(e => e.target === n.id)).map(n => n.id))
+  }
+  doc.set('nodes', graph.nodes.map(node => ({
+    id: node.id,
+    agent: node.agent,
+    prompt: node.prompt,
+    ...(node.timeout ? { timeout: node.timeout } : {}),
+    ...(node.join ? { join: node.join } : {}),
+    outputs: node.outputs,
+    ...(node.onError ? { on_error: node.onError } : {}),
+  })))
+  return String(doc)
+}
+
+function updateEntryYAML(yaml: string, transform: (entries: string[]) => string[]): string {
+  const doc = parseDocument(yaml)
+  if (doc.errors.length > 0 || !doc.contents) return yaml
+  const value = doc.toJS() as { entry?: unknown }
+  const entries = Array.isArray(value.entry) ? value.entry.filter((entry): entry is string => typeof entry === 'string') : []
+  doc.set('entry', transform(entries))
+  return String(doc)
+}
+
+// Parse YAML string to GraphState
+// Simplified parser — extracts nodes and edges from workflow YAML
+export function yamlToGraph(yaml: string): { graph: GraphState; name: string; agents: Record<string, { template: string; model?: string }> } | null {
+  try {
+    const nodes: GraphNode[] = []
+    const edges: GraphEdge[] = []
+    const agents: Record<string, { template: string; model?: string }> = {}
+    let name = ''
+    let currentNode: Partial<GraphNode> | null = null
+    let position: { x: number; y: number } | null = null
+
+    const lines = yaml.split('\n')
+    let i = 0
+    let currentAgentKey: string | null = null
+
+    // Helper: get indent level (number of leading spaces)
+    const getIndent = (line: string) => line.search(/\S/)
+
+    while (i < lines.length) {
+      const line = lines[i]
+      // Skip empty lines and plain comments
+      const trimmed = line.trim()
+      if (trimmed === '' || (trimmed.startsWith('#') && !trimmed.startsWith('# @position:'))) {
+        i++
+        continue
+      }
+
+      // Capture position comment
+      const posMatch = trimmed.match(/#\s*@position:\s*(-?\d+\.?\d*),\s*(-?\d+\.?\d*)/)
+      if (posMatch) {
+        position = { x: parseFloat(posMatch[1]), y: parseFloat(posMatch[2]) }
+        i++
+        continue
+      }
+
+      const indent = getIndent(line)
+      const content = trimmed
+
+      // --- Top-level fields (indent 0) ---
+      if (indent === 0) {
+        if (content.startsWith('name:')) {
+          name = content.replace(/^name:\s*"?/, '').replace(/"$/, '').trim()
+        }
+        // sections: agents, nodes
+        // These are section markers, handled by indent-based context
+        i++
+        continue
+      }
+
+      // --- agents: section ---
+      // Agent keys at indent 2, properties at indent 4
+      // Only match key:value patterns — NOT list items (which start with "-")
+      if (indent === 2 && !content.startsWith('-')) {
+          const agentKeyMatch = content.match(/^([A-Za-z][A-Za-z0-9_-]*):$/)
+        if (agentKeyMatch) {
+          currentAgentKey = agentKeyMatch[1]
+          agents[currentAgentKey] = { template: '' }
+          i++
+          continue
+        }
+      }
+
+      if (indent === 4 && currentAgentKey) {
+        const templateMatch = content.match(/^template:\s*(.+)/)
+        if (templateMatch) {
+          agents[currentAgentKey].template = templateMatch[1].trim()
+        }
+        const modelMatch = content.match(/^model:\s*(.+)/)
+        if (modelMatch) {
+          agents[currentAgentKey].model = modelMatch[1].trim()
+        }
+        i++
+        continue
+      }
+
+      // --- nodes: section ---
+      // Node entries start with "- id:" at indent 2
+      if (indent === 2 && content.startsWith('- id:')) {
+        // Finalize previous node
+        if (currentNode && currentNode.id) {
+          finalizeNode()
+        }
+        currentNode = { outputs: {} }
+        position = null
+        currentNode.id = content.replace(/^- id:\s*/, '').trim()
+        currentAgentKey = null
+        i++
+        continue
+      }
+
+      // Node properties at indent 4
+      if (indent === 4 && currentNode) {
+        if (content.startsWith('agent:')) {
+          currentNode.agent = content.replace(/^agent:\s*/, '').trim()
+          i++
+          continue
+        }
+        if (content.startsWith('prompt: |') || content === 'prompt: |') {
+          // Multi-line prompt
+          const promptLines: string[] = []
+          i++
+          while (i < lines.length) {
+            const pline = lines[i]
+            const pindent = getIndent(pline)
+            if (pindent >= 6 && pline.trim() !== '' && !pline.trim().startsWith('#')) {
+              promptLines.push(pline.trim())
+            } else if (pline.trim() === '') {
+              // Empty line in prompt
+              promptLines.push('')
+            } else {
+              break
+            }
+            i++
+          }
+          currentNode.prompt = promptLines.join('\n')
+          continue
+        }
+        if (content.startsWith('timeout:')) {
+          currentNode.timeout = content.replace(/^timeout:\s*/, '').trim()
+          i++
+          continue
+        }
+        if (content === 'outputs:') {
+          currentNode.outputs = {}
+          // Start production rule: skip the outputs section marker
+          i++
+          // Now process outputs at indent 6
+          while (i < lines.length) {
+            const oline = lines[i]
+            const oindent = getIndent(oline)
+            const ocontent = oline.trim()
+            if (oindent < 6 || ocontent.startsWith('# @position:') || (oindent === 4 && ocontent !== '')) break
+            if (ocontent === '' || ocontent.startsWith('#')) { i++; continue }
+
+            if (oindent === 6) {
+              // New outcome key
+              const outcomeMatch = ocontent.match(/^(\w+):$/)
+              if (outcomeMatch) {
+                const outcomeName = outcomeMatch[1]
+                // Initialize output
+                if (!currentNode.outputs) currentNode.outputs = {}
+                currentNode.outputs[outcomeName] = { to: [], loop: false, max_traversals: 0 }
+                i++
+                // Process sub-properties at indent >= 8
+                while (i < lines.length) {
+                  const subline = lines[i]
+                  const subindent = getIndent(subline)
+                  const subcontent = subline.trim()
+                  if (subindent < 8 || subcontent.startsWith('# @position:')) break
+                  if (subcontent === '' || subcontent.startsWith('#')) { i++; continue }
+
+                  if (subcontent.startsWith('to:')) {
+                    if (subcontent === 'to: []') {
+                      // Terminal output
+                      currentNode.outputs![outcomeName].to = []
+                    } else {
+                      // to: followed by list items at indent 10
+                      i++
+                      const toTargets: string[] = []
+                      while (i < lines.length) {
+                        const tline = lines[i]
+                        const tindent = getIndent(tline)
+                        const tcontent = tline.trim()
+                        if (tindent < 10 || tcontent.startsWith('# @position:')) break
+                        if (tcontent === '' || tcontent.startsWith('#')) { i++; continue }
+                        if (tcontent.startsWith('- ')) {
+                          toTargets.push(tcontent.replace(/^-\s*/, '').trim())
+                        }
+                        i++
+                      }
+                      currentNode.outputs![outcomeName].to = toTargets
+                      continue // i already incremented in inner loop
+                    }
+                  }
+                  if (subcontent === 'loop: true') {
+                    currentNode.outputs![outcomeName].loop = true
+                  }
+                  if (subcontent.startsWith('max_traversals:')) {
+                    currentNode.outputs![outcomeName].max_traversals = parseInt(subcontent.replace(/^max_traversals:\s*/, '').trim()) || 1
+                  }
+                  i++
+                }
+                continue
+              }
+            }
+            i++
+          }
+          continue
+        }
+        if (content === 'on_error:') {
+          currentNode.onError = { strategy: 'fail', max_attempts: 1 }
+          i++
+          while (i < lines.length) {
+            const eline = lines[i]
+            const eindent = getIndent(eline)
+            const econtent = eline.trim()
+            if (eindent < 6 || econtent.startsWith('# @position:')) break
+            if (econtent.startsWith('strategy:')) {
+              const strat = econtent.replace(/^strategy:\s*/, '').trim()
+              currentNode.onError!.strategy = strat as 'fail' | 'retry'
+            }
+            if (econtent.startsWith('max_attempts:')) {
+              currentNode.onError!.max_attempts = parseInt(econtent.replace(/^max_attempts:\s*/, '').trim()) || 1
+            }
+            i++
+          }
+          continue
+        }
+        if (content === 'join:') {
+          currentNode.join = { mode: 'all', from: [] }
+          i++
+          while (i < lines.length) {
+            const jline = lines[i]
+            const jindent = getIndent(jline)
+            const jcontent = jline.trim()
+            if (jindent < 6 || jcontent.startsWith('# @position:')) break
+            if (jcontent.startsWith('mode:')) {
+              currentNode.join!.mode = jcontent.replace(/^mode:\s*/, '').trim() as 'all'
+            }
+            if (jcontent.startsWith('- ') && jindent >= 8) {
+              currentNode.join!.from.push(jcontent.replace(/^-\s*/, '').trim())
+            }
+            i++
+          }
+          continue
+        }
+        i++
+        continue
+      }
+
+      i++
+    }
+
+    // Finalize last node
+    function finalizeNode() {
+      if (currentNode && currentNode.id) {
+        nodes.push({
+          id: currentNode.id!,
+          agent: currentNode.agent || '',
+          prompt: currentNode.prompt || '',
+          timeout: currentNode.timeout,
+          join: currentNode.join && currentNode.join.from.length >= 2 ? currentNode.join : undefined,
+          outputs: currentNode.outputs || {},
+          onError: currentNode.onError && currentNode.onError.strategy !== 'fail' ? currentNode.onError : undefined,
+          position: position || { x: nodes.length * 200, y: 100 },
+        })
+      }
+    }
+    finalizeNode()
+
+    // Build edges from node outputs
+    for (const node of nodes) {
+      for (const [outcome, output] of Object.entries(node.outputs)) {
+        for (const targetId of output.to) {
+          edges.push({
+            id: `${node.id}:${outcome}:${targetId}`,
+            source: node.id,
+            target: targetId,
+            outcome,
+            loop: output.loop || false,
+            maxTraversals: output.max_traversals || 0,
+          })
+        }
+        if (output.loop) {
+          // Also add self-loop edges (when to includes the node itself)
+          const hasSelf = output.to.includes(node.id)
+          if (!hasSelf) {
+            // Loop edge exists but to list may not include self
+            // The loop flag means it's a back-edge; the to list should include the target
+          }
+        }
+      }
+    }
+
+    // Return null for garbage input that produces no valid content
+    if (nodes.length === 0 && !name) {
+      return null
+    }
+
+    return { graph: { nodes, edges }, name, agents }
+  } catch {
+    return null
+  }
+}
+
+// ─── Default YAML template ──────────────────────────────────────────────
+
+export function defaultYAMLTemplate(name: string): string {
+  return `name: ${name}
+description: ""
+version: "1"
+
+defaults:
+  node_timeout: 20m
+  workflow_timeout: 45m
+  max_node_runs: 50
+  max_output_bytes: 131072
+
+agents:
+  analyzer:
+    template: analyzer
+  writer:
+    template: writer
+
+entry:
+  - analyze
+
+nodes:
+  - id: analyze
+    agent: analyzer
+    prompt: |
+      Analyze the input and extract key points.
+    outputs:
+      done:
+        to:
+          - write
+  - id: write
+    agent: writer
+    prompt: |
+      Write a summary based on the analysis.
+    outputs:
+      done:
+        to: []
+`
+}
+
+function edgesFromNodes(nodes: GraphNode[]): GraphEdge[] {
+  return nodes.flatMap(node => Object.entries(node.outputs).flatMap(([outcome, output]) =>
+    output.to.map(target => ({
+      id: `${node.id}:${outcome}:${target}`,
+      source: node.id,
+      target,
+      outcome,
+      loop: output.loop,
+      maxTraversals: output.max_traversals,
+    }))
+  ))
+}
+
+// ─── Store ──────────────────────────────────────────────────────────────
+
+export type DirtySource = 'visual' | 'yaml' | null
+
+interface WorkflowState {
+  // Workflow definitions list
+  workflowMetas: WorkflowMeta[]
+  workflowMetasLoading: boolean
+  workflowMetasError: string | null
+  fetchWorkflowMetas: () => Promise<void>
+
+  // Active workflow editor state
+  activeWorkflowName: string | null
+  activeWorkflowYAML: string
+  activeWorkflowGraph: GraphState
+  activeWorkflowAgents: Record<string, { template: string; model?: string }>
+  activeWorkflowParsed: WorkflowDef | null
+  activeWorkflowValidationError: string | null
+  dirtySource: DirtySource
+  editorMode: 'visual' | 'yaml'
+
+  setActiveWorkflow: (name: string) => Promise<void>
+  setEditorMode: (mode: 'visual' | 'yaml') => void
+
+  // Graph mutations (visual mode)
+  setGraph: (graph: GraphState) => void
+  addNode: (node: GraphNode) => void
+  updateNode: (nodeId: string, updates: Partial<GraphNode>) => void
+  removeNode: (nodeId: string) => void
+  addEdge: (edge: GraphEdge) => void
+  updateEdge: (edgeId: string, updates: Partial<GraphEdge>) => void
+  removeEdge: (edgeId: string) => void
+
+  // YAML mutations (yaml mode)
+  setYAML: (yaml: string) => void
+
+  // CRUD operations
+  createWorkflow: (name: string, yaml: string) => Promise<boolean>
+  updateWorkflow: (name: string) => Promise<boolean>
+  deleteWorkflow: (name: string) => Promise<boolean>
+  validateWorkflow: () => Promise<{ valid: boolean; error?: string }>
+
+  // Runs list for a specific workflow
+  runs: Record<string, WorkflowRunSummary[]>
+  runsLoading: boolean
+  fetchRuns: (workflowName: string) => Promise<void>
+
+  // Active run detail
+  activeRunDetail: WorkflowRunDetail | null
+  activeRunDetailLoading: boolean
+  fetchRunDetail: (workflowName: string, runId: string) => Promise<void>
+  clearActiveRunDetail: () => void
+
+  // Run controls
+  startRun: (workflowName: string, input?: string) => Promise<string | null>
+  cancelRun: (workflowName: string, runId: string) => Promise<void>
+
+  // Sync guard
+  _syncing: boolean
+}
+
+// Inflight promise dedup
+let inflightMetasLoad: Promise<void> | null = null
+
+export const useWorkflowStore = create<WorkflowState>((set, get) => ({
+  workflowMetas: [],
+  workflowMetasLoading: false,
+  workflowMetasError: null,
+
+  fetchWorkflowMetas: async () => {
+    if (inflightMetasLoad) {
+      await inflightMetasLoad
+      return
+    }
+    set({ workflowMetasLoading: true, workflowMetasError: null })
+    const promise = (async () => {
+      try {
+        const metas = await listWorkflows()
+        set({ workflowMetas: metas, workflowMetasLoading: false })
+      } catch (err: any) {
+        set({ workflowMetasError: err.message, workflowMetasLoading: false })
+      } finally {
+        inflightMetasLoad = null
+      }
+    })()
+    inflightMetasLoad = promise
+    await promise
+  },
+
+  activeWorkflowName: null,
+  activeWorkflowYAML: '',
+  activeWorkflowGraph: { nodes: [], edges: [] },
+  activeWorkflowAgents: {},
+  activeWorkflowParsed: null,
+  activeWorkflowValidationError: null,
+  dirtySource: null,
+  editorMode: 'visual',
+  _syncing: false,
+
+  setActiveWorkflow: async (name: string) => {
+    set({ activeWorkflowName: name, activeWorkflowValidationError: null })
+
+    const { yaml } = await getWorkflow(name)
+
+    const parsed = yamlToGraph(yaml)
+    set({
+      activeWorkflowYAML: yaml,
+      activeWorkflowGraph: parsed?.graph || { nodes: [], edges: [] },
+      activeWorkflowAgents: parsed?.agents || {},
+      dirtySource: null,
+    })
+  },
+
+  setEditorMode: (mode) => set({ editorMode: mode }),
+
+  // Graph mutations — from visual mode
+  setGraph: (graph) => {
+    const state = get()
+    if (state._syncing) return
+    set({ _syncing: true })
+
+    const normalizedGraph = { nodes: graph.nodes, edges: edgesFromNodes(graph.nodes) }
+    const yaml = mergeGraphIntoYAML(state.activeWorkflowYAML, state.activeWorkflowName || 'untitled', normalizedGraph, state.activeWorkflowAgents)
+    set({
+      activeWorkflowGraph: normalizedGraph,
+      activeWorkflowYAML: yaml,
+      dirtySource: 'visual',
+      _syncing: false,
+    })
+  },
+
+  addNode: (node) => {
+    const state = get()
+    const graph = { ...state.activeWorkflowGraph, nodes: [...state.activeWorkflowGraph.nodes, node] }
+    state.setGraph(graph)
+  },
+
+  updateNode: (nodeId, updates) => {
+    const state = get()
+    const nextID = updates.id?.trim() || nodeId
+    if (nextID !== nodeId && state.activeWorkflowGraph.nodes.some(n => n.id === nextID)) return
+    const rewriteRef = (value: string) => value === nodeId ? nextID : value
+    const nodes = state.activeWorkflowGraph.nodes.map(n => {
+      const updated = n.id === nodeId ? { ...n, ...updates, id: nextID } : n
+      return {
+        ...updated,
+        outputs: Object.fromEntries(Object.entries(updated.outputs).map(([outcome, output]) => [outcome, { ...output, to: output.to.map(rewriteRef) }])),
+        join: updated.join ? { ...updated.join, from: updated.join.from.map(rewriteRef) } : undefined,
+      }
+    })
+    const edges = state.activeWorkflowGraph.edges.map(e => ({
+      ...e,
+      source: rewriteRef(e.source),
+      target: rewriteRef(e.target),
+      id: `${rewriteRef(e.source)}:${e.outcome}:${rewriteRef(e.target)}`,
+    }))
+    if (nextID !== nodeId) {
+      set({ activeWorkflowYAML: updateEntryYAML(state.activeWorkflowYAML, entries => entries.map(rewriteRef)) })
+    }
+    get().setGraph({ nodes, edges })
+  },
+
+  removeNode: (nodeId) => {
+    const state = get()
+    const nodes = state.activeWorkflowGraph.nodes
+      .filter(n => n.id !== nodeId)
+      .map(n => ({
+        ...n,
+        outputs: Object.fromEntries(Object.entries(n.outputs).map(([outcome, output]) => [outcome, { ...output, to: output.to.filter(target => target !== nodeId) }])),
+        join: n.join ? { ...n.join, from: n.join.from.filter(source => source !== nodeId) } : undefined,
+      }))
+    const edges = state.activeWorkflowGraph.edges.filter(
+      e => e.source !== nodeId && e.target !== nodeId
+    )
+    set({ activeWorkflowYAML: updateEntryYAML(state.activeWorkflowYAML, entries => entries.filter(entry => entry !== nodeId)) })
+    get().setGraph({ nodes, edges })
+  },
+
+  addEdge: (edge) => {
+    const state = get()
+    // Update the source node's outputs
+    const nodes = state.activeWorkflowGraph.nodes.map(n => {
+      if (n.id === edge.source) {
+        const outputs = { ...n.outputs }
+        const existing = outputs[edge.outcome]
+        const to = existing ? [...new Set([...existing.to, edge.target])] : [edge.target]
+        outputs[edge.outcome] = {
+          to,
+          loop: edge.loop || existing?.loop || false,
+          max_traversals: edge.maxTraversals || existing?.max_traversals || 0,
+        }
+        return { ...n, outputs }
+      }
+      return n
+    })
+    // Avoid duplicate edges
+    const existingEdge = state.activeWorkflowGraph.edges.find(
+      e => e.source === edge.source && e.target === edge.target && e.outcome === edge.outcome
+    )
+    const edges = existingEdge
+      ? state.activeWorkflowGraph.edges
+      : [...state.activeWorkflowGraph.edges, edge]
+    state.setGraph({ nodes, edges })
+  },
+
+  updateEdge: (edgeId, updates) => {
+    const state = get()
+    const edge = state.activeWorkflowGraph.edges.find(e => e.id === edgeId)
+    if (!edge) return
+    const next = { ...edge, ...updates }
+    const nodes = state.activeWorkflowGraph.nodes.map(n => {
+      if (n.id !== edge.source) return n
+      const outputs = { ...n.outputs }
+      const oldOutput = outputs[edge.outcome]
+      if (!oldOutput) return n
+      const nextOutcome = next.outcome || edge.outcome
+      const targets = oldOutput.to.map(target => target === edge.target ? next.target : target)
+      delete outputs[edge.outcome]
+      outputs[nextOutcome] = { to: targets, loop: next.loop, max_traversals: next.maxTraversals }
+      return { ...n, outputs }
+    })
+    const edges = state.activeWorkflowGraph.edges.map(e => e.id === edgeId ? { ...next, id: `${next.source}:${next.outcome}:${next.target}` } : e)
+    state.setGraph({ nodes, edges })
+  },
+
+  removeEdge: (edgeId) => {
+    const state = get()
+    const edge = state.activeWorkflowGraph.edges.find(e => e.id === edgeId)
+    if (!edge) return
+    const edges = state.activeWorkflowGraph.edges.filter(e => e.id !== edgeId)
+    // Also remove from source node's outputs
+    const nodes = state.activeWorkflowGraph.nodes.map(n => {
+      if (n.id === edge.source && n.outputs[edge.outcome]) {
+        const outputs = { ...n.outputs }
+        const output = { ...outputs[edge.outcome] }
+        output.to = output.to.filter(t => t !== edge.target)
+        outputs[edge.outcome] = output
+        return { ...n, outputs }
+      }
+      return n
+    })
+    state.setGraph({ nodes, edges })
+  },
+
+  // YAML mutations — from yaml mode
+  setYAML: (yaml) => {
+    const state = get()
+    if (state._syncing) return
+    set({ _syncing: true })
+
+    const parsed = yamlToGraph(yaml)
+    set({
+      activeWorkflowYAML: yaml,
+      activeWorkflowGraph: parsed?.graph || state.activeWorkflowGraph,
+      activeWorkflowAgents: parsed?.agents || state.activeWorkflowAgents,
+      dirtySource: 'yaml',
+      _syncing: false,
+    })
+  },
+
+  // CRUD
+  createWorkflow: async (name, yaml) => {
+    try {
+      await createWorkflowRequest(name, yaml)
+      await get().fetchWorkflowMetas()
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  updateWorkflow: async (name) => {
+    try {
+      const state = get()
+      const yaml = state.activeWorkflowYAML
+
+      await updateWorkflowRequest(name, yaml)
+      await get().fetchWorkflowMetas()
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  deleteWorkflow: async (name) => {
+    try {
+      await deleteWorkflowRequest(name)
+      await get().fetchWorkflowMetas()
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  validateWorkflow: async () => {
+    const state = get()
+    try {
+      const data = await validateWorkflowYAML(state.activeWorkflowYAML)
+      set({ activeWorkflowValidationError: data.valid ? null : data.error || 'Invalid workflow' })
+      return data
+    } catch (err: any) {
+      set({ activeWorkflowValidationError: err.message || 'Invalid workflow', activeWorkflowParsed: null })
+      return { valid: false, error: err.message || 'Invalid workflow' }
+    }
+
+  },
+
+  // Runs
+  runs: {},
+  runsLoading: false,
+
+  fetchRuns: async (workflowName) => {
+    set({ runsLoading: true })
+    try {
+      const data = await listWorkflowRuns(workflowName)
+      set((s) => ({ runs: { ...s.runs, [workflowName]: data || [] }, runsLoading: false }))
+    } catch {
+      set({ runsLoading: false })
+    }
+  },
+
+  activeRunDetail: null,
+  activeRunDetailLoading: false,
+
+  fetchRunDetail: async (workflowName, runId) => {
+    set({ activeRunDetailLoading: true })
+    try {
+      const data = await getWorkflowRun(workflowName, runId)
+      set({ activeRunDetail: data, activeRunDetailLoading: false })
+    } catch {
+      set({ activeRunDetailLoading: false })
+    }
+  },
+
+  clearActiveRunDetail: () => set({ activeRunDetail: null }),
+
+  startRun: async (workflowName, input?) => {
+    try {
+      const data = await startWorkflowRun(workflowName, input || '')
+      return data.run_id || null
+    } catch { /* handled by caller */ }
+    return null
+  },
+
+  cancelRun: async (workflowName, runId) => {
+    await cancelWorkflowRun(workflowName, runId)
+  },
+}))

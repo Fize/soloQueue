@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 8
+const schemaVersion = 9
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -283,6 +283,20 @@ CREATE TABLE IF NOT EXISTS cron_execution_history (
 );
 CREATE INDEX IF NOT EXISTS idx_cron_history_task_id ON cron_execution_history(task_id);
 CREATE INDEX IF NOT EXISTS idx_cron_history_executed_at ON cron_execution_history(executed_at);
+
+-- workflow_runs stores durable immutable snapshots. Keeping node-run detail in
+-- JSON avoids a write-heavy normalized table while the engine publishes state
+-- transitions frequently.
+CREATE TABLE IF NOT EXISTS workflow_runs (
+	id TEXT PRIMARY KEY,
+	workflow_name TEXT NOT NULL,
+	status TEXT NOT NULL,
+	started_at TEXT NOT NULL,
+	finished_at TEXT NOT NULL DEFAULT '',
+	snapshot_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_started ON workflow_runs(workflow_name, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
 `
 
 // migrate applies the schema snapshot on every startup.

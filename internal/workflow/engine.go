@@ -54,6 +54,14 @@ type Engine struct {
 	limits   EngineLimits
 }
 
+// RunOptions configures an execution without exposing the engine's mutable
+// scheduler internals to callers. Observer is invoked by the scheduler
+// goroutine and must return promptly.
+type RunOptions struct {
+	ID       string
+	Observer func(*RunState)
+}
+
 // NewEngine creates a workflow engine with the given executor and limits.
 func NewEngine(executor NodeExecutor, limits EngineLimits) *Engine {
 	if limits.MaxYAMLBytes == 0 {
@@ -65,6 +73,13 @@ func NewEngine(executor NodeExecutor, limits EngineLimits) *Engine {
 // Run executes a workflow synchronously, blocking until completion or error.
 // The input is passed to each NodeRun as workflow-level context.
 func (e *Engine) Run(ctx context.Context, wf *ParsedWorkflow, input string, workDir string) (*RunState, error) {
+	return e.RunWithOptions(ctx, wf, input, workDir, RunOptions{})
+}
+
+// RunWithOptions executes a workflow and publishes scheduler-safe snapshots to
+// an optional observer. The RunState passed to Observer must not be retained or
+// mutated; consumers should copy the fields they need before returning.
+func (e *Engine) RunWithOptions(ctx context.Context, wf *ParsedWorkflow, input string, workDir string, options RunOptions) (*RunState, error) {
 	// Clamp workflow defaults to engine limits
 	defaults := e.limits.Clamp(wf.Defaults)
 
@@ -72,17 +87,21 @@ func (e *Engine) Run(ctx context.Context, wf *ParsedWorkflow, input string, work
 	runCtx, runCancel := context.WithTimeout(ctx, defaults.WorkflowTimeout.Duration())
 	defer runCancel()
 
+	runID := options.ID
+	if runID == "" {
+		runID = newRunID()
+	}
 	rs := &RunState{
-		ID:             newRunID(),
-		Workflow:       wf,
-		Status:         RunRunning,
-		NodeRuns:       make(map[string]*NodeRun),
-		Running:        make(map[string]contextCanceller),
-		JoinBuckets:    make(map[JoinKey]*JoinBucket),
-		LoopCounters:   make(map[LoopKey]int),
-		StartedAt:      time.Now(),
-		Input:          input,
-		WorkDir:        workDir,
+		ID:           runID,
+		Workflow:     wf,
+		Status:       RunRunning,
+		NodeRuns:     make(map[string]*NodeRun),
+		Running:      make(map[string]contextCanceller),
+		JoinBuckets:  make(map[JoinKey]*JoinBucket),
+		LoopCounters: make(map[LoopKey]int),
+		StartedAt:    time.Now(),
+		Input:        input,
+		WorkDir:      workDir,
 	}
 
 	// Create root activation for entry nodes
@@ -92,6 +111,9 @@ func (e *Engine) Run(ctx context.Context, wf *ParsedWorkflow, input string, work
 	for _, entryID := range wf.Entry {
 		e.createNodeRun(rs, entryID, rootActivation, input)
 	}
+	if options.Observer != nil {
+		options.Observer(rs)
+	}
 
 	// Scheduling loop
 	resultCh := make(chan nodeExecResult, 1)
@@ -100,6 +122,9 @@ func (e *Engine) Run(ctx context.Context, wf *ParsedWorkflow, input string, work
 	for {
 		// Drain any ready nodes up to concurrency limit
 		e.dispatchReady(rs, runCtx, resultCh, &wg, defaults)
+		if options.Observer != nil {
+			options.Observer(rs)
+		}
 
 		// If nothing is running and nothing is ready, we're done
 		if len(rs.Running) == 0 && len(rs.ReadyQueue) == 0 {
@@ -111,8 +136,14 @@ func (e *Engine) Run(ctx context.Context, wf *ParsedWorkflow, input string, work
 			select {
 			case result := <-resultCh:
 				e.handleResult(rs, runCtx, result, resultCh, &wg, defaults)
+				if options.Observer != nil {
+					options.Observer(rs)
+				}
 			case <-runCtx.Done():
 				e.cancelAll(rs, runCtx.Err())
+				if options.Observer != nil {
+					options.Observer(rs)
+				}
 				break
 			}
 			continue
@@ -124,6 +155,9 @@ func (e *Engine) Run(ctx context.Context, wf *ParsedWorkflow, input string, work
 	// Determine final status
 	e.finalizeStatus(rs)
 	rs.FinishedAt = time.Now()
+	if options.Observer != nil {
+		options.Observer(rs)
+	}
 	runCancel()
 	return rs, nil
 }

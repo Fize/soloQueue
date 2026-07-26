@@ -34,6 +34,8 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/workflow"
+	"github.com/xiaobaitu/soloqueue/internal/workflow/agentexec"
 )
 
 // ProfileSetupFn writes the user profile on first startup.
@@ -113,6 +115,9 @@ func Build(
 
 	// Phase 4: Build agent infra (depends on Phase 2+3)
 	bc.buildAgentInfra()
+	if err := bc.buildWorkflow(); err != nil {
+		return nil, fmt.Errorf("build workflow: %w", err)
+	}
 
 	// Phase 4.5: Simulation engine
 	if err := bc.buildSimulationEngine(); err != nil {
@@ -328,10 +333,25 @@ type buildContext struct {
 	compactorInstance *compactor.LLMCompactor
 	taskRouter        *router.Router
 	simEngine         *simulation.SimulationEngine
+	workflowStore     *workflow.Store
+	workflowEngine    *workflow.Engine
+	workflowRuns      *workflow.RunManager
 
 	// L1 channel bindings loaded from agents/main.md
 	l1Channels      map[string]string
 	l1NotifyChannel string
+}
+
+func (bc *buildContext) buildWorkflow() error {
+	store := workflow.NewStore(filepath.Join(bc.workDir, "workflows"), workflow.DefaultEngineLimits().MaxYAMLBytes)
+	if err := store.EnsureDir(); err != nil {
+		return err
+	}
+	executor := agentexec.NewExecutor(bc.agentFactory, bc.agentRegistry, bc.log)
+	bc.workflowStore = store
+	bc.workflowEngine = workflow.NewEngine(executor, workflow.DefaultEngineLimits())
+	bc.workflowRuns = workflow.NewRunManager(bc.workflowEngine, bc.sharedDB, bc.workDir)
+	return nil
 }
 
 func (bc *buildContext) resolveConfig() error {
@@ -436,6 +456,9 @@ func (bc *buildContext) assembleStack() *Stack {
 		L1Channels:        bc.l1Channels,
 		L1NotifyChannel:   bc.l1NotifyChannel,
 		SimulationEngine:  bc.simEngine,
+		WorkflowStore:     bc.workflowStore,
+		WorkflowEngine:    bc.workflowEngine,
+		WorkflowRuns:      bc.workflowRuns,
 		compactorInstance: bc.compactorInstance,
 	}
 }

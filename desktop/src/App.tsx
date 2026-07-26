@@ -61,6 +61,15 @@ const StatsTab = lazy(() =>
 const GeneralTab = lazy(() =>
   import('@/components/settings/GeneralTab').then((m) => ({ default: m.GeneralTab }))
 )
+const WorkflowListPage = lazy(() =>
+  import('@/components/workflow/WorkflowListPage').then((m) => ({ default: m.WorkflowListPage }))
+)
+const WorkflowEditorPage = lazy(() =>
+  import('@/components/workflow/WorkflowEditorPage').then((m) => ({ default: m.WorkflowEditorPage }))
+)
+const WorkflowRunDetailPage = lazy(() =>
+  import('@/components/workflow/WorkflowRunDetailPage').then((m) => ({ default: m.WorkflowRunDetailPage }))
+)
 function RouteFallback() {
   return (
     <div
@@ -448,6 +457,9 @@ function App() {
                   <Route path="/cron" element={<CronPage />} />
                   <Route path="/simulations" element={<SimulationListPage />} />
                   <Route path="/simulations/:id" element={<SimulationDetailPage />} />
+                  <Route path="/workflows" element={<WorkflowListPage />} />
+                  <Route path="/workflows/:name" element={<WorkflowEditorPage />} />
+                  <Route path="/workflows/:name/runs/:runId" element={<WorkflowRunDetailPage />} />
                   <Route
                     path="/stats"
                     element={

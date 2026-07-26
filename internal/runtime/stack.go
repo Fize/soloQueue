@@ -8,14 +8,13 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/lsp"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
+	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
@@ -25,6 +24,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
@@ -51,11 +51,11 @@ type Stack struct {
 	RulesCreated  bool
 	TaskRouter    *router.Router
 	SkillRegistry *skill.SkillRegistry
-	MemoryManager *conversationlog.Manager          // Short-term memory manager
+	MemoryManager *conversationlog.Manager // Short-term memory manager
 	MemoryEngine  *memoryengine.Engine     // Memory engine (BM25 + KG + optional vector)
 	SharedDB      *sqlitedb.DB             // Shared SQLite connection
-	MCPManager    *mcp.Manager       // MCP server manager
-	LSPManager    *lsp.Manager       // Built-in LSP MCP server manager
+	MCPManager    *mcp.Manager             // MCP server manager
+	LSPManager    *lsp.Manager             // Built-in LSP MCP server manager
 
 	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
 
@@ -71,6 +71,7 @@ type Stack struct {
 	// Workflow support (v1)
 	WorkflowStore  *workflow.Store
 	WorkflowEngine *workflow.Engine
+	WorkflowRuns   *workflow.RunManager
 
 	// compactorInstance stores the concrete type for internal use.
 	compactorInstance *compactor.LLMCompactor
