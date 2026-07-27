@@ -7,11 +7,12 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/lib/i18n'
-import { useWorkflowStore } from '@/stores/workflowStore'
+import { unknownAgentTemplates, useWorkflowStore } from '@/stores/workflowStore'
 import { ReactFlowProvider } from '@xyflow/react'
 import { VisualDAGEditor } from './VisualDAGEditor'
 import { DAGPreview } from './DAGPreview'
@@ -199,7 +200,14 @@ export function WorkflowEditorPage() {
   const { t } = useTranslation()
   const {
     activeWorkflowGraph,
+    activeWorkflowAgents,
+    activeWorkflowLoading,
+    activeWorkflowLoadError,
+    availableAgents,
+    availableAgentsLoading,
+    availableAgentsError,
     editorMode,
+    fetchAvailableAgents,
     setActiveWorkflow,
     setEditorMode,
     updateWorkflow,
@@ -212,9 +220,20 @@ export function WorkflowEditorPage() {
   // Load workflow on mount
   useEffect(() => {
     if (name) {
-      setActiveWorkflow(name)
+      void setActiveWorkflow(name).catch(() => {
+        // The store exposes a recoverable editor error state.
+      })
     }
   }, [name, setActiveWorkflow])
+
+  useEffect(() => {
+    void fetchAvailableAgents()
+  }, [fetchAvailableAgents])
+
+  const invalidAgentTemplates = unknownAgentTemplates(activeWorkflowAgents, availableAgents)
+  const agentDataBlocked = availableAgentsLoading
+    || !!availableAgentsError
+    || invalidAgentTemplates.length > 0
 
   const nodeCount = activeWorkflowGraph.nodes.length
   const edgeCount = activeWorkflowGraph.edges.length
@@ -227,6 +246,10 @@ export function WorkflowEditorPage() {
 
   const handleSave = async () => {
     if (!name) return
+    if (agentDataBlocked) {
+      toast.error(t('workflow.unknownAgents', { names: invalidAgentTemplates.join(', ') || '—' }))
+      return
+    }
     setSaving(true)
     try {
       const success = await updateWorkflow(name)
@@ -244,6 +267,10 @@ export function WorkflowEditorPage() {
 
   const handleRun = async () => {
     if (!name) return
+    if (agentDataBlocked) {
+      toast.error(t('workflow.unknownAgents', { names: invalidAgentTemplates.join(', ') || '—' }))
+      return
+    }
     setRunning(true)
     try {
       const runId = await startRun(name)
@@ -260,6 +287,10 @@ export function WorkflowEditorPage() {
     }
   }
 
+  const retryLoad = () => {
+    if (name) void setActiveWorkflow(name).catch(() => {})
+  }
+
   return (
     <div className="flex h-full flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
@@ -269,7 +300,7 @@ export function WorkflowEditorPage() {
           <button
             type="button"
             onClick={() => navigate('/workflows')}
-            className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+            className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0 electron-no-drag"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -287,7 +318,7 @@ export function WorkflowEditorPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 electron-no-drag">
           {/* Mode toggle */}
           <ModeToggle mode={editorMode} onChange={setEditorMode} />
 
@@ -295,7 +326,7 @@ export function WorkflowEditorPage() {
           <button
             type="button"
             onClick={handleRun}
-            disabled={running}
+            disabled={running || activeWorkflowLoading || !!activeWorkflowLoadError || agentDataBlocked}
             className="flex items-center gap-1.5 rounded-lg bg-success hover:bg-success/90 disabled:bg-success/40 px-3 py-2 text-xs font-semibold text-success-foreground transition-all shadow-sm shadow-success/20 cursor-pointer disabled:cursor-not-allowed"
           >
             {running ? (
@@ -309,7 +340,7 @@ export function WorkflowEditorPage() {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || activeWorkflowLoading || !!activeWorkflowLoadError || agentDataBlocked}
             className="flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:bg-primary/40 px-3 py-2 text-xs font-semibold text-primary-foreground transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
           >
             {saving ? (
@@ -322,8 +353,59 @@ export function WorkflowEditorPage() {
         </div>
       </header>
 
-      {/* Body — switch between visual and YAML modes */}
-      {editorMode === 'visual' ? (
+      {!activeWorkflowLoading && !activeWorkflowLoadError && agentDataBlocked && (
+        <div className="shrink-0 border-b border-rose-500/20 bg-rose-500/8 px-4 py-2 text-[11px] text-rose-500">
+          <div className="flex items-center gap-2">
+            {availableAgentsLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            )}
+            <span>
+              {availableAgentsLoading
+                ? t('workflow.loadingAgents')
+                : availableAgentsError
+                  ? t('workflow.agentsLoadFailed')
+                  : t('workflow.unknownAgents', { names: invalidAgentTemplates.join(', ') })}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Body — loading and errors must never masquerade as an empty editor. */}
+      {activeWorkflowLoading ? (
+        <div className="flex flex-1 items-center justify-center bg-background">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t('common.loading')}
+          </div>
+        </div>
+      ) : activeWorkflowLoadError ? (
+        <div className="flex flex-1 items-center justify-center bg-background p-6">
+          <div className="max-w-md rounded-xl border border-rose-500/25 bg-rose-500/5 p-5 text-center shadow-sm">
+            <AlertCircle className="mx-auto h-6 w-6 text-rose-500" />
+            <p className="mt-3 text-sm font-semibold text-foreground">{t('workflow.loadFailed')}</p>
+            <p className="mt-1 text-xs text-muted-foreground break-words">{activeWorkflowLoadError}</p>
+            <div className="mt-4 flex justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/workflows')}
+                className="rounded-lg border border-border/60 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50"
+              >
+                {t('common.back')}
+              </button>
+              <button
+                type="button"
+                onClick={retryLoad}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {t('common.retry')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : editorMode === 'visual' ? (
         <ReactFlowProvider>
           <VisualDAGEditor />
         </ReactFlowProvider>

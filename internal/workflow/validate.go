@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// identifierPattern matches names, node IDs, agent keys, and outcomes.
+// identifierPattern matches workflow names, node IDs, agent aliases, and outcomes.
+// Agent template IDs come from persisted agent data and may contain spaces.
 // Must start with a letter, followed by up to 63 alphanumeric/underscore/dash chars.
 var identifierPattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`)
 
@@ -90,8 +92,8 @@ func validateAndBuild(def WorkflowDef) (*ParsedWorkflow, error) {
 		if !identifierPattern.MatchString(key) {
 			return nil, fmt.Errorf("workflow: agent key %q must match %s", key, identifierPattern)
 		}
-		if !identifierPattern.MatchString(ref.Template) {
-			return nil, fmt.Errorf("workflow: agent %q template %q must match %s", key, ref.Template, identifierPattern)
+		if strings.TrimSpace(ref.Template) == "" {
+			return nil, fmt.Errorf("workflow: agent %q template must be non-empty", key)
 		}
 		if ref.Model != "" && !identifierPattern.MatchString(ref.Model) {
 			return nil, fmt.Errorf("workflow: agent %q model %q must match %s", key, ref.Model, identifierPattern)

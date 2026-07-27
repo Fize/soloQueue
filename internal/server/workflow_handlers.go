@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -30,6 +31,32 @@ func workflowStatus(err error) int {
 		return http.StatusConflict
 	}
 	return http.StatusUnprocessableEntity
+}
+
+func (m *Mux) validateWorkflowAgentTemplates(raw []byte) error {
+	parsed, err := workflow.ParseWorkflow(raw)
+	if err != nil {
+		return err
+	}
+	// Tests and embedders may intentionally omit the template registry. The
+	// production server always supplies it.
+	if len(m.templates) == 0 {
+		return nil
+	}
+	available := make(map[string]struct{}, len(m.templates))
+	for _, template := range m.templates {
+		available[template.ID] = struct{}{}
+	}
+	for key, ref := range parsed.Agents {
+		if _, ok := available[ref.Template]; !ok {
+			return fmt.Errorf(
+				"workflow: agent %q references missing template %q",
+				key,
+				ref.Template,
+			)
+		}
+	}
+	return nil
 }
 
 func (m *Mux) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +122,10 @@ func (m *Mux) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusConflict, map[string]string{"error": "workflow already exists"})
 		return
 	}
+	if err := m.validateWorkflowAgentTemplates([]byte(req.YAML)); err != nil {
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
 	meta, err := m.workflowStore.Save(req.Name, []byte(req.YAML))
 	if err != nil {
 		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
@@ -114,6 +145,10 @@ func (m *Mux) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	req, ok := m.decodeWorkflowWrite(w, r)
 	if !ok {
+		return
+	}
+	if err := m.validateWorkflowAgentTemplates([]byte(req.YAML)); err != nil {
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
 		return
 	}
 	meta, err := m.workflowStore.Save(name, []byte(req.YAML))
@@ -143,7 +178,7 @@ func (m *Mux) handleValidateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := workflow.ParseWorkflow([]byte(req.YAML)); err != nil {
+	if err := m.validateWorkflowAgentTemplates([]byte(req.YAML)); err != nil {
 		m.writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"valid": false, "error": err.Error()})
 		return
 	}

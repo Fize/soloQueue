@@ -235,6 +235,43 @@ func (f *DefaultFactory) Registry() *Registry {
 	return f.registry
 }
 
+// ResolveTemplate returns the current DB-backed agent template by ID.
+// Workflow execution uses this instead of constructing an empty synthetic
+// agent, so the selected agent's prompt, model, permissions, skills, and MCP
+// servers are preserved.
+func (f *DefaultFactory) ResolveTemplate(ctx context.Context, id string) (AgentTemplate, bool) {
+	if f.teamstore != nil {
+		agents, err := f.teamstore.ListAgents(ctx)
+		if err == nil {
+			for i := range agents {
+				if agents[i].ID != id {
+					continue
+				}
+				t := agents[i].ToAgentTemplate()
+				return AgentTemplate{
+					ID:            t.ID,
+					Name:          t.Name,
+					Description:   t.Description,
+					SystemPrompt:  t.SystemPrompt,
+					ModelID:       t.ModelID,
+					IsLeader:      t.IsLeader,
+					Group:         t.Group,
+					Permission:    t.Permission,
+					MCPServers:    t.MCPServers,
+					SkillIDs:      t.SkillIDs,
+					Channels:      t.Channels,
+					NotifyChannel: t.NotifyChannel,
+				}, true
+			}
+		}
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	t, ok := f.templates[id]
+	return t, ok
+}
+
 // SetToolsConfig updates the tools config of the factory dynamically.
 func (f *DefaultFactory) SetToolsConfig(cfg tools.Config) {
 	f.mu.Lock()

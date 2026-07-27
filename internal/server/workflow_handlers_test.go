@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
@@ -81,6 +82,26 @@ func TestWorkflowDefinitionAPI(t *testing.T) {
 	mux.ServeHTTP(rec, validate)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("validation status = %d", rec.Code)
+	}
+}
+
+func TestWorkflowDefinitionRejectsMissingAgentTemplate(t *testing.T) {
+	mux := newWorkflowTestMux(t)
+	mux.templates = []agent.AgentTemplate{{ID: "existing-agent"}}
+
+	create := newLocalhostRequest(
+		http.MethodPost,
+		"/api/workflows/",
+		strings.NewReader(`{"name":"demo","yaml":`+mustJSON(t, workflowTestYAML)+`}`),
+	)
+	create.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, create)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("create status = %d, want 422: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `missing template`) {
+		t.Fatalf("unexpected error: %s", rec.Body.String())
 	}
 }
 

@@ -691,7 +691,9 @@ export function ChatPage() {
         <header
           className={cn(
             "flex h-12 items-center border-b border-border/30 select-none bg-card/20 shrink-0",
-            isDesignMode && "electron-drag"
+            // Design mode owns its title bar: text and whitespace drag the
+            // window, while individual controls opt out below.
+            isDesignMode && "electron-drag-region"
           )}
         >
           {/* Left section: chat header area — fills remaining space */}
@@ -732,7 +734,7 @@ export function ChatPage() {
                 <button
                   type="button"
                   onClick={() => wsManager.connect()}
-                  className="flex items-center gap-1 text-[10px] text-destructive font-medium shrink-0 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-destructive/10 transition-colors"
+                  className="flex items-center gap-1 text-[10px] text-destructive font-medium shrink-0 cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 hover:bg-destructive/10 transition-colors electron-no-drag"
                   title="Click to retry the connection"
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />

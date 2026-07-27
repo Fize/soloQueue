@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
+  agentAliasForTemplate,
   graphToYAML,
+  unknownAgentTemplates,
   yamlToGraph,
   defaultYAMLTemplate,
   useWorkflowStore,
 } from './workflowStore'
-import type { GraphState } from '@/types'
+import type { AgentResponse, GraphState } from '@/types'
 
 // ─── Fixtures ───────────────────────────────────────────────────────────
 
@@ -95,10 +97,16 @@ beforeEach(() => {
     workflowMetas: [],
     workflowMetasLoading: false,
     workflowMetasError: null,
+    availableAgents: [],
+    availableAgentsLoading: false,
+    availableAgentsError: null,
     activeWorkflowName: null,
     activeWorkflowYAML: '',
     activeWorkflowGraph: { nodes: [], edges: [] },
+    activeWorkflowEntryNodes: [],
     activeWorkflowAgents: {},
+    activeWorkflowLoading: false,
+    activeWorkflowLoadError: null,
     activeWorkflowParsed: null,
     activeWorkflowValidationError: null,
     dirtySource: null,
@@ -138,6 +146,13 @@ describe('graphToYAML', () => {
     expect(entrySection).toContain('review')
     expect(entrySection).not.toContain('write')
     expect(entrySection).not.toContain('publish')
+  })
+
+  it('keeps explicitly selected entry nodes even when they have incoming edges', () => {
+    const yaml = graphToYAML('test-wf', makeSimpleGraph(), agents, ['write'])
+    const entrySection = yaml.split('entry:')[1].split('nodes:')[0]
+    expect(entrySection).toContain('write')
+    expect(entrySection).not.toContain('review')
   })
 
   it('serializes all nodes with prompts', () => {
@@ -220,6 +235,11 @@ describe('yamlToGraph', () => {
     const review = result!.graph.nodes.find(n => n.id === 'review')!
     expect(review.position.x).toBe(100)
     expect(review.position.y).toBe(200)
+  })
+
+  it('reads explicit entry nodes from YAML', () => {
+    const yaml = graphToYAML('parse-test', makeSimpleGraph(), agents, ['write'])
+    expect(yamlToGraph(yaml)!.entryNodes).toEqual(['write'])
   })
 
   it('handles loop edges', () => {
@@ -361,24 +381,68 @@ describe('graphToYAML ↔ yamlToGraph round-trip', () => {
 // ─── defaultYAMLTemplate ────────────────────────────────────────────────
 
 describe('defaultYAMLTemplate', () => {
-  it('returns a valid YAML template with the given name', () => {
-    const yaml = defaultYAMLTemplate('my-workflow')
+  it('uses the selected existing agent instead of fabricated sample agents', () => {
+    const yaml = defaultYAMLTemplate('my-workflow', 'reviewer')
     expect(yaml).toContain('name: my-workflow')
     expect(yaml).toContain('version: "1"')
-    expect(yaml).toContain('agents:')
-    expect(yaml).toContain('entry:')
-    expect(yaml).toContain('- analyze')
-    expect(yaml).toContain('nodes:')
-    expect(yaml).toContain('id: analyze')
-    expect(yaml).toContain('id: write')
+    expect(yaml).toContain('reviewer:')
+    expect(yaml).toContain('template: "reviewer"')
+    expect(yaml).toContain('- start')
+    expect(yaml).toContain('id: start')
+    expect(yaml).not.toContain('analyzer')
+    expect(yaml).not.toContain('writer')
   })
 
   it('is parseable by yamlToGraph', () => {
-    const yaml = defaultYAMLTemplate('parse-me')
+    const yaml = defaultYAMLTemplate('parse-me', 'reviewer')
     const result = yamlToGraph(yaml)
     expect(result).not.toBeNull()
-    expect(result!.graph.nodes).toHaveLength(2)
+    expect(result!.graph.nodes).toHaveLength(1)
     expect(result!.name).toBe('parse-me')
+  })
+
+  it('does not invent agents when none is supplied', () => {
+    const yaml = defaultYAMLTemplate('empty')
+    expect(yaml).toContain('agents: {}')
+    expect(yaml).toContain('nodes: []')
+    expect(yaml).not.toContain('analyzer')
+    expect(yaml).not.toContain('writer')
+  })
+
+  it('maps an existing agent ID with spaces to a safe YAML alias', () => {
+    expect(agentAliasForTemplate('Andrej Karpathy')).toBe('Andrej_Karpathy')
+    const yaml = defaultYAMLTemplate('spaced-agent', 'Andrej Karpathy')
+    expect(yaml).toContain('Andrej_Karpathy:')
+    expect(yaml).toContain('template: "Andrej Karpathy"')
+    expect(yaml).toContain('agent: Andrej_Karpathy')
+  })
+})
+
+describe('workflow agent references', () => {
+  const existingAgent = {
+    id: 'reviewer',
+    name: 'reviewer',
+  } as AgentResponse
+
+  it('reports YAML templates that are not backed by existing agents', () => {
+    expect(unknownAgentTemplates(
+      { review: { template: 'reviewer' }, write: { template: 'writer' } },
+      [existingAgent],
+    )).toEqual(['writer'])
+  })
+
+  it('adds a YAML agent ref only for the selected existing template', () => {
+    useWorkflowStore.setState({
+      activeWorkflowName: 'agent-ref',
+      activeWorkflowYAML: defaultYAMLTemplate('agent-ref'),
+      activeWorkflowAgents: {},
+    })
+    const ref = useWorkflowStore.getState().ensureAgentReference('reviewer')
+    expect(ref).toBe('reviewer')
+    expect(useWorkflowStore.getState().activeWorkflowAgents).toEqual({
+      reviewer: { template: 'reviewer' },
+    })
+    expect(useWorkflowStore.getState().activeWorkflowYAML).toContain('template: reviewer')
   })
 })
 
@@ -434,17 +498,20 @@ describe('workflowStore CRUD', () => {
   })
 
   it('setActiveWorkflow loads from the backend', async () => {
-    const yaml = defaultYAMLTemplate('existing-wf')
+    const yaml = defaultYAMLTemplate('existing-wf', 'reviewer')
     backendWorkflows['existing-wf'] = yaml
 
     await useWorkflowStore.getState().setActiveWorkflow('existing-wf')
     const state = useWorkflowStore.getState()
     expect(state.activeWorkflowYAML).toBe(yaml)
-    expect(state.activeWorkflowGraph.nodes).toHaveLength(2)
+    expect(state.activeWorkflowGraph.nodes).toHaveLength(1)
   })
 
   it('does not invent a missing workflow', async () => {
     await expect(useWorkflowStore.getState().setActiveWorkflow('brand-new')).rejects.toThrow('not found')
+    const state = useWorkflowStore.getState()
+    expect(state.activeWorkflowLoadError).toContain('not found')
+    expect(state.activeWorkflowLoading).toBe(false)
   })
 
   it('validateWorkflow passes for valid YAML', async () => {
@@ -485,6 +552,45 @@ describe('workflowStore graph mutations', () => {
     expect(state.activeWorkflowGraph.nodes[0].id).toBe('n1')
     expect(state.activeWorkflowYAML).toContain('id: n1')
     expect(state.dirtySource).toBe('visual')
+  })
+
+  it('preserves layout comments when visual edits rewrite the YAML document', () => {
+    const node = {
+      id: 'n1', agent: 'r1', prompt: 'test',
+      outputs: { done: { to: [], loop: false, max_traversals: 0 } },
+      position: { x: 100, y: 100 },
+    }
+    useWorkflowStore.setState({
+      activeWorkflowGraph: { nodes: [node], edges: [] },
+      activeWorkflowEntryNodes: ['n1'],
+      activeWorkflowYAML: graphToYAML('test-graph', { nodes: [node], edges: [] }, { r1: { template: 'reviewer' } }, ['n1']),
+    })
+
+    useWorkflowStore.getState().setGraph({
+      nodes: [{ ...node, position: { x: 320, y: 240 } }],
+      edges: [],
+    })
+
+    const yaml = useWorkflowStore.getState().activeWorkflowYAML
+    expect(yaml).toContain('# @position: 320,240')
+    expect(yamlToGraph(yaml)!.graph.nodes[0].position).toEqual({ x: 320, y: 240 })
+  })
+
+  it('updates the explicit entry list through the visual inspector mutation', () => {
+    const node = {
+      id: 'n1', agent: 'r1', prompt: '',
+      outputs: { done: { to: [], loop: false, max_traversals: 0 } },
+      position: { x: 0, y: 0 },
+    }
+    useWorkflowStore.setState({
+      activeWorkflowGraph: { nodes: [node], edges: [] },
+      activeWorkflowEntryNodes: [],
+      activeWorkflowYAML: graphToYAML('test-graph', { nodes: [node], edges: [] }, { r1: { template: 'reviewer' } }, []),
+    })
+
+    useWorkflowStore.getState().toggleEntryNode('n1')
+    expect(useWorkflowStore.getState().activeWorkflowEntryNodes).toEqual(['n1'])
+    expect(yamlToGraph(useWorkflowStore.getState().activeWorkflowYAML)!.entryNodes).toEqual(['n1'])
   })
 
   it('removeNode removes node and its edges', () => {
@@ -552,9 +658,9 @@ describe('workflowStore graph mutations', () => {
   })
 
   it('setYAML updates graph from YAML string', () => {
-    useWorkflowStore.getState().setYAML(defaultYAMLTemplate('from-yaml'))
+    useWorkflowStore.getState().setYAML(defaultYAMLTemplate('from-yaml', 'reviewer'))
     const state = useWorkflowStore.getState()
-    expect(state.activeWorkflowGraph.nodes).toHaveLength(2)
+    expect(state.activeWorkflowGraph.nodes).toHaveLength(1)
     expect(state.dirtySource).toBe('yaml')
   })
 })

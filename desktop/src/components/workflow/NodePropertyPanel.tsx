@@ -2,15 +2,19 @@ import { useState } from 'react'
 import { Trash2, Plus, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import type { GraphNode, OutputDef } from '@/types'
+import type { AgentResponse, GraphNode, OutputDef } from '@/types'
 import { useTranslation } from '@/lib/i18n'
 
 // ─── Props ──────────────────────────────────────────────────────────────
 
 interface NodePropertyPanelProps {
   node: GraphNode
-  agentKeys: string[]
+  agentRefs: Record<string, { template: string; model?: string }>
+  availableAgents: AgentResponse[]
+  isEntry: boolean
   onUpdate: (updates: Partial<GraphNode>) => void
+  onAgentChange: (template: string) => void
+  onToggleEntry: () => void
   onDelete: () => void
 }
 
@@ -18,14 +22,28 @@ interface NodePropertyPanelProps {
 
 export function NodePropertyPanel({
   node,
-  agentKeys,
+  agentRefs,
+  availableAgents,
+  isEntry,
   onUpdate,
+  onAgentChange,
+  onToggleEntry,
   onDelete,
 }: NodePropertyPanelProps) {
   const { t } = useTranslation()
   const [newOutcome, setNewOutcome] = useState('')
 
   const outcomes = node.outputs || {}
+  const resolvedAgent = agentRefs[node.agent]?.template || ''
+  const yamlMapping = [
+    `- id: ${node.id}`,
+    `  agent: ${node.agent || '—'}`,
+    '  outputs:',
+    ...Object.entries(outcomes).flatMap(([outcome, output]) => [
+      `    ${outcome}:`,
+      `      to: [${output.to.join(', ')}]`,
+    ]),
+  ].join('\n')
 
   const handleAddOutcome = () => {
     if (!newOutcome.trim()) return
@@ -85,16 +103,30 @@ export function NodePropertyPanel({
             {t('workflow.agentRef')}
           </label>
           <select
-            value={node.agent}
-            onChange={(e) => onUpdate({ agent: e.target.value })}
+            value={resolvedAgent}
+            onChange={(e) => onAgentChange(e.target.value)}
             className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-1 text-xs text-foreground shadow-sm transition-colors font-mono"
           >
-            <option value="">--</option>
-            {agentKeys.map((key) => (
-              <option key={key} value={key}>{key}</option>
+            {!resolvedAgent && <option value="">Invalid agent reference</option>}
+            {availableAgents.map((agent) => (
+              <option key={agent.id} value={agent.id}>{agent.name}</option>
             ))}
           </select>
+          <p className="mt-1 text-[9px] text-muted-foreground">
+            YAML: <code>agents.{node.agent || '—'}.template: {resolvedAgent || '—'}</code>
+          </p>
         </div>
+
+        {/* Entry is an execution semantic, not an inferred graph decoration. */}
+        <label className="flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isEntry}
+            onChange={onToggleEntry}
+            className="h-3.5 w-3.5 rounded accent-primary"
+          />
+          <span className="text-[10px] font-mono text-foreground">{t('workflow.entryNode')}</span>
+        </label>
 
         {/* Prompt */}
         <div>
@@ -130,6 +162,17 @@ export function NodePropertyPanel({
         </div>
 
         {/* Divider */}
+        <div className="border-t border-border/40" />
+
+        <div>
+          <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            {t('workflow.yamlMapping')}
+          </label>
+          <pre className="overflow-x-auto whitespace-pre rounded-lg border border-border/50 bg-muted/25 p-3 font-mono text-[9px] leading-relaxed text-muted-foreground">
+            {yamlMapping}
+          </pre>
+        </div>
+
         <div className="border-t border-border/40" />
 
         {/* Outputs */}

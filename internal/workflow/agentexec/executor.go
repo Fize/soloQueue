@@ -78,6 +78,10 @@ type Executor struct {
 	log      *logger.Logger
 }
 
+type templateResolver interface {
+	ResolveTemplate(context.Context, string) (agent.AgentTemplate, bool)
+}
+
 // NewExecutor creates a workflow agent executor.
 func NewExecutor(factory agent.AgentFactory, registry *agent.Registry, log *logger.Logger) *Executor {
 	return &Executor{factory: factory, registry: registry, log: log}
@@ -93,20 +97,28 @@ func NewExecutor(factory agent.AgentFactory, registry *agent.Registry, log *logg
 // The temporary agent is always stopped and unregistered, regardless
 // of success, failure, or cancellation.
 func (e *Executor) Execute(ctx context.Context, req workflow.NodeRunRequest) (workflow.NodeRunResult, error) {
-	// Resolve agent template
-	tmpl := agent.AgentTemplate{
-		ID:           req.Node.ID + "_" + req.NodeRun.ID,
-		Name:         req.Node.ID,
-		Description:  "Workflow node executor",
-		SystemPrompt: buildWorkflowSystemPrompt(req),
-		ModelID:      req.AgentRef.Model,
+	resolver, ok := e.factory.(templateResolver)
+	if !ok {
+		return workflow.NodeRunResult{}, fmt.Errorf("agentexec: factory cannot resolve agent templates")
+	}
+	tmpl, ok := resolver.ResolveTemplate(ctx, req.AgentRef.Template)
+	if !ok {
+		return workflow.NodeRunResult{}, fmt.Errorf(
+			"agentexec: workflow agent template %q does not exist",
+			req.AgentRef.Template,
+		)
+	}
+	tmpl.ID = req.Node.ID + "_" + req.NodeRun.ID
+	tmpl.Name = req.Node.ID
+	if req.AgentRef.Model != "" {
+		tmpl.ModelID = req.AgentRef.Model
 	}
 
 	// Create the handoff tool (one per NodeRun)
 	handoff := newHandoffTool()
 
 	createOpts := agent.CreateOptions{
-		ExtraSystemPrompt: req.Node.Prompt,
+		ExtraSystemPrompt: buildWorkflowSystemPrompt(req) + req.Node.Prompt + "\n</node_instruction>",
 		ExtraTools:        []tools.Tool{handoff},
 	}
 

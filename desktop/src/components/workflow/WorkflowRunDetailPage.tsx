@@ -293,7 +293,7 @@ export function WorkflowRunDetailPage() {
           <button
             type="button"
             onClick={() => navigate(`/workflows/${name}`)}
-            className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+            className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0 electron-no-drag"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -307,7 +307,7 @@ export function WorkflowRunDetailPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 electron-no-drag">
           {isRunning && (
             <button
               type="button"

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { parseDocument } from 'yaml'
 import type {
+  AgentResponse,
   WorkflowMeta,
   WorkflowDef,
   GraphState,
@@ -9,6 +10,7 @@ import type {
   WorkflowRunSummary,
   WorkflowRunDetail,
 } from '@/types'
+import { listAgents } from '@/lib/api/agent-api'
 import {
   cancelWorkflowRun,
   createWorkflow as createWorkflowRequest,
@@ -25,7 +27,12 @@ import {
 // ─── YAML ↔ Graph Serialization ─────────────────────────────────────────
 
 // Serialize GraphState to YAML string
-export function graphToYAML(name: string, graph: GraphState, agents: Record<string, { template: string; model?: string }>): string {
+export function graphToYAML(
+  name: string,
+  graph: GraphState,
+  agents: Record<string, { template: string; model?: string }>,
+  entryNodes = graph.nodes.filter(n => !graph.edges.some(e => e.target === n.id)).map(n => n.id),
+): string {
   const lines: string[] = []
   lines.push(`name: ${name}`)
   lines.push('description: ""')
@@ -44,14 +51,9 @@ export function graphToYAML(name: string, graph: GraphState, agents: Record<stri
     if (ref.model) lines.push(`    model: ${ref.model}`)
   }
   lines.push('')
-  const entryNodes = graph.nodes.filter(n => {
-    // A node is an entry if no edge targets it
-    const hasIncoming = graph.edges.some(e => e.target === n.id)
-    return !hasIncoming
-  })
   lines.push('entry:')
-  for (const n of entryNodes) {
-    lines.push(`  - ${n.id}`)
+  for (const entryNode of entryNodes) {
+    lines.push(`  - ${entryNode}`)
   }
   lines.push('')
   lines.push('nodes:')
@@ -102,17 +104,19 @@ export function graphToYAML(name: string, graph: GraphState, agents: Record<stri
 // Applies visual changes to the existing document instead of recreating the
 // whole YAML file. This preserves top-level metadata, custom defaults and
 // comments unrelated to the graph.
-function mergeGraphIntoYAML(existingYAML: string, name: string, graph: GraphState, agents: Record<string, { template: string; model?: string }>): string {
+function mergeGraphIntoYAML(
+  existingYAML: string,
+  name: string,
+  graph: GraphState,
+  agents: Record<string, { template: string; model?: string }>,
+  entryNodes: string[],
+): string {
   const doc = parseDocument(existingYAML)
-  if (doc.errors.length > 0 || !doc.contents) return graphToYAML(name, graph, agents)
+  if (doc.errors.length > 0 || !doc.contents) return graphToYAML(name, graph, agents, entryNodes)
   doc.set('name', name)
   doc.set('agents', agents)
-  // entry is an explicit workflow semantic, not a presentation detail. Keep a
-  // user-authored list intact; only synthesize it for malformed legacy drafts.
-  if (!doc.get('entry')) {
-    doc.set('entry', graph.nodes.filter(n => !graph.edges.some(e => e.target === n.id)).map(n => n.id))
-  }
-  doc.set('nodes', graph.nodes.map(node => ({
+  doc.set('entry', entryNodes)
+  const yamlNodes = doc.createNode(graph.nodes.map(node => ({
     id: node.id,
     agent: node.agent,
     prompt: node.prompt,
@@ -120,33 +124,46 @@ function mergeGraphIntoYAML(existingYAML: string, name: string, graph: GraphStat
     ...(node.join ? { join: node.join } : {}),
     outputs: node.outputs,
     ...(node.onError ? { on_error: node.onError } : {}),
-  })))
-  return String(doc)
-}
-
-function updateEntryYAML(yaml: string, transform: (entries: string[]) => string[]): string {
-  const doc = parseDocument(yaml)
-  if (doc.errors.length > 0 || !doc.contents) return yaml
-  const value = doc.toJS() as { entry?: unknown }
-  const entries = Array.isArray(value.entry) ? value.entry.filter((entry): entry is string => typeof entry === 'string') : []
-  doc.set('entry', transform(entries))
+  }))) as { items?: Array<{ comment?: string }> }
+  yamlNodes.items?.forEach((item, index) => {
+    const position = graph.nodes[index]?.position
+    if (position) item.comment = ` @position: ${Math.round(position.x)},${Math.round(position.y)}`
+  })
+  doc.set('nodes', yamlNodes)
   return String(doc)
 }
 
 // Parse YAML string to GraphState
 // Simplified parser — extracts nodes and edges from workflow YAML
-export function yamlToGraph(yaml: string): { graph: GraphState; name: string; agents: Record<string, { template: string; model?: string }> } | null {
+export function yamlToGraph(yaml: string): { graph: GraphState; name: string; agents: Record<string, { template: string; model?: string }>; entryNodes: string[] } | null {
   try {
+    const document = parseDocument(yaml)
+    if (document.errors.length > 0) return null
+    const documentValue = document.toJS() as {
+      name?: unknown
+      entry?: unknown
+      agents?: Record<string, { template?: unknown; model?: unknown }>
+    }
+    const entryNodes = Array.isArray(documentValue.entry)
+      ? documentValue.entry.filter((entry): entry is string => typeof entry === 'string')
+      : []
     const nodes: GraphNode[] = []
     const edges: GraphEdge[] = []
-    const agents: Record<string, { template: string; model?: string }> = {}
-    let name = ''
+    const agents: Record<string, { template: string; model?: string }> = Object.fromEntries(
+      Object.entries(documentValue.agents || {}).flatMap(([key, ref]) => {
+        if (!ref || typeof ref.template !== 'string') return []
+        return [[key, {
+          template: ref.template,
+          ...(typeof ref.model === 'string' && ref.model ? { model: ref.model } : {}),
+        }]]
+      })
+    )
+    let name = typeof documentValue.name === 'string' ? documentValue.name : ''
     let currentNode: Partial<GraphNode> | null = null
     let position: { x: number; y: number } | null = null
 
     const lines = yaml.split('\n')
     let i = 0
-    let currentAgentKey: string | null = null
 
     // Helper: get indent level (number of leading spaces)
     const getIndent = (line: string) => line.search(/\S/)
@@ -182,32 +199,6 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
         continue
       }
 
-      // --- agents: section ---
-      // Agent keys at indent 2, properties at indent 4
-      // Only match key:value patterns — NOT list items (which start with "-")
-      if (indent === 2 && !content.startsWith('-')) {
-          const agentKeyMatch = content.match(/^([A-Za-z][A-Za-z0-9_-]*):$/)
-        if (agentKeyMatch) {
-          currentAgentKey = agentKeyMatch[1]
-          agents[currentAgentKey] = { template: '' }
-          i++
-          continue
-        }
-      }
-
-      if (indent === 4 && currentAgentKey) {
-        const templateMatch = content.match(/^template:\s*(.+)/)
-        if (templateMatch) {
-          agents[currentAgentKey].template = templateMatch[1].trim()
-        }
-        const modelMatch = content.match(/^model:\s*(.+)/)
-        if (modelMatch) {
-          agents[currentAgentKey].model = modelMatch[1].trim()
-        }
-        i++
-        continue
-      }
-
       // --- nodes: section ---
       // Node entries start with "- id:" at indent 2
       if (indent === 2 && content.startsWith('- id:')) {
@@ -218,7 +209,6 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
         currentNode = { outputs: {} }
         position = null
         currentNode.id = content.replace(/^- id:\s*/, '').trim()
-        currentAgentKey = null
         i++
         continue
       }
@@ -412,7 +402,7 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
       return null
     }
 
-    return { graph: { nodes, edges }, name, agents }
+    return { graph: { nodes, edges }, name, agents, entryNodes }
   } catch {
     return null
   }
@@ -420,7 +410,32 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
 
 // ─── Default YAML template ──────────────────────────────────────────────
 
-export function defaultYAMLTemplate(name: string): string {
+export function agentAliasForTemplate(template: string): string {
+  let alias = template.trim().replace(/[^A-Za-z0-9_-]+/g, '_')
+  if (!/^[A-Za-z]/.test(alias)) alias = `agent_${alias}`
+  alias = alias.replace(/_+/g, '_').slice(0, 64).replace(/[_-]+$/, '')
+  return alias || 'agent'
+}
+
+export function defaultYAMLTemplate(name: string, agentID?: string): string {
+  if (!agentID) {
+    return `name: ${name}
+description: ""
+version: "1"
+
+defaults:
+  node_timeout: 20m
+  workflow_timeout: 45m
+  max_node_runs: 50
+  max_output_bytes: 131072
+
+agents: {}
+entry: []
+nodes: []
+`
+  }
+
+  const agentAlias = agentAliasForTemplate(agentID)
   return `name: ${name}
 description: ""
 version: "1"
@@ -432,31 +447,33 @@ defaults:
   max_output_bytes: 131072
 
 agents:
-  analyzer:
-    template: analyzer
-  writer:
-    template: writer
+  ${agentAlias}:
+    template: ${JSON.stringify(agentID)}
 
 entry:
-  - analyze
+  - start
 
 nodes:
-  - id: analyze
-    agent: analyzer
+  - id: start
+    agent: ${agentAlias}
     prompt: |
-      Analyze the input and extract key points.
-    outputs:
-      done:
-        to:
-          - write
-  - id: write
-    agent: writer
-    prompt: |
-      Write a summary based on the analysis.
+      Describe what this step should accomplish.
     outputs:
       done:
         to: []
 `
+}
+
+export function unknownAgentTemplates(
+  agents: Record<string, { template: string; model?: string }>,
+  availableAgents: AgentResponse[],
+): string[] {
+  const available = new Set(availableAgents.map(agent => agent.id))
+  return [...new Set(
+    Object.values(agents)
+      .map(ref => ref.template)
+      .filter(template => !available.has(template))
+  )]
 }
 
 function edgesFromNodes(nodes: GraphNode[]): GraphEdge[] {
@@ -477,6 +494,12 @@ function edgesFromNodes(nodes: GraphNode[]): GraphEdge[] {
 export type DirtySource = 'visual' | 'yaml' | null
 
 interface WorkflowState {
+  // Existing DB-backed agents are the only source for workflow agent refs.
+  availableAgents: AgentResponse[]
+  availableAgentsLoading: boolean
+  availableAgentsError: string | null
+  fetchAvailableAgents: () => Promise<void>
+
   // Workflow definitions list
   workflowMetas: WorkflowMeta[]
   workflowMetasLoading: boolean
@@ -487,7 +510,10 @@ interface WorkflowState {
   activeWorkflowName: string | null
   activeWorkflowYAML: string
   activeWorkflowGraph: GraphState
+  activeWorkflowEntryNodes: string[]
   activeWorkflowAgents: Record<string, { template: string; model?: string }>
+  activeWorkflowLoading: boolean
+  activeWorkflowLoadError: string | null
   activeWorkflowParsed: WorkflowDef | null
   activeWorkflowValidationError: string | null
   dirtySource: DirtySource
@@ -504,6 +530,8 @@ interface WorkflowState {
   addEdge: (edge: GraphEdge) => void
   updateEdge: (edgeId: string, updates: Partial<GraphEdge>) => void
   removeEdge: (edgeId: string) => void
+  toggleEntryNode: (nodeId: string) => void
+  ensureAgentReference: (template: string) => string
 
   // YAML mutations (yaml mode)
   setYAML: (yaml: string) => void
@@ -537,6 +565,24 @@ interface WorkflowState {
 let inflightMetasLoad: Promise<void> | null = null
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
+  availableAgents: [],
+  availableAgentsLoading: false,
+  availableAgentsError: null,
+
+  fetchAvailableAgents: async () => {
+    set({ availableAgentsLoading: true, availableAgentsError: null })
+    try {
+      const agents = await listAgents()
+      set({ availableAgents: agents, availableAgentsLoading: false })
+    } catch (err: any) {
+      set({
+        availableAgents: [],
+        availableAgentsLoading: false,
+        availableAgentsError: err.message || 'Failed to load agents',
+      })
+    }
+  },
+
   workflowMetas: [],
   workflowMetasLoading: false,
   workflowMetasError: null,
@@ -564,7 +610,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   activeWorkflowName: null,
   activeWorkflowYAML: '',
   activeWorkflowGraph: { nodes: [], edges: [] },
+  activeWorkflowEntryNodes: [],
   activeWorkflowAgents: {},
+  activeWorkflowLoading: false,
+  activeWorkflowLoadError: null,
   activeWorkflowParsed: null,
   activeWorkflowValidationError: null,
   dirtySource: null,
@@ -572,17 +621,31 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   _syncing: false,
 
   setActiveWorkflow: async (name: string) => {
-    set({ activeWorkflowName: name, activeWorkflowValidationError: null })
-
-    const { yaml } = await getWorkflow(name)
-
-    const parsed = yamlToGraph(yaml)
     set({
-      activeWorkflowYAML: yaml,
-      activeWorkflowGraph: parsed?.graph || { nodes: [], edges: [] },
-      activeWorkflowAgents: parsed?.agents || {},
-      dirtySource: null,
+      activeWorkflowName: name,
+      activeWorkflowValidationError: null,
+      activeWorkflowLoadError: null,
+      activeWorkflowLoading: true,
+      activeWorkflowGraph: { nodes: [], edges: [] },
+      activeWorkflowEntryNodes: [],
+      activeWorkflowAgents: {},
     })
+    try {
+      const { yaml } = await getWorkflow(name)
+      const parsed = yamlToGraph(yaml)
+      if (!parsed) throw new Error('Unable to parse workflow definition')
+      set({
+        activeWorkflowYAML: yaml,
+        activeWorkflowGraph: parsed.graph,
+        activeWorkflowEntryNodes: parsed.entryNodes,
+        activeWorkflowAgents: parsed.agents,
+        dirtySource: null,
+        activeWorkflowLoading: false,
+      })
+    } catch (err: any) {
+      set({ activeWorkflowLoadError: err.message || 'Failed to load workflow', activeWorkflowLoading: false })
+      throw err
+    }
   },
 
   setEditorMode: (mode) => set({ editorMode: mode }),
@@ -594,7 +657,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({ _syncing: true })
 
     const normalizedGraph = { nodes: graph.nodes, edges: edgesFromNodes(graph.nodes) }
-    const yaml = mergeGraphIntoYAML(state.activeWorkflowYAML, state.activeWorkflowName || 'untitled', normalizedGraph, state.activeWorkflowAgents)
+    const yaml = mergeGraphIntoYAML(
+      state.activeWorkflowYAML,
+      state.activeWorkflowName || 'untitled',
+      normalizedGraph,
+      state.activeWorkflowAgents,
+      state.activeWorkflowEntryNodes,
+    )
     set({
       activeWorkflowGraph: normalizedGraph,
       activeWorkflowYAML: yaml,
@@ -628,9 +697,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       target: rewriteRef(e.target),
       id: `${rewriteRef(e.source)}:${e.outcome}:${rewriteRef(e.target)}`,
     }))
-    if (nextID !== nodeId) {
-      set({ activeWorkflowYAML: updateEntryYAML(state.activeWorkflowYAML, entries => entries.map(rewriteRef)) })
-    }
+    if (nextID !== nodeId) set({ activeWorkflowEntryNodes: state.activeWorkflowEntryNodes.map(rewriteRef) })
     get().setGraph({ nodes, edges })
   },
 
@@ -646,7 +713,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const edges = state.activeWorkflowGraph.edges.filter(
       e => e.source !== nodeId && e.target !== nodeId
     )
-    set({ activeWorkflowYAML: updateEntryYAML(state.activeWorkflowYAML, entries => entries.filter(entry => entry !== nodeId)) })
+    set({ activeWorkflowEntryNodes: state.activeWorkflowEntryNodes.filter(entry => entry !== nodeId) })
     get().setGraph({ nodes, edges })
   },
 
@@ -716,6 +783,35 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     state.setGraph({ nodes, edges })
   },
 
+  toggleEntryNode: (nodeId) => {
+    const state = get()
+    if (!state.activeWorkflowGraph.nodes.some(node => node.id === nodeId)) return
+    const entryNodes = state.activeWorkflowEntryNodes.includes(nodeId)
+      ? state.activeWorkflowEntryNodes.filter(id => id !== nodeId)
+      : [...state.activeWorkflowEntryNodes, nodeId]
+    set({ activeWorkflowEntryNodes: entryNodes })
+    get().setGraph(state.activeWorkflowGraph)
+  },
+
+  ensureAgentReference: (template) => {
+    const state = get()
+    const existing = Object.entries(state.activeWorkflowAgents)
+      .find(([, ref]) => ref.template === template)
+    if (existing) return existing[0]
+
+    const baseKey = agentAliasForTemplate(template)
+    let key = baseKey
+    let suffix = 2
+    while (state.activeWorkflowAgents[key] && state.activeWorkflowAgents[key].template !== template) {
+      const suffixText = `_${suffix}`
+      key = `${baseKey.slice(0, 64 - suffixText.length)}${suffixText}`
+      suffix += 1
+    }
+    set({ activeWorkflowAgents: { ...state.activeWorkflowAgents, [key]: { template } } })
+    get().setGraph(get().activeWorkflowGraph)
+    return key
+  },
+
   // YAML mutations — from yaml mode
   setYAML: (yaml) => {
     const state = get()
@@ -726,6 +822,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({
       activeWorkflowYAML: yaml,
       activeWorkflowGraph: parsed?.graph || state.activeWorkflowGraph,
+      activeWorkflowEntryNodes: parsed?.entryNodes || state.activeWorkflowEntryNodes,
       activeWorkflowAgents: parsed?.agents || state.activeWorkflowAgents,
       dirtySource: 'yaml',
       _syncing: false,
