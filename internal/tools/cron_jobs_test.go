@@ -72,7 +72,7 @@ func TestCronToolsRejectInvalidArguments(t *testing.T) {
 		name string
 		raw  string
 	}{
-		{name: "create_cron_job", raw: `{"title":"","task_level":"L1","schedule":"0 9 * * 1","instruction":"run"}`},
+		{name: "create_cron_job", raw: `{"title":"","task_type":"general","schedule":"0 9 * * 1","instruction":"run"}`},
 		{name: "list_cron_jobs", raw: `{"status":"unknown"}`},
 		{name: "update_cron_job", raw: `{}`},
 		{name: "delete_cron_job", raw: `{}`},
@@ -91,7 +91,7 @@ func TestTeamCronToolsAreOwnerScoped(t *testing.T) {
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessTeam, Owner: "engineering"})
 
 	create := findCronTool(t, cfg, "create_cron_job")
-	createdRaw, err := create.Execute(ctx, `{"title":"Team report","task_level":"L2","schedule":"0 9 * * 1","instruction":"Prepare report","target_agent":"finance"}`)
+	createdRaw, err := create.Execute(ctx, `{"title":"Team report","task_type":"research","schedule":"0 9 * * 1","instruction":"Prepare report","target_agent":"finance"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestTeamCronToolsAreOwnerScoped(t *testing.T) {
 	}
 
 	foreign, err := cfg.CronStore.CreateTask(ctx, cron.CreateTaskInput{
-		Title: "Finance report", TaskLevel: "L1", Expression: "0 10 * * 1",
+		Title: "Finance report", TaskType: "general", Expression: "0 10 * * 1",
 		Instruction: "Prepare finance report", TargetAgent: "finance", NextRunAt: time.Now().Add(time.Hour),
 	})
 	if err != nil {
@@ -149,7 +149,7 @@ func TestTeamCronToolsAreOwnerScoped(t *testing.T) {
 func TestCreateCronJobGlobalCanTargetAnyAgent(t *testing.T) {
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessGlobal})
 	create := findCronTool(t, cfg, "create_cron_job")
-	raw, err := create.Execute(context.Background(), `{"title":"Finance report","task_level":"L1","schedule":"0 9 * * 1","instruction":"Prepare report","target_agent":"finance"}`)
+	raw, err := create.Execute(context.Background(), `{"title":"Finance report","task_type":"general","schedule":"0 9 * * 1","instruction":"Prepare report","target_agent":"finance"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestListCronJobsFiltersByStatusAndTarget(t *testing.T) {
 	createTask := func(title, target string) *cron.Task {
 		t.Helper()
 		task, err := cfg.CronStore.CreateTask(ctx, cron.CreateTaskInput{
-			Title: title, TaskLevel: "L1", Expression: "0 9 * * 1",
+			Title: title, TaskType: "general", Expression: "0 9 * * 1",
 			Instruction: "Run " + title, TargetAgent: target, NextRunAt: time.Now().Add(time.Hour),
 		})
 		if err != nil {
@@ -200,14 +200,14 @@ func TestUpdateCronJobUpdatesAllEditableFields(t *testing.T) {
 	ctx := context.Background()
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessGlobal})
 	task, err := cfg.CronStore.CreateTask(ctx, cron.CreateTaskInput{
-		Title: "Old title", TaskLevel: "L1", Expression: "0 9 * * 1",
+		Title: "Old title", TaskType: "general", Expression: "0 9 * * 1",
 		Instruction: "Old instruction", TargetAgent: "engineering", NextRunAt: time.Now().Add(time.Hour),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	raw := `{"task_id":"` + task.ID + `","title":"New title","task_level":"L4","schedule":"30 10 * * 2","instruction":"New instruction","target_agent":"finance","status":"paused"}`
+	raw := `{"task_id":"` + task.ID + `","title":"New title","task_type":"engineering","schedule":"30 10 * * 2","instruction":"New instruction","target_agent":"finance","status":"paused"}`
 	if _, err := findCronTool(t, cfg, "update_cron_job").Execute(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestUpdateCronJobUpdatesAllEditableFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Title != "New title" || updated.TaskLevel != "L4" || updated.Expression != "30 10 * * 2" ||
+	if updated.Title != "New title" || updated.TaskType != "engineering" || updated.Expression != "30 10 * * 2" ||
 		updated.Instruction != "New instruction" || updated.TargetAgent != "finance" || updated.Status != "paused" {
 		t.Fatalf("unexpected updated job: %+v", updated)
 	}
@@ -225,7 +225,7 @@ func TestDeleteCronJobRemovesJob(t *testing.T) {
 	ctx := context.Background()
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessGlobal})
 	task, err := cfg.CronStore.CreateTask(ctx, cron.CreateTaskInput{
-		Title: "Delete me", TaskLevel: "L1", Expression: "0 9 * * 1",
+		Title: "Delete me", TaskType: "general", Expression: "0 9 * * 1",
 		Instruction: "Delete test", TargetAgent: "L1", NextRunAt: time.Now().Add(time.Hour),
 	})
 	if err != nil {

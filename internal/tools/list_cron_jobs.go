@@ -52,7 +52,7 @@ type listCronJobsArgs struct {
 type cronJobSummary struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
-	TaskLevel   string `json:"task_level"`
+	TaskType    string `json:"task_type"`
 	Schedule    string `json:"schedule"`
 	Instruction string `json:"instruction"`
 	TargetAgent string `json:"target_agent"`
@@ -95,7 +95,7 @@ func (t *listCronJobsTool) Execute(ctx context.Context, raw string) (string, err
 			continue
 		}
 		jobs = append(jobs, cronJobSummary{
-			ID: task.ID, Title: task.Title, TaskLevel: task.TaskLevel,
+			ID: task.ID, Title: task.Title, TaskType: task.TaskType,
 			Schedule: task.Expression, Instruction: task.Instruction,
 			TargetAgent: task.TargetAgent, Status: task.Status,
 			NextRunAt: task.NextRunAt.Format(time.DateTime),

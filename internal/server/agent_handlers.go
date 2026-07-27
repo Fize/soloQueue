@@ -320,7 +320,7 @@ type AgentInfoResponse struct {
 	ProviderID         string `json:"provider_id"`
 	Group              string `json:"group"`
 	IsLeader           bool   `json:"is_leader"`
-	TaskLevel          string `json:"task_level"`
+	TaskType           string `json:"task_type"`
 	ThinkingEnabled    bool   `json:"thinking_enabled"`
 	ReasoningEffort    string `json:"reasoning_effort"`
 	LevelLocked        bool   `json:"level_locked"`
@@ -884,7 +884,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			ProviderID:         a.EffectiveProviderID(),
 			Group:              agentGroup[a.InstanceID],
 			IsLeader:           agentLeader[a.InstanceID],
-			TaskLevel:          a.EffectiveTaskLevel(),
+			TaskType:           a.EffectiveTaskType(),
 			ThinkingEnabled:    te,
 			ReasoningEffort:    re,
 			LevelLocked:        levelLocked,
@@ -938,7 +938,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 				ProviderID:         a.EffectiveProviderID(),
 				Group:              agentGroup[a.InstanceID],
 				IsLeader:           agentLeader[a.InstanceID],
-				TaskLevel:          a.EffectiveTaskLevel(),
+				TaskType:           a.EffectiveTaskType(),
 				ThinkingEnabled:    te,
 				ReasoningEffort:    re,
 				LevelLocked:        levelLocked,
@@ -966,7 +966,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 				ModelID:            child.EffectiveModelID(),
 				Group:              agentGroup[child.InstanceID],
 				IsLeader:           false,
-				TaskLevel:          child.EffectiveTaskLevel(),
+				TaskType:           child.EffectiveTaskType(),
 				ErrorCount:         int(child.ErrorCount()),
 				LastError:          child.LastError(),
 				PendingDelegations: child.PendingDelegations(),

@@ -68,7 +68,7 @@ const snapshot = `
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
 	id TEXT PRIMARY KEY,
 	title TEXT NOT NULL CHECK(length(trim(title)) > 0),
-	task_level TEXT NOT NULL CHECK(task_level IN ('L0','L1','L2','L3','L4')),
+	task_type TEXT NOT NULL CHECK(task_type IN ('general','engineering','research')),
 	expression TEXT NOT NULL,
 	instruction TEXT NOT NULL,
 	target_agent TEXT NOT NULL,
@@ -116,13 +116,6 @@ CREATE TABLE IF NOT EXISTS llm_models (
 	updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_llm_models_provider ON llm_models(provider_id);
-
--- llm_default_models
-CREATE TABLE IF NOT EXISTS llm_default_models (
-	role TEXT PRIMARY KEY,
-	model_ref TEXT NOT NULL,
-	updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
 
 -- system_settings
 CREATE TABLE IF NOT EXISTS system_settings (
@@ -275,7 +268,7 @@ CREATE TABLE IF NOT EXISTS cron_execution_history (
 	status TEXT NOT NULL DEFAULT 'success' CHECK(status IN ('success','failed','panic')),
 	result_summary TEXT NOT NULL DEFAULT '',
 	error_message TEXT NOT NULL DEFAULT '',
-	task_level TEXT NOT NULL DEFAULT '',
+	task_type TEXT NOT NULL DEFAULT '',
 	target_agent TEXT NOT NULL DEFAULT '',
 	model_id TEXT NOT NULL DEFAULT '',
 	provider_id TEXT NOT NULL DEFAULT '',
@@ -311,6 +304,12 @@ func (d *DB) migrate() error {
 		_ = tx.Rollback()
 		return fmt.Errorf("apply snapshot: %w", err)
 	}
+	// Default model roles are now stored in settings as model_routes. The old
+	// table was only a v1 cache and must not survive as an alternate source.
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS llm_default_models`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("remove legacy default models table: %w", err)
+	}
 
 	// v3: scheduled tasks require a user-facing title and an explicit task
 	// level. CREATE TABLE IF NOT EXISTS does not alter existing databases, so
@@ -325,7 +324,7 @@ func (d *DB) migrate() error {
 		_ = tx.Rollback()
 		return fmt.Errorf("inspect scheduled_tasks task_level column: %w", err)
 	}
-	if !hasTitle || !hasTaskLevel {
+	if !hasTitle {
 		if _, err := tx.Exec(`
 			DROP INDEX IF EXISTS idx_scheduled_tasks_next_run;
 			ALTER TABLE scheduled_tasks RENAME TO scheduled_tasks_v2;
@@ -375,7 +374,7 @@ func (d *DB) migrate() error {
 		_ = tx.Rollback()
 		return fmt.Errorf("inspect scheduled_tasks schema: %w", err)
 	}
-	if !strings.Contains(scheduledTasksSQL, "'L4'") {
+	if hasTaskLevel && !strings.Contains(scheduledTasksSQL, "'L4'") {
 		if _, err := tx.Exec(`
 			DROP INDEX IF EXISTS idx_scheduled_tasks_next_run;
 			ALTER TABLE scheduled_tasks RENAME TO scheduled_tasks_v3;
@@ -405,6 +404,72 @@ func (d *DB) migrate() error {
 		`); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("migrate scheduled_tasks v4: %w", err)
+		}
+	}
+
+	// v10: replace obsolete L0-L4 cron levels with the three task types used by
+	// routing. Existing task data is retained: conversational levels become
+	// general; implementation-oriented levels become engineering.
+	hasTaskType, err := tableHasColumn(tx, "scheduled_tasks", "task_type")
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("inspect scheduled_tasks task_type column: %w", err)
+	}
+	if !hasTaskType {
+		if _, err := tx.Exec(`
+			DROP INDEX IF EXISTS idx_scheduled_tasks_next_run;
+			ALTER TABLE scheduled_tasks RENAME TO scheduled_tasks_legacy_router;
+			CREATE TABLE scheduled_tasks (
+				id TEXT PRIMARY KEY,
+				title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+				task_type TEXT NOT NULL CHECK(task_type IN ('general','engineering','research')),
+				expression TEXT NOT NULL,
+				instruction TEXT NOT NULL,
+				target_agent TEXT NOT NULL,
+				status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','running','completed','failed')),
+				last_run_at TEXT,
+				next_run_at TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+			INSERT INTO scheduled_tasks (id, title, task_type, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at)
+			SELECT id, title,
+				CASE WHEN task_level IN ('L0', 'L1') THEN 'general' ELSE 'engineering' END,
+				expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
+			FROM scheduled_tasks_legacy_router;
+			DROP TABLE scheduled_tasks_legacy_router;
+			CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at) WHERE status = 'active';
+		`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate scheduled_tasks to task types: %w", err)
+		}
+	}
+
+	hasHistoryTaskType, err := tableHasColumn(tx, "cron_execution_history", "task_type")
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("inspect cron history task_type column: %w", err)
+	}
+	if !hasHistoryTaskType {
+		if _, err := tx.Exec(`
+			ALTER TABLE cron_execution_history RENAME TO cron_execution_history_legacy_router;
+			CREATE TABLE cron_execution_history (
+				id TEXT PRIMARY KEY, task_id TEXT NOT NULL, executed_at TEXT NOT NULL, completed_at TEXT NOT NULL,
+				duration_ms INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'success' CHECK(status IN ('success','failed','panic')),
+				result_summary TEXT NOT NULL DEFAULT '', error_message TEXT NOT NULL DEFAULT '', task_type TEXT NOT NULL DEFAULT '',
+				target_agent TEXT NOT NULL DEFAULT '', model_id TEXT NOT NULL DEFAULT '', provider_id TEXT NOT NULL DEFAULT '', timeline_dir TEXT NOT NULL DEFAULT ''
+			);
+			INSERT INTO cron_execution_history (id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_type, target_agent, model_id, provider_id, timeline_dir)
+			SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message,
+				CASE WHEN task_level IN ('L0', 'L1') THEN 'general' ELSE 'engineering' END,
+				target_agent, model_id, provider_id, timeline_dir
+			FROM cron_execution_history_legacy_router;
+			DROP TABLE cron_execution_history_legacy_router;
+			CREATE INDEX IF NOT EXISTS idx_cron_history_task_id ON cron_execution_history(task_id);
+			CREATE INDEX IF NOT EXISTS idx_cron_history_executed_at ON cron_execution_history(executed_at);
+		`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate cron history to task types: %w", err)
 		}
 	}
 

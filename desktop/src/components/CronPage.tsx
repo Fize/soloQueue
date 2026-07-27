@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { listCronTasks, createCronTask, updateCronTask, deleteCronTask, getTeams, getDefaultModels, listModels, listProviders } from '@/lib/api'
-import type { CronTask } from '@/types'
+import { listCronTasks, createCronTask, updateCronTask, deleteCronTask, getTeams, getModelRoutes, listModels, listProviders } from '@/lib/api'
+import type { CronTask, LLMModel, LLMProvider } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -124,7 +124,7 @@ function TaskCard({
 
         {/* Right: agent badge + status */}
         <div className="flex items-center gap-2 shrink-0">
-          <Badge variant="secondary" className="text-xs">{task.task_level}</Badge>
+          <Badge variant="secondary" className="text-xs">{t(`cron.type${task.task_type.charAt(0).toUpperCase()}${task.task_type.slice(1)}`)}</Badge>
           <Badge variant="outline" className="gap-1 bg-background/50 text-xs hidden sm:flex">
             <Bot className="h-3 w-3 text-primary" />
             {task.target_agent || 'L1'}
@@ -273,7 +273,7 @@ export function CronPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<CronTask | null>(null)
   const [title, setTitle] = useState('')
-  const [taskLevel, setTaskLevel] = useState('')
+  const [taskType, setTaskType] = useState('')
   const [expression, setExpression] = useState('')
   const [instruction, setInstruction] = useState('')
   const [targetAgent, setTargetAgent] = useState('L1')
@@ -298,7 +298,7 @@ export function CronPage() {
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
 
   const [teamOptions, setTeamOptions] = useState<{ value: string; label: string }[]>([L1_OPTION])
-  const [levelModels, setLevelModels] = useState<Record<string, { name: string; fallback: boolean } | null>>({})
+  const [taskTypeModels, setTaskTypeModels] = useState<Record<string, { name: string; fallback: boolean } | null>>({})
 
   // Dialog first-field ref for auto-focus
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -306,7 +306,7 @@ export function CronPage() {
   useEffect(() => {
     fetchTasks()
     fetchTeams()
-    fetchLevelModels()
+    fetchTaskTypeModels()
   }, [])
 
   // Keyboard shortcuts: N = new task, ⌘R = refresh
@@ -346,24 +346,22 @@ export function CronPage() {
     }
   }
 
-  async function fetchLevelModels() {
+  async function fetchTaskTypeModels() {
     try {
-      const [defaults, models, providers] = await Promise.all([getDefaultModels(), listModels(), listProviders()])
-      const enabledProviders = new Set(providers.filter((provider) => provider.enabled).map((provider) => provider.id))
-      const byRef = new Map(
-        models
-          .filter((model) => model.enabled && enabledProviders.has(model.providerId))
-          .map((model) => [`${model.providerId}:${model.id}`, model]),
-      )
-      const refs: Record<string, string> = {
-        L0: defaults.basic,
-        L1: defaults.universal,
-        L2: defaults.superior,
-        L3: defaults.expert,
-        L4: defaults.apex,
-      }
+		const [defaults, models, providers] = await Promise.all([getModelRoutes(), listModels(), listProviders()])
+		const enabledProviders = new Set(providers.filter((provider: LLMProvider) => provider.enabled).map((provider: LLMProvider) => provider.id))
+		const byRef = new Map<string, LLMModel>(
+			models
+				.filter((model: LLMModel) => model.enabled && enabledProviders.has(model.providerId))
+				.map((model: LLMModel): [string, LLMModel] => [`${model.providerId}:${model.id}`, model]),
+		)
+		const refs: Record<string, string> = {
+			general: defaults.general,
+			engineering: defaults.engineering,
+			research: defaults.research,
+		}
       const resolved: Record<string, { name: string; fallback: boolean } | null> = {}
-      for (const level of ['L0', 'L1', 'L2', 'L3', 'L4']) {
+		for (const level of ['general', 'engineering', 'research']) {
         const primary = byRef.get(refs[level])
         const fallback = byRef.get(defaults.fallback)
         resolved[level] = primary
@@ -372,14 +370,14 @@ export function CronPage() {
             ? { name: fallback.name || fallback.id, fallback: true }
             : null
       }
-      setLevelModels(resolved)
+      setTaskTypeModels(resolved)
     } catch {
       // Model labels are supporting context; task management remains available.
     }
   }
 
-  function levelLabel(level: 'L0' | 'L1' | 'L2' | 'L3' | 'L4', key: string) {
-    const resolved = levelModels[level]
+	function taskTypeLabel(taskType: 'general' | 'engineering' | 'research', key: string) {
+    const resolved = taskTypeModels[taskType]
     if (resolved === undefined) return t(key)
     if (resolved === null) return `${t(key)} · ${t('cron.modelUnavailable')}`
     return `${t(key)} · ${resolved.name}${resolved.fallback ? ` (${t('cron.fallback')})` : ''}`
@@ -402,7 +400,7 @@ export function CronPage() {
   function handleOpenCreateDialog() {
     setEditingTask(null)
     setTitle('')
-    setTaskLevel('')
+    setTaskType('')
     setExpression('')
     setInstruction('')
     setTargetAgent('L1')
@@ -414,7 +412,7 @@ export function CronPage() {
   function handleOpenEditDialog(task: CronTask) {
     setEditingTask(task)
     setTitle(task.title)
-    setTaskLevel(task.task_level)
+    setTaskType(task.task_type)
     setExpression(task.expression)
     setInstruction(task.instruction)
     setTargetAgent(task.target_agent || 'L1')
@@ -423,7 +421,7 @@ export function CronPage() {
   }
 
   async function handleSaveTask() {
-    if (!title.trim() || !taskLevel || !expression.trim() || !instruction.trim()) {
+    if (!title.trim() || !taskType || !expression.trim() || !instruction.trim()) {
       setDialogError(t('cron.requiredFields'))
       return
     }
@@ -433,7 +431,7 @@ export function CronPage() {
       if (editingTask) {
         await updateCronTask(editingTask.id, {
           title: title.trim(),
-          task_level: taskLevel as CronTask['task_level'],
+          task_type: taskType as CronTask['task_type'],
           expression: expression.trim(),
           instruction: instruction.trim(),
           target_agent: targetAgent,
@@ -442,7 +440,7 @@ export function CronPage() {
       } else {
         await createCronTask({
           title: title.trim(),
-          task_level: taskLevel as CronTask['task_level'],
+          task_type: taskType as CronTask['task_type'],
           expression: expression.trim(),
           instruction: instruction.trim(),
           target_agent: targetAgent,
@@ -578,7 +576,7 @@ export function CronPage() {
     return (
       task.expression.toLowerCase().includes(q) ||
       task.title.toLowerCase().includes(q) ||
-      task.task_level.toLowerCase().includes(q) ||
+      task.task_type.toLowerCase().includes(q) ||
       task.instruction.toLowerCase().includes(q) ||
       task.target_agent?.toLowerCase().includes(q) ||
       task.status.toLowerCase().includes(q)
@@ -846,20 +844,18 @@ export function CronPage() {
               </p>
             </div>
 
-            {/* Task Level */}
+            {/* Task type */}
             <Select
-              label={t('cron.taskLevel')}
+              label={t('cron.taskType')}
               options={[
-                { value: '', label: t('cron.selectLevel') },
-                { value: 'L0', label: levelLabel('L0', 'cron.levelL0') },
-                { value: 'L1', label: levelLabel('L1', 'cron.levelL1') },
-                { value: 'L2', label: levelLabel('L2', 'cron.levelL2') },
-                { value: 'L3', label: levelLabel('L3', 'cron.levelL3') },
-                { value: 'L4', label: levelLabel('L4', 'cron.levelL4') },
+                { value: '', label: t('cron.selectTaskType') },
+				{ value: 'general', label: taskTypeLabel('general', 'cron.typeGeneral') },
+				{ value: 'engineering', label: taskTypeLabel('engineering', 'cron.typeEngineering') },
+				{ value: 'research', label: taskTypeLabel('research', 'cron.typeResearch') },
               ]}
-              value={taskLevel}
-              onChange={setTaskLevel}
-              id="cron-level-select"
+              value={taskType}
+              onChange={setTaskType}
+              id="cron-task-type-select"
             />
 
             {/* Instruction */}
@@ -888,7 +884,7 @@ export function CronPage() {
           )}
 
           <DialogFooter>
-            <Button size="sm" onClick={handleSaveTask} disabled={dialogSaving || !title.trim() || !taskLevel || !expression.trim() || !instruction.trim()} id="cron-save-btn">
+            <Button size="sm" onClick={handleSaveTask} disabled={dialogSaving || !title.trim() || !taskType || !expression.trim() || !instruction.trim()} id="cron-save-btn">
               {dialogSaving ? t('cron.saving') : editingTask ? t('cron.saveChanges') : t('cron.scheduleTask')}
             </Button>
             <Button

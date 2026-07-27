@@ -464,7 +464,7 @@ func (s *Session) AskStreamWithModel(ctx context.Context, prompt string, params 
 		ThinkingEnabled: params.ThinkingEnabled,
 		ReasoningEffort: params.ReasoningEffort,
 		ThinkingType:    params.ThinkingType,
-		Level:           params.Level,
+		TaskType:        params.TaskType,
 		ContextWindow:   params.ContextWindow,
 		Vision:          params.Vision,
 	})
@@ -494,7 +494,7 @@ func (s *Session) AskIsolatedWithModel(ctx context.Context, prompt string, param
 		ThinkingEnabled: params.ThinkingEnabled,
 		ReasoningEffort: params.ReasoningEffort,
 		ThinkingType:    params.ThinkingType,
-		Level:           params.Level,
+		TaskType:        params.TaskType,
 		ContextWindow:   params.ContextWindow,
 		Vision:          params.Vision,
 	})
@@ -1214,7 +1214,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				ThinkingEnabled: result.ThinkingEnabled,
 				ReasoningEffort: result.ReasoningEffort,
 				ThinkingType:    result.ThinkingType,
-				Level:           result.Level,
+				TaskType:        result.Level,
 				ContextWindow:   result.ContextWindow,
 				Vision:          result.Vision,
 			})

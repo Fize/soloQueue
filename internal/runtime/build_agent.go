@@ -39,7 +39,7 @@ func (bc *buildContext) buildAgentInfra() {
 	bc.supervisors = []*agent.Supervisor{} // empty slice
 
 	// ── Compactor (context compression engine) ────────────────────────────
-	compactorModel := bc.cfg.DefaultModelByRole("fast")
+	compactorModel := bc.cfg.DefaultClassifierModel()
 	if compactorModel == nil {
 		compactorModel = bc.defaultModel
 	}
@@ -57,14 +57,15 @@ func (bc *buildContext) buildAgentInfra() {
 	bc.tokenizer = ctxwin.NewTokenizer()
 
 	// ── Task Router Classifier ───────────────────────────────────────────────
-	classifierModel := bc.defaultModel.APIModel
+	classifierModelConfig := bc.cfg.DefaultClassifierModel()
+	if classifierModelConfig == nil {
+		classifierModelConfig = bc.defaultModel
+	}
+	classifierModel := classifierModelConfig.APIModel
 	if classifierModel == "" {
-		classifierModel = bc.defaultModel.ID
+		classifierModel = classifierModelConfig.ID
 	}
 	classifierConfig := router.DefaultClassifierConfig()
-	classifier := router.NewDefaultClassifier(classifierConfig, bc.llmClient, bc.defaultModel.ProviderID, classifierModel, bc.log)
-	if bc.sharedDB != nil {
-		classifier.SetDB(bc.sharedDB)
-	}
+	classifier := router.NewDefaultClassifier(classifierConfig, bc.llmClient, classifierModelConfig.ProviderID, classifierModel, bc.log)
 	bc.taskRouter = router.NewRouter(classifier, bc.cfg, bc.log)
 }

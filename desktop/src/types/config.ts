@@ -118,14 +118,12 @@ export interface EmbeddingConfig {
   models: EmbeddingModel[];
 }
 
-export interface DefaultModelsConfig {
-  basic: string;
-  universal: string;
-  superior: string;
-  expert: string;
-  apex: string;
-  fast: string;
-  fallback: string;
+export interface ModelRoutesConfig {
+	general: string;
+	engineering: string;
+	research: string;
+	classifier: string;
+	fallback: string;
 }
 
 export interface QQBotConfig {
@@ -241,7 +239,7 @@ export interface AppConfig {
   providers: LLMProvider[];
   models: LLMModel[];
   embedding: EmbeddingConfig;
-  defaultModels: DefaultModelsConfig;
+	modelRoutes: ModelRoutesConfig;
   qqbots: QQBotConfig[];
   wechatBots?: WeChatAccountView[];
   agent: L1AgentSettings;
@@ -255,7 +253,7 @@ export interface AppConfig {
 export interface CronTask {
   id: string;
   title: string;
-  task_level: "L0" | "L1" | "L2" | "L3" | "L4";
+	task_type: "general" | "engineering" | "research";
   expression: string;
   instruction: string;
   target_agent: string;
@@ -268,7 +266,7 @@ export interface CronTask {
 
 export interface CreateCronTaskRequest {
   title: string;
-  task_level: "L0" | "L1" | "L2" | "L3" | "L4";
+	task_type: "general" | "engineering" | "research";
   expression: string;
   instruction: string;
   target_agent?: string;
@@ -276,7 +274,7 @@ export interface CreateCronTaskRequest {
 
 export interface UpdateCronTaskRequest {
   title?: string;
-  task_level?: "L0" | "L1" | "L2" | "L3" | "L4";
+	task_type?: "general" | "engineering" | "research";
   expression?: string;
   instruction?: string;
   target_agent?: string;
@@ -294,7 +292,7 @@ export interface CronExecutionRecord {
   status: "success" | "failed" | "panic";
   result_summary: string;
   error_message: string;
-  task_level: string;
+	task_type: string;
   target_agent: string;
   model_id: string;
   provider_id: string;

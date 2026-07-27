@@ -3,307 +3,80 @@ package router
 import (
 	"context"
 	"encoding/json"
-	"hash/fnv"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
-// ─── LLM Classifier ─────────────────────────────────────────────────────────
-//
-// LLMClassifier uses a lightweight, non-thinking LLM call for semantic
-// classification when fast-track rules produce insufficient confidence.
-//
-// Design principles:
-//   - Uses the "fast" model with ThinkingEnabled=false (Non-CoT) for speed
-//   - Hard timeout of 4 seconds; timeout/error gracefully degrades to L1
-//   - sync.Map cache avoids repeated classification of similar prompts
-//   - Shares the same LLMClient as agents (concurrent-safe by contract)
+const llmClassifierSystemPrompt = `Classify the user's requested work into exactly one task type. Return ONLY JSON: {"task_type":"general|engineering|research"}.
 
-const (
-	// llmClassifierTimeout is the hard deadline for LLM classification calls.
-	// Beyond this, we fall back to the fast-track result.
-	llmClassifierTimeout = 4 * time.Second
+general: conversation, explanation, writing, translation, summarizing supplied content, ordinary planning.
+engineering: code, repositories, debugging, tests, databases, APIs, automation, deployment, or technical implementation.
+research: the main goal is external search, current information, source verification, comparisons, or citations.
 
-	// llmClassifierMaxTokens caps the output to keep responses compact.
-	llmClassifierMaxTokens = 128
-)
+Difficulty, desired reasoning quality, and image presence never create a task type. Local code/log lookup is engineering; external source lookup is research. If the request follows an established task, preserve that task's type.`
 
-// llmClassifierSystemPrompt is the system prompt for the task classifier.
-// It forces structured JSON output for fast, deterministic parsing.
-const llmClassifierSystemPrompt = `You are a task complexity classifier. Analyze the user's request, considering the provided conversation history, and respond with ONLY a valid JSON object. No other text, no markdown, no explanation.
-
-Classification rules:
-- "intent": "chat" (explanation, question, discussion, greeting) or "action" (requires executing commands, modifying files, or producing artifacts)
-- "level": 0 (basic interaction, shallow reasoning, info retrieval, simple Q&A), 1 (single clear action with clear target), 2 (multiple steps, cross-concern coordination, needs planning), 3 (architecture changes, deep investigation, high uncertainty, system-wide impact), 4 (long agent chains >10 tool calls, must-not-fail correctness, unprecedented design, production-critical migration)
-- "reason": one short English sentence explaining your decision
-
-IMPORTANT OVERRIDE & HISTORY RULES:
-- Greetings and chitchat are always level 0.
-- Simple single-target actions (fix a bug, add a field, rename something) are level 1.
-- Multi-target changes, migrations, integrations are level 2.
-- Rewrites, architectural decisions, complex debugging, system design are level 3.
-- Level 4 is reserved for tasks that combine high complexity with critical stakes: production migrations with zero downtime, unprecedented design problems, tasks requiring exhaustive multi-step agent orchestration, or systems where failure is unacceptable.
-- Requests such as "think carefully" or "be thorough" describe answer quality, not task scope. Do not raise the level unless the requested work itself has wider impact, more steps, higher uncertainty, or critical operational risk.
-- CONTEXT & HISTORY: If the user's message is a follow-up (e.g., asking for tweaks, additions, continuation, or asking questions about a previously established task in the history), maintain the level of that task (level 1, 2, or 3) rather than downgrading to 0. Treat follow-up modifications or corrections as action tasks, not chitchat.
-
-Output format (ONLY this JSON, nothing else):
-{"intent":"chat|action","level":0,"reason":"..."}`
-
-// LLMClassifier performs semantic task classification using a lightweight LLM call.
 type LLMClassifier struct {
-	client     agent.LLMClient
+	client agent.LLMClient
+	mu sync.RWMutex
 	providerID string
-	model      string // API model name for classification (e.g., "deepseek-v4-flash")
-	timeout    time.Duration
-	cache      sync.Map // uint64 → ClassificationResult
-	logger     *logger.Logger
-	mu         sync.RWMutex
+	model string
 }
 
-// NewLLMClassifier creates a new LLM-based classifier.
-//
-// Parameters:
-//   - client: shared LLM client (concurrent-safe)
-//   - providerID: the LLM provider ID
-//   - model: API model name to use (typically the "fast" model without thinking)
-//   - logger: optional logger (nil = creates minimal system-layer logger)
-//
-// func NewLLMClassifier(client agent.LLMClient, providerID, model string, l *logger.Logger) *LLMClassifier {
-func NewLLMClassifier(client agent.LLMClient, providerID, model string, l *logger.Logger) *LLMClassifier {
-	if l == nil {
-		// Create a minimal system-layer logger for classification
-		var err error
-		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
-		if err != nil {
-			panic(err)
-		}
-	}
-	return &LLMClassifier{
-		client:     client,
-		providerID: providerID,
-		model:      model,
-		timeout:    llmClassifierTimeout,
-		logger:     l,
-	}
+func NewLLMClassifier(client agent.LLMClient, providerID, model string) *LLMClassifier {
+	return &LLMClassifier{client: client, providerID: providerID, model: model}
 }
 
-// SetModel updates the classifier model name in a thread-safe manner.
-func (lc *LLMClassifier) SetModel(model string) {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
-	lc.model = model
+func (c *LLMClassifier) SetModelAndProvider(providerID, model string) {
+	c.mu.Lock()
+	c.providerID, c.model = providerID, model
+	c.mu.Unlock()
 }
 
-// SetModelAndProvider updates both model name and provider ID in a thread-safe manner.
-func (lc *LLMClassifier) SetModelAndProvider(provider, model string) {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
-	lc.providerID = provider
-	lc.model = model
-}
-
-// GetModel returns the current classifier model name in a thread-safe manner.
-func (lc *LLMClassifier) GetModel() string {
-	lc.mu.RLock()
-	defer lc.mu.RUnlock()
-	return lc.model
-}
-
-// GetModelAndProvider returns both provider ID and model name in a thread-safe manner.
-func (lc *LLMClassifier) GetModelAndProvider() (string, string) {
-	lc.mu.RLock()
-	defer lc.mu.RUnlock()
-	return lc.providerID, lc.model
-}
-
-// Classify performs LLM-based semantic classification of a user prompt.
-//
-// Flow:
-//  1. Check cache (FNV-64 hash of normalized prompt)
-//  2. Apply timeout (4s hard limit)
-//  3. Call LLM.Chat() synchronously (no thinking, no tools, JSON output)
-//  4. Parse structured JSON response
-//  5. On timeout/error → return safe L1 default (never blocks the pipeline)
-//  6. On success → cache and return
-func (lc *LLMClassifier) Classify(ctx context.Context, prompt string, _ ClassificationLevel, history []ctxwin.PayloadMessage) (ClassificationResult, error) {
-	// 1. Check cache
-	key := hashPrompt(prompt, history)
-	if cached, ok := lc.cache.Load(key); ok {
-		result := cached.(ClassificationResult)
-		lc.logger.DebugContext(ctx, logger.CatApp, "llm classifier cache hit",
-			"level", result.Level.String(),
-		)
-		return result, nil
-	}
-
-	// 2. Apply timeout
-	classCtx, cancel := context.WithTimeout(ctx, lc.timeout)
+func (c *LLMClassifier) Classify(ctx context.Context, input ClassifyInput, history []ctxwin.PayloadMessage) (tasktype.TaskType, error) {
+	c.mu.RLock()
+	providerID, model := c.providerID, c.model
+	c.mu.RUnlock()
+	classCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	// 3. Format history and build messages
-	formattedHistory := formatHistoryForLLM(history)
-	messages := make([]agent.LLMMessage, 0, len(formattedHistory)+2)
-	messages = append(messages, agent.LLMMessage{Role: "system", Content: llmClassifierSystemPrompt})
-	messages = append(messages, formattedHistory...)
-	messages = append(messages, agent.LLMMessage{Role: "user", Content: prompt})
-
-	// 4. Build request (non-streaming, no thinking, compact output)
-	providerID, model := lc.GetModelAndProvider()
-	req := agent.LLMRequest{
-		ProviderID:      providerID,
-		Model:           model,
-		Temperature:     0, // deterministic
-		MaxTokens:       llmClassifierMaxTokens,
-		ThinkingEnabled: false, // critical: no CoT for speed
-		ResponseJSON:    true,  // force JSON output format
-		ReasoningEffort: "",    // no reasoning
-		Messages:        messages,
+	messages := []agent.LLMMessage{{Role: "system", Content: llmClassifierSystemPrompt}}
+	for _, msg := range recentHistory(history) {
+		messages = append(messages, agent.LLMMessage{Role: msg.Role, Content: msg.Content})
 	}
-
-	// 5. Synchronous call
-	resp, err := lc.client.Chat(classCtx, req)
-	if err != nil {
-		// Timeout or API error → graceful degradation to L1
-		lc.logger.DebugContext(ctx, logger.CatApp, "llm classifier failed, fallback to L1",
-			"err", err.Error(),
-		)
-		return ClassificationResult{
-			Level:      LevelSimpleSingleFile,
-			Confidence: 50,
-			Reason:     "LLM classifier timeout/error; defaulting to L1",
-		}, err // return error for upstream observability
-	}
-
-	// 6. Parse JSON response
-	result := parseLLMClassifyResponse(resp.Content)
-
-	lc.logger.DebugContext(ctx, logger.CatApp, "llm classification complete",
-		"level", result.Level.String(),
-		"confidence", result.Confidence,
-		"reason", result.Reason,
+	messages = append(messages,
+		agent.LLMMessage{Role: "system", Content: `Input metadata: {"has_images":` + boolJSON(input.HasImages) + `}`},
+		agent.LLMMessage{Role: "user", Content: input.Text},
 	)
-
-	// 7. Cache and return
-	lc.cache.Store(key, result)
-	return result, nil
+	resp, err := c.client.Chat(classCtx, agent.LLMRequest{
+		ProviderID: providerID, Model: model, Temperature: 0, MaxTokens: 64,
+		ThinkingEnabled: false, ResponseJSON: true, Messages: messages,
+	})
+	if err != nil { return tasktype.Unknown, err }
+	var result struct { TaskType tasktype.TaskType `json:"task_type"` }
+	content := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(resp.Content), "```json"), "```"))
+	if err := json.Unmarshal([]byte(content), &result); err != nil { return tasktype.Unknown, err }
+	if !result.TaskType.Valid() { return tasktype.Unknown, fmt.Errorf("invalid task type %q", result.TaskType) }
+	return result.TaskType, nil
 }
 
-// ─── Response Parsing ────────────────────────────────────────────────────────
-
-// llmClassifyJSON is the expected JSON structure from the LLM
-type llmClassifyJSON struct {
-	Intent string `json:"intent"` // "chat" or "action"
-	Level  int    `json:"level"`  // 0-4
-	Reason string `json:"reason"`
-}
-
-// parseLLMClassifyResponse parses the LLM's JSON response into a ClassificationResult.
-// Handles malformed responses gracefully (returns L1 default).
-func parseLLMClassifyResponse(content string) ClassificationResult {
-	// Strip potential markdown code block wrapping
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
-
-	var raw llmClassifyJSON
-	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		return ClassificationResult{
-			Level:      LevelSimpleSingleFile,
-			Confidence: 50,
-			Source:     "remote",
-			Reason:     "LLM response parse error; defaulting to L1",
-		}
-	}
-
-	// Map raw level (0-3) to ClassificationLevel enum (1-4)
-	var level ClassificationLevel
-	switch raw.Level {
-	case 0:
-		level = LevelConversation
-	case 1:
-		level = LevelSimpleSingleFile
-	case 2:
-		level = LevelMediumMultiFile
-	case 3:
-		level = LevelComplexRefactoring
-	case 4:
-		level = LevelDeepReasoning
-	default:
-		level = LevelSimpleSingleFile // safety fallback
-	}
-
-	// Keep confidence internal to the classifier contract. It is intentionally
-	// not requested from the model because downstream routing expects the
-	// stable intent/level/reason JSON schema.
-	confidence := 80
-	if raw.Intent == "chat" && level == LevelConversation {
-		confidence = 90
-	}
-
-	reason := raw.Reason
-	if reason == "" {
-		reason = "LLM semantic classification"
-	}
-
-	return ClassificationResult{
-		Level:      level,
-		Confidence: confidence,
-		Source:     "remote",
-		Reason:     reason,
-	}
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-// hashPrompt returns a FNV-64 hash of the normalized prompt and history for cache lookup.
-func hashPrompt(prompt string, history []ctxwin.PayloadMessage) uint64 {
-	h := fnv.New64a()
-	normalized := strings.ToLower(strings.TrimSpace(prompt))
-	h.Write([]byte(normalized))
-	for _, msg := range history {
-		if msg.Role == "user" || msg.Role == "assistant" {
-			h.Write([]byte(msg.Role))
-			content := msg.Content
-			if len(content) > 500 {
-				content = content[:500]
-			}
-			h.Write([]byte(strings.ToLower(strings.TrimSpace(content))))
-		}
-	}
-	return h.Sum64()
-}
-
-// formatHistoryForLLM extracts up to 6 user/assistant messages from history,
-// ignoring tools, and truncating message content to 500 characters.
-func formatHistoryForLLM(history []ctxwin.PayloadMessage) []agent.LLMMessage {
-	var out []agent.LLMMessage
-	var filtered []ctxwin.PayloadMessage
-	for _, msg := range history {
-		if msg.Role == "user" || msg.Role == "assistant" {
-			filtered = append(filtered, msg)
-		}
-	}
-	startIdx := 0
-	if len(filtered) > 6 {
-		startIdx = len(filtered) - 6
-	}
-	for i := startIdx; i < len(filtered); i++ {
-		msg := filtered[i]
-		content := msg.Content
-		if len(content) > 500 {
-			content = content[:500] + "...(truncated)"
-		}
-		out = append(out, agent.LLMMessage{
-			Role:    msg.Role,
-			Content: content,
-		})
+func recentHistory(history []ctxwin.PayloadMessage) []ctxwin.PayloadMessage {
+	if len(history) > 6 { history = history[len(history)-6:] }
+	var out []ctxwin.PayloadMessage
+	remaining := 4096
+	for i := len(history)-1; i >= 0 && remaining > 0; i-- {
+		msg := history[i]
+		if msg.Role != "user" && msg.Role != "assistant" { continue }
+		if len(msg.Content) > remaining { msg.Content = msg.Content[len(msg.Content)-remaining:] }
+		remaining -= len(msg.Content)
+		out = append([]ctxwin.PayloadMessage{msg}, out...)
 	}
 	return out
 }
+
+func boolJSON(v bool) string { if v { return "true" }; return "false" }

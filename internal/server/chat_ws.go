@@ -340,7 +340,7 @@ func buildChatRouteMessage(sess *session.Session, requestID, sessionID string) W
 		Type:            "chat_route",
 		RequestID:       requestID,
 		SessionID:       sessionID,
-		TaskLevel:       sess.Agent.EffectiveTaskLevel(),
+		TaskType:        sess.Agent.EffectiveTaskType(),
 		ModelID:         modelID,
 		ProviderID:      providerID,
 		AgentInstanceID: sess.Agent.InstanceID,

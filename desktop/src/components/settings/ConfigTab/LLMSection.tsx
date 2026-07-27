@@ -24,16 +24,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import type { LLMProvider, LLMModel, DefaultModelsConfig } from '@/types'
+import type { LLMProvider, LLMModel, ModelRoutesConfig } from '@/types'
 
 interface LLMSectionProps {
   providers: LLMProvider[]
   models: LLMModel[]
-  defaultModels: DefaultModelsConfig
+	defaultModels: ModelRoutesConfig
   providerFilter: string
   onProviderFilterChange: (value: string) => void
   onSaveDefaults: () => void
-  onDefaultModelsChange: (config: DefaultModelsConfig) => void
+	onDefaultModelsChange: (config: ModelRoutesConfig) => void
   onCreateProvider: (provider: LLMProvider) => Promise<void>
   onUpdateProvider: (id: string, provider: LLMProvider) => Promise<void>
   onDeleteProvider: (id: string) => void
@@ -241,39 +241,33 @@ export function LLMSection({
 
   return (
     <div className="space-y-8">
-      {/* ─── Default Model Roles ─── */}
+      {/* Model routing */}
       <div className="rounded-xl border bg-card p-5 shadow-sm space-y-4">
         <div className="flex flex-col border-b pb-3">
           <div className="flex items-center gap-2">
             <Settings className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold text-foreground">{t('config.llmDefaultMappings')}</h3>
+            <h3 className="font-semibold text-foreground">{t('config.modelRoutesTitle')}</h3>
           </div>
           <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-            {t('config.llmDefaultMappingsDesc')}
+            {t('config.modelRoutesDesc')}
           </p>
         </div>
-        <div className="space-y-4">
+        <div className="space-y-3">
           {([
-            { role: 'fast', lvl: '—', desc: 'config.llmRoleFastDesc' },
-            { role: 'basic', lvl: 'L0', desc: 'config.llmRoleBasicDesc' },
-            { role: 'universal', lvl: 'L1', desc: 'config.llmRoleUniversalDesc' },
-            { role: 'superior', lvl: 'L2', desc: 'config.llmRoleSuperiorDesc' },
-            { role: 'expert', lvl: 'L3', desc: 'config.llmRoleExpertDesc' },
-            { role: 'apex', lvl: 'L4', desc: 'config.llmRoleApexDesc' },
-          ] as const).map(({ role, lvl, desc }) => {
+			{ role: 'general', title: 'config.taskTypeGeneral', desc: 'config.taskTypeGeneralDesc' },
+			{ role: 'engineering', title: 'config.taskTypeEngineering', desc: 'config.taskTypeEngineeringDesc' },
+			{ role: 'research', title: 'config.taskTypeResearch', desc: 'config.taskTypeResearchDesc' },
+          ] as const).map(({ role, title, desc }) => {
             const val = defaultModels[role] || ''
             return (
-              <div key={role} className="flex flex-col gap-2 sm:flex-row sm:items-center p-3 rounded-lg border bg-muted/30">
-                <label
-                  htmlFor={`role-select-${role}`}
-                  className="text-xs font-bold text-primary uppercase shrink-0 sm:w-28"
-                >
-                  {t('config.llmRoleTitle', { role, lvl })}
+              <div key={role} className="grid gap-2 rounded-lg border bg-muted/30 p-3 md:grid-cols-[minmax(9rem,0.8fr)_minmax(0,1.25fr)_minmax(14rem,1fr)] md:items-center">
+                <label htmlFor={`role-select-${role}`} className="text-sm font-semibold text-foreground">
+                  {t(title)}
                 </label>
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0">
                   <p className="text-xs text-muted-foreground leading-relaxed">{t(desc)}</p>
                 </div>
-                <div className="shrink-0 sm:w-56 w-full">
+                <div className="min-w-0">
                   <Select
                     id={`role-select-${role}`}
                     value={val}
@@ -293,36 +287,36 @@ export function LLMSection({
               </div>
             )
           })}
-          {/* ─── Fallback (required) ─── */}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center p-3 rounded-lg border-2 border-primary/30 bg-primary/5">
-            <label
-              htmlFor="role-select-fallback"
-              className="text-xs font-bold text-primary uppercase shrink-0 sm:w-28"
-            >
-              {t('config.llmRoleTitle', { role: 'fallback', lvl: '—' })}
-            </label>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground leading-relaxed">{t('config.llmRoleFallbackDesc')}</p>
-              <p className="text-xs text-destructive mt-1">{t('config.llmRoleFallbackRequired')}</p>
-            </div>
-            <div className="shrink-0 sm:w-56 w-full">
+        </div>
+        <div className="border-t pt-4 space-y-3">
+          <h4 className="text-sm font-medium text-foreground">{t('config.modelRouteSupportTitle')}</h4>
+          {([
+            { role: 'classifier', title: 'config.modelRouteClassifier', desc: 'config.modelRouteClassifierDesc', required: false },
+            { role: 'fallback', title: 'config.modelRouteFallback', desc: 'config.modelRouteFallbackDesc', required: true },
+          ] as const).map(({ role, title, desc, required }) => (
+            <div key={role} className="grid gap-2 rounded-lg bg-muted/30 p-3 md:grid-cols-[minmax(9rem,0.8fr)_minmax(0,1.25fr)_minmax(14rem,1fr)] md:items-center">
+              <label htmlFor={`role-select-${role}`} className="text-sm font-semibold text-foreground">{t(title)}</label>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground leading-relaxed">{t(desc)}</p>
+                {required && <p className="mt-1 text-xs text-destructive">{t('config.modelRouteRequired')}</p>}
+              </div>
+              <div className="min-w-0">
               <Select
-                id="role-select-fallback"
-                value={defaultModels.fallback || ''}
+                id={`role-select-${role}`}
+                value={defaultModels[role] || ''}
                 onChange={(v) => {
-                  if (!v) return
-                  onDefaultModelsChange({ ...defaultModels, fallback: v })
+                  if (required && !v) return
+                  onDefaultModelsChange({ ...defaultModels, [role]: v })
                 }}
-                placeholder={t('config.llmSelectModel')}
-                options={models
-                  .filter((m) => m.enabled)
-                  .map((m) => ({
-                    value: `${m.providerId}:${m.id}`,
-                    label: `${m.providerId}:${m.id} (${m.name})`,
-                  }))}
+                placeholder={required ? t('config.llmSelectModel') : t('config.llmUnsetInherit')}
+                options={[
+                  ...(required ? [] : [{ value: '', label: t('config.llmUnsetInherit') }]),
+                  ...models.filter((m) => m.enabled).map((m) => ({ value: `${m.providerId}:${m.id}`, label: `${m.providerId}:${m.id} (${m.name})` })),
+                ]}
               />
+              </div>
             </div>
-          </div>
+          ))}
         </div>
         <div className="flex justify-end pt-2">
           <Button size="sm" onClick={onSaveDefaults}>

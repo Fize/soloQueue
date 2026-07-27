@@ -89,7 +89,7 @@ type ModelOverrideParams struct {
 	ThinkingEnabled bool   // enable thinking/reasoning mode
 	ReasoningEffort string // "high" | "max" | ""
 	ThinkingType    string // thinking.type value: "enabled" (DeepSeek) or "adaptive" (MiniMax etc.)
-	Level           string // task classification level (e.g., "L1-SimpleSingleFile")
+	TaskType        string // task type: general, engineering, or research
 	ContextWindow   int    // model context window capacity (tokens); 0 = unchanged
 	Vision          bool   // model supports multimodal image_url content parts
 }

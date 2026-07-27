@@ -45,10 +45,10 @@ func (t scheduleTaskTool) Parameters() json.RawMessage {
       "type": "string",
       "description": "A concise user-facing title that explains what this scheduled task does (maximum 100 characters)."
     },
-    "task_level": {
+    "task_type": {
       "type": "string",
-      "description": "Required task complexity level. L0=conversation/reminder, L1=simple task, L2=multi-step task, L3=complex task, L4=frontier/critical task.",
-      "enum": ["L0", "L1", "L2", "L3", "L4"]
+      "description": "Required task type: general for ordinary work, engineering for implementation/debugging, or research for investigation and comparison.",
+      "enum": ["general", "engineering", "research"]
     },
     "schedule": {
       "type": "string",
@@ -59,13 +59,13 @@ func (t scheduleTaskTool) Parameters() json.RawMessage {
       "description": "The exact instruction prompt or reminder content to run when triggered."
     }` + targetAgent + `
   },
-  "required": ["title", "task_level", "schedule", "instruction"]
+  "required": ["title", "task_type", "schedule", "instruction"]
 }`)
 }
 
 type scheduleTaskArgs struct {
 	Title       string `json:"title"`
-	TaskLevel   string `json:"task_level"`
+	TaskType    string `json:"task_type"`
 	Schedule    string `json:"schedule"`
 	Instruction string `json:"instruction"`
 	TargetAgent string `json:"target_agent"`
@@ -74,7 +74,7 @@ type scheduleTaskArgs struct {
 type scheduleTaskResult struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
-	TaskLevel string `json:"task_level"`
+	TaskType  string `json:"task_type"`
 	NextRunAt string `json:"next_run_at"`
 	Status    string `json:"status"`
 }
@@ -98,10 +98,10 @@ func (t *scheduleTaskTool) Execute(ctx context.Context, raw string) (string, err
 	if err := cron.ValidateTaskTitle(a.Title); err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
 	}
-	if err := validateNotZeroLen("task_level", a.TaskLevel); err != nil {
+	if err := validateNotZeroLen("task_type", a.TaskType); err != nil {
 		return "", err
 	}
-	if err := cron.ValidateTaskLevel(a.TaskLevel); err != nil {
+	if err := cron.ValidateTaskType(a.TaskType); err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
 	}
 	if err := validateNotZeroLen("schedule", a.Schedule); err != nil {
@@ -129,7 +129,7 @@ func (t *scheduleTaskTool) Execute(ctx context.Context, raw string) (string, err
 		targetAgent = t.cfg.CronScope.Owner
 	}
 	task, err := t.cfg.CronStore.CreateTask(ctx, cron.CreateTaskInput{
-		Title: a.Title, TaskLevel: a.TaskLevel, Expression: a.Schedule,
+		Title: a.Title, TaskType: a.TaskType, Expression: a.Schedule,
 		Instruction: a.Instruction, TargetAgent: targetAgent, NextRunAt: nextRun,
 	})
 	if err != nil {
@@ -146,7 +146,7 @@ func (t *scheduleTaskTool) Execute(ctx context.Context, raw string) (string, err
 	res := scheduleTaskResult{
 		ID:        task.ID,
 		Title:     task.Title,
-		TaskLevel: task.TaskLevel,
+		TaskType:  task.TaskType,
 		NextRunAt: task.NextRunAt.Format("2006-01-02 15:04:05"),
 		Status:    task.Status,
 	}

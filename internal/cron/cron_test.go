@@ -185,14 +185,14 @@ func TestNextTrigger(t *testing.T) {
 	}
 }
 
-func TestValidateTaskLevelSupportsFiveLevels(t *testing.T) {
-	for _, level := range []string{"L0", "L1", "L2", "L3", "L4"} {
-		if err := ValidateTaskLevel(level); err != nil {
-			t.Errorf("ValidateTaskLevel(%q): %v", level, err)
+func TestValidateTaskTypeSupportsThreeTypes(t *testing.T) {
+	for _, taskType := range []string{"general", "engineering", "research"} {
+		if err := ValidateTaskType(taskType); err != nil {
+			t.Errorf("ValidateTaskType(%q): %v", taskType, err)
 		}
 	}
-	if err := ValidateTaskLevel("L5"); err == nil {
-		t.Fatal("ValidateTaskLevel accepted unsupported L5")
+	if err := ValidateTaskType("other"); err == nil {
+		t.Fatal("ValidateTaskType accepted unsupported type")
 	}
 }
 
@@ -315,21 +315,21 @@ func TestScheduler_NewAndInit(t *testing.T) {
 
 func TestSchedulerAskWithTaskModel(t *testing.T) {
 	s := newTestScheduler(t)
-	s.SetModelResolver(func(level string) (ResolvedModel, error) {
+	s.SetModelResolver(func(taskType string) (ResolvedModel, error) {
 		return ResolvedModel{
-			Params:        iface.ModelOverrideParams{ModelID: "superior-model", ProviderID: "p", Level: level},
-			RequestedRole: "superior",
+			Params:            iface.ModelOverrideParams{ModelID: "engineering-model", ProviderID: "p", TaskType: taskType},
+			RequestedTaskType: "engineering",
 		}, nil
 	})
 	sess := &mockSession{}
-	task := Task{ID: "t1", Title: "Health check", TaskLevel: "L2", Instruction: "check"}
+	task := Task{ID: "t1", Title: "Health check", TaskType: "engineering", Instruction: "check"}
 	_, ch, err := s.askWithTaskModel(context.Background(), task, sess)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for range ch {
 	}
-	if sess.modelParams == nil || sess.modelParams.ModelID != "superior-model" || sess.modelParams.Level != "L2" {
+	if sess.modelParams == nil || sess.modelParams.ModelID != "engineering-model" || sess.modelParams.TaskType != "engineering" {
 		t.Fatalf("unexpected model params: %+v", sess.modelParams)
 	}
 }
@@ -351,9 +351,9 @@ func TestRecordAndListExecutionHistory(t *testing.T) {
 	now := time.Now()
 
 	// Record some executions.
-	rec1 := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now.Add(-2 * time.Hour), CompletedAt: now.Add(-2*time.Hour).Add(5 * time.Second), DurationMs: 5000, Status: "success", ResultSummary: "All good 1", TaskLevel: "L1", TargetAgent: "L1", ModelID: "m1", ProviderID: "p1", TimelineDir: "logs/cron/t1/e1"}
-	rec2 := ExecutionRecord{ID: "e2", TaskID: "t1", ExecutedAt: now.Add(-1 * time.Hour), CompletedAt: now.Add(-1*time.Hour).Add(3 * time.Second), DurationMs: 3000, Status: "failed", ResultSummary: "", ErrorMessage: "timeout", TaskLevel: "L1", TargetAgent: "L1", ModelID: "m2", ProviderID: "p1", TimelineDir: "logs/cron/t1/e2"}
-	rec3 := ExecutionRecord{ID: "e3", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(7 * time.Second), DurationMs: 7000, Status: "panic", ResultSummary: "", ErrorMessage: "panic: nil pointer", TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e3"}
+	rec1 := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now.Add(-2 * time.Hour), CompletedAt: now.Add(-2 * time.Hour).Add(5 * time.Second), DurationMs: 5000, Status: "success", ResultSummary: "All good 1", TaskType: "general", TargetAgent: "L1", ModelID: "m1", ProviderID: "p1", TimelineDir: "logs/cron/t1/e1"}
+	rec2 := ExecutionRecord{ID: "e2", TaskID: "t1", ExecutedAt: now.Add(-1 * time.Hour), CompletedAt: now.Add(-1 * time.Hour).Add(3 * time.Second), DurationMs: 3000, Status: "failed", ResultSummary: "", ErrorMessage: "timeout", TaskType: "general", TargetAgent: "L1", ModelID: "m2", ProviderID: "p1", TimelineDir: "logs/cron/t1/e2"}
+	rec3 := ExecutionRecord{ID: "e3", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(7 * time.Second), DurationMs: 7000, Status: "panic", ResultSummary: "", ErrorMessage: "panic: nil pointer", TaskType: "general", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e3"}
 
 	if err := store.RecordExecution(ctx, rec1); err != nil {
 		t.Fatalf("RecordExecution 1: %v", err)
@@ -420,7 +420,7 @@ func TestGetExecutionHistory(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	rec := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: "done", TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e1"}
+	rec := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: "done", TaskType: "general", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e1"}
 	if err := store.RecordExecution(ctx, rec); err != nil {
 		t.Fatalf("RecordExecution: %v", err)
 	}
@@ -445,9 +445,9 @@ func TestDeleteExecutionHistory(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	rec := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: "done", TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e1"}
+	rec := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: "done", TaskType: "general", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e1"}
 	store.RecordExecution(ctx, rec)
-	rec2 := ExecutionRecord{ID: "e2", TaskID: "t2", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: "done", TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t2/e2"}
+	rec2 := ExecutionRecord{ID: "e2", TaskID: "t2", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: "done", TaskType: "general", TargetAgent: "L1", TimelineDir: "logs/cron/t2/e2"}
 	store.RecordExecution(ctx, rec2)
 
 	// Delete history for t1 only.
@@ -473,10 +473,10 @@ func TestPruneExecutionHistory(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		rec := ExecutionRecord{
 			ID: fmt.Sprintf("e%d", i), TaskID: "t1",
-			ExecutedAt: now.Add(time.Duration(i) * time.Minute),
+			ExecutedAt:  now.Add(time.Duration(i) * time.Minute),
 			CompletedAt: now.Add(time.Duration(i)*time.Minute + time.Second),
-			DurationMs: 1000, Status: "success", ResultSummary: fmt.Sprintf("run %d", i),
-			TaskLevel: "L1", TargetAgent: "L1", TimelineDir: fmt.Sprintf("logs/cron/t1/e%d", i),
+			DurationMs:  1000, Status: "success", ResultSummary: fmt.Sprintf("run %d", i),
+			TaskType: "general", TargetAgent: "L1", TimelineDir: fmt.Sprintf("logs/cron/t1/e%d", i),
 		}
 		store.RecordExecution(ctx, rec)
 	}
@@ -519,7 +519,7 @@ func TestResultSummaryTruncation(t *testing.T) {
 		longSummary += "x"
 	}
 
-	rec := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: longSummary, TaskLevel: "L1", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e1"}
+	rec := ExecutionRecord{ID: "e1", TaskID: "t1", ExecutedAt: now, CompletedAt: now.Add(time.Second), DurationMs: 1000, Status: "success", ResultSummary: longSummary, TaskType: "general", TargetAgent: "L1", TimelineDir: "logs/cron/t1/e1"}
 	if err := store.RecordExecution(ctx, rec); err != nil {
 		t.Fatalf("RecordExecution: %v", err)
 	}
@@ -587,7 +587,7 @@ func TestExecuteTask_UpdatesNextRunOnDrainError(t *testing.T) {
 	ctx := context.Background()
 	task, err := store.CreateTask(ctx, CreateTaskInput{
 		Title:       "Test Drain Error Task",
-		TaskLevel:   "L1",
+		TaskType:    "general",
 		Expression:  "0 8 * * *",
 		Instruction: "do something",
 		NextRunAt:   time.Now().Add(-1 * time.Hour),
@@ -648,28 +648,28 @@ type testContentDelta struct {
 	delta string
 }
 
-func (e *testContentDelta) IsAgentEvent()                    {}
-func (e *testContentDelta) ContentDelta() (string, bool)     { return e.delta, true }
-func (e *testContentDelta) DoneContent() (string, bool)      { return "", false }
-func (e *testContentDelta) Error() (error, bool)             { return nil, false }
-func (e *testContentDelta) ConfirmRequest() (string, bool)   { return "", false }
+func (e *testContentDelta) IsAgentEvent()                  {}
+func (e *testContentDelta) ContentDelta() (string, bool)   { return e.delta, true }
+func (e *testContentDelta) DoneContent() (string, bool)    { return "", false }
+func (e *testContentDelta) Error() (error, bool)           { return nil, false }
+func (e *testContentDelta) ConfirmRequest() (string, bool) { return "", false }
 
 type testDoneEvent struct {
 	content string
 }
 
-func (e *testDoneEvent) IsAgentEvent()                    {}
-func (e *testDoneEvent) ContentDelta() (string, bool)     { return "", false }
-func (e *testDoneEvent) DoneContent() (string, bool)      { return e.content, true }
-func (e *testDoneEvent) Error() (error, bool)             { return nil, false }
-func (e *testDoneEvent) ConfirmRequest() (string, bool)   { return "", false }
+func (e *testDoneEvent) IsAgentEvent()                  {}
+func (e *testDoneEvent) ContentDelta() (string, bool)   { return "", false }
+func (e *testDoneEvent) DoneContent() (string, bool)    { return e.content, true }
+func (e *testDoneEvent) Error() (error, bool)           { return nil, false }
+func (e *testDoneEvent) ConfirmRequest() (string, bool) { return "", false }
 
 type testErrorEvent struct {
 	err error
 }
 
-func (e *testErrorEvent) IsAgentEvent()                    {}
-func (e *testErrorEvent) ContentDelta() (string, bool)     { return "", false }
-func (e *testErrorEvent) DoneContent() (string, bool)      { return "", false }
-func (e *testErrorEvent) Error() (error, bool)             { return e.err, true }
-func (e *testErrorEvent) ConfirmRequest() (string, bool)   { return "", false }
+func (e *testErrorEvent) IsAgentEvent()                  {}
+func (e *testErrorEvent) ContentDelta() (string, bool)   { return "", false }
+func (e *testErrorEvent) DoneContent() (string, bool)    { return "", false }
+func (e *testErrorEvent) Error() (error, bool)           { return e.err, true }
+func (e *testErrorEvent) ConfirmRequest() (string, bool) { return "", false }

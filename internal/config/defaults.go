@@ -159,14 +159,12 @@ func DefaultSettings() Settings {
 				},
 			},
 		},
-		DefaultModels: DefaultModelsConfig{
-			Basic:     "",
-			Universal: "deepseek:deepseek-v4-flash-thinking",
-			Superior:  "deepseek:deepseek-v4-flash-thinking-max",
-			Expert:    "deepseek:deepseek-v4-pro-max",
-			Apex:      "",
-			Fast:      "deepseek:deepseek-v4-flash",
-			Fallback:  "deepseek:deepseek-v4-flash",
+		ModelRoutes: ModelRoutesConfig{
+			General:     "deepseek:deepseek-v4-flash-thinking",
+			Engineering: "deepseek:deepseek-v4-flash-thinking-max",
+			Research:    "deepseek:deepseek-v4-flash-thinking-max",
+			Classifier:  "deepseek:deepseek-v4-flash",
+			Fallback:    "deepseek:deepseek-v4-flash",
 		},
 		Agent: AgentConfig{},
 		Simulation: SimulationConfig{

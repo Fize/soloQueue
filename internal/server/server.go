@@ -392,9 +392,9 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			})
 		})
 
-		r.Route("/default-models", func(r chi.Router) {
-			r.Get("/", m.handleGetDefaultModels)
-			r.Put("/", m.handleUpdateDefaultModels)
+		r.Route("/model-routes", func(r chi.Router) {
+			r.Get("/", m.handleGetModelRoutes)
+			r.Put("/", m.handleUpdateModelRoutes)
 		})
 
 		r.Route("/tools", func(r chi.Router) {

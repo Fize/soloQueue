@@ -44,7 +44,7 @@ func TestOpen_SubdirectoryCreation(t *testing.T) {
 	db.Close()
 }
 
-func TestOpenMigratesScheduledTasksV3(t *testing.T) {
+func TestOpenMigratesLegacyScheduledTasksToTaskTypes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	raw, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -73,16 +73,16 @@ func TestOpenMigratesScheduledTasksV3(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	var title, level string
-	if err := db.QueryRow(`SELECT title, task_level FROM scheduled_tasks WHERE id = 't1'`).Scan(&title, &level); err != nil {
+	var title, taskType string
+	if err := db.QueryRow(`SELECT title, task_type FROM scheduled_tasks WHERE id = 't1'`).Scan(&title, &taskType); err != nil {
 		t.Fatal(err)
 	}
-	if title != "Check database health" || level != "L2" {
-		t.Fatalf("unexpected migrated task: title=%q level=%q", title, level)
+	if title != "Check database health" || taskType != "engineering" {
+		t.Fatalf("unexpected migrated task: title=%q task_type=%q", title, taskType)
 	}
 }
 
-func TestOpenMigratesScheduledTasksConstraintToL4(t *testing.T) {
+func TestOpenMigratesScheduledTaskLevelsToTaskTypes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v3.db")
 	raw, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -116,19 +116,19 @@ func TestOpenMigratesScheduledTasksConstraintToL4(t *testing.T) {
 	defer db.Close()
 	if _, err := db.Exec(`
 		INSERT INTO scheduled_tasks (
-			id, title, task_level, expression, instruction, target_agent, status,
+			id, title, task_type, expression, instruction, target_agent, status,
 			next_run_at, created_at, updated_at
-		) VALUES ('t2', 'Critical task', 'L4', 'daily', 'run', 'L1', 'active',
+		) VALUES ('t2', 'Research task', 'research', 'daily', 'run', 'L1', 'active',
 			'2026-07-19T09:00:00+08:00', '2026-07-17T09:00:00+08:00', '2026-07-17T09:00:00+08:00')
 	`); err != nil {
-		t.Fatalf("insert L4 after migration: %v", err)
+		t.Fatalf("insert task type after migration: %v", err)
 	}
-	var existingLevel string
-	if err := db.QueryRow(`SELECT task_level FROM scheduled_tasks WHERE id = 't1'`).Scan(&existingLevel); err != nil {
+	var existingTaskType string
+	if err := db.QueryRow(`SELECT task_type FROM scheduled_tasks WHERE id = 't1'`).Scan(&existingTaskType); err != nil {
 		t.Fatal(err)
 	}
-	if existingLevel != "L3" {
-		t.Fatalf("existing task level changed to %q", existingLevel)
+	if existingTaskType != "engineering" {
+		t.Fatalf("existing task type changed to %q", existingTaskType)
 	}
 }
 

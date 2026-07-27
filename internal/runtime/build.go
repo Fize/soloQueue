@@ -32,6 +32,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
@@ -361,13 +362,13 @@ func (bc *buildContext) resolveConfig() error {
 	}
 	bc.provider = provider
 
-	defaultModel := bc.cfg.DefaultModelByRole("fast")
+	defaultModel := bc.cfg.DefaultModelForTask(tasktype.General)
 	if defaultModel == nil {
-		return errors.New("no default model configured (fast role)")
+		return errors.New("no default model configured for general tasks")
 	}
 	bc.defaultModel = defaultModel
 
-	fastModel := bc.cfg.DefaultModelByRole("fast")
+	fastModel := bc.cfg.DefaultClassifierModel()
 	if fastModel != nil {
 		bc.fastModelID = fastModel.ID
 		bc.fastModelProviderID = fastModel.ProviderID

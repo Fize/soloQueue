@@ -8,6 +8,7 @@ import (
 
 	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"gopkg.in/yaml.v3"
 )
 
@@ -76,7 +77,7 @@ type Settings struct {
 	Providers     []LLMProvider       `json:"providers" yaml:"providers,omitempty"`
 	Models        []LLMModel          `json:"models" yaml:"models,omitempty"`
 	Embedding     EmbeddingConfig     `json:"embedding" yaml:"embedding,omitempty"`
-	DefaultModels DefaultModelsConfig `json:"defaultModels" yaml:"default_models,omitempty"`
+	ModelRoutes   ModelRoutesConfig   `json:"modelRoutes" yaml:"model_routes,omitempty"`
 	QQBots        []QQBotConfig       `json:"qqbots" yaml:"qqbots,omitempty"`
 	WechatBots    []WechatBotConfig   `json:"wechatBots" yaml:"wechat_bots,omitempty"`
 	Agent         AgentConfig         `json:"agent" yaml:"agent,omitempty"`
@@ -320,22 +321,31 @@ type EmbeddingConfig struct {
 	Models        []EmbeddingModel    `json:"models"        yaml:"models,omitempty"`
 }
 
-// ─── Default Models ────────────────────────────────────────────────────────────
+// ─── Model Routes ─────────────────────────────────────────────────────────────
 
-// DefaultModelsConfig configures default models by role
-//
-// Config value format is "provider:id", provider and id must exist in the config file's
-// Providers[] and Models[]. effort follows the model's own definition.
-//
-// Resolution priority: role field value → Fallback → hardcoded default value.
-type DefaultModelsConfig struct {
-	Basic     string `json:"basic"     yaml:"basic,omitempty"`
-	Universal string `json:"universal" yaml:"universal,omitempty"`
-	Superior  string `json:"superior"  yaml:"superior,omitempty"`
-	Expert    string `json:"expert"    yaml:"expert,omitempty"`
-	Apex      string `json:"apex"      yaml:"apex,omitempty"`
-	Fast      string `json:"fast"      yaml:"fast,omitempty"`
-	Fallback  string `json:"fallback"  yaml:"fallback,omitempty"`
+// ModelRoutesConfig maps the three user-visible task types to configured models.
+// Classifier is an auxiliary non-thinking model, not a task type. Values use the
+// existing "provider:id" reference format.
+type ModelRoutesConfig struct {
+	General     string `json:"general"     yaml:"general,omitempty"`
+	Engineering string `json:"engineering" yaml:"engineering,omitempty"`
+	Research    string `json:"research"    yaml:"research,omitempty"`
+	Classifier  string `json:"classifier"  yaml:"classifier,omitempty"`
+	Fallback    string `json:"fallback"    yaml:"fallback,omitempty"`
+}
+
+// TaskRef returns the configured reference for a task type.
+func (c ModelRoutesConfig) TaskRef(t tasktype.TaskType) string {
+	switch t {
+	case tasktype.General:
+		return c.General
+	case tasktype.Engineering:
+		return c.Engineering
+	case tasktype.Research:
+		return c.Research
+	default:
+		return ""
+	}
 }
 
 // parseProviderModelID parses config value in "provider:id" format
@@ -419,7 +429,7 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"log", "Logging settings", s.Log},
 		{"providers", "LLM providers", s.Providers},
 		{"models", "LLM models", s.Models},
-		{"default_models", "Default models by role", s.DefaultModels},
+		{"model_routes", "Task model routing", s.ModelRoutes},
 		{"embedding", "Embedding settings", s.Embedding},
 		{"qqbots", "QQ bot integrations", s.QQBots},
 		{"wechat_bots", "WeChat iLink bot integrations", s.WechatBots},

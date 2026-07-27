@@ -864,7 +864,7 @@ func TestSessionAskIsolatedWithModelUsesAndClearsOverride(t *testing.T) {
 	ch, err := s.AskIsolatedWithModel(context.Background(), "run task", &iface.ModelOverrideParams{
 		ProviderID: "scheduled-provider",
 		ModelID:    "scheduled-model",
-		Level:      "L2",
+		TaskType:   "engineering",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -893,7 +893,7 @@ func TestSessionAskStreamWithModelUsesAndClearsOverride(t *testing.T) {
 	ch, err := s.AskStreamWithModel(context.Background(), "run task", &iface.ModelOverrideParams{
 		ProviderID: "stream-provider",
 		ModelID:    "stream-model",
-		Level:      "L1",
+		TaskType:   "general",
 	})
 	if err != nil {
 		t.Fatal(err)

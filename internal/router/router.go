@@ -7,206 +7,53 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
-// ModelService provides model lookups by role
 type ModelService interface {
-	// DefaultModelByRole returns the model for a given role (expert, superior, universal, fast)
-	DefaultModelByRole(role string) *config.LLMModel
+	DefaultModelForTask(tasktype.TaskType) *config.LLMModel
 }
 
-// Router coordinates task classification with model selection
-//
-// It takes a user prompt, classifies it, and returns:
-// - The classification level (for routing/delegation decisions)
-// - The recommended model ID (for agent selection)
-// - Any metadata (detected files, warnings, etc.)
-type Router struct {
-	classifier   Classifier
-	modelService ModelService
-	logger       *logger.Logger
-}
-
-// NewRouter creates a new Router instance
-func NewRouter(
-	classifier Classifier,
-	modelService ModelService,
-	l *logger.Logger,
-) *Router {
-	if l == nil {
-		var err error
-		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	return &Router{
-		classifier:   classifier,
-		modelService: modelService,
-		logger:       l,
-	}
-}
-
-// UpdateClassifierModel dynamically updates the classifier's model ID and provider ID if it supports updates.
-func (r *Router) UpdateClassifierModel(provider, model string) {
-	if updatable, ok := r.classifier.(interface{ SetModelAndProvider(string, string) }); ok {
-		updatable.SetModelAndProvider(provider, model)
-	} else if updatable, ok := r.classifier.(interface{ SetModel(string) }); ok {
-		updatable.SetModel(model)
-	}
-}
-
-// RouteDecision represents the router's decision about how to handle a task
 type RouteDecision struct {
-	// Level is the determined routing level
-	Level ClassificationLevel
-
-	// ProviderID identifies which LLM provider to use (e.g., "deepseek")
-	ProviderID string
-
-	// ModelID is the recommended API model name (e.g., "deepseek-v4-pro")
-	ModelID string
-
-	// ThinkingEnabled indicates whether the model should use thinking/reasoning mode
-	ThinkingEnabled bool
-
-	// ReasoningEffort specifies the reasoning depth: "high", "max", or "" (disabled)
-	ReasoningEffort string
-
-	// ThinkingType is the value for thinking.type in the LLM API request.
-	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3 etc.).
-	ThinkingType string
-
-	// ContextWindow is the model's context window capacity (tokens).
-	// 0 means unknown (caller should fall back to agent definition).
-	ContextWindow int
-
-	// Vision indicates the model supports multimodal image_url content.
-	Vision bool
-
-	// Classification contains the full classification result
 	Classification ClassificationResult
-
-	// Warnings contains any warnings (e.g., dangerous operations requiring confirmation)
-	Warnings []string
+	TaskType       tasktype.TaskType
+	ProviderID     string
+	ModelID        string // API model sent to the provider
+	ModelName      string
+	ThinkingEnabled bool
+	ReasoningEffort string
+	ThinkingType    string
+	ContextWindow   int
+	Vision          bool // copied model capability; never used to route
 }
 
-// Route analyzes a user prompt and returns a routing decision.
-//
-// priorLevel is the session's current task level (LevelUnknown if none).
-// When set, the classifier applies hybrid sticky logic to prevent level
-// oscillation for short follow-up messages within a larger task context.
-//
-// The decision includes:
-// - The classification level (L0-L3)
-// - The recommended model ID resolved from config
-// - Thinking configuration (enabled + effort level)
-// - Any warnings or special handling notes
-func (r *Router) Route(ctx context.Context, prompt string, priorLevel ClassificationLevel, history []ctxwin.PayloadMessage) (RouteDecision, error) {
-	decision := RouteDecision{
-		Warnings: []string{},
-	}
-
-	// Classify the prompt
-	classification, err := r.classifier.Classify(ctx, prompt, priorLevel, history)
-	if err != nil {
-		return decision, fmt.Errorf("classification failed: %w", err)
-	}
-	decision.Classification = classification
-	decision.Level = classification.Level
-
-	// Resolve full model parameters from config based on classification level
-	providerID, modelID, thinking, effort, thinkingType, contextWindow, vision := r.resolveModelParams(classification.Level)
-	decision.ProviderID = providerID
-	decision.ModelID = modelID
-	decision.ThinkingEnabled = thinking
-	decision.ReasoningEffort = effort
-	decision.ThinkingType = thinkingType
-	decision.ContextWindow = contextWindow
-	decision.Vision = vision
-
-	// Fill RecommendedModel in classification (single source of truth from config)
-	decision.Classification.RecommendedModel = modelID
-
-	// Collect warnings
-	if classification.RequiresConfirmation {
-		decision.Warnings = append(decision.Warnings,
-			fmt.Sprintf("⚠️  %s", classification.ConfirmationMessage))
-	}
-
-	r.logger.DebugContext(ctx, logger.CatApp, "routing decision made",
-		"level", classification.Level.String(),
-		"model_id", modelID,
-		"thinking", thinking,
-		"effort", effort,
-		"confidence", classification.Confidence,
-		"warnings", len(decision.Warnings),
-	)
-
-	return decision, nil
+type Router struct {
+	classifier Classifier
+	modelService ModelService
+	logger *logger.Logger
 }
 
-// resolveModelParams determines the full model configuration for a classification level.
-//
-// Mapping:
-//
-//	L0 → basic     (basic interaction, thinking)
-//	L1 → universal (general purpose, thinking high)
-//	L2 → superior  (coordinated, thinking high)
-//	L3 → expert    (complex orchestration, thinking max)
-//	L4 → apex      (frontier / critical, thinking max)
-//
-// thinking and effort are read from the model's ThinkingConfig in settings,
-// NOT hardcoded — this allows per-model overrides (e.g., MiniMax M3 with thinking disabled).
-func (r *Router) resolveModelParams(level ClassificationLevel) (providerID, modelID string, thinking bool, effort string, thinkingType string, contextWindow int, vision bool) {
-	var role string
+func NewRouter(classifier Classifier, modelService ModelService, l *logger.Logger) *Router {
+	return &Router{classifier: classifier, modelService: modelService, logger: l}
+}
 
-	switch level {
-	case LevelConversation:
-		role = "basic"
-	case LevelSimpleSingleFile:
-		role = "universal"
-	case LevelMediumMultiFile:
-		role = "superior"
-	case LevelComplexRefactoring:
-		role = "expert"
-	case LevelDeepReasoning:
-		role = "apex"
-	default:
-		role = "basic"
-	}
+func (r *Router) UpdateClassifierModel(provider, model string) {
+	if c, ok := r.classifier.(*DefaultClassifier); ok { c.SetModelAndProvider(provider, model) }
+}
 
-	// Look up the actual model ID from model service
-	model := r.modelService.DefaultModelByRole(role)
-	if model == nil {
-		r.logger.WarnContext(context.Background(), logger.CatApp, "model not found for role",
-			"role", role,
-			"level", level.String(),
-		)
-		// Return a safe fallback
-		return "deepseek", "deepseek-v4-flash", false, "", "", 0, false
-	}
-
-	// Use APIModel for the actual API call (may differ from the config ID)
-	// Return ONLY the model name (not "provider:model"), because this value
-	// is sent directly to the LLM API as the "model" field.
+func (r *Router) Route(ctx context.Context, input ClassifyInput, history []ctxwin.PayloadMessage) (RouteDecision, error) {
+	if r.classifier == nil { return RouteDecision{}, fmt.Errorf("task classifier is not configured") }
+	classification := r.classifier.Classify(ctx, input, history)
+	if !classification.TaskType.Valid() { return RouteDecision{}, fmt.Errorf("classifier returned invalid task type %q", classification.TaskType) }
+	model := r.modelService.DefaultModelForTask(classification.TaskType)
+	if model == nil { return RouteDecision{}, fmt.Errorf("no enabled model for task type %s", classification.TaskType) }
 	apiModel := model.APIModel
-	if apiModel == "" {
-		apiModel = model.ID
-	}
-
-	// Read thinking config from the model's settings, not hardcoded.
-	thinking = model.Thinking.Enabled
-	effort = model.Thinking.ReasoningEffort
-	thinkingType = model.Thinking.ThinkingType
-
-	return model.ProviderID, apiModel, thinking, effort, thinkingType, model.ContextWindow, model.Vision
-}
-
-// ModelForClassification returns the recommended model ID for a classification result.
-// This is a convenience method for direct model lookup without the full routing decision.
-func (r *Router) ModelForClassification(classification ClassificationResult) string {
-	_, modelID, _, _, _, _, _ := r.resolveModelParams(classification.Level)
-	return modelID
+	if apiModel == "" { apiModel = model.ID }
+	return RouteDecision{
+		Classification: classification, TaskType: classification.TaskType,
+		ProviderID: model.ProviderID, ModelID: apiModel, ModelName: model.Name,
+		ThinkingEnabled: model.Thinking.Enabled, ReasoningEffort: model.Thinking.ReasoningEffort,
+		ThinkingType: model.Thinking.ThinkingType, ContextWindow: model.ContextWindow,
+		Vision: model.Vision,
+	}, nil
 }

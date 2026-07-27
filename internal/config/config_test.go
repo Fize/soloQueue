@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -107,39 +109,39 @@ func TestResolveScheduledTaskModelUsesConfiguredFallback(t *testing.T) {
 	_, err = svc.Set(func(s *Settings) {
 		s.Providers = []LLMProvider{{ID: "p", Enabled: true}}
 		s.Models = []LLMModel{{ID: "fallback-model", ProviderID: "p", Enabled: true}}
-		s.DefaultModels = DefaultModelsConfig{Fallback: "p:fallback-model"}
+		s.ModelRoutes = ModelRoutesConfig{Fallback: "p:fallback-model"}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, role, usedFallback, err := svc.ResolveScheduledTaskModel("L2")
+	model, usedFallback, err := svc.ResolveScheduledTaskModel(tasktype.Engineering)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if model.ID != "fallback-model" || role != "superior" || !usedFallback {
-		t.Fatalf("unexpected resolution: model=%+v role=%q fallback=%v", model, role, usedFallback)
+	if model.ID != "fallback-model" || !usedFallback {
+		t.Fatalf("unexpected resolution: model=%+v fallback=%v", model, usedFallback)
 	}
 }
 
-func TestResolveScheduledTaskModelSupportsL4Apex(t *testing.T) {
+func TestResolveScheduledTaskModelUsesTaskModel(t *testing.T) {
 	svc, err := New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = svc.Set(func(s *Settings) {
 		s.Providers = []LLMProvider{{ID: "p", Enabled: true}}
-		s.Models = []LLMModel{{ID: "apex-model", ProviderID: "p", Enabled: true}}
-		s.DefaultModels = DefaultModelsConfig{Apex: "p:apex-model"}
+		s.Models = []LLMModel{{ID: "engineering-model", ProviderID: "p", Enabled: true}}
+		s.ModelRoutes = ModelRoutesConfig{Engineering: "p:engineering-model"}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, role, usedFallback, err := svc.ResolveScheduledTaskModel("L4")
+	model, usedFallback, err := svc.ResolveScheduledTaskModel(tasktype.Engineering)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if model.ID != "apex-model" || role != "apex" || usedFallback {
-		t.Fatalf("unexpected L4 resolution: model=%+v role=%q fallback=%v", model, role, usedFallback)
+	if model.ID != "engineering-model" || usedFallback {
+		t.Fatalf("unexpected resolution: model=%+v fallback=%v", model, usedFallback)
 	}
 }
 
@@ -151,13 +153,13 @@ func TestResolveScheduledTaskModelFailsWithoutConfiguredFallback(t *testing.T) {
 	_, err = svc.Set(func(s *Settings) {
 		s.Providers = nil
 		s.Models = nil
-		s.DefaultModels = DefaultModelsConfig{}
+		s.ModelRoutes = ModelRoutesConfig{}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := svc.ResolveScheduledTaskModel("L2"); err == nil {
-		t.Fatal("expected resolution error without superior or fallback model")
+	if _, _, err := svc.ResolveScheduledTaskModel(tasktype.Engineering); err == nil {
+		t.Fatal("expected resolution error without engineering or fallback model")
 	}
 }
 

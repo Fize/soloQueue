@@ -8,10 +8,10 @@ import {
   createModel,
   updateModel,
   deleteModel,
-  getDefaultModels,
-  updateDefaultModels,
+	getModelRoutes,
+	updateModelRoutes,
 } from '@/lib/api'
-import type { LLMProvider, LLMModel, DefaultModelsConfig } from '@/types'
+import type { LLMProvider, LLMModel, ModelRoutesConfig } from '@/types'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
@@ -24,13 +24,11 @@ export function ModelsTab() {
   const [models, setModels] = useState<LLMModel[]>([])
   const [deleteProviderTarget, setDeleteProviderTarget] = useState<LLMProvider | null>(null)
   const [deleteModelTarget, setDeleteModelTarget] = useState<LLMModel | null>(null)
-  const [defaultModels, setDefaultModels] = useState<DefaultModelsConfig>({
-    basic: '',
-    universal: '',
-    superior: '',
-    expert: '',
-    apex: '',
-    fast: '',
+	const [modelRoutes, setModelRoutes] = useState<ModelRoutesConfig>({
+		general: '',
+		engineering: '',
+		research: '',
+		classifier: '',
     fallback: '',
   })
   const [providerFilter, setProviderFilter] = useState('all')
@@ -41,12 +39,12 @@ export function ModelsTab() {
       const [dbProviders, dbModels, dbDefaults] = await Promise.all([
         listProviders(),
         listModels(),
-        getDefaultModels(),
+		getModelRoutes(),
       ])
       setProviders(dbProviders || [])
       setModels(dbModels || [])
-      setDefaultModels(
-        dbDefaults || { basic: '', universal: '', superior: '', expert: '', apex: '', fast: '', fallback: '' }
+		setModelRoutes(
+			dbDefaults || { general: '', engineering: '', research: '', classifier: '', fallback: '' }
       )
     } catch (err) {
       toast.error((err as Error).message)
@@ -61,7 +59,7 @@ export function ModelsTab() {
 
   const handleSaveDefaults = async () => {
     try {
-      await updateDefaultModels(defaultModels)
+		await updateModelRoutes(modelRoutes)
       toast.success(t('config.toastDefaultsUpdated'))
       loadData()
     } catch (err) {
@@ -169,11 +167,11 @@ export function ModelsTab() {
       <LLMSection
         providers={providers}
         models={models}
-        defaultModels={defaultModels}
+		defaultModels={modelRoutes}
         providerFilter={providerFilter}
         onProviderFilterChange={setProviderFilter}
         onSaveDefaults={handleSaveDefaults}
-        onDefaultModelsChange={setDefaultModels}
+		onDefaultModelsChange={setModelRoutes}
         onCreateProvider={handleCreateProvider}
         onUpdateProvider={handleUpdateProviderAction}
         onDeleteProvider={handleDeleteProviderAction}

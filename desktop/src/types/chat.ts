@@ -36,7 +36,7 @@ export interface WSChatRoute {
   type: "chat_route";
   request_id: string;
   session_id: string;
-  task_level: string;
+	task_type: string;
   model_id: string;
   provider_id?: string;
   agent_instance_id?: string;

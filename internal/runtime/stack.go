@@ -22,6 +22,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
@@ -259,19 +260,19 @@ func (s *Stack) OnConfigChange() error {
 		s.LLMClient = agent.NewRoutingClient(clients)
 	}
 
-	fastModel := s.Settings.DefaultModelByRole("fast")
-	if fastModel != nil {
-		s.DefaultModel = fastModel
+	generalModel := s.Settings.DefaultModelForTask(tasktype.General)
+	if generalModel != nil {
+		s.DefaultModel = generalModel
 		if s.AgentFactory != nil {
-			s.AgentFactory.UpdateDefaultModelID(fastModel.ID)
+			s.AgentFactory.UpdateDefaultModelID(generalModel.ID)
 		}
-		if s.TaskRouter != nil {
-			effectiveModel := fastModel.APIModel
+	}
+	if classifierModel := s.Settings.DefaultClassifierModel(); classifierModel != nil && s.TaskRouter != nil {
+			effectiveModel := classifierModel.APIModel
 			if effectiveModel == "" {
-				effectiveModel = fastModel.ID
+				effectiveModel = classifierModel.ID
 			}
-			s.TaskRouter.UpdateClassifierModel(fastModel.ProviderID, effectiveModel)
-		}
+		s.TaskRouter.UpdateClassifierModel(classifierModel.ProviderID, effectiveModel)
 	}
 
 	// Update tools config dynamically, preserving runtime dependencies and fields

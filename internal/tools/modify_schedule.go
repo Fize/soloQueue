@@ -23,7 +23,7 @@ func newModifyScheduledTaskTool(cfg Config) *modifyScheduledTaskTool {
 func (modifyScheduledTaskTool) Name() string { return "update_cron_job" }
 
 func (modifyScheduledTaskTool) Description() string {
-	return "Updates an existing cron job. You can update the title, task level, schedule, instruction, target agent, or status (active/paused). " +
+	return "Updates an existing cron job. You can update the title, task type, schedule, instruction, target agent, or status (active/paused). " +
 		"At least one modifiable field must be provided. " +
 		"Use list_cron_jobs first when the job ID is unknown."
 }
@@ -48,10 +48,10 @@ func (t modifyScheduledTaskTool) Parameters() json.RawMessage {
       "type": "string",
       "description": "Optional. New concise user-facing task title (maximum 100 characters)."
     },
-    "task_level": {
+    "task_type": {
       "type": "string",
-      "description": "Optional. New task complexity level.",
-      "enum": ["L0", "L1", "L2", "L3", "L4"]
+      "description": "Optional. New task type.",
+      "enum": ["general", "engineering", "research"]
     },
     "schedule": {
       "type": "string",
@@ -74,7 +74,7 @@ func (t modifyScheduledTaskTool) Parameters() json.RawMessage {
 type modifyScheduledTaskArgs struct {
 	TaskID      string `json:"task_id"`
 	Title       string `json:"title"`
-	TaskLevel   string `json:"task_level"`
+	TaskType    string `json:"task_type"`
 	Schedule    string `json:"schedule"`
 	Instruction string `json:"instruction"`
 	TargetAgent string `json:"target_agent"`
@@ -99,11 +99,11 @@ func (t *modifyScheduledTaskTool) Execute(ctx context.Context, raw string) (stri
 	}
 
 	// At least one modifiable field must be provided.
-	if a.Title == "" && a.TaskLevel == "" && a.Schedule == "" && a.Instruction == "" && a.TargetAgent == "" && a.Status == "" {
+	if a.Title == "" && a.TaskType == "" && a.Schedule == "" && a.Instruction == "" && a.TargetAgent == "" && a.Status == "" {
 		return "", fmt.Errorf("%w: at least one modifiable field must be provided", ErrInvalidArgs)
 	}
-	if a.TaskLevel != "" {
-		if err := cron.ValidateTaskLevel(a.TaskLevel); err != nil {
+	if a.TaskType != "" {
+		if err := cron.ValidateTaskType(a.TaskType); err != nil {
 			return "", fmt.Errorf("%w: %v", ErrInvalidArgs, err)
 		}
 	}
@@ -129,8 +129,8 @@ func (t *modifyScheduledTaskTool) Execute(ctx context.Context, raw string) (stri
 		task.Title = a.Title
 		changed = true
 	}
-	if a.TaskLevel != "" && a.TaskLevel != task.TaskLevel {
-		task.TaskLevel = a.TaskLevel
+	if a.TaskType != "" && a.TaskType != task.TaskType {
+		task.TaskType = a.TaskType
 		changed = true
 	}
 
@@ -194,14 +194,14 @@ func (t *modifyScheduledTaskTool) Execute(ctx context.Context, raw string) (stri
 	type modifyResult struct {
 		ID        string `json:"id"`
 		Title     string `json:"title"`
-		TaskLevel string `json:"task_level"`
+		TaskType  string `json:"task_type"`
 		NextRunAt string `json:"next_run_at"`
 		Status    string `json:"status"`
 	}
 	res := modifyResult{
 		ID:        task.ID,
 		Title:     task.Title,
-		TaskLevel: task.TaskLevel,
+		TaskType:  task.TaskType,
 		NextRunAt: task.NextRunAt.Format("2006-01-02 15:04:05"),
 		Status:    task.Status,
 	}

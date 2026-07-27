@@ -453,12 +453,11 @@ func (a *Agent) EffectiveContextWindow() int {
 	return a.Def.ContextWindow
 }
 
-// EffectiveTaskLevel returns the task classification level from the current
-// per-ask override. Returns "" if no override is active or no level is set.
+// EffectiveTaskType returns the task type from the current per-ask override.
 // Thread-safe (atomic pointer load).
-func (a *Agent) EffectiveTaskLevel() string {
+func (a *Agent) EffectiveTaskType() string {
 	if mp := a.modelOverride.Load(); mp != nil {
-		return mp.Level
+		return mp.TaskType
 	}
 	return ""
 }

@@ -128,7 +128,7 @@ export function useChatStream() {
           setRoute({
             requestId: data.request_id,
             sessionId: data.session_id,
-            taskLevel: data.task_level,
+			taskLevel: data.task_type,
             modelId: data.model_id,
             providerId: data.provider_id,
             agentInstanceId: data.agent_instance_id,

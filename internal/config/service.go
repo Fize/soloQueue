@@ -8,6 +8,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
 // GlobalService is the global configuration service, embedding Loader[Settings]
@@ -141,75 +142,51 @@ func (s *GlobalService) ModelByProviderID(providerID, modelID string) *LLMModel 
 	return nil
 }
 
-// DefaultModelByRole resolves the default model by role
-//
-// role supports: "basic", "universal", "superior", "expert", "apex", "fast".
-//
-// Resolution priority: role config value -> Fallback -> hardcoded default value.
-// Config value format is "provider:id"; both provider and id must exist in the config file.
-// Returns nil if the corresponding model is not found.
-func (s *GlobalService) DefaultModelByRole(role string) *LLMModel {
-	settings := s.Get()
-
-	// 1. Get role config value
-	ref := roleField(settings.DefaultModels, role)
-
-	// 2. Role not configured -> try Fallback
-	if ref == "" {
-		ref = settings.DefaultModels.Fallback
-	}
-
-	// 3. Fallback is empty -> use hardcoded default value
-	if ref == "" {
-		ref = roleDefault(role)
-	}
-
-	if ref == "" {
+// DefaultModelForTask resolves an interactive task model. It keeps the former
+// configured-route -> fallback -> compiled-default resolution order, while
+// using task types instead of difficulty roles.
+func (s *GlobalService) DefaultModelForTask(t tasktype.TaskType) *LLMModel {
+	if !t.Valid() {
 		return nil
 	}
-
-	// 4. Parse "provider:id" and look up
-	providerID, modelID, ok := parseProviderModelID(ref)
-	if !ok {
-		return nil
-	}
-	return s.ModelByProviderID(providerID, modelID)
-}
-
-// ResolveScheduledTaskModel resolves a task level without using legacy
-// hardcoded role defaults. Scheduled tasks may only fall back to the model
-// explicitly configured in DefaultModels.Fallback.
-func (s *GlobalService) ResolveScheduledTaskModel(level string) (model *LLMModel, role string, usedFallback bool, err error) {
-	switch level {
-	case "L0":
-		role = "basic"
-	case "L1":
-		role = "universal"
-	case "L2":
-		role = "superior"
-	case "L3":
-		role = "expert"
-	case "L4":
-		role = "apex"
-	default:
-		return nil, "", false, fmt.Errorf("unsupported scheduled task level %q", level)
-	}
-
 	settings := s.Get()
-	if ref := roleField(settings.DefaultModels, role); ref != "" {
-		if resolved := enabledModelByRef(settings, ref); resolved != nil {
-			return resolved, role, false, nil
+	for _, ref := range []string{settings.ModelRoutes.TaskRef(t), settings.ModelRoutes.Fallback, taskDefault(t)} {
+		if model := enabledModelByRef(settings, ref); model != nil {
+			return model
 		}
 	}
+	return nil
+}
 
-	if settings.DefaultModels.Fallback == "" {
-		return nil, role, false, fmt.Errorf("no enabled model configured for %s and no fallback model configured", role)
+// DefaultClassifierModel resolves the compact non-thinking classifier model.
+func (s *GlobalService) DefaultClassifierModel() *LLMModel {
+	settings := s.Get()
+	for _, ref := range []string{settings.ModelRoutes.Classifier, settings.ModelRoutes.Fallback, classifierDefault()} {
+		if model := enabledModelByRef(settings, ref); model != nil {
+			return model
+		}
 	}
-	resolved := enabledModelByRef(settings, settings.DefaultModels.Fallback)
-	if resolved == nil {
-		return nil, role, false, fmt.Errorf("fallback model %q is missing or disabled", settings.DefaultModels.Fallback)
+	return nil
+}
+
+// ResolveScheduledTaskModel resolves a persisted task type. Scheduled tasks
+// intentionally do not fall back to compiled defaults: unattended work must
+// use an explicitly configured model or fail visibly.
+func (s *GlobalService) ResolveScheduledTaskModel(t tasktype.TaskType) (model *LLMModel, usedFallback bool, err error) {
+	if !t.Valid() {
+		return nil, false, fmt.Errorf("unsupported scheduled task type %q", t)
 	}
-	return resolved, role, true, nil
+	settings := s.Get()
+	if resolved := enabledModelByRef(settings, settings.ModelRoutes.TaskRef(t)); resolved != nil {
+		return resolved, false, nil
+	}
+	if settings.ModelRoutes.Fallback == "" {
+		return nil, false, fmt.Errorf("no enabled model configured for %s and no fallback model configured", t)
+	}
+	if resolved := enabledModelByRef(settings, settings.ModelRoutes.Fallback); resolved != nil {
+		return resolved, true, nil
+	}
+	return nil, false, fmt.Errorf("fallback model %q is missing or disabled", settings.ModelRoutes.Fallback)
 }
 
 func enabledModelByRef(settings Settings, ref string) *LLMModel {
@@ -236,39 +213,18 @@ func enabledModelByRef(settings Settings, ref string) *LLMModel {
 	return nil
 }
 
-// roleField returns the config value corresponding to the role
-func roleField(dm DefaultModelsConfig, role string) string {
-	switch role {
-	case "basic":
-		return dm.Basic
-	case "universal":
-		return dm.Universal
-	case "superior":
-		return dm.Superior
-	case "expert":
-		return dm.Expert
-	case "apex":
-		return dm.Apex
-	case "fast":
-		return dm.Fast
+func taskDefault(t tasktype.TaskType) string {
+	switch t {
+	case tasktype.General:
+		return "deepseek:deepseek-v4-flash-thinking"
+	case tasktype.Engineering, tasktype.Research:
+		return "deepseek:deepseek-v4-flash-thinking-max"
 	default:
 		return ""
 	}
 }
 
-// roleDefault returns the hardcoded default value for the role
-func roleDefault(role string) string {
-	defaults := map[string]string{
-		"basic":     "",
-		"universal": "deepseek:deepseek-v4-flash-thinking",
-		"superior":  "deepseek:deepseek-v4-flash-thinking-max",
-		"expert":    "deepseek:deepseek-v4-pro-max",
-		"apex":      "",
-		"fast":      "deepseek:deepseek-v4-flash",
-		"fallback":  "deepseek:deepseek-v4-flash",
-	}
-	return defaults[role]
-}
+func classifierDefault() string { return "deepseek:deepseek-v4-flash" }
 
 // DefaultWorkDir returns the working directory for soloqueue.
 // It checks the SOLOQUEUE_WORK_DIR env var first, then falls back to ~/.soloqueue.

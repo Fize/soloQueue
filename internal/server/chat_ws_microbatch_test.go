@@ -18,7 +18,7 @@ func TestBuildChatRouteMessageUsesEffectivePerAskRoute(t *testing.T) {
 		ProviderID: "fallback-provider",
 	}, &agent.FakeLLM{}, nil)
 	a.SetModelOverride(&agent.ModelParams{
-		Level:      "L2-MediumMultiFile",
+		TaskType:   "engineering",
 		ModelID:    "routed-model",
 		ProviderID: "routed-provider",
 	})
@@ -27,7 +27,7 @@ func TestBuildChatRouteMessageUsesEffectivePerAskRoute(t *testing.T) {
 	if msg.Type != "chat_route" || msg.RequestID != "req-1" || msg.SessionID != "l2:s1" {
 		t.Fatalf("unexpected envelope: %#v", msg)
 	}
-	if msg.TaskLevel != "L2-MediumMultiFile" || msg.ModelID != "routed-model" || msg.ProviderID != "routed-provider" {
+	if msg.TaskType != "engineering" || msg.ModelID != "routed-model" || msg.ProviderID != "routed-provider" {
 		t.Fatalf("unexpected route metadata: %#v", msg)
 	}
 	if msg.AgentInstanceID != a.InstanceID {

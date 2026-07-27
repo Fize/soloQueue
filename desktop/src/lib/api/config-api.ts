@@ -2,7 +2,7 @@ import type {
   AppConfig,
   LLMProvider,
   LLMModel,
-  DefaultModelsConfig,
+  ModelRoutesConfig,
   SessionConfig,
   ToolsConfig,
   SandboxConfig,
@@ -101,14 +101,14 @@ export async function deleteModel(providerId: string, id: string): Promise<void>
   await request(`/config/models/${providerId}/${id}`, { method: "DELETE" });
 }
 
-export async function getDefaultModels(): Promise<DefaultModelsConfig> {
-  return request<DefaultModelsConfig>("/config/default-models");
+export async function getModelRoutes(): Promise<ModelRoutesConfig> {
+	return request<ModelRoutesConfig>("/config/model-routes");
 }
 
-export async function updateDefaultModels(
-  data: DefaultModelsConfig,
-): Promise<DefaultModelsConfig> {
-  return request<DefaultModelsConfig>("/config/default-models", {
+export async function updateModelRoutes(
+	data: ModelRoutesConfig,
+): Promise<ModelRoutesConfig> {
+	return request<ModelRoutesConfig>("/config/model-routes", {
     method: "PUT",
     body: JSON.stringify(data),
   });

@@ -87,7 +87,7 @@ func (a *Agent) ToolSpecs() []llm.ToolDef {
 		return nil
 	}
 	specs := a.tools.Specs()
-	level := a.EffectiveTaskLevel()
+	level := a.EffectiveTaskType()
 	if level == "" {
 		return specs
 	}

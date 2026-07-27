@@ -294,39 +294,38 @@ func (m *Mux) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": modelID, "provider": providerID})
 }
 
-// ─── Default Models ──────────────────────────────────────────────────────────
+// ─── Model Routes ────────────────────────────────────────────────────────────
 
-// GET /api/config/default-models
-func (m *Mux) handleGetDefaultModels(w http.ResponseWriter, r *http.Request) {
+// GET /api/config/model-routes
+func (m *Mux) handleGetModelRoutes(w http.ResponseWriter, r *http.Request) {
 	if m.configSvc == nil {
 		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
-	defaultModels := m.configSvc.Get().DefaultModels
-	m.writeJSON(w, http.StatusOK, defaultModels)
+	m.writeJSON(w, http.StatusOK, m.configSvc.Get().ModelRoutes)
 }
 
-// PUT /api/config/default-models
-func (m *Mux) handleUpdateDefaultModels(w http.ResponseWriter, r *http.Request) {
+// PUT /api/config/model-routes
+func (m *Mux) handleUpdateModelRoutes(w http.ResponseWriter, r *http.Request) {
 	if m.configSvc == nil {
 		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
 		return
 	}
 
-	var dm config.DefaultModelsConfig
-	if err := json.NewDecoder(r.Body).Decode(&dm); err != nil {
+	var routes config.ModelRoutesConfig
+	if err := json.NewDecoder(r.Body).Decode(&routes); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := m.configSvc.UpdateDefaultModels(dm); err != nil {
+	if err := m.configSvc.UpdateModelRoutes(routes); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	m.triggerOnConfigChange()
-	m.writeJSON(w, http.StatusOK, dm)
+	m.writeJSON(w, http.StatusOK, routes)
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

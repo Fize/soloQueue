@@ -25,6 +25,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -105,8 +106,12 @@ func ServeCmd(version string) *cobra.Command {
 				l2Store: l2Store,
 				workDir: workDir,
 			}, log)
-			cronScheduler.SetModelResolver(func(taskLevel string) (cron.ResolvedModel, error) {
-				model, role, usedFallback, err := cfg.ResolveScheduledTaskModel(taskLevel)
+			cronScheduler.SetModelResolver(func(taskType string) (cron.ResolvedModel, error) {
+				typeValue, err := tasktype.Parse(taskType)
+				if err != nil {
+					return cron.ResolvedModel{}, err
+				}
+				model, usedFallback, err := cfg.ResolveScheduledTaskModel(typeValue)
 				if err != nil {
 					return cron.ResolvedModel{}, err
 				}
@@ -121,15 +126,15 @@ func ServeCmd(version string) *cobra.Command {
 						ThinkingEnabled: model.Thinking.Enabled,
 						ReasoningEffort: model.Thinking.ReasoningEffort,
 						ThinkingType:    model.Thinking.ThinkingType,
-						Level:           taskLevel,
+						TaskType:        taskType,
 						ContextWindow:   model.ContextWindow,
 						Vision:          model.Vision,
 					},
-					RequestedRole: role,
-					UsedFallback:  usedFallback,
+					RequestedTaskType: taskType,
+					UsedFallback:      usedFallback,
 				}
 				if usedFallback {
-					resolved.FallbackReason = role + " model is not configured or enabled"
+					resolved.FallbackReason = taskType + " model is not configured or enabled"
 				}
 				return resolved, nil
 			})
@@ -384,7 +389,7 @@ func VersionCmd(version string) *cobra.Command {
 				log.Info(logger.CatApp, "default provider", "name", p.Name, "id", p.ID)
 			}
 
-			m := cfg.DefaultModelByRole("fast")
+			m := cfg.DefaultClassifierModel()
 			if m != nil {
 				log.Info(logger.CatApp, "default model", "name", m.Name, "id", m.ID)
 			}

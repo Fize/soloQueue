@@ -1,129 +1,40 @@
-// Package router implements intelligent task routing and classification.
-//
-// The Task Router Classifier (TRC) is a dual-channel system that routes user
-// input to appropriate processing levels (L0, L1, L2, L3) while minimizing
-// latency and token cost. It combines:
-//
-//   - Fast-track rules (hardcoded local logic) for common cases
-//   - LLM-based classification (semantic understanding) for ambiguous cases
-//   - Safety checks to prevent dangerous operations
-//   - Explicit overrides (slash commands) to bypass classification
+// Package router classifies work by task type and resolves the configured
+// execution model. It intentionally does not rank task difficulty.
 package router
 
-// ClassificationLevel represents the routing level for a user task
-type ClassificationLevel int
+import "github.com/xiaobaitu/soloqueue/internal/tasktype"
 
-	const (
-	// LevelUnknown indicates classification failed
-	LevelUnknown ClassificationLevel = iota
+type ClassificationSource string
 
-	// LevelConversation (L0): Basic interaction, shallow reasoning, info retrieval
-	// Model: basic (lightweight + thinking)
-	LevelConversation
-
-	// LevelSimpleSingleFile (L1): Single file modification or analysis
-	// Model: universal (general purpose + thinking high)
-	LevelSimpleSingleFile
-
-	// LevelMediumMultiFile (L2): 2-5 files across related modules
-	// Model: superior (coordinated + thinking high)
-	LevelMediumMultiFile
-
-	// LevelComplexRefactoring (L3): 5+ files or architectural changes
-	// Model: expert (complex orchestration + thinking max)
-	LevelComplexRefactoring
-
-	// LevelDeepReasoning (L4): frontier-scale, long-chain agent, must-not-fail
-	// Model: apex (highest capability + thinking max)
-	LevelDeepReasoning
+const (
+	SourceManual           ClassificationSource = "manual"
+	SourceLocal            ClassificationSource = "local"
+	SourceLLM              ClassificationSource = "llm"
+	SourcePreviousFallback ClassificationSource = "previous_fallback"
+	SourceDefaultFallback  ClassificationSource = "default_fallback"
 )
 
-// String returns the human-readable name of the classification level
-func (cl ClassificationLevel) String() string {
-	switch cl {
-	case LevelConversation:
-		return "L0-Conversation"
-	case LevelSimpleSingleFile:
-		return "L1-SimpleSingleFile"
-	case LevelMediumMultiFile:
-		return "L2-MediumMultiFile"
-	case LevelComplexRefactoring:
-		return "L3-ComplexRefactoring"
-	case LevelDeepReasoning:
-		return "L4-DeepReasoning"
-	default:
-		return "Unknown"
-	}
-}
-
-// ClassificationResult holds the output of task classification
+// ClassificationResult contains only the information required to choose a
+// task model. ReasonCode is diagnostics-only and is never user-facing.
 type ClassificationResult struct {
-	// Level is the determined routing level
-	Level ClassificationLevel
-
-	// Confidence is a score from 0-100 indicating classification confidence
-	Confidence int
-
-	// Source indicates where the classification came from ("local" or "remote")
-	Source string
-
-	// RecommendedModel is the suggested model for this task
-	RecommendedModel string
-
-	// Reason provides a human-readable explanation of the classification
-	Reason string
-
-	// DetectedFilePaths are files mentioned in the input (if any)
-	DetectedFilePaths []string
-
-	// SlashCommand is non-empty if input starts with a slash command
-	SlashCommand string
-
-	// RequiresConfirmation indicates if this task needs user confirmation
-	RequiresConfirmation bool
-
-	// ConfirmationMessage provides context for confirmation if needed
-	ConfirmationMessage string
+	TaskType   tasktype.TaskType
+	Source     ClassificationSource
+	ReasonCode string
 }
 
-// ClassifierConfig holds configuration for the task router
 type ClassifierConfig struct {
-	// EnableFastTrack enables hardcoded fast-track rules
-	EnableFastTrack bool
-
-	// EnableLLMClassification enables LLM-based semantic classification
-	EnableLLMClassification bool
-
-	// FastTrackConfidenceThreshold is the confidence level (0-100) above which
-	// fast-track rules are sufficient. Below this, LLM classification is attempted.
-	FastTrackConfidenceThreshold int
-
-	// L0ConfidenceThreshold is the minimum confidence for L0 (conversation) classification
-	L0ConfidenceThreshold int
-
-	// L1ConfidenceThreshold is the minimum confidence for L1 (single file) classification
-	L1ConfidenceThreshold int
-
-	// L2ConfidenceThreshold is the minimum confidence for L2 (multi-file) classification
-	L2ConfidenceThreshold int
-
-	// L3ConfidenceThreshold is the minimum confidence for L3 (complex) classification
-	L3ConfidenceThreshold int
-
-	// L4ConfidenceThreshold is the minimum confidence for L4 (deep reasoning) classification
-	L4ConfidenceThreshold int
+	EnableLocal bool
+	EnableLLM   bool
 }
 
-// DefaultClassifierConfig returns reasonable default configuration
 func DefaultClassifierConfig() ClassifierConfig {
-	return ClassifierConfig{
-		EnableFastTrack:              true,
-		EnableLLMClassification:      true,
-		FastTrackConfidenceThreshold: 85,
-		L0ConfidenceThreshold:        95,
-		L1ConfidenceThreshold:        75,
-		L2ConfidenceThreshold:        70,
-		L3ConfidenceThreshold:        55,
-		L4ConfidenceThreshold:        85,
-	}
+	return ClassifierConfig{EnableLocal: true, EnableLLM: true}
+}
+
+// ClassifyInput separates original user text from execution-only attachment
+// annotations. Images are represented only by a boolean for the LLM fallback.
+type ClassifyInput struct {
+	Text             string
+	HasImages        bool
+	PreviousTaskType tasktype.TaskType
 }

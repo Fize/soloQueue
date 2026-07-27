@@ -49,10 +49,10 @@ func TestHTTP_CronHandlers(t *testing.T) {
 	mux := NewMux(tempDir, nil, WithToolsConfig(&toolsCfg))
 	defer mux.Close()
 
-	// Required title and task level cannot be omitted or invalid.
+	// Required title and task type cannot be omitted or invalid.
 	for name, body := range map[string]map[string]string{
-		"missing metadata": {"expression": "daily", "instruction": "Check logs"},
-		"invalid level":    {"title": "Check logs", "task_level": "L9", "expression": "daily", "instruction": "Check logs"},
+		"missing metadata":  {"expression": "daily", "instruction": "Check logs"},
+		"invalid task type": {"title": "Check logs", "task_type": "other", "expression": "daily", "instruction": "Check logs"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			data, _ := json.Marshal(body)
@@ -70,7 +70,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 	{
 		body := map[string]string{
 			"title":        "Daily log check",
-			"task_level":   "L1",
+			"task_type":    "general",
 			"expression":   "0 12 * * *",
 			"instruction":  "Check daily logs",
 			"target_agent": "L1",
@@ -88,7 +88,7 @@ func TestHTTP_CronHandlers(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 			t.Fatalf("failed to parse response: %v", err)
 		}
-		if created.Title != "Daily log check" || created.TaskLevel != "L1" || created.Expression != "0 12 * * *" || created.Instruction != "Check daily logs" {
+		if created.Title != "Daily log check" || created.TaskType != "general" || created.Expression != "0 12 * * *" || created.Instruction != "Check daily logs" {
 			t.Errorf("unexpected task fields: %+v", created)
 		}
 		taskID = created.ID
@@ -217,7 +217,7 @@ func TestHTTP_CronHistory(t *testing.T) {
 		ID: "exec-1", TaskID: "task-1",
 		ExecutedAt: now.Add(-2 * time.Hour), CompletedAt: now.Add(-2 * time.Hour).Add(time.Second),
 		DurationMs: 1000, Status: "success", ResultSummary: "all good",
-		TaskLevel: "L1", TargetAgent: "L1", ModelID: "m1", ProviderID: "p1",
+		TaskType: "general", TargetAgent: "L1", ModelID: "m1", ProviderID: "p1",
 		TimelineDir: "logs/cron/task-1/exec-1",
 	}
 	store.RecordExecution(ctx, rec1)
@@ -226,7 +226,7 @@ func TestHTTP_CronHistory(t *testing.T) {
 		ID: "exec-2", TaskID: "task-1",
 		ExecutedAt: now.Add(-1 * time.Hour), CompletedAt: now.Add(-1 * time.Hour).Add(2 * time.Second),
 		DurationMs: 2000, Status: "failed", ErrorMessage: "timeout",
-		TaskLevel: "L1", TargetAgent: "L1",
+		TaskType: "general", TargetAgent: "L1",
 		TimelineDir: "",
 	}
 	store.RecordExecution(ctx, rec2)

@@ -16,7 +16,7 @@ import (
 type CronTaskStatus struct {
 	ID          string  `json:"id"`
 	Title       string  `json:"title"`
-	TaskLevel   string  `json:"task_level"`
+	TaskType    string  `json:"task_type"`
 	Expression  string  `json:"expression"`
 	Instruction string  `json:"instruction"`
 	TargetAgent string  `json:"target_agent"`
@@ -49,7 +49,7 @@ type WSMessage struct {
 	// Chat streaming fields.
 	RequestID        string               `json:"request_id,omitempty"`
 	SessionID        string               `json:"session_id,omitempty"`
-	TaskLevel        string               `json:"task_level,omitempty"`
+	TaskType         string               `json:"task_type,omitempty"`
 	ModelID          string               `json:"model_id,omitempty"`
 	ProviderID       string               `json:"provider_id,omitempty"`
 	AgentInstanceID  string               `json:"agent_instance_id,omitempty"`
@@ -346,7 +346,7 @@ func (h *Hub) buildStateMessage() *WSMessage {
 				cts := CronTaskStatus{
 					ID:          t.ID,
 					Title:       t.Title,
-					TaskLevel:   t.TaskLevel,
+					TaskType:    t.TaskType,
 					Expression:  t.Expression,
 					Instruction: t.Instruction,
 					TargetAgent: t.TargetAgent,

@@ -152,10 +152,10 @@ func (s *GlobalService) DeleteModel(providerID, id string) error {
 	return nil
 }
 
-// UpdateDefaultModels replaces the default models configuration.
-func (s *GlobalService) UpdateDefaultModels(dm DefaultModelsConfig) error {
+// UpdateModelRoutes replaces the task model routing configuration.
+func (s *GlobalService) UpdateModelRoutes(routes ModelRoutesConfig) error {
 	_, err := s.Set(func(st *Settings) {
-		st.DefaultModels = dm
+		st.ModelRoutes = routes
 	})
 	return err
 }

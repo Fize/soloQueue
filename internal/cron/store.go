@@ -16,44 +16,42 @@ import (
 
 // Task is a scheduled/timer task persisted in SQLite.
 type Task struct {
-	ID             string     `json:"id"`
-	Title          string     `json:"title"`
-	TaskLevel      string     `json:"task_level"`
-	Expression     string     `json:"expression"`
-	Instruction    string     `json:"instruction"`
-	TargetAgent    string     `json:"target_agent"`
-	Status         string     `json:"status"` // 'active' | 'paused' | 'completed'
-	LastRunAt      *time.Time `json:"last_run_at,omitempty"`
-	NextRunAt      time.Time  `json:"next_run_at"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID          string     `json:"id"`
+	Title       string     `json:"title"`
+	TaskType    string     `json:"task_type"`
+	Expression  string     `json:"expression"`
+	Instruction string     `json:"instruction"`
+	TargetAgent string     `json:"target_agent"`
+	Status      string     `json:"status"` // 'active' | 'paused' | 'completed'
+	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
+	NextRunAt   time.Time  `json:"next_run_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 const (
-	TaskLevelL0 = "L0"
-	TaskLevelL1 = "L1"
-	TaskLevelL2 = "L2"
-	TaskLevelL3 = "L3"
-	TaskLevelL4 = "L4"
+	TaskTypeGeneral     = "general"
+	TaskTypeEngineering = "engineering"
+	TaskTypeResearch    = "research"
 )
 
 // CreateTaskInput contains the required and optional fields for a new task.
 type CreateTaskInput struct {
 	Title       string
-	TaskLevel   string
+	TaskType    string
 	Expression  string
 	Instruction string
 	TargetAgent string
 	NextRunAt   time.Time
 }
 
-// ValidateTaskLevel validates the persisted task-level enum.
-func ValidateTaskLevel(level string) error {
-	switch level {
-	case TaskLevelL0, TaskLevelL1, TaskLevelL2, TaskLevelL3, TaskLevelL4:
+// ValidateTaskType validates the persisted task-type enum.
+func ValidateTaskType(taskType string) error {
+	switch taskType {
+	case TaskTypeGeneral, TaskTypeEngineering, TaskTypeResearch:
 		return nil
 	default:
-		return fmt.Errorf("task_level must be one of L0, L1, L2, L3, or L4")
+		return fmt.Errorf("task_type must be one of general, engineering, or research")
 	}
 }
 
@@ -69,11 +67,11 @@ func ValidateTaskTitle(title string) error {
 	return nil
 }
 
-func validateTaskFields(title, taskLevel, expression, instruction string) error {
+func validateTaskFields(title, taskType, expression, instruction string) error {
 	if err := ValidateTaskTitle(title); err != nil {
 		return err
 	}
-	if err := ValidateTaskLevel(taskLevel); err != nil {
+	if err := ValidateTaskType(taskType); err != nil {
 		return err
 	}
 	if strings.TrimSpace(expression) == "" {
@@ -101,7 +99,7 @@ type ExecutionRecord struct {
 	Status        string    `json:"status"` // 'success' | 'failed' | 'panic'
 	ResultSummary string    `json:"result_summary"`
 	ErrorMessage  string    `json:"error_message"`
-	TaskLevel     string    `json:"task_level"`
+	TaskType      string    `json:"task_type"`
 	TargetAgent   string    `json:"target_agent"`
 	ModelID       string    `json:"model_id"`
 	ProviderID    string    `json:"provider_id"`
@@ -143,7 +141,7 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
+		`SELECT id, title, task_type, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
 		 FROM scheduled_tasks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: list tasks: %w", err)
@@ -155,7 +153,7 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 		var t Task
 		var lRun sql.NullString
 		var nRun, cAt, uAt string
-		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt)
+		err := rows.Scan(&t.ID, &t.Title, &t.TaskType, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan task: %w", err)
 		}
@@ -168,7 +166,6 @@ func (s *DBStore) ListTasks(ctx context.Context) ([]Task, error) {
 		t.CreatedAt, _ = time.ParseInLocation(time.RFC3339, cAt, time.Local)
 		t.UpdatedAt, _ = time.ParseInLocation(time.RFC3339, uAt, time.Local)
 
-
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
@@ -180,9 +177,9 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 	var lRun sql.NullString
 	var nRun, cAt, uAt string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
+		`SELECT id, title, task_type, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
 		 FROM scheduled_tasks WHERE id = ?`, id).
-		Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt)
+		Scan(&t.ID, &t.Title, &t.TaskType, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("cron store: task %q not found", id)
 	}
@@ -198,14 +195,13 @@ func (s *DBStore) GetTask(ctx context.Context, id string) (*Task, error) {
 	t.CreatedAt, _ = time.ParseInLocation(time.RFC3339, cAt, time.Local)
 	t.UpdatedAt, _ = time.ParseInLocation(time.RFC3339, uAt, time.Local)
 
-
 	return &t, nil
 }
 
 // GetActiveTasks returns all tasks with 'active' status.
 func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, task_level, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
+		`SELECT id, title, task_type, expression, instruction, target_agent, status, last_run_at, next_run_at, created_at, updated_at
 
 		 FROM scheduled_tasks WHERE status = 'active'`)
 	if err != nil {
@@ -218,7 +214,7 @@ func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 		var t Task
 		var lRun sql.NullString
 		var nRun, cAt, uAt string
-		err := rows.Scan(&t.ID, &t.Title, &t.TaskLevel, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt)
+		err := rows.Scan(&t.ID, &t.Title, &t.TaskType, &t.Expression, &t.Instruction, &t.TargetAgent, &t.Status, &lRun, &nRun, &cAt, &uAt)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan active task: %w", err)
 		}
@@ -231,12 +227,10 @@ func (s *DBStore) GetActiveTasks(ctx context.Context) ([]Task, error) {
 		t.CreatedAt, _ = time.ParseInLocation(time.RFC3339, cAt, time.Local)
 		t.UpdatedAt, _ = time.ParseInLocation(time.RFC3339, uAt, time.Local)
 
-
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
 }
-
 
 // CreateTask inserts a new task.
 func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task, error) {
@@ -244,7 +238,7 @@ func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task,
 	input.Expression = strings.TrimSpace(input.Expression)
 	input.Instruction = strings.TrimSpace(input.Instruction)
 	input.TargetAgent = strings.TrimSpace(input.TargetAgent)
-	if err := validateTaskFields(input.Title, input.TaskLevel, input.Expression, input.Instruction); err != nil {
+	if err := validateTaskFields(input.Title, input.TaskType, input.Expression, input.Instruction); err != nil {
 		return nil, fmt.Errorf("cron store: invalid task: %w", err)
 	}
 	s.mu.Lock()
@@ -258,26 +252,25 @@ func (s *DBStore) CreateTask(ctx context.Context, input CreateTaskInput) (*Task,
 		input.TargetAgent = "L1"
 	}
 
-
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO scheduled_tasks (id, title, task_level, expression, instruction, target_agent, status, next_run_at, created_at, updated_at)
+		`INSERT INTO scheduled_tasks (id, title, task_type, expression, instruction, target_agent, status, next_run_at, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
-		id, input.Title, input.TaskLevel, input.Expression, input.Instruction, input.TargetAgent, nRun, now, now)
+		id, input.Title, input.TaskType, input.Expression, input.Instruction, input.TargetAgent, nRun, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("cron store: create task: %w", err)
 	}
 
 	return &Task{
-		ID:             id,
-		Title:          input.Title,
-		TaskLevel:      input.TaskLevel,
-		Expression:     input.Expression,
-		Instruction:    input.Instruction,
-		TargetAgent:    input.TargetAgent,
-		Status:         "active",
-		NextRunAt:      input.NextRunAt,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		ID:          id,
+		Title:       input.Title,
+		TaskType:    input.TaskType,
+		Expression:  input.Expression,
+		Instruction: input.Instruction,
+		TargetAgent: input.TargetAgent,
+		Status:      "active",
+		NextRunAt:   input.NextRunAt,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}, nil
 }
 
@@ -303,7 +296,7 @@ func (s *DBStore) updateTask(ctx context.Context, t *Task, requiredTarget string
 	if t.TargetAgent == "" {
 		t.TargetAgent = "L1"
 	}
-	if err := validateTaskFields(t.Title, t.TaskLevel, t.Expression, t.Instruction); err != nil {
+	if err := validateTaskFields(t.Title, t.TaskType, t.Expression, t.Instruction); err != nil {
 		return fmt.Errorf("cron store: invalid task: %w", err)
 	}
 	s.mu.Lock()
@@ -312,8 +305,8 @@ func (s *DBStore) updateTask(ctx context.Context, t *Task, requiredTarget string
 	now := time.Now().Format(time.RFC3339)
 	nRun := t.NextRunAt.Format(time.RFC3339)
 
-	query := `UPDATE scheduled_tasks SET title = ?, task_level = ?, expression = ?, instruction = ?, target_agent = ?, status = ?, next_run_at = ?, updated_at = ? WHERE id = ?`
-	args := []any{t.Title, t.TaskLevel, t.Expression, t.Instruction, t.TargetAgent, t.Status, nRun, now, t.ID}
+	query := `UPDATE scheduled_tasks SET title = ?, task_type = ?, expression = ?, instruction = ?, target_agent = ?, status = ?, next_run_at = ?, updated_at = ? WHERE id = ?`
+	args := []any{t.Title, t.TaskType, t.Expression, t.Instruction, t.TargetAgent, t.Status, nRun, now, t.ID}
 	if requiredTarget != "" {
 		query += ` AND lower(target_agent) = lower(?)`
 		args = append(args, requiredTarget)
@@ -485,10 +478,10 @@ func (s *DBStore) RecordExecution(ctx context.Context, rec ExecutionRecord) erro
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO cron_execution_history (id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_level, target_agent, model_id, provider_id, timeline_dir)
+		`INSERT INTO cron_execution_history (id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_type, target_agent, model_id, provider_id, timeline_dir)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		rec.ID, rec.TaskID, eAt, cAt, rec.DurationMs, rec.Status, summary,
-		rec.ErrorMessage, rec.TaskLevel, rec.TargetAgent, rec.ModelID, rec.ProviderID, rec.TimelineDir)
+		rec.ErrorMessage, rec.TaskType, rec.TargetAgent, rec.ModelID, rec.ProviderID, rec.TimelineDir)
 	if err != nil {
 		return fmt.Errorf("cron store: record execution: %w", err)
 	}
@@ -508,7 +501,7 @@ func (s *DBStore) ListExecutionHistory(ctx context.Context, taskID string, limit
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_level, target_agent, model_id, provider_id, timeline_dir
+		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_type, target_agent, model_id, provider_id, timeline_dir
 		 FROM cron_execution_history WHERE task_id = ?
 		 ORDER BY executed_at DESC LIMIT ? OFFSET ?`, taskID, limit, offset)
 	if err != nil {
@@ -520,7 +513,7 @@ func (s *DBStore) ListExecutionHistory(ctx context.Context, taskID string, limit
 	for rows.Next() {
 		var r ExecutionRecord
 		var eAt, cAt string
-		err := rows.Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskLevel, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir)
+		err := rows.Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskType, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan execution record: %w", err)
 		}
@@ -536,9 +529,9 @@ func (s *DBStore) GetExecutionHistory(ctx context.Context, taskID, execID string
 	var r ExecutionRecord
 	var eAt, cAt string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_level, target_agent, model_id, provider_id, timeline_dir
+		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_type, target_agent, model_id, provider_id, timeline_dir
 		 FROM cron_execution_history WHERE task_id = ? AND id = ?`, taskID, execID).
-		Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskLevel, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir)
+		Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskType, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("cron store: execution record %q not found", execID)
 	}

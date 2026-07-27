@@ -16,6 +16,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/team"
@@ -622,8 +623,8 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 	}
 	rtr := rt.TaskRouter
 	return func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error) {
-		// Use the router package's Route method directly
-		decision, err := rtr.Route(ctx, prompt, parseClassificationLevel(priorLevel), history)
+		prior, _ := tasktype.Parse(priorLevel)
+		decision, err := rtr.Route(ctx, router.ClassifyInput{Text: prompt, PreviousTaskType: prior}, history)
 
 		// Always record classification in usage_metrics for observability.
 		// On error the level is "Unknown" and source is "error" — still
@@ -632,8 +633,8 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 			teamID, _ := telemetry.TelemetryFromContext(ctx)
 			bgCtx := context.Background()
 
-			level := decision.Level.String()
-			source := decision.Classification.Source
+			level := decision.TaskType.String()
+			source := string(decision.Classification.Source)
 			if err != nil {
 				source = "error"
 			}
@@ -659,25 +660,11 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 			ThinkingEnabled:   decision.ThinkingEnabled,
 			ReasoningEffort:   decision.ReasoningEffort,
 			ThinkingType:      decision.ThinkingType,
-			Level:             decision.Level.String(),
+			Level:             decision.TaskType.String(),
 			ContextWindow:     decision.ContextWindow,
 			Vision:            decision.Vision,
-			ClassifierWarning: classifierWarning(decision),
+			ClassifierWarning: "",
 		}, nil
-	}
-}
-
-// classifierWarning returns a human-readable warning when the classification
-// degraded. Returns empty string when everything is normal.
-func classifierWarning(decision router.RouteDecision) string {
-	src := decision.Classification.Source
-	switch src {
-	case "local-fallback":
-		return "LLM classifier unavailable; using local rules only. Task level may be inaccurate."
-	case "llm-error":
-		return "Classification degraded: LLM classifier error. Using fallback model."
-	default:
-		return ""
 	}
 }
 
@@ -689,22 +676,6 @@ func BuildMemoryHook(rt *runtime.Stack) MemoryHook {
 	}
 	return func(ctx context.Context, conversationText string, recordedAt time.Time) {
 		_ = rt.MemoryManager.RecordAt(ctx, conversationText, recordedAt)
-	}
-}
-
-// parseClassificationLevel converts a string level to the router package's ClassificationLevel.
-func parseClassificationLevel(level string) router.ClassificationLevel {
-	switch level {
-	case "L0-Conversation":
-		return router.LevelConversation
-	case "L1-SimpleSingleFile":
-		return router.LevelSimpleSingleFile
-	case "L2-MediumMultiFile":
-		return router.LevelMediumMultiFile
-	case "L3-ComplexRefactoring":
-		return router.LevelComplexRefactoring
-	default:
-		return router.LevelUnknown
 	}
 }
 

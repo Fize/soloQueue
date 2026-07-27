@@ -176,9 +176,8 @@ type ModelParams struct {
 	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3 etc.).
 	ThinkingType string
 
-	// Level is the classification level label for this task (e.g., "L1-SimpleSingleFile").
-	// Set by the task router for L1; may be set from delegation context for L2/L3.
-	Level string
+	// TaskType is the stable task taxonomy selected by the router.
+	TaskType string
 
 	// ContextWindow is the model's context window capacity (tokens).
 	// Used to resize the ContextWindow when the model changes.
@@ -201,7 +200,7 @@ func (m *ModelParams) ToIFaceOverride() *iface.ModelOverrideParams {
 		ThinkingEnabled: m.ThinkingEnabled,
 		ReasoningEffort: m.ReasoningEffort,
 		ThinkingType:    m.ThinkingType,
-		Level:           m.Level,
+		TaskType:        m.TaskType,
 		ContextWindow:   m.ContextWindow,
 		Vision:          m.Vision,
 	}

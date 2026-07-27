@@ -60,14 +60,14 @@ type SendFileMedia struct {
 
 // ResolvedModel is the concrete model configuration for one scheduled run.
 type ResolvedModel struct {
-	Params         iface.ModelOverrideParams
-	RequestedRole  string
-	UsedFallback   bool
-	FallbackReason string
+	Params            iface.ModelOverrideParams
+	RequestedTaskType string
+	UsedFallback      bool
+	FallbackReason    string
 }
 
-// ModelResolver resolves the latest configured model for a persisted level.
-type ModelResolver func(taskLevel string) (ResolvedModel, error)
+// ModelResolver resolves the latest configured model for a persisted task type.
+type ModelResolver func(taskType string) (ResolvedModel, error)
 
 type modelRoutedSession interface {
 	AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
@@ -120,7 +120,7 @@ type Scheduler struct {
 	OnTaskComplete CronDoneCallback
 }
 
-// SetModelResolver configures per-run task-level model selection.
+// SetModelResolver configures per-run task-type model selection.
 func (s *Scheduler) SetModelResolver(resolver ModelResolver) {
 	s.modelResolver = resolver
 }
@@ -653,9 +653,9 @@ func (s *Scheduler) askWithTaskModelPrompt(ctx context.Context, t Task, sess Ses
 		ch, err := sess.AskIsolated(ctx, prompt)
 		return ResolvedModel{}, ch, err
 	}
-	resolved, err := s.modelResolver(t.TaskLevel)
+	resolved, err := s.modelResolver(t.TaskType)
 	if err != nil {
-		return ResolvedModel{}, nil, fmt.Errorf("%w: resolve level %s: %v", errTaskModelResolution, t.TaskLevel, err)
+		return ResolvedModel{}, nil, fmt.Errorf("%w: resolve task type %s: %v", errTaskModelResolution, t.TaskType, err)
 	}
 	routed, ok := sess.(modelRoutedSession)
 	if !ok {
@@ -664,8 +664,8 @@ func (s *Scheduler) askWithTaskModelPrompt(ctx context.Context, t Task, sess Ses
 	s.logger.Info(logger.CatApp, "cron: resolved task model",
 		"task_id", t.ID,
 		"title", t.Title,
-		"task_level", t.TaskLevel,
-		"requested_role", resolved.RequestedRole,
+		"task_type", t.TaskType,
+		"requested_task_type", resolved.RequestedTaskType,
 		"provider_id", resolved.Params.ProviderID,
 		"model_id", resolved.Params.ModelID,
 		"used_fallback", resolved.UsedFallback,
@@ -686,9 +686,9 @@ func (s *Scheduler) askWithTaskModelStreamPrompt(ctx context.Context, t Task, se
 		ch, err := sess.AskStream(ctx, prompt)
 		return ResolvedModel{}, ch, err
 	}
-	resolved, err := s.modelResolver(t.TaskLevel)
+	resolved, err := s.modelResolver(t.TaskType)
 	if err != nil {
-		return ResolvedModel{}, nil, fmt.Errorf("%w: resolve level %s: %v", errTaskModelResolution, t.TaskLevel, err)
+		return ResolvedModel{}, nil, fmt.Errorf("%w: resolve task type %s: %v", errTaskModelResolution, t.TaskType, err)
 	}
 	routed, ok := sess.(modelRoutedSession)
 	if !ok {
@@ -697,8 +697,8 @@ func (s *Scheduler) askWithTaskModelStreamPrompt(ctx context.Context, t Task, se
 	s.logger.Info(logger.CatApp, "cron: resolved task model",
 		"task_id", t.ID,
 		"title", t.Title,
-		"task_level", t.TaskLevel,
-		"requested_role", resolved.RequestedRole,
+		"task_type", t.TaskType,
+		"requested_task_type", resolved.RequestedTaskType,
 		"provider_id", resolved.Params.ProviderID,
 		"model_id", resolved.Params.ModelID,
 		"used_fallback", resolved.UsedFallback,
@@ -937,7 +937,7 @@ func (s *Scheduler) recordExecution(ctx context.Context, t Task, resolved Resolv
 		Status:        status,
 		ResultSummary: result.replyText,
 		ErrorMessage:  errMsg,
-		TaskLevel:     t.TaskLevel,
+		TaskType:      t.TaskType,
 		TargetAgent:   t.TargetAgent,
 		ModelID:       resolved.Params.ModelID,
 		ProviderID:    resolved.Params.ProviderID,
@@ -1015,13 +1015,13 @@ func buildCronPrompt(t Task) string {
 		"[SCHEDULED TASK EXECUTION]\n"+
 			"Task ID: %s\n"+
 			"Title: %s\n"+
-			"Task level: %s\n"+
+			"Task type: %s\n"+
 			"Schedule: %s\n"+
 			"Triggered at: %s\n"+
 			"\nIMPORTANT: This message is automatically triggered by the scheduler — NOT a user request. "+
 			"Do NOT call create_cron_job or create any new cron jobs. "+
 			"Simply execute the following instruction directly:\n\n%s",
-		t.ID, t.Title, t.TaskLevel, scheduleDesc, triggerTime, t.Instruction,
+		t.ID, t.Title, t.TaskType, scheduleDesc, triggerTime, t.Instruction,
 	)
 }
 
