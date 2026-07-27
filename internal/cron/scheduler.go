@@ -29,8 +29,11 @@ type Session interface {
 	// AskIsolated executes a prompt in a clean context (no conversation history,
 	// no writes to the session's ContextWindow or timeline).
 	AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
-	// SendViaChannel delivers a text notification through the session's bound channel
-	// bridge (QQ/WeChat). Returns nil if no bridge is registered.
+	// HasNotifyChannel reports whether the session has a configured notification
+	// channel, independent of whether a live sender is currently available.
+	HasNotifyChannel() bool
+	// SendViaChannel delivers a text notification through the session's bound
+	// channel bridge (QQ/WeChat).
 	SendViaChannel(ctx context.Context, text string) error
 }
 
@@ -613,9 +616,11 @@ func (s *Scheduler) executeL2Task(t Task) {
 		s.notifyTaskComplete(t, true, firstLineSummary(replyText))
 	}
 
-	// Deliver result through the session's bound channel (QQ/WeChat).
+	// Deliver through L2's bound channel. If L2 has no configured notification
+	// channel, fall back to L1's channel. A configured-but-unavailable L2 sender
+	// is not a fallback case: it is an operational delivery failure.
 	if status == "success" && replyText != "" {
-		l2Session.SendViaChannel(ctx, replyText)
+		s.deliverL2ResultViaChannel(ctx, t, l2Session, replyText)
 	}
 
 	if drainErr != nil {
@@ -623,6 +628,24 @@ func (s *Scheduler) executeL2Task(t Task) {
 	}
 
 	s.updateTaskAfterExecution(ctx, t)
+}
+
+func (s *Scheduler) deliverL2ResultViaChannel(ctx context.Context, t Task, l2Session Session, replyText string) {
+	if !l2Session.HasNotifyChannel() {
+		l1Session := s.sessionMgr.Session()
+		if l1Session == nil {
+			s.logger.Warn(logger.CatApp, "cron: L2 notification fallback skipped, no L1 session", "task_id", t.ID)
+			return
+		}
+		if err := l1Session.SendViaChannel(ctx, replyText); err != nil {
+			s.logger.Warn(logger.CatApp, "cron: L2 notification fallback to L1 failed", "task_id", t.ID, "err", err)
+		}
+		return
+	}
+	err := l2Session.SendViaChannel(ctx, replyText)
+	if err != nil {
+		s.logger.Warn(logger.CatApp, "cron: L2 channel notification failed", "task_id", t.ID, "err", err)
+	}
 }
 
 func (s *Scheduler) askWithTaskModelPrompt(ctx context.Context, t Task, sess Session, prompt string) (ResolvedModel, <-chan iface.AgentEvent, error) {
@@ -922,8 +945,6 @@ func (s *Scheduler) recordExecution(ctx context.Context, t Task, resolved Resolv
 	})
 }
 
-
-
 // l1QueueLoop runs in a background goroutine. It processes queued L1 tasks
 // one at a time when L1 becomes idle.
 func (s *Scheduler) l1QueueLoop() {
@@ -972,10 +993,6 @@ func (s *Scheduler) l1QueueLoop() {
 		s.l1Mu.Lock()
 	}
 }
-
-
-
-
 
 // updateTaskAfterExecution updates DB timestamps after successful execution.
 func (s *Scheduler) updateTaskAfterExecution(ctx context.Context, t Task) {

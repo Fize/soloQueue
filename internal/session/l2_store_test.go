@@ -42,6 +42,31 @@ func TestL2SessionStore_CreateWithWorkDir(t *testing.T) {
 	}
 }
 
+func TestL2SessionStore_ApplyChannelSendersTo(t *testing.T) {
+	store := newTestStore(t, t.TempDir())
+	called := false
+	store.SetChannelSenderForGroup("engineering", "qq", func(context.Context, string) error {
+		called = true
+		return nil
+	})
+	target := NewSession("cron-session", "engineering", nil, nil, nil, nil)
+
+	store.ApplyChannelSendersTo("engineering", target)
+
+	target.channelSendersMu.RLock()
+	sender := target.channelSenders["qq"]
+	target.channelSendersMu.RUnlock()
+	if sender == nil {
+		t.Fatal("expected copied QQ sender")
+	}
+	if err := sender(context.Background(), "completed"); err != nil {
+		t.Fatalf("copied sender failed: %v", err)
+	}
+	if !called {
+		t.Fatal("copied sender was not invoked")
+	}
+}
+
 func TestL2SessionStore_Create_Duplicate(t *testing.T) {
 	dir := t.TempDir()
 	store := newTestStore(t, dir)
@@ -175,8 +200,6 @@ func TestCleanupTimelineDir(t *testing.T) {
 		t.Errorf("timeline directory should be removed after session deletion")
 	}
 }
-
-
 func TestL2SessionStore_RestoreFromDisk(t *testing.T) {
 	dir := t.TempDir()
 	store := newTestStore(t, dir)

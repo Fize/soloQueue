@@ -399,6 +399,7 @@ func (a *L2ChannelAdapter) Compact(ctx context.Context) error {
 func (a *L2ChannelAdapter) SetChannelSender(channelType string, fn func(context.Context, string) error) {
 	if sess, err := a.getSession(context.Background()); err == nil {
 		sess.SetChannelSender(channelType, fn)
+		a.l2Store.SetChannelSenderForGroup(a.bindAgent, channelType, fn)
 	}
 }
 

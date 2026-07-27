@@ -18,10 +18,12 @@ import (
 
 // mockSession implements the Session interface for testing.
 type mockSession struct {
-	idle        bool
-	queued      []string
-	askStreamFn func(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
-	modelParams *iface.ModelOverrideParams
+	idle             bool
+	queued           []string
+	askStreamFn      func(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
+	modelParams      *iface.ModelOverrideParams
+	hasNotifyChannel bool
+	sendViaChannelFn func(ctx context.Context, text string) error
 }
 
 func (m *mockSession) Idle() bool                 { return m.idle }
@@ -45,7 +47,13 @@ func (m *mockSession) AskStreamWithModel(ctx context.Context, prompt string, par
 	m.modelParams = params
 	return m.AskStream(ctx, prompt)
 }
-func (m *mockSession) SendViaChannel(ctx context.Context, text string) error { return nil }
+func (m *mockSession) SendViaChannel(ctx context.Context, text string) error {
+	if m.sendViaChannelFn != nil {
+		return m.sendViaChannelFn(ctx, text)
+	}
+	return nil
+}
+func (m *mockSession) HasNotifyChannel() bool { return m.hasNotifyChannel }
 
 type mockSessionManager struct {
 	session    Session
@@ -68,6 +76,77 @@ func newTestScheduler(t *testing.T) *Scheduler {
 	}
 	t.Cleanup(func() { log.Close() })
 	return NewScheduler(nil, &mockSessionManager{}, log)
+}
+
+func TestDeliverL2ResultViaChannel_UsesL2WhenConfigured(t *testing.T) {
+	s := newTestScheduler(t)
+	var l2Messages, l1Messages []string
+	l1 := &mockSession{sendViaChannelFn: func(_ context.Context, text string) error {
+		l1Messages = append(l1Messages, text)
+		return nil
+	}}
+	l2 := &mockSession{
+		hasNotifyChannel: true,
+		sendViaChannelFn: func(_ context.Context, text string) error {
+			l2Messages = append(l2Messages, text)
+			return nil
+		},
+	}
+	s.sessionMgr = &mockSessionManager{session: l1}
+
+	s.deliverL2ResultViaChannel(context.Background(), Task{ID: "task-l2"}, l2, "completed")
+
+	if len(l2Messages) != 1 || l2Messages[0] != "completed" {
+		t.Fatalf("L2 messages = %v, want [completed]", l2Messages)
+	}
+	if len(l1Messages) != 0 {
+		t.Fatalf("L1 messages = %v, want none", l1Messages)
+	}
+}
+
+func TestDeliverL2ResultViaChannel_FallsBackToL1OnlyWithoutL2Channel(t *testing.T) {
+	s := newTestScheduler(t)
+	var l2Messages, l1Messages []string
+	l1 := &mockSession{sendViaChannelFn: func(_ context.Context, text string) error {
+		l1Messages = append(l1Messages, text)
+		return nil
+	}}
+	l2 := &mockSession{sendViaChannelFn: func(_ context.Context, text string) error {
+		l2Messages = append(l2Messages, text)
+		return nil
+	}}
+	s.sessionMgr = &mockSessionManager{session: l1}
+
+	s.deliverL2ResultViaChannel(context.Background(), Task{ID: "task-fallback"}, l2, "completed")
+
+	if len(l2Messages) != 0 {
+		t.Fatalf("L2 messages = %v, want none", l2Messages)
+	}
+	if len(l1Messages) != 1 || l1Messages[0] != "completed" {
+		t.Fatalf("L1 messages = %v, want [completed]", l1Messages)
+	}
+}
+
+func TestDeliverL2ResultViaChannel_DoesNotFallbackWhenConfiguredSenderFails(t *testing.T) {
+	s := newTestScheduler(t)
+	var l1Messages []string
+	l1 := &mockSession{sendViaChannelFn: func(_ context.Context, text string) error {
+		l1Messages = append(l1Messages, text)
+		return nil
+	}}
+	l2 := &mockSession{
+		hasNotifyChannel: true,
+		sendViaChannelFn: func(context.Context, string) error {
+			return errors.New("channel unavailable")
+		},
+	}
+	s.sessionMgr = &mockSessionManager{session: l1}
+
+	s.deliverL2ResultViaChannel(context.Background(), Task{ID: "task-send-failure"}, l2, "completed")
+
+	if len(l1Messages) != 0 {
+		t.Fatalf("L1 messages = %v, want none", l1Messages)
+	}
 }
 
 func TestNextTrigger(t *testing.T) {

@@ -45,6 +45,7 @@ var (
 
 	// ErrNoActiveTask is returned when there is no active task to cancel
 	ErrNoActiveTask = errors.New("session: no active task")
+
 )
 
 type rejectBusyQueueKey struct{}
@@ -352,9 +353,15 @@ func (s *Session) SetChannelSender(channelType string, fn func(context.Context, 
 	)
 }
 
+// HasNotifyChannel reports whether this session's agent has configured a
+// notification channel. It does not claim that a live sender is available.
+func (s *Session) HasNotifyChannel() bool {
+	return s.Agent != nil && s.Agent.Def.NotifyChannel != ""
+}
+
 // SendViaChannel sends text through the configured notify channel.
 // The channel is determined by the agent's NotifyChannel config (e.g. "qq" or "wechat").
-// If notify_channel is not configured, no notification is sent.
+// If notify_channel or its active sender is absent, no notification is sent.
 func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 	notifyChannel := ""
 	if s.Agent != nil {

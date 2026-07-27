@@ -102,6 +102,7 @@ func ServeCmd(version string) *cobra.Command {
 			cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{
 				mgr:     mgr,
 				builder: builder,
+				l2Store: l2Store,
 				workDir: workDir,
 			}, log)
 			cronScheduler.SetModelResolver(func(taskLevel string) (cron.ResolvedModel, error) {
@@ -395,6 +396,7 @@ func VersionCmd(version string) *cobra.Command {
 type cronSessionManagerWrapper struct {
 	mgr     *session.SessionManager
 	builder *session.Builder
+	l2Store *session.L2SessionStore
 	workDir string
 }
 
@@ -428,6 +430,9 @@ func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskI
 	l2Session, err := w.builder.BuildL2ForCron(ctx, taskID, teamID, cronLogDir)
 	if err != nil {
 		return nil, false, nil, fmt.Errorf("build L2 session for cron: %w", err)
+	}
+	if w.l2Store != nil {
+		w.l2Store.ApplyChannelSendersTo(teamID, l2Session)
 	}
 
 	cleanup := func() {

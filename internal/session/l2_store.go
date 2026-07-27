@@ -63,8 +63,9 @@ type L2SessionInfo struct {
 // timeline, context window, and agent. Sessions persist across restarts via
 // timeline replay.
 type L2SessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]*L2SessionEntry // key: UUID
+	mu             sync.RWMutex
+	sessions       map[string]*L2SessionEntry                                // key: UUID
+	channelSenders map[string]map[string]func(context.Context, string) error // group -> channel type -> sender
 
 	builder *Builder
 	logger  *logger.Logger
@@ -74,10 +75,43 @@ type L2SessionStore struct {
 // NewL2SessionStore creates a new L2SessionStore.
 func NewL2SessionStore(builder *Builder, workDir string, log *logger.Logger) *L2SessionStore {
 	return &L2SessionStore{
-		sessions: make(map[string]*L2SessionEntry),
-		builder:  builder,
-		logger:   log,
-		workDir:  workDir,
+		sessions:       make(map[string]*L2SessionEntry),
+		channelSenders: make(map[string]map[string]func(context.Context, string) error),
+		builder:        builder,
+		logger:         log,
+		workDir:        workDir,
+	}
+}
+
+// SetChannelSenderForGroup registers a sender from an L2 channel bridge. Cron
+// sessions are short-lived, so they copy this sender when they are built.
+func (s *L2SessionStore) SetChannelSenderForGroup(group, channelType string, fn func(context.Context, string) error) {
+	if group == "" || channelType == "" || fn == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.channelSenders[group] == nil {
+		s.channelSenders[group] = make(map[string]func(context.Context, string) error)
+	}
+	s.channelSenders[group][channelType] = fn
+}
+
+// ApplyChannelSendersTo copies the latest registered L2 channel senders to a
+// temporary session. It never activates or mutates an interactive L2 session.
+func (s *L2SessionStore) ApplyChannelSendersTo(group string, target *Session) {
+	if group == "" || target == nil {
+		return
+	}
+	s.mu.RLock()
+	senders := s.channelSenders[group]
+	copySenders := make(map[string]func(context.Context, string) error, len(senders))
+	for channelType, fn := range senders {
+		copySenders[channelType] = fn
+	}
+	s.mu.RUnlock()
+	for channelType, fn := range copySenders {
+		target.SetChannelSender(channelType, fn)
 	}
 }
 
