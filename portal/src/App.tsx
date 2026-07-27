@@ -28,6 +28,7 @@ type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
 
 interface AgentInfo {
   id: string
+  instance_id: string
   name: string
   state: AgentState
   model_id: string
@@ -1004,7 +1005,7 @@ export default function App() {
   const runningAgents = runtime?.running_agents ?? 0
   const totalAgents = runtime?.total_agents ?? 0
 
-  const selectedAgent = agents.find(a => a.id === selectedAgentId)
+  const selectedAgent = agents.find(a => a.instance_id === selectedAgentId)
   const selectedStream = selectedAgentId ? runtime?.agent_streams?.[selectedAgentId] : undefined
 
   return (
@@ -1304,13 +1305,13 @@ export default function App() {
                 <tbody>
                   {agents.map((agent, idx) => (
                     <tr
-                      key={agent.id}
+                      key={agent.instance_id}
                       className="transition-colors duration-150 cursor-pointer"
                       style={{
                         borderTop: '1px solid var(--color-border)',
                         animationDelay: `${idx * 30}ms`,
                       }}
-                      onClick={() => setSelectedAgentId(agent.id)}
+                      onClick={() => setSelectedAgentId(agent.instance_id)}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--color-foreground) 4%, transparent)'
                       }}

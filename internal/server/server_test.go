@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
@@ -39,6 +41,29 @@ func TestHTTP_Health(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(b), "ok") {
 		t.Errorf("body = %q", b)
+	}
+}
+
+func TestBuildAgentList_OmitsStoppedUnregisteredSupervisor(t *testing.T) {
+	reg := agent.NewRegistry(nil)
+	child := agent.NewAgent(agent.Definition{ID: "temporary"}, &agent.FakeLLM{Responses: []string{"ok"}}, nil)
+	if err := child.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := child.Stop(time.Second); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	sv := agent.NewSupervisor(child, nil, nil)
+
+	mux := NewMux(t.TempDir(), nil,
+		WithRegistry(reg),
+		WithSupervisors(func() []*agent.Supervisor { return []*agent.Supervisor{sv} }),
+	)
+	defer mux.Close()
+
+	got := mux.buildAgentList()
+	if len(got.Agents) != 0 {
+		t.Fatalf("agent count = %d, want 0; stopped unregistered supervisor must be hidden", len(got.Agents))
 	}
 }
 
@@ -310,6 +335,5 @@ func TestHTTP_ListProviderRemoteModels(t *testing.T) {
 		}
 	}
 }
-
 
 

@@ -197,7 +197,9 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 					"instance_id", child.InstanceID,
 					"name", leader.Name,
 				)
-				return agent.NewSelfReapableAdapter(child, sv), nil
+				return agent.NewSelfReapableAdapterWithCleanup(child, sv, func() {
+					b.RT.RemoveSupervisor(sv)
+				}), nil
 			}
 			// Fallback: any existing instance (busy but functional).
 			if loc, ok := b.RT.AgentRegistry.Locate(leader.Name); ok {
@@ -342,7 +344,9 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		sv.WireSpawnFns(b.RT.AllTemplates)
 		b.RT.AddSupervisor(sv)
 
-		return agent.NewSelfReapableAdapter(child, sv), nil
+		return agent.NewSelfReapableAdapterWithCleanup(child, sv, func() {
+			b.RT.RemoveSupervisor(sv)
+		}), nil
 	})
 	dat.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if s, ok := b.RT.SkillRegistry.GetSkill(skillID); ok {

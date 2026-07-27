@@ -900,7 +900,8 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 		agents = append(agents, info)
 	}
 
-	// Also include L3 children that may not be in the registry.
+	// Also include active supervisor-owned agents that may not be in the registry.
+	// Stopped instances are orphaned runtime references, not live registered agents.
 	registeredIDs := make(map[string]bool, len(registered))
 	for _, a := range registered {
 		registeredIDs[a.InstanceID] = true
@@ -909,7 +910,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 		if sv == nil {
 			continue
 		}
-		if a := sv.Agent(); a != nil && !registeredIDs[a.InstanceID] {
+		if a := sv.Agent(); a != nil && a.State() != agent.StateStopped && !registeredIDs[a.InstanceID] {
 			high, normal := a.MailboxDepth()
 			mp := a.ModelOverride()
 			te := mp != nil && mp.ThinkingEnabled
@@ -954,7 +955,7 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			agents = append(agents, info)
 		}
 		for _, child := range sv.Children() {
-			if registeredIDs[child.InstanceID] {
+			if child.State() == agent.StateStopped || registeredIDs[child.InstanceID] {
 				continue
 			}
 			high, normal := child.MailboxDepth()

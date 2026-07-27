@@ -114,3 +114,27 @@ func TestSupervisor_Agent(t *testing.T) {
 		t.Errorf("Agent().Def.ID = %q, want %q", got.Def.ID, "l2-agent")
 	}
 }
+
+func TestSelfReapableAdapter_CleanupRunsOnce(t *testing.T) {
+	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	a := NewAgent(Definition{ID: "temporary-leader"}, fakeLLM, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	sv := NewSupervisor(a, nil, nil)
+	cleanupCalls := 0
+	adapter := NewSelfReapableAdapterWithCleanup(a, sv, func() {
+		cleanupCalls++
+	})
+
+	adapter.OnDelegationDone()
+	adapter.OnDelegationDone()
+
+	if cleanupCalls != 1 {
+		t.Errorf("cleanup calls = %d, want 1", cleanupCalls)
+	}
+	if state := a.State(); state != StateStopped {
+		t.Errorf("agent state = %s, want stopped", state)
+	}
+}

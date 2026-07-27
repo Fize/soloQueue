@@ -397,9 +397,19 @@ var _ iface.DoneNotifier = (*reapableAdapter)(nil)
 // NewSelfReapableAdapter creates a SelfReapableAdapter that reaps the entire
 // supervisor (L2 + all children) when delegation completes.
 func NewSelfReapableAdapter(agent *Agent, sv *Supervisor) *SelfReapableAdapter {
+	return NewSelfReapableAdapterWithCleanup(agent, sv, nil)
+}
+
+// NewSelfReapableAdapterWithCleanup creates a self-reaping adapter with an
+// optional callback that runs after the agent has been stopped, its children
+// reaped, and it has been unregistered. Runtime owners use the callback to
+// drop their Supervisor reference without making the agent package depend on
+// the runtime package.
+func NewSelfReapableAdapterWithCleanup(agent *Agent, sv *Supervisor, onReaped func()) *SelfReapableAdapter {
 	return &SelfReapableAdapter{
 		LocatableAdapter: &LocatableAdapter{Agent: agent},
 		supervisor:       sv,
+		onReaped:         onReaped,
 	}
 }
 
@@ -409,17 +419,24 @@ func NewSelfReapableAdapter(agent *Agent, sv *Supervisor) *SelfReapableAdapter {
 type SelfReapableAdapter struct {
 	*LocatableAdapter
 	supervisor *Supervisor
+	onReaped   func()
+	reapOnce   sync.Once
 }
 
 func (ra *SelfReapableAdapter) OnDelegationDone() {
-	// Stop L2 first so it cannot submit new work to children during cleanup.
-	ra.supervisor.Agent().Stop(10 * time.Second)
-	// Then reap all children (each child has its own reapableAdapter that
-	// already called ReapChild on completion; this is defensive cleanup).
-	ra.supervisor.ReapAll(10 * time.Second)
-	if ra.supervisor.factory != nil && ra.supervisor.factory.Registry() != nil {
-		ra.supervisor.factory.Registry().Unregister(ra.Agent.InstanceID)
-	}
+	ra.reapOnce.Do(func() {
+		// Stop L2 first so it cannot submit new work to children during cleanup.
+		ra.supervisor.Agent().Stop(10 * time.Second)
+		// Then reap all children (each child has its own reapableAdapter that
+		// already called ReapChild on completion; this is defensive cleanup).
+		ra.supervisor.ReapAll(10 * time.Second)
+		if ra.supervisor.factory != nil && ra.supervisor.factory.Registry() != nil {
+			ra.supervisor.factory.Registry().Unregister(ra.Agent.InstanceID)
+		}
+		if ra.onReaped != nil {
+			ra.onReaped()
+		}
+	})
 }
 
 // Compile-time interface checks.
