@@ -319,6 +319,25 @@ func TestRegistry_LocateIdle(t *testing.T) {
 	}
 }
 
+func TestRegistry_LocateSkipsStoppedInstance(t *testing.T) {
+	r := NewRegistry(nil)
+	a := newBareAgentWithInstance("dev", "stopped-instance")
+	if err := r.Register(a); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitForState(t, a, 200*time.Millisecond, StateIdle)
+	if err := a.Stop(time.Second); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	if _, ok := r.Locate("dev"); ok {
+		t.Fatal("Locate returned a stopped instance")
+	}
+}
+
 // ─── Batch lifecycle ────────────────────────────────────────────────────────
 
 // newAgentForReg creates an Agent with FakeLLM, not yet started.

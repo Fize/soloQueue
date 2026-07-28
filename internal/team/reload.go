@@ -236,7 +236,10 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 		}
 	}
 
-	ag, _, err := w.cfg.AgentFactory.Create(ctx, tmpl, "")
+	// Auto-reloaded agents outlive the file-writing tool invocation. The tool
+	// execution context is cancelled as soon as Execute returns, so using it as
+	// the Agent parent would make the newly created Agent stop immediately.
+	ag, _, err := w.cfg.AgentFactory.Create(context.WithoutCancel(ctx), tmpl, "")
 	if err != nil {
 		return fmt.Sprintf("Agent file '%s' written but instantiation failed: %v. Restart required.", fm.Name, err)
 	}

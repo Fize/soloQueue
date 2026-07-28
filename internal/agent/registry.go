@@ -332,8 +332,8 @@ func (r *Registry) Shutdown(timeout time.Duration) error {
 // Locate implements iface.AgentLocator.
 //
 // Finds an idle agent instance by template ID. If no idle instance exists,
-// returns the first instance regardless of state (the caller can still use it
-// — the agent's mailbox will queue the job).
+// returns the first active instance so callers may queue behind current work.
+// Stopping and stopped instances are never locatable.
 //
 // For SpawnFn callers that want to create a new instance when none are idle,
 // use LocateIdle instead.
@@ -342,18 +342,22 @@ func (r *Registry) Locate(id string) (iface.Locatable, bool) {
 	if loc, ok := r.LocateIdle(id); ok {
 		return loc, true
 	}
-	// Fall back to any instance
+	// Fall back to any active instance.
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	ids := r.byTemplate[id]
-	if len(ids) == 0 {
-		return nil, false
+	for _, instanceID := range ids {
+		a, ok := r.agents[instanceID]
+		if !ok {
+			continue
+		}
+		state := a.State()
+		if state == StateStopping || state == StateStopped {
+			continue
+		}
+		return &LocatableAdapter{Agent: a}, true
 	}
-	a, ok := r.agents[ids[0]]
-	if !ok {
-		return nil, false
-	}
-	return &LocatableAdapter{Agent: a}, true
+	return nil, false
 }
 
 // ─── Logging helpers ─────────────────────────────────────────────────────────

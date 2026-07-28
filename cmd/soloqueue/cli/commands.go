@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -450,13 +451,27 @@ func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskI
 		w.l2Store.ApplyChannelSendersTo(teamID, l2Session)
 	}
 
-	cleanup := func() {
-		// Stop the agent with a timeout.
-		_ = l2Session.Agent.Stop(5 * time.Second)
-
-		// Close the session (timeline writer is closed internally).
-		l2Session.Close()
-	}
+	cleanup := newCronSessionCleanup(l2Session, w.builder.RT.AgentRegistry)
 
 	return l2Session, true, cleanup, nil
+}
+
+func newCronSessionCleanup(l2Session *session.Session, registry *agent.Registry) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			if l2Session.Agent != nil {
+				_ = l2Session.Agent.Stop(5 * time.Second)
+			}
+			if l2Session.Supervisor != nil {
+				_ = l2Session.Supervisor.ReapAll(5 * time.Second)
+			}
+			if registry != nil && l2Session.Agent != nil {
+				registry.Unregister(l2Session.Agent.InstanceID)
+			}
+			// Close the session after all Agents have stopped so timeline and
+			// logger handles remain available to lifecycle logging.
+			l2Session.Close()
+		})
+	}
 }

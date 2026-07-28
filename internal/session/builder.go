@@ -357,6 +357,18 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	// can reference 'a'. The hook fires when a leader agent file is written
 	// and auto-instantiated — it dynamically registers a delegate_* tool on L1.
 	autoReloadCfg.OnLeaderCreated = func(ctx context.Context, name, group string, ag *agent.Agent, _ agent.AgentTemplate) {
+		cleanupSupervisor := func(sv *agent.Supervisor) {
+			if sv == nil || sv.Agent() == nil {
+				return
+			}
+			_ = sv.Agent().Stop(10 * time.Second)
+			_ = sv.ReapAll(10 * time.Second)
+			if b.RT.AgentFactory != nil && b.RT.AgentFactory.Registry() != nil {
+				b.RT.AgentFactory.Registry().Unregister(sv.Agent().InstanceID)
+			}
+			b.RT.RemoveSupervisor(sv)
+		}
+
 		// If a supervisor for this leader template already exists, reap the
 		// old leader (stop + unregister) before creating the new one.
 		var oldSV *agent.Supervisor
@@ -369,12 +381,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		}
 		b.RT.CfgMu.RUnlock()
 		if oldSV != nil {
-			oldSV.ReapAll(10 * time.Second)
-			oldSV.Agent().Stop(10 * time.Second)
-			if b.RT.AgentFactory != nil && b.RT.AgentFactory.Registry() != nil {
-				b.RT.AgentFactory.Registry().Unregister(oldSV.Agent().InstanceID)
-			}
-			b.RT.RemoveSupervisor(oldSV)
+			cleanupSupervisor(oldSV)
 			sessLog.Info(logger.CatActor, "auto-reload: reaped old leader",
 				"name", name, "group", group)
 		}
@@ -392,8 +399,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				"name", name, "err", err.Error())
 		}
 
-		dt := tools.NewDelegateTool(name, name+" team leader", 30*time.Minute, b.RT.AgentRegistry, sessLog)
-		dt.SpawnFn = func(ctx context.Context, task string, projectDir string) (iface.Locatable, error) {
+		spawnFn := func(ctx context.Context, task string, projectDir string) (iface.Locatable, error) {
 			// Prefer an idle instance to enable parallel delegation.
 			if loc, ok := b.RT.AgentRegistry.LocateIdle(name); ok {
 				return loc, nil
@@ -404,7 +410,18 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			}
 			return nil, fmt.Errorf("leader %q not found in registry", name)
 		}
+
+		// The L1 agent may already have a delegate tool for this leader from the
+		// startup catalog. Update it in place instead of leaking a new supervisor
+		// after duplicate registration fails.
+		if a.SetDelegateSpawnFn(name, spawnFn) {
+			return
+		}
+
+		dt := tools.NewDelegateTool(name, name+" team leader", 30*time.Minute, b.RT.AgentRegistry, sessLog)
+		dt.SpawnFn = spawnFn
 		if err := a.RegisterTool(dt); err != nil {
+			cleanupSupervisor(sv)
 			sessLog.Error(logger.CatActor, "register delegate tool for new leader failed",
 				"leader", name, "err", err.Error())
 		}
@@ -844,7 +861,8 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	tlDir := filepath.Join(b.WorkDir, "logs", "timelines", "l2-"+id)
 	tl, err := b.newTimelineWriter(tlDir, sessLog)
 	if err != nil {
-		childAgent.Stop(5 * time.Second)
+		_ = childAgent.Stop(5 * time.Second)
+		b.RT.AgentRegistry.Unregister(childAgent.InstanceID)
 		return nil, fmt.Errorf("build L2 timeline writer: %w", err)
 	}
 
@@ -1040,7 +1058,8 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	// Timeline writer — use the caller-supplied cronLogDir.
 	tl, err := b.newTimelineWriter(cronLogDir, sessLog)
 	if err != nil {
-		childAgent.Stop(5 * time.Second)
+		_ = childAgent.Stop(5 * time.Second)
+		b.RT.AgentRegistry.Unregister(childAgent.InstanceID)
 		return nil, fmt.Errorf("build L2 cron timeline writer: %w", err)
 	}
 
@@ -1112,6 +1131,7 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	// registration, no memory hooks. Cron sessions are short-lived.
 	sessLogger := sessLog.Child()
 	s := NewSession(sessionID, group, childAgent, cw, tl, sessLogger)
+	s.Supervisor = sv
 
 	sessLog.Info(logger.CatActor, "BuildL2ForCron: session created",
 		"session_id", sessionID,
