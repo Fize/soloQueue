@@ -246,7 +246,8 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 
 	if fm.IsLeader && w.cfg.OnLeaderCreated != nil {
 		w.cfg.OnLeaderCreated(ctx, fm.Name, fm.Group, ag, tmpl)
-		msg := fmt.Sprintf("Leader '%s' (%s) created and activated. Use delegate_%s to assign tasks.", fm.Name, fm.Group, fm.Name)
+		delegateName := strings.ReplaceAll(fm.Name, " ", "_")
+		msg := fmt.Sprintf("Leader '%s' (%s) created and activated. Use delegate_%s to assign tasks.", fm.Name, fm.Group, delegateName)
 		return msg
 	}
 

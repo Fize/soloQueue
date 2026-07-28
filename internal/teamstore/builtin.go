@@ -13,7 +13,7 @@ import (
 // These are identical to the file content. When the user edits the .md files, hot-reload
 // picks up the changes; these constants are only used as fallback if files are deleted.
 
-// BuiltinLeaderPrompt is the initial seed for AndrejKarpathy.md.
+// BuiltinLeaderPrompt is the initial seed for andrej_karpathy.md.
 const BuiltinLeaderPrompt = `# Andrej Karpathy — Principal Architect
 
 You lead the engineering team. Your job: break down complex tasks, assign them

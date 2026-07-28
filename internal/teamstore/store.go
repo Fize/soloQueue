@@ -406,10 +406,8 @@ func getTeamFilePath(groupsDir, name string) string {
 }
 
 func getAgentFilePath(agentsDir, name string) string {
-	if strings.EqualFold(name, "Andrej Karpathy") || strings.EqualFold(name, "AndrejKarpathy") {
-		return filepath.Join(agentsDir, "AndrejKarpathy.md")
-	}
-	return filepath.Join(agentsDir, strings.ToLower(name)+".md")
+	filename := strings.ReplaceAll(strings.ToLower(name), " ", "_")
+	return filepath.Join(agentsDir, filename+".md")
 }
 
 func (s *Store) findFileCaseInsensitive(dir, name string) (string, os.FileInfo, error) {
@@ -417,10 +415,7 @@ func (s *Store) findFileCaseInsensitive(dir, name string) (string, os.FileInfo, 
 	if err != nil {
 		return "", nil, err
 	}
-	target := strings.ToLower(name) + ".md"
-	if strings.EqualFold(name, "Andrej Karpathy") || strings.EqualFold(name, "AndrejKarpathy") {
-		target = "andrejkarpathy.md"
-	}
+	target := strings.ReplaceAll(strings.ToLower(name), " ", "_") + ".md"
 	for _, entry := range entries {
 		if strings.EqualFold(entry.Name(), target) {
 			path := filepath.Join(dir, entry.Name())

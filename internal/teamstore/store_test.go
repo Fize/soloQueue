@@ -179,9 +179,9 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 	}
 
 	// Verify Andrej Karpathy agent file exists.
-	agentPath := filepath.Join(agentsDir, "AndrejKarpathy.md")
+	agentPath := filepath.Join(agentsDir, "andrej_karpathy.md")
 	if _, err := os.Stat(agentPath); err != nil {
-		t.Errorf("AndrejKarpathy.md not created: %v", err)
+		t.Errorf("andrej_karpathy.md not created: %v", err)
 	}
 
 	// Verify sub-agent files exist.
