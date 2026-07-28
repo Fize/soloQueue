@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useChatStore } from './chatStore'
-import { listSessions } from '@/lib/api'
+import { fetchSessionHistory, listSessions } from '@/lib/api'
 
 vi.mock('@/lib/api', () => ({
   listSessions: vi.fn(),
@@ -267,6 +267,54 @@ describe('chatStore', () => {
     expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
     expect(useChatStore.getState().sessions).toEqual([])
     expect(useChatStore.getState().sessionsLoading).toBe(false)
+  })
+
+  it('hydrates empty history while runtime reports the session is streaming', async () => {
+    const sid = 'l1'
+    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'history-user',
+          role: 'user',
+          timestamp: '',
+          segments: [{ type: 'content', text: 'persisted prompt' }],
+        },
+      ],
+      has_more: false,
+    } as any)
+    useChatStore.setState({
+      activeSessionId: sid,
+      messages: { [sid]: [] },
+      streamingSessions: { [sid]: true },
+    })
+
+    await useChatStore.getState().loadHistory(sid)
+
+    expect(fetchSessionHistory).toHaveBeenCalledWith(sid, undefined, 30)
+    expect(useChatStore.getState().messages[sid][0].id).toBe('history-user')
+  })
+
+  it('does not overwrite handler-owned messages while streaming', async () => {
+    const sid = 'l1'
+    useChatStore.setState({
+      activeSessionId: sid,
+      messages: {
+        [sid]: [
+          {
+            id: 'live-user',
+            role: 'user',
+            timestamp: '',
+            segments: [{ type: 'content', text: 'live prompt' }],
+          },
+        ],
+      },
+      streamingSessions: { [sid]: true },
+    })
+
+    await useChatStore.getState().loadHistory(sid)
+
+    expect(fetchSessionHistory).not.toHaveBeenCalled()
+    expect(useChatStore.getState().messages[sid][0].id).toBe('live-user')
   })
 
   // ── Phase 0.3 Characterization Tests ──────────────────────────────────────────

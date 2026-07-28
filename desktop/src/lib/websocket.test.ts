@@ -158,9 +158,11 @@ describe('websocket', () => {
       provider_id: 'provider',
       agent_instance_id: 'agent-instance',
     }
+    expect(wsManager.hasChatHandler('req-route')).toBe(true)
     simulateMessage(route)
 
     expect(onRoute).toHaveBeenCalledWith(route)
     wsManager.unregisterChat('req-route')
+    expect(wsManager.hasChatHandler('req-route')).toBe(false)
   })
 })

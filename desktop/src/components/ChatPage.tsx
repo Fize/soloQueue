@@ -33,6 +33,7 @@ import {
 import { ChatDesignPanel } from "@/components/ChatDesignPanel";
 import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
 import { StickyToolConfirmPanel } from "@/components/chat";
+import { recoverInFlightMessages } from "@/components/chat/recoverInFlightMessages";
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -382,38 +383,21 @@ export function ChatPage() {
   }, [stream]);
 
   const finalMessages = useMemo(() => {
-    if (
+    const requestId = activeSessionId
+      ? routeSessions[activeSessionId]?.requestId
+      : undefined;
+    return recoverInFlightMessages(
+      currentMessages,
+      streamChatSegments,
       activeAgentState === "processing" &&
-      !streaming &&
-      streamChatSegments.length > 0
-    ) {
-      // Guard: if currentMessages already has a live assistant message with
-      // any segments (content, thinking, tool_call, etc.) from the WebSocket
-      // stream, prefer it over the virtual message. The agent stream is a
-      // secondary source and may lag behind or be incomplete.
-      const hasAssistantMessage = currentMessages.some(
-        (m) => m.role === "assistant" && m.segments.length > 0
-      )
-      if (hasAssistantMessage) {
-        return currentMessages
-      }
-      let base = currentMessages;
-      while (base.length > 0 && base[base.length - 1].role === "assistant") {
-        base = base.slice(0, -1);
-      }
-      const virtualMessage = {
-        id: `msg-virtual-stream`,
-        role: "assistant" as const,
-        segments: streamChatSegments,
-        timestamp: new Date().toISOString(),
-      };
-      return [...base, virtualMessage];
-    }
-    return currentMessages;
+        !!requestId &&
+        !wsManager.hasChatHandler(requestId),
+    );
   }, [
     currentMessages,
+    activeSessionId,
     activeAgentState,
-    streaming,
+    routeSessions,
     streamChatSegments,
   ]);
 

@@ -186,6 +186,11 @@ class WebSocketManager {
     this.chatHandlers.set(requestId, handler)
   }
 
+  /** Whether this renderer owns the live stream handler for a request. */
+  hasChatHandler(requestId?: string) {
+    return !!requestId && this.chatHandlers.has(requestId)
+  }
+
   /** Unregister a chat handler. */
   unregisterChat(requestId: string) {
     this.chatHandlers.delete(requestId)

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -54,6 +54,7 @@ export function SessionTree() {
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
   // Per-container "show all" disclosure for session lists > 5 items.
   const [expandedSessionLists, setExpandedSessionLists] = useState<Record<string, boolean>>({})
+  const focusedSessionPathRef = useRef<string | null>(null)
 
   const { t } = useTranslation()
 
@@ -87,14 +88,22 @@ export function SessionTree() {
   // On active session change: open the active group+project, collapse all other
   // groups and projects. Preserves the active session's own "show all" flag.
   useEffect(() => {
-    if (!activeSessionId || sessions.length === 0 || groups.length === 0) return
+    if (!activeSessionId) {
+      focusedSessionPathRef.current = null
+      return
+    }
+    if (sessions.length === 0 || groups.length === 0) return
     const s = sessions.find((x) => x.id === activeSessionId)
+    if (!s) return
     const activeGroupName = s?.group
     const activeProjectId = s?.project_path
       ? groups
           .flatMap((g) => g.projects)
           .find((p) => pathsMatch(s.project_path!, p.path))?.id
       : undefined
+    const focusedPath = `${activeSessionId}:${activeGroupName || ''}:${activeProjectId || ''}`
+    if (focusedSessionPathRef.current === focusedPath) return
+    focusedSessionPathRef.current = focusedPath
 
     // Merge-update groups: active → true, others → false.
     setExpandedGroups((prev) => {

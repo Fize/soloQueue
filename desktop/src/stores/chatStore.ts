@@ -186,7 +186,12 @@ export const useChatStore = create<ChatState>((set) => ({
 
   loadHistory: async (sessionId: string) => {
     const state = useChatStore.getState()
-    if (state.streamingSessions[sessionId]) {
+    const cachedMessages = state.messages[sessionId]
+    // A live request normally owns the local message list, so history must not
+    // overwrite it. After a renderer reload, however, runtime state is restored
+    // before the in-memory messages/handler. Allow that empty cache to hydrate
+    // from the persisted timeline even while the backend is still processing.
+    if (state.streamingSessions[sessionId] && cachedMessages?.length) {
       return
     }
     set((s) => ({
