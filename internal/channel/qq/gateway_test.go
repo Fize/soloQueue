@@ -64,6 +64,35 @@ func TestHandleAudioMessage_ValidJSON(t *testing.T) {
 	}
 }
 
+func TestHandleC2CMessage_AudioAttachment(t *testing.T) {
+	handler := &testEventHandler{}
+	gw := &Gateway{
+		handler: handler,
+		log:     testLogger(t),
+	}
+
+	raw := json.RawMessage(`{
+		"id": "msg_c2c_audio",
+		"author": {"user_openid": "user_abc"},
+		"attachments": [
+			{"content_type": "audio/silk", "url": "https://example.com/audio.silk"}
+		]
+	}`)
+
+	gw.handleC2CMessage(context.Background(), raw)
+
+	if !handler.called {
+		t.Fatal("handler.OnQQMessage was not called")
+	}
+	msg := handler.lastMessage
+	if msg.AudioURL != "https://example.com/audio.silk" {
+		t.Errorf("AudioURL = %q, want https://example.com/audio.silk", msg.AudioURL)
+	}
+	if len(msg.Files) != 0 {
+		t.Errorf("Files = %#v, want no ordinary file attachments", msg.Files)
+	}
+}
+
 func TestHandleAudioMessage_InvalidJSON(t *testing.T) {
 	handler := &testEventHandler{}
 	gw := &Gateway{
