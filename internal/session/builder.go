@@ -16,9 +16,9 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
-	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
@@ -158,56 +158,18 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 
 	allTools := tools.WithFallbackPrefix(baseTools)
 	for _, l := range b.RT.Leaders {
-		leader := l // capture loop variable
-
-		// Find the AgentTemplate matching this leader for dynamic creation.
-		var leaderTmpl *agent.AgentTemplate
+		var leaderTmpl agent.AgentTemplate
+		found := false
 		for i := range b.RT.AllTemplates {
-			if b.RT.AllTemplates[i].IsLeader && strings.EqualFold(b.RT.AllTemplates[i].ID, leader.Name) {
-				leaderTmpl = &b.RT.AllTemplates[i]
+			if b.RT.AllTemplates[i].IsLeader && strings.EqualFold(b.RT.AllTemplates[i].ID, l.Name) {
+				leaderTmpl = b.RT.AllTemplates[i]
+				found = true
 				break
 			}
 		}
-
-		dt := tools.NewDelegateTool(leader.Name, leader.Description, 30*time.Minute, b.RT.AgentRegistry, sessLog)
-		dt.SpawnFn = func(ctx context.Context, task string, projectDir string) (iface.Locatable, error) {
-			// Prefer an idle instance to avoid cold-start latency.
-			if loc, ok := b.RT.AgentRegistry.LocateIdle(leader.Name); ok {
-				return loc, nil
-			}
-			// No idle instance — create a new one with a unique InstanceID.
-			if leaderTmpl != nil {
-				child, _, err := b.RT.AgentFactory.Create(ctx, *leaderTmpl, projectDir)
-				if err != nil {
-					return nil, fmt.Errorf("spawn leader %q: %w", leader.Name, err)
-				}
-
-				sv := agent.NewSupervisor(child, b.RT.AgentFactory, sessLog)
-				sv.WireSpawnFns(b.RT.AllTemplates)
-				sv.SetGroup(leaderTmpl.Group)
-				b.RT.AddSupervisor(sv)
-
-				// Register supervisor-scoped inspect_agent for this leader.
-				if err := child.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
-					sessLog.Warn(logger.CatActor, "register inspect_agent for leader failed",
-						"name", leader.Name, "err", err.Error())
-				}
-
-				sessLog.Info(logger.CatActor, "dynamic L2 supervisor created",
-					"instance_id", child.InstanceID,
-					"name", leader.Name,
-				)
-				return agent.NewSelfReapableAdapterWithCleanup(child, sv, func() {
-					b.RT.RemoveSupervisor(sv)
-				}), nil
-			}
-			// Fallback: any existing instance (busy but functional).
-			if loc, ok := b.RT.AgentRegistry.Locate(leader.Name); ok {
-				return loc, nil
-			}
-			return nil, fmt.Errorf("leader %q not found", leader.Name)
+		if found {
+			allTools = append(allTools, b.newL1LeaderDelegateTool(sessLog, l, leaderTmpl))
 		}
-		allTools = append(allTools, dt)
 	}
 
 	// Add inspect_agent tool for L1 to query all agent status
@@ -608,6 +570,72 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		return nil, nil, nil, err
 	}
 	return a, cw, tl, nil
+}
+
+func (b *Builder) ReconcileL1TeamCatalog(sess *Session, systemPrompt string) error {
+	if sess == nil || sess.Agent == nil {
+		return nil
+	}
+	if !sess.Idle() {
+		return ErrSessionBusy
+	}
+
+	b.RT.CfgMu.RLock()
+	leaders := append([]prompt.LeaderInfo(nil), b.RT.Leaders...)
+	templates := append([]agent.AgentTemplate(nil), b.RT.AllTemplates...)
+	b.RT.CfgMu.RUnlock()
+
+	sess.ContextWindow().ReplacePrimarySystem(systemPrompt)
+	for _, leader := range leaders {
+		toolName := "delegate_" + strings.ReplaceAll(leader.Name, " ", "_")
+		if sess.Agent.HasTool(toolName) {
+			continue
+		}
+		for _, tmpl := range templates {
+			if !tmpl.IsLeader || !strings.EqualFold(tmpl.ID, leader.Name) {
+				continue
+			}
+			if err := sess.Agent.RegisterTool(b.newL1LeaderDelegateTool(sess.logger, leader, tmpl)); err != nil {
+				return err
+			}
+			break
+		}
+	}
+	return nil
+}
+
+func (b *Builder) newL1LeaderDelegateTool(sessLog *logger.Logger, leader prompt.LeaderInfo, leaderTmpl agent.AgentTemplate) *tools.DelegateTool {
+	dt := tools.NewDelegateTool(leader.Name, leader.Description, 30*time.Minute, b.RT.AgentRegistry, sessLog)
+	dt.SpawnFn = func(ctx context.Context, task string, projectDir string) (iface.Locatable, error) {
+		if loc, ok := b.RT.AgentRegistry.LocateIdle(leader.Name); ok {
+			return loc, nil
+		}
+		child, _, err := b.RT.AgentFactory.Create(ctx, leaderTmpl, projectDir)
+		if err != nil {
+			return nil, fmt.Errorf("spawn leader %q: %w", leader.Name, err)
+		}
+
+		sv := agent.NewSupervisor(child, b.RT.AgentFactory, sessLog)
+		b.RT.CfgMu.RLock()
+		templates := append([]agent.AgentTemplate(nil), b.RT.AllTemplates...)
+		b.RT.CfgMu.RUnlock()
+		sv.WireSpawnFns(templates)
+		sv.SetGroup(leaderTmpl.Group)
+		b.RT.AddSupervisor(sv)
+
+		if err := child.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
+			sessLog.Warn(logger.CatActor, "register inspect_agent for leader failed",
+				"name", leader.Name, "err", err.Error())
+		}
+		sessLog.Info(logger.CatActor, "dynamic L2 supervisor created",
+			"instance_id", child.InstanceID,
+			"name", leader.Name,
+		)
+		return agent.NewSelfReapableAdapterWithCleanup(child, sv, func() {
+			b.RT.RemoveSupervisor(sv)
+		}), nil
+	}
+	return dt
 }
 
 // BuildFactory constructs the AgentFactory function used by SessionManager.

@@ -33,10 +33,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { Users, Plus, Pencil, Trash2, Loader2, Eye, FileText as FileTextIcon, X } from 'lucide-react'
+import { Users, Plus, Pencil, Trash2, Loader2, Eye, FileText as FileTextIcon, X, Boxes } from 'lucide-react'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
+import { BuiltinTeamInstallerDialog } from './BuiltinTeamInstallerDialog'
+import { useAgentStore } from '@/stores/agentStore'
 
 // ─── MultiSelect Component ──────────────────────────────────────────────────
 
@@ -952,6 +954,9 @@ export default function TeamsTab() {
   // Agent dialog state
   const [agentDialogOpen, setAgentDialogOpen] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentResponse | null>(null)
+  const [builtinInstallerOpen, setBuiltinInstallerOpen] = useState(false)
+  const fetchStoreTeams = useAgentStore((state) => state.fetchTeams)
+  const fetchLiveAgents = useAgentStore((state) => state.fetchLiveAgents)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -1042,6 +1047,10 @@ export default function TeamsTab() {
     fetchData()
   }
 
+  const handleBuiltinInstalled = async () => {
+    await Promise.all([fetchData(), fetchStoreTeams(), fetchLiveAgents()])
+  }
+
   // ── Filter ─────────────────────────────────────────────────────────────
 
   const filteredAgents = selectedTeam ? agents.filter((a) => a.team_name === selectedTeam) : agents
@@ -1067,15 +1076,30 @@ export default function TeamsTab() {
               {teams.length}
             </Badge>
           </div>
-          <Button size="sm" onClick={handleCreateTeam} className="gap-1">
-            <Plus className="h-3.5 w-3.5" />
-            {t('teams.createTeamAction')}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setBuiltinInstallerOpen(true)}
+              className="gap-1"
+            >
+              <Boxes className="h-3.5 w-3.5" />
+              {t('teams.installBuiltinTeams')}
+            </Button>
+            <Button size="sm" onClick={handleCreateTeam} className="gap-1">
+              <Plus className="h-3.5 w-3.5" />
+              {t('teams.createTeamAction')}
+            </Button>
+          </div>
         </div>
 
         {teams.length === 0 ? (
-          <div className="px-5 py-6 text-center">
+          <div className="px-5 py-8 text-center space-y-3">
             <p className="text-sm text-muted-foreground">{t('teams.noTeamsYet')}</p>
+            <Button size="sm" onClick={() => setBuiltinInstallerOpen(true)} className="gap-1">
+              <Boxes className="h-3.5 w-3.5" />
+              {t('teams.installBuiltinTeams')}
+            </Button>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -1239,6 +1263,13 @@ export default function TeamsTab() {
         editAgent={editingAgent}
         teams={teams}
       />
+      {builtinInstallerOpen && (
+        <BuiltinTeamInstallerDialog
+          open
+          onOpenChange={setBuiltinInstallerOpen}
+          onInstalled={handleBuiltinInstalled}
+        />
+      )}
       <ConfirmDialog
         open={!!deleteTeamTarget}
         onOpenChange={(open) => {

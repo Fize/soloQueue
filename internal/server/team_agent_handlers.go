@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -9,6 +10,23 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
+
+type BuiltinTeamMemberResponse struct {
+	Name     string `json:"name"`
+	IsLeader bool   `json:"is_leader"`
+}
+
+type BuiltinTeamResponse struct {
+	ID            string                             `json:"id"`
+	Name          string                             `json:"name"`
+	DisplayName   string                             `json:"display_name"`
+	Description   string                             `json:"description"`
+	Leader        string                             `json:"leader"`
+	Members       []BuiltinTeamMemberResponse        `json:"members"`
+	Status        teamstore.BuiltinTeamInstallStatus `json:"status"`
+	MissingAgents []string                           `json:"missing_agents"`
+	Conflicts     []string                           `json:"conflicts"`
+}
 
 // ─── Response Types ─────────────────────────────────────────────────────────
 
@@ -84,6 +102,91 @@ func agentToResponse(a *teamstore.Agent) AgentResponse {
 
 // ─── Team Handlers ──────────────────────────────────────────────────────────
 
+func (m *Mux) handleListBuiltinTeams(w http.ResponseWriter, r *http.Request) {
+	if m.teamstore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "team store is not available"})
+		return
+	}
+	views, err := m.teamstore.ListBuiltinTeamStatuses(r.Context())
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	result := make([]BuiltinTeamResponse, 0, len(views))
+	for _, view := range views {
+		item := BuiltinTeamResponse{
+			ID:            view.Spec.ID,
+			Name:          view.Spec.Name,
+			DisplayName:   view.Spec.DisplayName,
+			Description:   view.Spec.Description,
+			Status:        view.Status,
+			MissingAgents: view.MissingAgents,
+			Conflicts:     view.Conflicts,
+			Members:       make([]BuiltinTeamMemberResponse, 0, len(view.Spec.Agents)),
+		}
+		for _, member := range view.Spec.Agents {
+			item.Members = append(item.Members, BuiltinTeamMemberResponse{Name: member.Name, IsLeader: member.IsLeader})
+			if member.IsLeader {
+				item.Leader = member.Name
+			}
+		}
+		result = append(result, item)
+	}
+	m.writeJSON(w, http.StatusOK, map[string]any{"teams": result})
+}
+
+func (m *Mux) handleInstallBuiltinTeams(w http.ResponseWriter, r *http.Request) {
+	if m.teamstore == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "team store is not available"})
+		return
+	}
+	if m.sessionMgr != nil {
+		if sess := m.sessionMgr.Session(); sess != nil && !sess.Idle() {
+			m.writeJSON(w, http.StatusConflict, map[string]string{
+				"code":  "session_busy",
+				"error": "the L1 session is busy",
+			})
+			return
+		}
+	}
+
+	var req struct {
+		TeamIDs []string `json:"team_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"code": "invalid_team_ids", "error": "invalid request"})
+		return
+	}
+	results, err := m.teamstore.InstallBuiltinTeams(r.Context(), req.TeamIDs)
+	if err != nil {
+		status := http.StatusBadRequest
+		code := "invalid_team_ids"
+		if errors.Is(err, teamstore.ErrBuiltinTeamConflict) {
+			status = http.StatusConflict
+			code = "builtin_team_conflict"
+		}
+		m.writeJSON(w, status, map[string]string{"code": code, "error": err.Error()})
+		return
+	}
+
+	refreshed := true
+	restartRequired := false
+	if m.reloadTeamCatalog != nil {
+		if err := m.reloadTeamCatalog(); err != nil {
+			refreshed = false
+			restartRequired = true
+			if m.log != nil {
+				m.log.Warn("failed to reload runtime team catalog", "err", err.Error())
+			}
+		}
+	}
+	m.writeJSON(w, http.StatusCreated, map[string]any{
+		"results":           results,
+		"runtime_refreshed": refreshed,
+		"restart_required":  restartRequired,
+	})
+}
+
 // handleListTeams returns all teams and their agents.
 // GET /api/teams
 func (m *Mux) handleListTeams(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +226,6 @@ func (m *Mux) handleListTeams(w http.ResponseWriter, r *http.Request) {
 
 	m.writeJSON(w, http.StatusOK, TeamListResponse{Teams: result})
 }
-
 
 // createTeamRequest is the JSON body for POST /api/teams.
 type createTeamRequest struct {

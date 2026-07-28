@@ -31,8 +31,8 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
@@ -74,9 +74,6 @@ func Build(
 		return nil, err
 	}
 	bc.teamstore = teamstore.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"), bc.sharedDB)
-	if err := bc.teamstore.EnsureBuiltinTechTeam(context.Background()); err != nil {
-		bc.log.Warn(logger.CatApp, "failed to ensure built-in technical team", "err", err.Error())
-	}
 
 	// Wire DB to Config and load DB-backed settings
 	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {

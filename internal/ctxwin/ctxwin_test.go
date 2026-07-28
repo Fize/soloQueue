@@ -536,3 +536,22 @@ func TestStripPriorSummaryMessages(t *testing.T) {
 		t.Errorf("stripped[2] content = %q, want %q", stripped[2].Content, "hello")
 	}
 }
+
+func TestContextWindowReplacePrimarySystemPreservesHistory(t *testing.T) {
+	cw := NewContextWindow(10000, 1000, 8000, NewTokenizer())
+	cw.Push(RoleSystem, "old system")
+	cw.Push(RoleUser, "hello")
+
+	cw.ReplacePrimarySystem("new system")
+
+	payload := cw.BuildPayload()
+	if len(payload) != 2 {
+		t.Fatalf("payload length = %d, want 2", len(payload))
+	}
+	if payload[0].Role != string(RoleSystem) || payload[0].Content != "new system" {
+		t.Fatalf("system message = %+v", payload[0])
+	}
+	if payload[1].Role != string(RoleUser) || payload[1].Content != "hello" {
+		t.Fatalf("history message = %+v", payload[1])
+	}
+}

@@ -195,7 +195,7 @@ func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if strings.EqualFold(name, "engineering") {
+	if s.isBuiltinTeamLocked(name) {
 		return fmt.Errorf("teamstore: deletion of built-in team %q is not allowed", name)
 	}
 
@@ -359,10 +359,7 @@ func (s *Store) DeleteAgent(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if strings.EqualFold(name, "Andrej Karpathy") ||
-		strings.EqualFold(name, "explorer") ||
-		strings.EqualFold(name, "editor") ||
-		strings.EqualFold(name, "tester") {
+	if s.isBuiltinAgentLocked(name) {
 		return fmt.Errorf("teamstore: deletion of built-in agent %q is not allowed", name)
 	}
 

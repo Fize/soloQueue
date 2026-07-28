@@ -73,9 +73,10 @@ type Mux struct {
 	skillReg          *skill.SkillRegistry
 	skillDirs         map[string]string // skill categories → paths, for on-demand reload
 	rebuildPrompt     func() error      // rebuilds L1 system prompt after soul/rules edit
-	agentsDir         string            // path to ~/.soloqueue/agents directory
-	mcpLoader         *mcp.Loader       // MCP config loader for /api/mcp endpoints
-	mcpManager        *mcp.Manager      // MCP server manager for /api/mcp/available endpoint
+	reloadTeamCatalog func() error
+	agentsDir         string       // path to ~/.soloqueue/agents directory
+	mcpLoader         *mcp.Loader  // MCP config loader for /api/mcp endpoints
+	mcpManager        *mcp.Manager // MCP server manager for /api/mcp/available endpoint
 	sessionMgr        *session.SessionManager
 	l2Store           *session.L2SessionStore // L2 multi-session store (nil if not configured)
 	authConfig        config.AuthConfig
@@ -161,6 +162,10 @@ func WithAgentsDir(dir string) MuxOption {
 // Called after soul/rules are updated via the API.
 func WithPromptRebuild(fn func() error) MuxOption {
 	return func(m *Mux) { m.rebuildPrompt = fn }
+}
+
+func WithTeamCatalogReload(fn func() error) MuxOption {
+	return func(m *Mux) { m.reloadTeamCatalog = fn }
 }
 
 // WithMCPLoader sets the MCP config loader for /api/mcp endpoints.
@@ -347,6 +352,8 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Delete("/api/agents/{name}", m.handleDeleteAgent)
 
 	// Teams CRUD (DB-backed with file fallback for GET)
+	r.Get("/api/builtin-teams", m.handleListBuiltinTeams)
+	r.Post("/api/builtin-teams/install", m.handleInstallBuiltinTeams)
 	r.Get("/api/teams", m.handleListTeams)
 	r.Post("/api/teams", m.handleCreateTeam)
 	r.Get("/api/teams/{name}", m.handleGetTeam)

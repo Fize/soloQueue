@@ -11,6 +11,8 @@ import type {
   UpdateTeamRequest,
   CreateAgentRequest,
   UpdateAgentRequest,
+  BuiltinTeamCatalogItem,
+  InstallBuiltinTeamsResponse,
   Project,
   CronTask,
   CreateCronTaskRequest,
@@ -113,6 +115,20 @@ export async function updateTeam(
 
 export async function deleteTeam(name: string): Promise<void> {
   await request(`/teams/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
+export async function listBuiltinTeams(): Promise<BuiltinTeamCatalogItem[]> {
+  const data = await request<{ teams: BuiltinTeamCatalogItem[] }>("/builtin-teams");
+  return data.teams ?? [];
+}
+
+export async function installBuiltinTeams(
+  teamIds: string[],
+): Promise<InstallBuiltinTeamsResponse> {
+  return request<InstallBuiltinTeamsResponse>("/builtin-teams/install", {
+    method: "POST",
+    body: JSON.stringify({ team_ids: teamIds }),
+  });
 }
 
 // ─── Agent CRUD APIs ────────────────────────────────────────────────────────

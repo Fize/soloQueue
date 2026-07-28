@@ -292,7 +292,6 @@ func (a *Agent) SetConfirmStore(store SessionConfirmStore) {
 	}
 }
 
-
 // SetDelegateSpawnFn replaces the SpawnFn on the DelegateTool with the given
 // leaderID. This is used after Supervisor creation to wire L2→L3 delegation
 // through the Supervisor so spawned L3 children are tracked.
@@ -320,6 +319,14 @@ func (a *Agent) RegisterTool(t tools.Tool) error {
 		return fmt.Errorf("agent %q: ToolRegistry is nil", a.Def.ID)
 	}
 	return a.tools.Register(t)
+}
+
+func (a *Agent) HasTool(name string) bool {
+	if a.tools == nil {
+		return false
+	}
+	_, ok := a.tools.Get(name)
+	return ok
 }
 
 // PendingDelegations returns the number of pending asynchronous delegation turns

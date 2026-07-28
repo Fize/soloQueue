@@ -195,6 +195,22 @@ func WithGroups(groups map[string]prompt.GroupFile) FactoryOption {
 	}
 }
 
+func (f *DefaultFactory) ReplaceTeamCatalog(templates []AgentTemplate, groups map[string]prompt.GroupFile) {
+	templateMap := make(map[string]AgentTemplate, len(templates))
+	for _, tmpl := range templates {
+		templateMap[tmpl.ID] = tmpl
+	}
+	groupMap := make(map[string]prompt.GroupFile, len(groups))
+	for name, group := range groups {
+		groupMap[name] = group
+	}
+
+	f.mu.Lock()
+	f.templates = templateMap
+	f.groups = groupMap
+	f.mu.Unlock()
+}
+
 // WithWorkDir sets the workDir (~/.soloqueue) for computing team-specific plan directories.
 func WithWorkDir(workDir string) FactoryOption {
 	return func(f *DefaultFactory) {
@@ -326,6 +342,14 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	llm := f.llm
 	toolsCfg := f.toolsCfg
 	defaultModelID := f.defaultModelID
+	templates := make(map[string]AgentTemplate, len(f.templates))
+	for id, template := range f.templates {
+		templates[id] = template
+	}
+	groups := make(map[string]prompt.GroupFile, len(f.groups))
+	for name, group := range f.groups {
+		groups[name] = group
+	}
 	f.mu.RUnlock()
 
 	// 1. Construct the final SystemPrompt
@@ -373,7 +397,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	var finalPrompt string
 	hasPermanentMemory := toolsCfg.MemoryEngine != nil
 	if tmpl.IsLeader {
-		finalPrompt = buildL2SystemPrompt(tmpl, f.templates, f.groups, planDir, effectiveWorkDir, exploreDir, projRes.agents, hasPermanentMemory)
+		finalPrompt = buildL2SystemPrompt(tmpl, templates, groups, planDir, effectiveWorkDir, exploreDir, projRes.agents, hasPermanentMemory)
 		if tmpl.Group != "" && toolsCfg.CronStore != nil && toolsCfg.CronScheduler != nil && !iface.IsCronExecution(ctx) {
 			finalPrompt += "\n# Cron Jobs\n\n" +
 				"You may manage cron jobs only for your own team. Use create_cron_job for new jobs, " +
@@ -381,7 +405,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 				"A new job always requires a user-facing title, a task_type (general, engineering, or research), schedule, and instruction.\n"
 		}
 	} else {
-		finalPrompt = buildL3SystemPrompt(tmpl, f.groups, planDir, effectiveWorkDir, exploreDir, hasPermanentMemory)
+		finalPrompt = buildL3SystemPrompt(tmpl, groups, planDir, effectiveWorkDir, exploreDir, hasPermanentMemory)
 	}
 
 	// Inject project instructions (AGENTS.md / CLAUDE.md) into system prompt
@@ -491,13 +515,13 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 
 			// 2. Fallback to global templates registry
 			if !ok && baseAgentName != "" {
-				if t, ok2 := f.templates[strings.ToLower(baseAgentName)]; ok2 {
+				if t, ok2 := templates[strings.ToLower(baseAgentName)]; ok2 {
 					childTmpl = t
 					ok = true
 				}
 			}
 			if !ok {
-				if t, ok2 := f.templates[strings.ToLower(name)]; ok2 {
+				if t, ok2 := templates[strings.ToLower(name)]; ok2 {
 					childTmpl = t
 					ok = true
 				}
@@ -540,7 +564,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		}
 		allTools = append(allTools, dat)
 
-		for _, peer := range f.visibleWorkers(tmpl, projRes.agents) {
+		for _, peer := range visibleWorkers(templates, tmpl, projRes.agents) {
 			peer := peer // capture loop variable
 			dt := tools.NewDelegateTool(peer.ID, peer.Description, 25*time.Minute, nil, f.log)
 			dt.SpawnFn = func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
@@ -556,7 +580,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		// 2c. L2 leader: inject horizontal collaboration tool (request_team_help)
 		// Only inject if other teams exist, to avoid giving the LLM meaningless tools in single-team scenarios.
 		hasPeerTeams := false
-		for _, t := range f.templates {
+		for _, t := range templates {
 			if t.IsLeader && t.ID != tmpl.ID {
 				hasPeerTeams = true
 				break
@@ -569,7 +593,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 					return loc, false, nil
 				}
 				// No idle instance found → spawn a new peer leader
-				peerTmpl, ok := f.findLeaderTemplate(teamName)
+				peerTmpl, ok := findLeaderTemplate(templates, teamName)
 				if !ok {
 					return nil, false, fmt.Errorf("peer leader %q not found", teamName)
 				}
@@ -579,7 +603,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 				}
 				// The newly spawned peer leader needs its own supervisor to manage its L3 children
 				peerSv := NewSupervisor(child, f, f.log)
-				peerSv.WireSpawnFns(f.templatesSlice())
+				peerSv.WireSpawnFns(templatesSlice(templates))
 				peerSv.SetGroup(peerTmpl.Group)
 				return NewSelfReapableAdapter(child, peerSv), true, nil
 			}
@@ -612,7 +636,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 						basePrompt = baseTmpl.SystemPrompt
 					} else {
 						// 2. Fallback to global templates registry
-						if baseTmpl, ok := f.templates[strings.ToLower(s.Agent)]; ok {
+						if baseTmpl, ok := templates[strings.ToLower(s.Agent)]; ok {
 							basePrompt = baseTmpl.SystemPrompt
 						}
 					}
@@ -859,11 +883,11 @@ func LoadSkillAgentTemplate(skillDir string, agentName string) (AgentTemplate, b
 // visibleWorkers returns the merged list of global agent templates in the same group as tmpl + project-level agent templates.
 // Project-level agents override global agents with the same ID.
 // Used to inject delegate_* tools for L2 leaders.
-func (f *DefaultFactory) visibleWorkers(tmpl AgentTemplate, projectAgents []AgentTemplate) []AgentTemplate {
+func visibleWorkers(templates map[string]AgentTemplate, tmpl AgentTemplate, projectAgents []AgentTemplate) []AgentTemplate {
 	merged := make(map[string]AgentTemplate)
 
 	// Global workers from the same group
-	for _, t := range f.templates {
+	for _, t := range templates {
 		if t.IsLeader || t.ID == tmpl.ID {
 			continue
 		}
@@ -887,9 +911,19 @@ func (f *DefaultFactory) visibleWorkers(tmpl AgentTemplate, projectAgents []Agen
 	return workers
 }
 
+func (f *DefaultFactory) visibleWorkers(tmpl AgentTemplate, projectAgents []AgentTemplate) []AgentTemplate {
+	f.mu.RLock()
+	templates := make(map[string]AgentTemplate, len(f.templates))
+	for id, template := range f.templates {
+		templates[id] = template
+	}
+	f.mu.RUnlock()
+	return visibleWorkers(templates, tmpl, projectAgents)
+}
+
 // findLeaderTemplate finds a leader template by ID (case-insensitive).
-func (f *DefaultFactory) findLeaderTemplate(id string) (AgentTemplate, bool) {
-	for _, t := range f.templates {
+func findLeaderTemplate(templates map[string]AgentTemplate, id string) (AgentTemplate, bool) {
+	for _, t := range templates {
 		if t.IsLeader && strings.EqualFold(t.ID, id) {
 			return t, true
 		}
@@ -899,9 +933,9 @@ func (f *DefaultFactory) findLeaderTemplate(id string) (AgentTemplate, bool) {
 
 // templatesSlice converts the internal template map to a slice for APIs
 // that accept []AgentTemplate (e.g., Supervisor.WireSpawnFns).
-func (f *DefaultFactory) templatesSlice() []AgentTemplate {
-	out := make([]AgentTemplate, 0, len(f.templates))
-	for _, t := range f.templates {
+func templatesSlice(templates map[string]AgentTemplate) []AgentTemplate {
+	out := make([]AgentTemplate, 0, len(templates))
+	for _, t := range templates {
 		out = append(out, t)
 	}
 	return out

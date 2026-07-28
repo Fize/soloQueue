@@ -218,6 +218,42 @@ export interface UpdateTeamRequest {
   description?: string;
 }
 
+export type BuiltinTeamInstallStatus =
+  | 'available'
+  | 'partial'
+  | 'installed'
+  | 'conflict';
+
+export interface BuiltinTeamMember {
+  name: string;
+  is_leader: boolean;
+}
+
+export interface BuiltinTeamCatalogItem {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  leader: string;
+  members: BuiltinTeamMember[];
+  status: BuiltinTeamInstallStatus;
+  missing_agents: string[];
+  conflicts: string[];
+}
+
+export interface BuiltinTeamInstallResult {
+  id: string;
+  status: BuiltinTeamInstallStatus;
+  created_team: boolean;
+  created_agents: string[];
+}
+
+export interface InstallBuiltinTeamsResponse {
+  results: BuiltinTeamInstallResult[];
+  runtime_refreshed: boolean;
+  restart_required: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;

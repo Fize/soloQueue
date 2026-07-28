@@ -2,9 +2,11 @@ package teamstore
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestStoreCRUD(t *testing.T) {
@@ -156,8 +158,6 @@ func TestStoreCRUD(t *testing.T) {
 	}
 }
 
-
-
 func TestBuiltinEngineeringTeam(t *testing.T) {
 	tempDir := t.TempDir()
 	groupsDir := filepath.Join(tempDir, "groups")
@@ -252,3 +252,93 @@ func TestBuiltinEngineeringTeam(t *testing.T) {
 	}
 }
 
+func TestBuiltinTeamInstallStatusesAndRepair(t *testing.T) {
+	tempDir := t.TempDir()
+	store := NewStore(filepath.Join(tempDir, "groups"), filepath.Join(tempDir, "agents"), nil)
+	ctx := context.Background()
+
+	views, err := store.ListBuiltinTeamStatuses(ctx)
+	if err != nil {
+		t.Fatalf("ListBuiltinTeamStatuses: %v", err)
+	}
+	if len(views) != 1 || views[0].Status != BuiltinTeamAvailable {
+		t.Fatalf("initial views = %+v, want one available team", views)
+	}
+
+	results, err := store.InstallBuiltinTeams(ctx, []string{"engineering"})
+	if err != nil {
+		t.Fatalf("InstallBuiltinTeams: %v", err)
+	}
+	if len(results) != 1 || !results[0].CreatedTeam || len(results[0].CreatedAgents) != 4 {
+		t.Fatalf("install results = %+v", results)
+	}
+
+	explorer, err := store.GetAgentByName(ctx, "explorer")
+	if err != nil {
+		t.Fatalf("GetAgentByName explorer: %v", err)
+	}
+	explorer.SystemPrompt = "custom explorer prompt"
+	if err := store.UpdateAgent(ctx, "explorer", explorer); err != nil {
+		t.Fatalf("UpdateAgent explorer: %v", err)
+	}
+	if err := os.Remove(getAgentFilePath(store.agentsDir, "tester")); err != nil {
+		t.Fatalf("remove tester: %v", err)
+	}
+
+	views, err = store.ListBuiltinTeamStatuses(ctx)
+	if err != nil {
+		t.Fatalf("ListBuiltinTeamStatuses partial: %v", err)
+	}
+	if views[0].Status != BuiltinTeamPartial || len(views[0].MissingAgents) != 1 || views[0].MissingAgents[0] != "tester" {
+		t.Fatalf("partial view = %+v", views[0])
+	}
+
+	results, err = store.InstallBuiltinTeams(ctx, []string{"engineering"})
+	if err != nil {
+		t.Fatalf("repair built-in team: %v", err)
+	}
+	if results[0].CreatedTeam || len(results[0].CreatedAgents) != 1 || results[0].CreatedAgents[0] != "tester" {
+		t.Fatalf("repair results = %+v", results)
+	}
+	explorer, err = store.GetAgentByName(ctx, "explorer")
+	if err != nil {
+		t.Fatalf("GetAgentByName explorer after repair: %v", err)
+	}
+	if explorer.SystemPrompt != "custom explorer prompt" {
+		t.Fatalf("explorer prompt = %q, want preserved custom prompt", explorer.SystemPrompt)
+	}
+
+	results, err = store.InstallBuiltinTeams(ctx, []string{"engineering"})
+	if err != nil {
+		t.Fatalf("idempotent install: %v", err)
+	}
+	if results[0].CreatedTeam || len(results[0].CreatedAgents) != 0 {
+		t.Fatalf("idempotent results = %+v", results)
+	}
+}
+
+func TestBuiltinTeamInstallRejectsAgentConflict(t *testing.T) {
+	tempDir := t.TempDir()
+	store := NewStore(filepath.Join(tempDir, "groups"), filepath.Join(tempDir, "agents"), nil)
+	ctx := context.Background()
+
+	if err := store.CreateTeam(ctx, &Team{Name: "other"}); err != nil {
+		t.Fatalf("CreateTeam other: %v", err)
+	}
+	if err := store.CreateAgent(ctx, &Agent{
+		Name:      "explorer",
+		TeamName:  "other",
+		IsLeader:  false,
+		CreatedAt: time.Now().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("CreateAgent explorer: %v", err)
+	}
+
+	_, err := store.InstallBuiltinTeams(ctx, []string{"engineering"})
+	if !errors.Is(err, ErrBuiltinTeamConflict) {
+		t.Fatalf("InstallBuiltinTeams error = %v, want ErrBuiltinTeamConflict", err)
+	}
+	if _, statErr := os.Stat(getTeamFilePath(store.groupsDir, "engineering")); !os.IsNotExist(statErr) {
+		t.Fatalf("engineering team should not be created on conflict: %v", statErr)
+	}
+}

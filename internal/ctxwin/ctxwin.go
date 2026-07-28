@@ -672,6 +672,25 @@ func (cw *ContextWindow) Reset() {
 	}
 }
 
+func (cw *ContextWindow) ReplacePrimarySystem(content string) {
+	cw.Lock()
+	defer cw.Unlock()
+
+	msg := Message{
+		Role:      RoleSystem,
+		Content:   content,
+		Tokens:    cw.tokenizer.Count(content),
+		Timestamp: time.Now(),
+	}
+	if len(cw.messages) > 0 && cw.messages[0].Role == RoleSystem {
+		cw.currentTokens += msg.Tokens - cw.messages[0].Tokens
+		cw.messages[0] = msg
+		return
+	}
+	cw.messages = append([]Message{msg}, cw.messages...)
+	cw.currentTokens += msg.Tokens
+}
+
 // CurrentTokens returns the current token count of the context window.
 // Thread-safe (read-locked).
 func (cw *ContextWindow) CurrentTokens() int {
@@ -1312,7 +1331,6 @@ func (cw *ContextWindow) evict(newMsgTokens int) {
 	}
 	cw.evictTo(target)
 }
-
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

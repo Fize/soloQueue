@@ -254,6 +254,65 @@ func TestHTTP_TeamAgents(t *testing.T) {
 	}
 }
 
+func TestHTTP_BuiltinTeamCatalogAndInstall(t *testing.T) {
+	tempDir := t.TempDir()
+	store := teamstore.NewStore(filepath.Join(tempDir, "groups"), filepath.Join(tempDir, "agents"), nil)
+	reloads := 0
+	mux := NewMux(tempDir, nil,
+		WithTeamStore(store),
+		WithTeamCatalogReload(func() error {
+			reloads++
+			return nil
+		}),
+	)
+	defer mux.Close()
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/builtin-teams", nil)
+	getReq.Host = "localhost:8765"
+	getReq.RemoteAddr = "127.0.0.1:12345"
+	getRec := httptest.NewRecorder()
+	mux.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET /api/builtin-teams status = %d, body = %s", getRec.Code, getRec.Body.String())
+	}
+	var catalog struct {
+		Teams []BuiltinTeamResponse `json:"teams"`
+	}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &catalog); err != nil {
+		t.Fatalf("decode catalog: %v", err)
+	}
+	if len(catalog.Teams) != 1 || catalog.Teams[0].ID != "engineering" ||
+		catalog.Teams[0].Status != teamstore.BuiltinTeamAvailable {
+		t.Fatalf("catalog = %+v", catalog.Teams)
+	}
+
+	postReq := httptest.NewRequest(http.MethodPost, "/api/builtin-teams/install",
+		strings.NewReader(`{"team_ids":["engineering"]}`))
+	postReq.Header.Set("Content-Type", "application/json")
+	postReq.Host = "localhost:8765"
+	postReq.RemoteAddr = "127.0.0.1:12345"
+	postRec := httptest.NewRecorder()
+	mux.ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusCreated {
+		t.Fatalf("POST /api/builtin-teams/install status = %d, body = %s", postRec.Code, postRec.Body.String())
+	}
+	if reloads != 1 {
+		t.Fatalf("catalog reloads = %d, want 1", reloads)
+	}
+
+	getReq = httptest.NewRequest(http.MethodGet, "/api/builtin-teams", nil)
+	getReq.Host = "localhost:8765"
+	getReq.RemoteAddr = "127.0.0.1:12345"
+	getRec = httptest.NewRecorder()
+	mux.ServeHTTP(getRec, getReq)
+	if err := json.Unmarshal(getRec.Body.Bytes(), &catalog); err != nil {
+		t.Fatalf("decode installed catalog: %v", err)
+	}
+	if catalog.Teams[0].Status != teamstore.BuiltinTeamInstalled {
+		t.Fatalf("installed status = %q", catalog.Teams[0].Status)
+	}
+}
+
 func TestHTTP_ListProviderRemoteModels(t *testing.T) {
 	// 1. Create a mock remote provider server
 	mockRemoteSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -295,12 +354,12 @@ func TestHTTP_ListProviderRemoteModels(t *testing.T) {
 
 	// Create LLMProvider config that uses the mockRemoteSrv URL
 	p := config.LLMProvider{
-		ID:        "mock-provider",
-		Name:      "Mock Provider",
-		BaseURL:   mockRemoteSrv.URL,
-		APIKey:    "mock-api-key",
-		Enabled:   true,
-		Headers:   map[string]string{"X-Custom-Test": "test-val"},
+		ID:      "mock-provider",
+		Name:    "Mock Provider",
+		BaseURL: mockRemoteSrv.URL,
+		APIKey:  "mock-api-key",
+		Enabled: true,
+		Headers: map[string]string{"X-Custom-Test": "test-val"},
 	}
 	if err := configSvc.CreateProvider(p); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
@@ -335,5 +394,3 @@ func TestHTTP_ListProviderRemoteModels(t *testing.T) {
 		}
 	}
 }
-
-

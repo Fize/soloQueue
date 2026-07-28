@@ -22,8 +22,8 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
-	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -90,15 +90,18 @@ func (s *Stack) ReloadFromTeamStore() error {
 	if s.TeamStore == nil {
 		return nil
 	}
-	s.CfgMu.Lock()
-	defer s.CfgMu.Unlock()
 	dbGroups, dbLeaders, dbTemplates, err := loadFromTeamStore(s.TeamStore)
 	if err != nil {
 		return err
 	}
+	if s.AgentFactory != nil {
+		s.AgentFactory.ReplaceTeamCatalog(dbTemplates, dbGroups)
+	}
+	s.CfgMu.Lock()
 	s.Groups = dbGroups
 	s.Leaders = dbLeaders
 	s.AllTemplates = dbTemplates
+	s.CfgMu.Unlock()
 	return nil
 }
 
@@ -268,10 +271,10 @@ func (s *Stack) OnConfigChange() error {
 		}
 	}
 	if classifierModel := s.Settings.DefaultClassifierModel(); classifierModel != nil && s.TaskRouter != nil {
-			effectiveModel := classifierModel.APIModel
-			if effectiveModel == "" {
-				effectiveModel = classifierModel.ID
-			}
+		effectiveModel := classifierModel.APIModel
+		if effectiveModel == "" {
+			effectiveModel = classifierModel.ID
+		}
 		s.TaskRouter.UpdateClassifierModel(classifierModel.ProviderID, effectiveModel)
 	}
 

@@ -204,6 +204,15 @@ func ServeCmd(version string) *cobra.Command {
 				return nil
 			}
 			rt.OnPromptRebuild(rebuildPrompt)
+			reloadTeamCatalog := func() error {
+				if err := rebuildPrompt(); err != nil {
+					return err
+				}
+				rt.CfgMu.RLock()
+				systemPrompt := rt.SystemPrompt
+				rt.CfgMu.RUnlock()
+				return builder.ReconcileL1TeamCatalog(mgr.Session(), systemPrompt)
+			}
 
 			// Create RuntimeMetrics (shared by Mux + Hub) for serve mode.
 			listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
@@ -228,6 +237,7 @@ func ServeCmd(version string) *cobra.Command {
 				server.WithSkillDirs(map[string]string{"user": filepath.Join(workDir, "skills")}),
 				server.WithAgentsDir(filepath.Join(workDir, "agents")),
 				server.WithPromptRebuild(rebuildPrompt),
+				server.WithTeamCatalogReload(reloadTeamCatalog),
 				server.WithMCPLoader(MCPLoaderFromRT(rt)),
 				server.WithMCPManager(rt.MCPManager),
 				server.WithTeamStore(rt.TeamStore),

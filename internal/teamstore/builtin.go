@@ -2,9 +2,10 @@ package teamstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -132,101 +133,305 @@ Write robust tests, run them, and report results.
 - If existing tests fail, report them — don't silently fix or remove.
 - If no test framework exists, report that and suggest one.`
 
-// EnsureBuiltinTechTeam checks if the engineering team and architect agent exist,
-// creating or restoring them if missing or modified.
-func (s *Store) EnsureBuiltinTechTeam(ctx context.Context) error {
+type BuiltinTeamInstallStatus string
+
+const (
+	BuiltinTeamAvailable BuiltinTeamInstallStatus = "available"
+	BuiltinTeamPartial   BuiltinTeamInstallStatus = "partial"
+	BuiltinTeamInstalled BuiltinTeamInstallStatus = "installed"
+	BuiltinTeamConflict  BuiltinTeamInstallStatus = "conflict"
+)
+
+var ErrBuiltinTeamConflict = errors.New("teamstore: built-in team conflict")
+
+type BuiltinAgentSpec struct {
+	ID           string
+	Name         string
+	Description  string
+	IsLeader     bool
+	SystemPrompt string
+	MCPServers   []string
+	SkillIDs     []string
+}
+
+type BuiltinTeamSpec struct {
+	ID          string
+	Name        string
+	DisplayName string
+	Description string
+	Agents      []BuiltinAgentSpec
+}
+
+type BuiltinTeamView struct {
+	Spec          BuiltinTeamSpec
+	Status        BuiltinTeamInstallStatus
+	MissingAgents []string
+	Conflicts     []string
+}
+
+type BuiltinInstallResult struct {
+	ID            string                   `json:"id"`
+	Status        BuiltinTeamInstallStatus `json:"status"`
+	CreatedTeam   bool                     `json:"created_team"`
+	CreatedAgents []string                 `json:"created_agents"`
+}
+
+var builtinTeams = []BuiltinTeamSpec{
+	{
+		ID:          "engineering",
+		Name:        "engineering",
+		DisplayName: "Engineering Team",
+		Description: "Engineering group responsible for architecture design, fullstack development, and quality assurance. Explorer discovers, Editor implements, Tester validates.",
+		Agents: []BuiltinAgentSpec{
+			{
+				ID:           "andrej karpathy",
+				Name:         "Andrej Karpathy",
+				Description:  "Principal Architect responsible for task breakdown, architectural decisions, and technical leadership.",
+				IsLeader:     true,
+				SystemPrompt: BuiltinLeaderPrompt,
+				MCPServers:   []string{"builtin-lsp"},
+			},
+			{
+				ID:           "explorer",
+				Name:         "explorer",
+				Description:  "Code Explorer responsible for searching the codebase, tracing dependencies, understanding architecture, and reporting structured findings. Read-only — never modifies code.",
+				SystemPrompt: BuiltinExplorerPrompt,
+				MCPServers:   []string{"builtin-lsp"},
+			},
+			{
+				ID:           "editor",
+				Name:         "editor",
+				Description:  "Code Editor responsible for precise, surgical code changes following existing patterns. Implements features and fixes bugs with minimal, clean edits.",
+				SystemPrompt: BuiltinEditorPrompt,
+				MCPServers:   []string{"builtin-lsp"},
+			},
+			{
+				ID:           "tester",
+				Name:         "tester",
+				Description:  "Code Tester responsible for writing and running tests, measuring coverage, finding regressions, and reporting structured test results.",
+				SystemPrompt: BuiltinTesterPrompt,
+				MCPServers:   []string{"builtin-lsp"},
+			},
+		},
+	},
+}
+
+func BuiltinTeamCatalog() []BuiltinTeamSpec {
+	result := make([]BuiltinTeamSpec, len(builtinTeams))
+	for i, spec := range builtinTeams {
+		result[i] = spec
+		result[i].Agents = append([]BuiltinAgentSpec(nil), spec.Agents...)
+	}
+	return result
+}
+
+func BuiltinTeamByID(id string) (BuiltinTeamSpec, bool) {
+	for _, spec := range builtinTeams {
+		if strings.EqualFold(spec.ID, id) {
+			return spec, true
+		}
+	}
+	return BuiltinTeamSpec{}, false
+}
+
+func (s *Store) ListBuiltinTeamStatuses(ctx context.Context) ([]BuiltinTeamView, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]BuiltinTeamView, 0, len(builtinTeams))
+	for _, spec := range builtinTeams {
+		view, err := s.builtinTeamStatusLocked(spec)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, view)
+	}
+	return result, nil
+}
+
+func (s *Store) InstallBuiltinTeams(ctx context.Context, ids []string) ([]BuiltinInstallResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 1. Ensure "engineering" team exists.
-	teamPath := getTeamFilePath(s.groupsDir, "engineering")
-	var t *Team
-	if _, err := os.Stat(teamPath); err != nil {
-		t = &Team{
-			ID:          "engineering",
-			Name:        "engineering",
-			Description: "Engineering group responsible for architecture design, fullstack development, and quality assurance. Explorer discovers, Editor implements, Tester validates.",
+	seen := make(map[string]struct{}, len(ids))
+	specs := make([]BuiltinTeamSpec, 0, len(ids))
+	for _, id := range ids {
+		key := strings.ToLower(strings.TrimSpace(id))
+		if key == "" {
+			return nil, fmt.Errorf("teamstore: built-in team id is required")
 		}
-		if err := s.writeTeamFile(teamPath, t); err != nil {
-			return fmt.Errorf("ensure builtin tech team: %w", err)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		spec, ok := BuiltinTeamByID(key)
+		if !ok {
+			return nil, fmt.Errorf("teamstore: unknown built-in team %q", id)
+		}
+		seen[key] = struct{}{}
+		specs = append(specs, spec)
+	}
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("teamstore: at least one built-in team is required")
+	}
+
+	for _, spec := range specs {
+		view, err := s.builtinTeamStatusLocked(spec)
+		if err != nil {
+			return nil, err
+		}
+		if view.Status == BuiltinTeamConflict {
+			return nil, fmt.Errorf("%w: %s: %s", ErrBuiltinTeamConflict, spec.ID, strings.Join(view.Conflicts, "; "))
 		}
 	}
 
-	// Clean up old "architect.md" and "Andrej Karpathy.md" files if they exist.
-	for _, oldName := range []string{"architect.md", "Andrej Karpathy.md"} {
-		oldAgentPath := filepath.Join(s.agentsDir, oldName)
-		if _, err := os.Stat(oldAgentPath); err == nil {
-			_ = os.Remove(oldAgentPath)
+	createdPaths := make([]string, 0)
+	rollback := func() {
+		for i := len(createdPaths) - 1; i >= 0; i-- {
+			_ = os.Remove(createdPaths[i])
 		}
 	}
 
-	// 2. Ensure "Andrej Karpathy" leader exists.
-	agentPath := getAgentFilePath(s.agentsDir, "Andrej Karpathy")
-	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
-		now := time.Now().Format(time.RFC3339)
-		a := &Agent{
-			ID:           "andrej karpathy",
-			Name:         "Andrej Karpathy",
-			Description:  "Principal Architect responsible for task breakdown, architectural decisions, and technical leadership.",
-			TeamName:     "engineering",
-			IsLeader:     true,
-			SystemPrompt: BuiltinLeaderPrompt,
-			MCPServers:   []string{"builtin-lsp"},
-			CreatedAt:    now,
-			UpdatedAt:    now,
+	results := make([]BuiltinInstallResult, 0, len(specs))
+	for _, spec := range specs {
+		result := BuiltinInstallResult{ID: spec.ID, Status: BuiltinTeamInstalled}
+		teamPath := getTeamFilePath(s.groupsDir, spec.Name)
+		if _, err := os.Stat(teamPath); os.IsNotExist(err) {
+			now := time.Now().Format(time.RFC3339)
+			team := &Team{
+				ID:          spec.ID,
+				Name:        spec.Name,
+				Description: spec.Description,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			if err := s.writeTeamFile(teamPath, team); err != nil {
+				rollback()
+				return nil, fmt.Errorf("teamstore: install built-in team %s: %w", spec.ID, err)
+			}
+			createdPaths = append(createdPaths, teamPath)
+			result.CreatedTeam = true
 		}
-		if err := s.writeAgentFile(agentPath, a); err != nil {
-			return fmt.Errorf("ensure builtin leader: %w", err)
-		}
-	}
 
-	// 3. Ensure sub-agents exist.
-	subAgents := []struct {
-		id          string
-		name        string
-		description string
-		prompt      string
-	}{
-		{
-			id:          "explorer",
-			name:        "explorer",
-			description: "Code Explorer responsible for searching the codebase, tracing dependencies, understanding architecture, and reporting structured findings. Read-only — never modifies code.",
-			prompt:      BuiltinExplorerPrompt,
-		},
-		{
-			id:          "editor",
-			name:        "editor",
-			description: "Code Editor responsible for precise, surgical code changes following existing patterns. Implements features and fixes bugs with minimal, clean edits.",
-			prompt:      BuiltinEditorPrompt,
-		},
-		{
-			id:          "tester",
-			name:        "tester",
-			description: "Code Tester responsible for writing and running tests, measuring coverage, finding regressions, and reporting structured test results.",
-			prompt:      BuiltinTesterPrompt,
-		},
-	}
-
-	for _, sa := range subAgents {
-		saPath := getAgentFilePath(s.agentsDir, sa.name)
-		if _, err := os.Stat(saPath); os.IsNotExist(err) {
+		for _, agentSpec := range spec.Agents {
+			agentPath := getAgentFilePath(s.agentsDir, agentSpec.Name)
+			if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
+				continue
+			}
 			now := time.Now().Format(time.RFC3339)
 			a := &Agent{
-				ID:           sa.id,
-				Name:         sa.name,
-				Description:  sa.description,
-				TeamName:     "engineering",
-				IsLeader:     false,
-				SystemPrompt: sa.prompt,
-				MCPServers:   []string{"builtin-lsp"},
+				ID:           agentSpec.ID,
+				Name:         agentSpec.Name,
+				Description:  agentSpec.Description,
+				TeamName:     spec.Name,
+				IsLeader:     agentSpec.IsLeader,
+				SystemPrompt: agentSpec.SystemPrompt,
+				MCPServers:   append([]string(nil), agentSpec.MCPServers...),
+				SkillIDs:     append([]string(nil), agentSpec.SkillIDs...),
 				CreatedAt:    now,
 				UpdatedAt:    now,
 			}
-			if err := s.writeAgentFile(saPath, a); err != nil {
-				return fmt.Errorf("ensure builtin sub-agent %s: %w", sa.name, err)
+			if err := s.writeAgentFile(agentPath, a); err != nil {
+				rollback()
+				return nil, fmt.Errorf("teamstore: install built-in agent %s: %w", agentSpec.Name, err)
 			}
+			createdPaths = append(createdPaths, agentPath)
+			result.CreatedAgents = append(result.CreatedAgents, agentSpec.Name)
+		}
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+// EnsureBuiltinTechTeam is retained for callers that explicitly request the legacy team.
+func (s *Store) EnsureBuiltinTechTeam(ctx context.Context) error {
+	_, err := s.InstallBuiltinTeams(ctx, []string{"engineering"})
+	return err
+}
+
+func (s *Store) builtinTeamStatusLocked(spec BuiltinTeamSpec) (BuiltinTeamView, error) {
+	view := BuiltinTeamView{Spec: spec}
+	present := 0
+	expected := 1 + len(spec.Agents)
+
+	teamPath := getTeamFilePath(s.groupsDir, spec.Name)
+	if info, err := os.Stat(teamPath); err == nil {
+		present++
+		team, parseErr := parseTeamFile(teamPath, info)
+		if parseErr != nil {
+			view.Conflicts = append(view.Conflicts, fmt.Sprintf("team %s cannot be parsed", spec.Name))
+		} else if !strings.EqualFold(team.Name, spec.Name) || !strings.EqualFold(team.ID, spec.ID) {
+			view.Conflicts = append(view.Conflicts, fmt.Sprintf("team %s has incompatible identity", spec.Name))
+		}
+	} else if !os.IsNotExist(err) {
+		return BuiltinTeamView{}, err
+	}
+
+	for _, agentSpec := range spec.Agents {
+		agentPath := getAgentFilePath(s.agentsDir, agentSpec.Name)
+		info, err := os.Stat(agentPath)
+		if os.IsNotExist(err) {
+			view.MissingAgents = append(view.MissingAgents, agentSpec.Name)
+			continue
+		}
+		if err != nil {
+			return BuiltinTeamView{}, err
+		}
+		present++
+		a, parseErr := parseAgentFile(agentPath, info)
+		if parseErr != nil {
+			view.Conflicts = append(view.Conflicts, fmt.Sprintf("agent %s cannot be parsed", agentSpec.Name))
+			continue
+		}
+		if !strings.EqualFold(a.ID, agentSpec.ID) ||
+			!strings.EqualFold(a.Name, agentSpec.Name) ||
+			!strings.EqualFold(a.TeamName, spec.Name) ||
+			a.IsLeader != agentSpec.IsLeader {
+			view.Conflicts = append(view.Conflicts, fmt.Sprintf("agent %s has incompatible identity or team", agentSpec.Name))
 		}
 	}
 
-	return nil
+	switch {
+	case len(view.Conflicts) > 0:
+		view.Status = BuiltinTeamConflict
+	case present == 0:
+		view.Status = BuiltinTeamAvailable
+	case present == expected:
+		view.Status = BuiltinTeamInstalled
+	default:
+		view.Status = BuiltinTeamPartial
+	}
+	return view, nil
+}
+
+func (s *Store) isBuiltinTeamLocked(name string) bool {
+	for _, spec := range builtinTeams {
+		if !strings.EqualFold(spec.Name, name) {
+			continue
+		}
+		view, err := s.builtinTeamStatusLocked(spec)
+		return err == nil && (view.Status == BuiltinTeamInstalled || view.Status == BuiltinTeamPartial)
+	}
+	return false
+}
+
+func (s *Store) isBuiltinAgentLocked(name string) bool {
+	for _, spec := range builtinTeams {
+		for _, agentSpec := range spec.Agents {
+			if !strings.EqualFold(agentSpec.Name, name) {
+				continue
+			}
+			path := getAgentFilePath(s.agentsDir, name)
+			info, err := os.Stat(path)
+			if err != nil {
+				return false
+			}
+			a, err := parseAgentFile(path, info)
+			return err == nil &&
+				strings.EqualFold(a.Name, agentSpec.Name) &&
+				strings.EqualFold(a.TeamName, spec.Name) &&
+				a.IsLeader == agentSpec.IsLeader
+		}
+	}
+	return false
 }

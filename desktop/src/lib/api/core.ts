@@ -2,6 +2,16 @@ import { useConnectionStore } from "@/stores/connectionStore";
 
 export const API_BASE = "/api";
 
+export class APIError extends Error {
+  code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "APIError";
+    this.code = code;
+  }
+}
+
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const base = useConnectionStore.getState().getEffectiveBaseUrl();
   const url = base ? `${base}${API_BASE}${path}` : `${API_BASE}${path}`;
@@ -40,7 +50,7 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     console.error("API error:", err);
-    throw new Error(err.error || `HTTP ${res.status}`);
+    throw new APIError(err.error || `HTTP ${res.status}`, err.code);
   }
 
   if (res.status === 204) {
