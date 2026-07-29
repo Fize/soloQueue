@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 9
+const schemaVersion = 12
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -133,6 +133,22 @@ CREATE TABLE IF NOT EXISTS projects (
 	created_at TEXT NOT NULL DEFAULT (datetime('now')),
 	updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- MCP runtime policy is intentionally separate from protocol-compatible
+-- mcp.json definitions. Approval is bound to definition digest + runtime.
+CREATE TABLE IF NOT EXISTS mcp_policies (
+	scope TEXT NOT NULL,
+	server_name TEXT NOT NULL,
+	runtime TEXT NOT NULL CHECK(runtime IN ('host','sandbox')),
+	network_enabled INTEGER NOT NULL DEFAULT 0,
+	state TEXT NOT NULL CHECK(state IN ('needs_review','approved','revoked')),
+	revision INTEGER NOT NULL DEFAULT 1,
+	definition_digest TEXT NOT NULL,
+	approved_at TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+	PRIMARY KEY (scope, server_name)
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_policies_state ON mcp_policies(state);
 
 -- mem_entries (BM25 memory store)
 CREATE TABLE IF NOT EXISTS mem_entries (
@@ -609,6 +625,18 @@ func (d *DB) migrate() error {
 		    vision = CAST(updated_at AS INTEGER)
 		WHERE typeof(vision) != 'integer'
 	`)
+
+	hasMCPNetworkPolicy, err := tableHasColumn(tx, "mcp_policies", "network_enabled")
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("inspect mcp_policies network_enabled column: %w", err)
+	}
+	if !hasMCPNetworkPolicy {
+		if _, err := tx.Exec(`ALTER TABLE mcp_policies ADD COLUMN network_enabled INTEGER NOT NULL DEFAULT 0`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate mcp_policies network capability: %w", err)
+		}
+	}
 
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
 		_ = tx.Rollback()

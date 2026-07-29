@@ -2,6 +2,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sync"
@@ -32,12 +33,13 @@ import (
 
 // Stack holds runtime dependencies, initialized once by Build to avoid duplication.
 type Stack struct {
-	CfgMu        sync.RWMutex
-	LLMClient    agent.LLMClient
-	ToolsCfg     tools.Config
-	DefaultModel *config.LLMModel
-	Settings     *config.GlobalService
-	Log          *logger.Logger
+	CfgMu          sync.RWMutex
+	LLMClient      agent.LLMClient
+	ToolsCfg       tools.Config
+	RuntimeManager *tools.RuntimeManager
+	DefaultModel   *config.LLMModel
+	Settings       *config.GlobalService
+	Log            *logger.Logger
 
 	AgentRegistry *agent.Registry
 	AgentFactory  *agent.DefaultFactory
@@ -121,6 +123,11 @@ func (s *Stack) Shutdown() {
 	}
 	if s.LSPManager != nil {
 		s.LSPManager.Shutdown()
+	}
+	if s.RuntimeManager != nil {
+		if err := s.RuntimeManager.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: sandbox runtime shutdown failed: %v\n", err)
+		}
 	}
 	// Close the shared SQLite DB last so any flush performed by the stores
 	// above (e.g. future scheduled writes) can still reach disk.
@@ -238,6 +245,21 @@ func (s *Stack) OnConfigChange() error {
 	defer s.CfgMu.Unlock()
 
 	settings := s.Settings.Get()
+	runtimeChanged := false
+	if s.RuntimeManager != nil {
+		nextRuntime := settings.Sandbox.RuntimeType()
+		runtimeChanged = s.RuntimeManager.Desired() != nextRuntime ||
+			s.RuntimeManager.NetworkEnabled() != settings.Sandbox.NetworkEnabled
+		if err := s.RuntimeManager.SetDesired(nextRuntime); err != nil {
+			return fmt.Errorf("update sandbox runtime: %w", err)
+		}
+		s.RuntimeManager.SetNetworkEnabled(settings.Sandbox.NetworkEnabled)
+	}
+	if runtimeChanged && s.LSPManager != nil {
+		if err := s.LSPManager.Restart(context.Background()); err != nil {
+			return fmt.Errorf("restart LSP runtime: %w", err)
+		}
+	}
 	clients := make(map[string]agent.LLMClient)
 
 	for _, prov := range settings.Providers {
@@ -285,7 +307,7 @@ func (s *Stack) OnConfigChange() error {
 	newToolsCfg.CronStore = s.ToolsCfg.CronStore
 	newToolsCfg.CronScheduler = s.ToolsCfg.CronScheduler
 	newToolsCfg.Logger = s.ToolsCfg.Logger
-	newToolsCfg.Sandbox = s.ToolsCfg.Sandbox
+	newToolsCfg.RuntimeManager = s.RuntimeManager
 	newToolsCfg.WorkDir = s.ToolsCfg.WorkDir
 
 	s.ToolsCfg = newToolsCfg

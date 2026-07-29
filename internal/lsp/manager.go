@@ -3,7 +3,6 @@ package lsp
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,13 +15,14 @@ import (
 // Manager manages multiple LSP client instances, routing tool calls
 // to the correct server based on file extension.
 type Manager struct {
-	servers     map[string]*Client  // server ID -> client
+	servers     map[string]*Client   // server ID -> client
 	defs        map[string]ServerDef // server ID -> definition
 	docs        map[string]*docInfo  // file path -> document info
 	unavailable map[string]string    // server ID -> install hint (binary not found)
 
 	extToServer map[string]string // extension -> server ID
 	rootURI     string
+	runtimeFor  func(string) tools.ToolRuntime
 
 	mu      sync.RWMutex
 	log     *logger.Logger
@@ -51,6 +51,30 @@ func (m *Manager) resolveRootPath(ctx context.Context, filePath string) string {
 
 // NewManager creates a new LSP manager.
 func NewManager(rootPath string, log *logger.Logger) *Manager {
+	return NewManagerWithRuntime(rootPath, tools.NewHostRuntime(), log)
+}
+
+// NewManagerWithRuntime creates an LSP manager whose server processes and
+// document reads stay inside the selected Host/Sandbox execution boundary.
+func NewManagerWithRuntime(rootPath string, runtime tools.ToolRuntime, log *logger.Logger) *Manager {
+	if runtime == nil {
+		runtime = tools.NewHostRuntime()
+	}
+	return newManager(rootPath, func(string) tools.ToolRuntime { return runtime }, log)
+}
+
+// NewManagerWithRuntimeManager creates a project-aware LSP manager. Each root
+// gets a separately scoped SandboxBackend when sandbox mode is active.
+func NewManagerWithRuntimeManager(rootPath string, runtimeManager *tools.RuntimeManager, log *logger.Logger) *Manager {
+	if runtimeManager == nil {
+		return NewManager(rootPath, log)
+	}
+	return newManager(rootPath, func(root string) tools.ToolRuntime {
+		return runtimeManager.ViewOwned("lsp", root, "")
+	}, log)
+}
+
+func newManager(rootPath string, runtimeFor func(string) tools.ToolRuntime, log *logger.Logger) *Manager {
 	return &Manager{
 		servers:     make(map[string]*Client),
 		defs:        make(map[string]ServerDef),
@@ -58,6 +82,7 @@ func NewManager(rootPath string, log *logger.Logger) *Manager {
 		unavailable: make(map[string]string),
 		extToServer: make(map[string]string),
 		rootURI:     PathToURI(rootPath),
+		runtimeFor:  runtimeFor,
 		log:         log,
 	}
 }
@@ -82,7 +107,7 @@ func (m *Manager) Start(ctx context.Context, defs []ServerDef) error {
 	}
 
 	// Auto-start servers whose extensions match files in the workspace.
-	exts := m.scanWorkspaceExtensions()
+	exts := m.scanWorkspaceExtensions(ctx)
 	started := make(map[string]bool)
 	for ext := range exts {
 		if serverID, ok := m.extToServer[ext]; ok {
@@ -123,6 +148,21 @@ func (m *Manager) Shutdown() {
 	}
 	m.servers = make(map[string]*Client)
 	m.started = false
+}
+
+// Restart terminates all active language servers and starts them again through
+// the currently selected runtime. It is used when Host/Sandbox configuration
+// changes so no process remains in the old boundary.
+func (m *Manager) Restart(ctx context.Context) error {
+	m.mu.RLock()
+	defs := make([]ServerDef, 0, len(m.defs))
+	for _, def := range m.defs {
+		defs = append(defs, def)
+	}
+	m.mu.RUnlock()
+
+	m.Shutdown()
+	return m.Start(ctx, defs)
 }
 
 // GetTools returns all LSP tool instances for the LLM to use.
@@ -213,7 +253,6 @@ func (m *Manager) GetAnyClient(ctx context.Context) (*Client, error) {
 	return nil, fmt.Errorf("no active or startable LSP server found for %s", rootURI)
 }
 
-
 // ensureOpen sends didOpen to the LSP server if the document hasn't been opened yet.
 func (m *Manager) ensureOpen(client *Client, filePath, uri string) error {
 	m.mu.RLock()
@@ -224,7 +263,7 @@ func (m *Manager) ensureOpen(client *Client, filePath, uri string) error {
 		return nil
 	}
 
-	content, err := os.ReadFile(filePath)
+	content, err := client.runtime.ReadFile(context.Background(), filePath, tools.ReadFileOptions{})
 	if err != nil {
 		return fmt.Errorf("read file %q: %w", filePath, err)
 	}
@@ -236,7 +275,7 @@ func (m *Manager) ensureOpen(client *Client, filePath, uri string) error {
 		return nil
 	}
 
-	client.DidOpen(uri, string(content))
+	client.DidOpen(uri, string(content.Data))
 	m.docs[filePath] = &docInfo{uri: uri, version: 1, client: client}
 	return nil
 }
@@ -252,7 +291,7 @@ func (m *Manager) NotifyFileChanged(filePath string) error {
 		return nil
 	}
 
-	content, err := os.ReadFile(filePath)
+	content, err := doc.client.runtime.ReadFile(context.Background(), filePath, tools.ReadFileOptions{})
 	if err != nil {
 		return err
 	}
@@ -262,7 +301,7 @@ func (m *Manager) NotifyFileChanged(filePath string) error {
 	ver := doc.version
 	m.mu.Unlock()
 
-	doc.client.DidChange(doc.uri, string(content), ver)
+	doc.client.DidChange(doc.uri, string(content.Data), ver)
 	return nil
 }
 
@@ -310,7 +349,11 @@ func (m *Manager) startClient(ctx context.Context, serverID string, rootURI stri
 	rootPath := uriToPath(rootURI)
 
 	// Resolve the actual binary path. A custom Resolve func handles venv / node_modules.
-	command := resolveCommand(def, rootPath)
+	runtime := m.runtimeFor(rootPath)
+	command := def.Command
+	if runtime.Type() == tools.RuntimeHost {
+		command = resolveCommand(def, rootPath)
+	}
 	if command == "" {
 		// Mark unavailable so clientForFile doesn't retry on every call.
 		m.unavailable[serverID] = def.InstallHint
@@ -325,7 +368,7 @@ func (m *Manager) startClient(ctx context.Context, serverID string, rootURI stri
 		langID = def.Languages[0]
 	}
 
-	client := NewClient(def.ID, langID, rootURI, command, def.Args, m.log)
+	client := NewClientWithRuntime(def.ID, langID, rootURI, command, def.Args, rootPath, runtime, m.log)
 	if err := client.Start(ctx); err != nil {
 		return err
 	}
@@ -339,32 +382,23 @@ func (m *Manager) startClient(ctx context.Context, serverID string, rootURI stri
 }
 
 // scanWorkspaceExtensions scans the workspace root for file extensions.
-func (m *Manager) scanWorkspaceExtensions() map[string]bool {
+func (m *Manager) scanWorkspaceExtensions(ctx context.Context) map[string]bool {
 	rootPath := uriToPath(m.rootURI)
 	exts := make(map[string]bool)
+	runtime := m.runtimeFor(rootPath)
 
-	// Only scan top-level and one level deep to avoid huge directories.
-	depth := 2
-	filepath.WalkDir(rootPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	paths, err := runtime.Glob(ctx, rootPath, "**/*", tools.GlobOptions{MaxItems: 5000})
+	if err != nil {
+		if m.log != nil {
+			m.log.Warn(logger.CatMCP, "LSP workspace scan failed", "root", rootPath, "err", err.Error())
 		}
-		if d.IsDir() {
-			rel, _ := filepath.Rel(rootPath, path)
-			if strings.Count(rel, string(os.PathSeparator)) >= depth {
-				return filepath.SkipDir
-			}
-			base := filepath.Base(path)
-			if strings.HasPrefix(base, ".") && base != "." {
-				return filepath.SkipDir
-			}
-			return nil
-		}
+		return exts
+	}
+	for _, path := range paths {
 		ext := strings.ToLower(filepath.Ext(path))
 		if ext != "" {
 			exts[ext] = true
 		}
-		return nil
-	})
+	}
 	return exts
 }

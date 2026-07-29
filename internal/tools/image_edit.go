@@ -74,13 +74,13 @@ type imageEditArgs struct {
 }
 
 type imageEditResult struct {
-	Model       string   `json:"model"`
-	Status      string   `json:"status"`
-	Operation   string   `json:"operation"`
-	ImageURLs   []string `json:"image_urls,omitempty"`
-	LocalPaths  []string `json:"local_paths,omitempty"`
-	ErrorCode   string   `json:"error_code,omitempty"`
-	ErrorMsg    string   `json:"error_msg,omitempty"`
+	Model      string   `json:"model"`
+	Status     string   `json:"status"`
+	Operation  string   `json:"operation"`
+	ImageURLs  []string `json:"image_urls,omitempty"`
+	LocalPaths []string `json:"local_paths,omitempty"`
+	ErrorCode  string   `json:"error_code,omitempty"`
+	ErrorMsg   string   `json:"error_msg,omitempty"`
 }
 
 // ─── Operation mapping ─────────────────────────────────────────────────
@@ -139,7 +139,7 @@ func (t *imageEditTool) Execute(ctx context.Context, raw string) (string, error)
 		return "", fmt.Errorf("build request: %w", err)
 	}
 
-	respBody, err := doPost(ctx, t.cfg.Sandbox, url, body, headers)
+	respBody, err := doPost(ctx, t.cfg.Runtime, url, body, headers)
 	if err != nil {
 		return "", fmt.Errorf("request: %w", err)
 	}
@@ -158,7 +158,7 @@ func (t *imageEditTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	urls := []string{imageURL}
-	localPaths := saveEditedImage(ctx, t.cfg.Sandbox, imageURL, t.logger)
+	localPaths := saveEditedImage(ctx, t.cfg.Runtime, imageURL, t.logger)
 
 	r := imageEditResult{
 		Model:      model.ID,

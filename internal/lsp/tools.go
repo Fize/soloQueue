@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -22,8 +21,8 @@ type LSPTool struct {
 	log         *logger.Logger
 }
 
-func (t *LSPTool) Name() string               { return t.name }
-func (t *LSPTool) Description() string        { return t.description }
+func (t *LSPTool) Name() string                { return t.name }
+func (t *LSPTool) Description() string         { return t.description }
 func (t *LSPTool) Parameters() json.RawMessage { return t.params }
 
 // Execute routes the tool call to the correct LSP server and calls the LSP method.
@@ -585,19 +584,22 @@ func (t *LSPTool) doRenameSymbol(ctx context.Context, c *Client, uri string, pos
 
 	for fileURI, fileEdits := range edit.Changes {
 		filePath := uriToPath(fileURI)
-		contentBytes, err := os.ReadFile(filePath)
+		contentResult, err := c.runtime.ReadFile(ctx, filePath, tools.ReadFileOptions{MaxSize: 64 << 20})
 		if err != nil {
 			t.log.Error(logger.CatMCP, "failed to read file for rename", "file", filePath, "err", err.Error())
 			return formatError("rename_symbol", fmt.Errorf("read %s: %w", filePath, err)), nil
 		}
 
-		newContent, err := applyTextEdits(string(contentBytes), fileEdits)
+		newContent, err := applyTextEdits(string(contentResult.Data), fileEdits)
 		if err != nil {
 			t.log.Error(logger.CatMCP, "failed to apply edits for rename", "file", filePath, "err", err.Error())
 			return formatError("rename_symbol", fmt.Errorf("apply edits to %s: %w", filePath, err)), nil
 		}
 
-		if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+		if _, err := c.runtime.WriteFile(ctx, filePath, []byte(newContent), tools.WriteFileOptions{
+			Overwrite: true,
+			MaxSize:   64 << 20,
+		}); err != nil {
 			t.log.Error(logger.CatMCP, "failed to save file after rename", "file", filePath, "err", err.Error())
 			return formatError("rename_symbol", fmt.Errorf("write %s: %w", filePath, err)), nil
 		}
@@ -704,12 +706,12 @@ func (t *LSPTool) doGetCodeItem(ctx context.Context, c *Client, uri string, name
 	}
 
 	filePath := uriToPath(uri)
-	contentBytes, err := os.ReadFile(filePath)
+	contentResult, err := c.runtime.ReadFile(ctx, filePath, tools.ReadFileOptions{MaxSize: 64 << 20})
 	if err != nil {
 		return formatError("get_code_item", err), nil
 	}
 
-	lines := strings.Split(string(contentBytes), "\n")
+	lines := strings.Split(string(contentResult.Data), "\n")
 	startLine := target.Range.Start.Line
 	endLine := target.Range.End.Line
 	if startLine < 0 || endLine >= len(lines) || startLine > endLine {
@@ -773,11 +775,11 @@ func (t *LSPTool) doGotoDefinitionByName(ctx context.Context, c *Client, query s
 		}
 
 		defPath := uriToPath(defURI)
-		contentBytes, err := os.ReadFile(defPath)
+		contentResult, err := c.runtime.ReadFile(ctx, defPath, tools.ReadFileOptions{MaxSize: 64 << 20})
 		var previewText string
 		var previewLine int
 		if err == nil {
-			lines := strings.Split(string(contentBytes), "\n")
+			lines := strings.Split(string(contentResult.Data), "\n")
 			targetLine := defPos.Line
 			previewLine = targetLine + 1
 			start := targetLine - 5
@@ -859,19 +861,22 @@ func (t *LSPTool) doFormatFile(ctx context.Context, c *Client, uri string, tabSi
 	}
 
 	filePath := uriToPath(uri)
-	contentBytes, err := os.ReadFile(filePath)
+	contentResult, err := c.runtime.ReadFile(ctx, filePath, tools.ReadFileOptions{MaxSize: 64 << 20})
 	if err != nil {
 		t.log.Error(logger.CatMCP, "failed to read file for format", "file", filePath, "err", err.Error())
 		return formatError("format_file", fmt.Errorf("read %s: %w", filePath, err)), nil
 	}
 
-	newContent, err := applyTextEdits(string(contentBytes), edits)
+	newContent, err := applyTextEdits(string(contentResult.Data), edits)
 	if err != nil {
 		t.log.Error(logger.CatMCP, "failed to apply edits for format", "file", filePath, "err", err.Error())
 		return formatError("format_file", fmt.Errorf("apply edits to %s: %w", filePath, err)), nil
 	}
 
-	if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+	if _, err := c.runtime.WriteFile(ctx, filePath, []byte(newContent), tools.WriteFileOptions{
+		Overwrite: true,
+		MaxSize:   64 << 20,
+	}); err != nil {
 		t.log.Error(logger.CatMCP, "failed to save file after format", "file", filePath, "err", err.Error())
 		return formatError("format_file", fmt.Errorf("write %s: %w", filePath, err)), nil
 	}
@@ -886,4 +891,3 @@ func (t *LSPTool) doFormatFile(ctx context.Context, c *Client, uri string, tabSi
 	})
 	return string(data), nil
 }
-

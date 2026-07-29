@@ -91,7 +91,7 @@ type ReapFn func(loc iface.Locatable)
 //     idle agents), falling back to spawning new instances that are reaped
 //     after the delegation completes.
 type RequestTeamHelpTool struct {
-	selfName string
+	selfName      string
 	locateOrSpawn LocateOrSpawnFn
 	reap          ReapFn
 	timeout       time.Duration

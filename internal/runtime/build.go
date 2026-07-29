@@ -95,6 +95,8 @@ func Build(
 	if err := bc.resolveConfig(); err != nil {
 		return nil, err
 	}
+	bc.runtimeMgr = tools.NewRuntimeManager(bc.settings.Sandbox.RuntimeType(), bc.log)
+	bc.runtimeMgr.SetNetworkEnabled(bc.settings.Sandbox.NetworkEnabled)
 
 	// Phase 2.5: LLM Client (critical path)
 	if err := bc.buildLLMClient(); err != nil {
@@ -304,6 +306,7 @@ type buildContext struct {
 	// Constructed values
 	llmClient         agent.LLMClient
 	toolsCfg          tools.Config
+	runtimeMgr        *tools.RuntimeManager
 	mcpLoader         *mcp.Loader
 	mcpMgr            *mcp.Manager
 	lspMgr            *lsp.Manager
@@ -353,6 +356,17 @@ func (bc *buildContext) buildWorkflow() error {
 }
 
 func (bc *buildContext) resolveConfig() error {
+	switch bc.settings.Sandbox.Runtime {
+	case "", string(tools.RuntimeHost), string(tools.RuntimeSandbox):
+	default:
+		return fmt.Errorf("invalid sandbox runtime %q: must be host or sandbox", bc.settings.Sandbox.Runtime)
+	}
+	switch bc.settings.Sandbox.Backend {
+	case "", "docker":
+	default:
+		return fmt.Errorf("unsupported sandbox backend %q", bc.settings.Sandbox.Backend)
+	}
+
 	provider := bc.cfg.DefaultProvider()
 	if provider == nil {
 		return errors.New("no default provider configured")
@@ -441,6 +455,7 @@ func (bc *buildContext) assembleStack() *Stack {
 		Tokenizer:         bc.tokenizer,
 		Compactor:         bc.compactorInstance,
 		ToolsCfg:          bc.toolsCfg,
+		RuntimeManager:    bc.runtimeMgr,
 		RulesCreated:      bc.rulesCreated,
 		TaskRouter:        bc.taskRouter,
 		SkillRegistry:     bc.skillReg,

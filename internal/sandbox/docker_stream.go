@@ -1,5 +1,25 @@
 package sandbox
 
+import (
+	"io"
+
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/pkg/stdcopy"
+)
+
+func copyDockerOutput(attach *types.HijackedResponse, stdout, stderr io.Writer) (int64, error) {
+	header, err := attach.Reader.Peek(8)
+	if err == nil && looksLikeDockerStreamHeader(header) {
+		return stdcopy.StdCopy(stdout, stderr, attach.Reader)
+	}
+	return io.Copy(stdout, attach.Reader)
+}
+
+func looksLikeDockerStreamHeader(header []byte) bool {
+	return len(header) >= 8 && header[0] <= byte(stdcopy.Systemerr) &&
+		header[1] == 0 && header[2] == 0 && header[3] == 0
+}
+
 func demuxDockerStream(data []byte) (stdout, stderr []byte) {
 	offset := 0
 	for offset+8 <= len(data) {

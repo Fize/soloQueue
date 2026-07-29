@@ -2,10 +2,55 @@ package mcp
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
+
+func TestMCPInstanceKeySeparatesWorkspaces(t *testing.T) {
+	t.Parallel()
+	projectA := filepath.Join(t.TempDir(), "a")
+	projectB := filepath.Join(t.TempDir(), "b")
+
+	keyA := mcpInstanceKey("global", projectA, "files")
+	keyB := mcpInstanceKey("global", projectB, "files")
+	if keyA == keyB {
+		t.Fatal("global MCP instances must not be shared across workspaces")
+	}
+
+	scope, workDir, serverName, ok := parseMCPInstanceKey(keyA)
+	if !ok || scope != "global" || workDir != filepath.Clean(projectA) || serverName != "files" {
+		t.Fatalf("unexpected parsed key: %q %q %q %v", scope, workDir, serverName, ok)
+	}
+}
+
+func TestManagerStopInstanceClearsEveryWorkspace(t *testing.T) {
+	t.Parallel()
+	loader, err := NewLoader("", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(loader, nil)
+	keyA := mcpInstanceKey("global", "/project/a", "files")
+	keyB := mcpInstanceKey("global", "/project/b", "files")
+	other := mcpInstanceKey("global", "/project/a", "browser")
+	manager.toolMap[keyA] = []tools.Tool{}
+	manager.toolMap[keyB] = []tools.Tool{}
+	manager.toolMap[other] = []tools.Tool{}
+
+	manager.StopInstance("global", "files")
+
+	if _, ok := manager.toolMap[keyA]; ok {
+		t.Fatal("workspace A instance was not cleared")
+	}
+	if _, ok := manager.toolMap[keyB]; ok {
+		t.Fatal("workspace B instance was not cleared")
+	}
+	if _, ok := manager.toolMap[other]; !ok {
+		t.Fatal("unrelated server instance was cleared")
+	}
+}
 
 func TestManager_GetToolsWithOverride_NilOverride(t *testing.T) {
 	loader, err := NewLoader("", nil)

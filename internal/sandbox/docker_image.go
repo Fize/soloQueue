@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	defaultRemoteImage = "malzaharguo/soloqueue-sandbox:latest"
-	defaultLocalImage  = "soloqueue-sandbox:latest"
-	containerName      = "soloqueue-sandbox"
+	defaultRemoteImage  = "malzaharguo/soloqueue-sandbox:latest"
+	defaultLocalImage   = "soloqueue-sandbox:latest"
+	legacyContainerName = "soloqueue-sandbox"
+	sandboxImageSchema  = "2"
 )
 
 type metaConfig struct {
@@ -28,6 +29,12 @@ type metaConfig struct {
 
 // resolveImageAndBuild resolves meta.json & Dockerfile matrix in ~/.soloqueue/sandbox/.
 func (d *DockerRunner) resolveImageAndBuild(ctx context.Context) (string, error) {
+	if imageName := strings.TrimSpace(os.Getenv("SOLOQUEUE_SANDBOX_IMAGE")); imageName != "" {
+		if d.log != nil {
+			d.log.InfoContext(ctx, logger.CatApp, "sandbox: using image from SOLOQUEUE_SANDBOX_IMAGE", "image", imageName)
+		}
+		return imageName, nil
+	}
 	home, _ := os.UserHomeDir()
 	sandboxDir := filepath.Join(home, ".soloqueue", "sandbox")
 	return d.resolveImageAndBuildFromDir(ctx, sandboxDir)
@@ -113,9 +120,12 @@ func (d *DockerRunner) ensureImage(ctx context.Context) error {
 	}
 	d.imageName = resolvedImage
 
-	_, _, inspectErr := d.cli.ImageInspectWithRaw(ctx, d.imageName)
+	inspect, _, inspectErr := d.cli.ImageInspectWithRaw(ctx, d.imageName)
 	if inspectErr == nil {
-		return nil
+		if inspect.Config == nil {
+			return fmt.Errorf("sandbox: image contract missing config metadata")
+		}
+		return validateSandboxImage(inspect.Config.Labels)
 	}
 
 	if d.log != nil {
@@ -127,5 +137,22 @@ func (d *DockerRunner) ensureImage(ctx context.Context) error {
 	}
 	defer reader.Close()
 	_, _ = io.Copy(io.Discard, reader)
+	inspect, _, err = d.cli.ImageInspectWithRaw(ctx, d.imageName)
+	if err != nil {
+		return fmt.Errorf("sandbox: inspect pulled image %s: %w", d.imageName, err)
+	}
+	if inspect.Config == nil {
+		return fmt.Errorf("sandbox: image contract missing config metadata")
+	}
+	return validateSandboxImage(inspect.Config.Labels)
+}
+
+func validateSandboxImage(labels map[string]string) error {
+	if labels["org.soloqueue.sandbox.schema"] != sandboxImageSchema {
+		return fmt.Errorf(
+			"sandbox: image contract mismatch: require org.soloqueue.sandbox.schema=%s",
+			sandboxImageSchema,
+		)
+	}
 	return nil
 }

@@ -1,11 +1,10 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"regexp"
 	"runtime"
@@ -183,8 +182,8 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	cmdToRun := a.Command
-	if useRTK {
-		rewritten := rewriteCommand(ctx, cmdToRun)
+	if useRTK || t.cfg.Runtime.Type() == RuntimeSandbox {
+		rewritten := rewriteCommand(ctx, t.cfg.Runtime, cmdToRun)
 		if rewritten != cmdToRun {
 			if t.logger != nil {
 				t.logger.InfoContext(ctx, logger.CatTool, "shell: rewritten by rtk",
@@ -209,7 +208,7 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	if wd == "" && t.cfg.WorkDir != "" {
 		wd = t.cfg.WorkDir
 	}
-	res, err := t.cfg.Sandbox.RunCommand(ctx, cmdToRun, RunCommandOptions{
+	res, err := t.cfg.Runtime.RunCommand(ctx, cmdToRun, RunCommandOptions{
 		Stdin:            a.Stdin,
 		MaxOutput:        maxOut,
 		WorkingDirectory: wd,
@@ -243,8 +242,8 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	return string(b), nil
 }
 
-func rewriteCommand(ctx context.Context, cmd string) string {
-	if !useRTK {
+func rewriteCommand(ctx context.Context, runtime ToolRuntime, cmd string) string {
+	if runtime == nil || (!useRTK && runtime.Type() != RuntimeSandbox) {
 		return cmd
 	}
 
@@ -252,24 +251,41 @@ func rewriteCommand(ctx context.Context, cmd string) string {
 	rewriteCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
-	c := exec.CommandContext(rewriteCtx, "rtk", "rewrite", cmd)
-	var stdout bytes.Buffer
-	c.Stdout = &stdout
-
-	err := c.Run()
+	process, err := runtime.StartProcess(rewriteCtx, ProcessSpec{
+		Command: "rtk",
+		Args:    []string{"rewrite", cmd},
+	})
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			code := exitErr.ExitCode()
-			if code != 3 && code != 0 {
-				return cmd
-			}
-		} else {
+		return cmd
+	}
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	stdoutCh := make(chan readResult, 1)
+	stderrCh := make(chan readResult, 1)
+	go func() {
+		data, readErr := io.ReadAll(io.LimitReader(process.Stdout(), 1<<20))
+		stdoutCh <- readResult{data: data, err: readErr}
+	}()
+	go func() {
+		data, readErr := io.ReadAll(io.LimitReader(process.Stderr(), 1<<20))
+		stderrCh <- readResult{data: data, err: readErr}
+	}()
+	waitErr := process.Wait()
+	stdout := <-stdoutCh
+	_ = <-stderrCh
+	if waitErr != nil {
+		exitErr, ok := waitErr.(interface{ ExitCode() int })
+		if !ok || (exitErr.ExitCode() != 0 && exitErr.ExitCode() != 3) {
 			return cmd
 		}
 	}
+	if stdout.err != nil {
+		return cmd
+	}
 
-	rewritten := strings.TrimSpace(stdout.String())
+	rewritten := strings.TrimSpace(string(stdout.data))
 	if rewritten != "" {
 		return rewritten
 	}

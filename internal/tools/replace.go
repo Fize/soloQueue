@@ -94,7 +94,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	readRes, err := t.cfg.Sandbox.ReadFile(ctx, abs, ReadFileOptions{
+	readRes, err := t.cfg.Runtime.ReadFile(ctx, abs, ReadFileOptions{
 		MaxSize: t.cfg.MaxFileSize,
 	})
 	if err != nil {
@@ -119,7 +119,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", fmt.Errorf("%w: result %d bytes > %d", ErrContentTooLarge, len(after), t.cfg.MaxWriteSize)
 	}
 
-	if _, werr := t.cfg.Sandbox.WriteFile(ctx, abs, []byte(after), WriteFileOptions{
+	if _, werr := t.cfg.Runtime.WriteFile(ctx, abs, []byte(after), WriteFileOptions{
 		Overwrite: true,
 		MaxSize:   t.cfg.MaxWriteSize,
 	}); werr != nil {

@@ -87,7 +87,7 @@ type ConfirmChoice string
 // session-whitelist support and no-op ConfirmArgs.
 type defaultConfirmable struct{}
 
-func (defaultConfirmable) ConfirmationOptions(_ string) []string             { return nil }
+func (defaultConfirmable) ConfirmationOptions(_ string) []string               { return nil }
 func (defaultConfirmable) ConfirmArgs(original string, _ ConfirmChoice) string { return original }
 func (defaultConfirmable) SupportsSessionWhitelist() bool                      { return true }
 

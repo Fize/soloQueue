@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -112,11 +111,11 @@ func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwr
 
 	// Check whether the parent directory exists
 	dir := filepath.Dir(abs)
-	fi, err := cfg.Sandbox.Stat(ctx, dir)
+	fi, err := cfg.Runtime.Stat(ctx, dir)
 	if err != nil || !fi.IsDir {
 		// If the target path is under PlanDir, auto-create intermediate directories
 		if cfg.PlanDir != "" && strings.HasPrefix(abs, cfg.PlanDir+string(filepath.Separator)) {
-			if mkdirErr := ensureDir(dir); mkdirErr != nil {
+			if mkdirErr := cfg.Runtime.MkdirAll(ctx, dir); mkdirErr != nil {
 				return "", fmt.Errorf("auto-create plan dir %s: %w", dir, mkdirErr)
 			}
 		} else {
@@ -124,7 +123,7 @@ func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwr
 		}
 	}
 
-	wr, err := cfg.Sandbox.WriteFile(ctx, abs, []byte(content), WriteFileOptions{
+	wr, err := cfg.Runtime.WriteFile(ctx, abs, []byte(content), WriteFileOptions{
 		Overwrite: overwrite,
 		MaxSize:   cfg.MaxWriteSize,
 	})
@@ -139,11 +138,6 @@ func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwr
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil
-}
-
-// ensureDir creates the directory (and any missing parents).
-func ensureDir(dir string) error {
-	return os.MkdirAll(dir, 0o755)
 }
 
 // CheckConfirmation implements Confirmable: writing files always requires confirmation.

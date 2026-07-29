@@ -463,6 +463,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	if !strings.HasPrefix(tmpl.ID, "sim-") {
 		agentToolsCfg := toolsCfg
 		agentToolsCfg.WorkDir = effectiveWorkDir
+		agentToolsCfg.PlanDir = planDir
 		agentToolsCfg.CronScope = tools.CronAccessScope{}
 		if tmpl.IsLeader && tmpl.Group != "" && !iface.IsCronExecution(ctx) {
 			agentToolsCfg.CronScope = tools.CronAccessScope{

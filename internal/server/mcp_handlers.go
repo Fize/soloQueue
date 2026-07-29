@@ -2,9 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // handleGetMCPConfig returns the current mcp.json contents.
@@ -82,4 +88,124 @@ func (m *Mux) handleUpdateMCPConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.writeJSON(w, http.StatusOK, m.mcpLoader.Get())
+}
+
+// GET /api/mcp/policies?scope=global
+func (m *Mux) handleGetMCPPolicies(w http.ResponseWriter, r *http.Request) {
+	if m.mcpLoader == nil || m.mcpManager == nil || m.mcpManager.PolicyStore() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "MCP policy store unavailable"})
+		return
+	}
+	scope := mcp.NormalizePolicyScope(r.URL.Query().Get("scope"))
+	cfg, err := m.mcpConfigForPolicyScope(scope)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	policies := make([]mcp.Policy, 0, len(cfg.Servers))
+	for _, serverCfg := range cfg.Servers {
+		policy, err := m.mcpManager.PolicyStore().Effective(r.Context(), scope, serverCfg)
+		if err != nil {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		policies = append(policies, policy)
+	}
+	m.writeJSON(w, http.StatusOK, map[string]any{"policies": policies})
+}
+
+type updateMCPPolicyRequest struct {
+	Scope             string            `json:"scope"`
+	Runtime           tools.RuntimeType `json:"runtime"`
+	ConfirmHostAccess bool              `json:"confirm_host_access"`
+	NetworkEnabled    bool              `json:"network_enabled"`
+}
+
+// PUT /api/mcp/policies/{serverName}
+func (m *Mux) handleApproveMCPPolicy(w http.ResponseWriter, r *http.Request) {
+	if m.mcpLoader == nil || m.mcpManager == nil || m.mcpManager.PolicyStore() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "MCP policy store unavailable"})
+		return
+	}
+	var req updateMCPPolicyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+	req.Scope = mcp.NormalizePolicyScope(req.Scope)
+	if req.Runtime == tools.RuntimeHost && !req.ConfirmHostAccess {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "host runtime requires confirm_host_access=true"})
+		return
+	}
+	if req.Runtime != tools.RuntimeHost && req.Runtime != tools.RuntimeSandbox {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runtime must be host or sandbox"})
+		return
+	}
+
+	serverName := strings.TrimSpace(chi.URLParam(r, "serverName"))
+	cfg, err := m.mcpConfigForPolicyScope(req.Scope)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var serverCfg *mcp.ServerConfig
+	for i := range cfg.Servers {
+		if cfg.Servers[i].Name == serverName {
+			serverCfg = &cfg.Servers[i]
+			break
+		}
+	}
+	if serverCfg == nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "MCP server not found"})
+		return
+	}
+	policy, err := m.mcpManager.PolicyStore().Approve(
+		r.Context(), req.Scope, *serverCfg, req.Runtime, req.NetworkEnabled,
+	)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.mcpManager.StopInstance(req.Scope, serverName)
+	m.writeJSON(w, http.StatusOK, policy)
+}
+
+// DELETE /api/mcp/policies/{serverName}?scope=global
+func (m *Mux) handleRevokeMCPPolicy(w http.ResponseWriter, r *http.Request) {
+	if m.mcpManager == nil || m.mcpManager.PolicyStore() == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "MCP policy store unavailable"})
+		return
+	}
+	scope := mcp.NormalizePolicyScope(r.URL.Query().Get("scope"))
+	serverName := strings.TrimSpace(chi.URLParam(r, "serverName"))
+	if err := m.mcpManager.PolicyStore().Revoke(r.Context(), scope, serverName); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.mcpManager.StopInstance(scope, serverName)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (m *Mux) mcpConfigForPolicyScope(scope string) (mcp.Config, error) {
+	scope = mcp.NormalizePolicyScope(scope)
+	if scope == "global" {
+		return m.mcpLoader.ReadFromDisk()
+	}
+	if !strings.HasPrefix(scope, "project:") {
+		return mcp.Config{}, fmt.Errorf("invalid MCP policy scope")
+	}
+	projectPath := strings.TrimSpace(strings.TrimPrefix(scope, "project:"))
+	if !filepath.IsAbs(projectPath) {
+		return mcp.Config{}, fmt.Errorf("project MCP scope must use an absolute path")
+	}
+	projectPath = filepath.Clean(projectPath)
+	info, err := os.Stat(projectPath)
+	if err != nil || !info.IsDir() {
+		return mcp.Config{}, fmt.Errorf("project MCP scope is not an accessible directory")
+	}
+	cfg, err := mcp.ReadConfigFile(filepath.Join(projectPath, ".claude", "mcp.json"))
+	if err != nil {
+		return mcp.Config{}, fmt.Errorf("read project MCP config: %w", err)
+	}
+	return cfg, nil
 }

@@ -48,7 +48,7 @@ type kgIndexArgs struct {
 }
 
 type kgIndexResult struct {
-	EntitiesIndexed     int  `json:"entities_indexed"`
+	EntitiesIndexed      int `json:"entities_indexed"`
 	RelationshipsIndexed int `json:"relationships_indexed"`
 }
 

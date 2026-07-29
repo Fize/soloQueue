@@ -24,9 +24,9 @@ type delegateAgentArgs struct {
 // DelegateAgentTool delegates a task to a dynamically spawned child agent with a specific name, system prompt, and task description.
 // It implements both Tool and AsyncTool.
 type DelegateAgentTool struct {
-	logger                 *logger.Logger
-	SpawnFn                func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error)
-	SkillInstructionsLook  func(skillID string) (instructions string, agentName string, skillDir string, ok bool)
+	logger                *logger.Logger
+	SpawnFn               func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error)
+	SkillInstructionsLook func(skillID string) (instructions string, agentName string, skillDir string, ok bool)
 }
 
 // Compile-time interface checks.

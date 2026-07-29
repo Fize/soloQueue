@@ -7,8 +7,8 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	lsp "github.com/xiaobaitu/soloqueue/internal/lsp"
+	"github.com/xiaobaitu/soloqueue/internal/mcp"
 )
 
 // gatherMCPServerNames collects enabled MCP server names, applying the optional
@@ -65,14 +65,19 @@ func (bc *buildContext) buildMCP() {
 		if err := mcpLoader.Watch(); err != nil {
 			bc.log.Warn(logger.CatMCP, "failed to watch mcp.json for hot-reload", "err", err.Error())
 		}
-		mcpMgr = mcp.NewManager(mcpLoader, bc.log)
+		mcpMgr = mcp.NewManagerWithPolicy(
+			mcpLoader,
+			mcp.NewPolicyStore(bc.sharedDB),
+			bc.runtimeMgr,
+			bc.log,
+		)
 	}
 	bc.mcpLoader = mcpLoader
 	bc.mcpMgr = mcpMgr
 
 	// ── LSP MCP (built-in LSP-based MCP) ─────────────────────────────────────
 	rootPath, _ := os.Getwd()
-	lspMgr := lsp.NewManager(rootPath, bc.log)
+	lspMgr := lsp.NewManagerWithRuntimeManager(rootPath, bc.runtimeMgr, bc.log)
 	defs := lsp.BuiltinServers()
 
 	// Apply user overrides from settings if present.

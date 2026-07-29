@@ -102,7 +102,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", err
 	}
 
-	fi, err := t.cfg.Sandbox.Stat(ctx, absDir)
+	fi, err := t.cfg.Runtime.Stat(ctx, absDir)
 	if err != nil {
 		return "", err
 	}
@@ -119,7 +119,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		maxLine = 500
 	}
 
-	grepMatches, err := t.cfg.Sandbox.Grep(ctx, absDir, a.Pattern, GrepOptions{
+	grepMatches, err := t.cfg.Runtime.Grep(ctx, absDir, a.Pattern, GrepOptions{
 		MaxMatches:  maxMatches,
 		MaxLineLen:  maxLine,
 		GlobPattern: a.Glob,

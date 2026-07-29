@@ -54,8 +54,8 @@ func (f *fakeLocatable) AskStream(ctx context.Context, prompt string) (<-chan if
 }
 
 func (f *fakeLocatable) Confirm(callID string, choice string) error { return nil }
-func (f *fakeLocatable) ErrorCount() int32                           { return 0 }
-func (f *fakeLocatable) LastError() string                           { return "" }
+func (f *fakeLocatable) ErrorCount() int32                          { return 0 }
+func (f *fakeLocatable) LastError() string                          { return "" }
 
 func (f *fakeLocatable) Stop(timeout time.Duration) error {
 	f.mu.Lock()
@@ -69,7 +69,7 @@ func (f *fakeLocatable) InstanceID() string { return f.name }
 // fakeDoneEvent and fakeErrorEvent implement iface.AgentEvent + EventConsumer.
 type fakeDoneEvent struct{ content string }
 
-func (fakeDoneEvent) IsAgentEvent() {}
+func (fakeDoneEvent) IsAgentEvent()                  {}
 func (e fakeDoneEvent) ContentDelta() (string, bool) { return "", false }
 func (e fakeDoneEvent) DoneContent() (string, bool)  { return e.content, true }
 func (fakeDoneEvent) Error() (error, bool)           { return nil, false }
@@ -105,9 +105,9 @@ func TestRequestTeamHelp_CycleDetection_DirectLoop(t *testing.T) {
 		return nil, false, errors.New("should not spawn")
 	}
 	tool := NewRequestTeamHelpTool(
-		"dev",    // self team name
-		spawnFn,  // locate-or-spawn
-		nil,      // reap (not used when cycle detected)
+		"dev",   // self team name
+		spawnFn, // locate-or-spawn
+		nil,     // reap (not used when cycle detected)
 		25*time.Minute,
 	)
 

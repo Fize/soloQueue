@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 )
 
@@ -103,4 +104,21 @@ func DefaultConfig() Config {
 	return Config{
 		Servers: []ServerConfig{},
 	}
+}
+
+// ReadConfigFile parses a protocol-compatible MCP definition file without
+// creating or modifying it.
+func ReadConfigFile(path string) (Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return Config{}, err
+	}
+	if cfg.Servers == nil {
+		cfg.Servers = []ServerConfig{}
+	}
+	return cfg, nil
 }

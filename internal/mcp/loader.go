@@ -66,20 +66,12 @@ func (l *Loader) Load() error {
 
 // ReadFromDisk reads and parses mcp.json directly from disk without modifying the loader cache.
 func (l *Loader) ReadFromDisk() (Config, error) {
-	data, err := os.ReadFile(l.path)
+	cfg, err := ReadConfigFile(l.path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return DefaultConfig(), nil
 		}
 		return Config{}, fmt.Errorf("read mcp.json: %w", err)
-	}
-
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("parse mcp.json: %w", err)
-	}
-	if cfg.Servers == nil {
-		cfg.Servers = []ServerConfig{}
 	}
 	return cfg, nil
 }

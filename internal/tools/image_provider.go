@@ -1,14 +1,12 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +40,7 @@ var providers = map[string]imageProvider{
 
 const (
 	maxPolls     = 150              // 5 minutes / 2s
-	pollInterval = 2 * time.Second //
+	pollInterval = 2 * time.Second  //
 	httpTimeout  = 30 * time.Second // per-request timeout
 )
 
@@ -142,14 +140,14 @@ func (tencentProvider) parseSubmitResp(body []byte) (string, error) {
 func (tencentProvider) parseQueryResp(body []byte) (string, []string, []string, error) {
 	var resp struct {
 		Response struct {
-			JobStatusCode  string   `json:"JobStatusCode"`
-			JobStatusMsg   string   `json:"JobStatusMsg"`
-			JobErrorCode   string   `json:"JobErrorCode"`
-			JobErrorMsg    string   `json:"JobErrorMsg"`
-			ResultImage    []string `json:"ResultImage"`
-			ResultDetails  []string `json:"ResultDetails"`
-			RevisedPrompt  []string `json:"RevisedPrompt"`
-			Error          *struct {
+			JobStatusCode string   `json:"JobStatusCode"`
+			JobStatusMsg  string   `json:"JobStatusMsg"`
+			JobErrorCode  string   `json:"JobErrorCode"`
+			JobErrorMsg   string   `json:"JobErrorMsg"`
+			ResultImage   []string `json:"ResultImage"`
+			ResultDetails []string `json:"ResultDetails"`
+			RevisedPrompt []string `json:"RevisedPrompt"`
+			Error         *struct {
 				Code    string `json:"Code"`
 				Message string `json:"Message"`
 			} `json:"Error,omitempty"`
@@ -273,11 +271,11 @@ func init() {
 	if err != nil {
 		home = os.TempDir()
 	}
-	imgDir = filepath.Join(home, ".soloqueue", "images")
 	artifactDir = filepath.Join(home, ".soloqueue", "artifacts")
+	imgDir = artifactDir
 }
 
-func saveImages(ctx context.Context, exec *Sandbox, urls []string, log *logger.Logger) []string {
+func saveImages(ctx context.Context, exec ToolRuntime, urls []string, log *logger.Logger) []string {
 	var paths []string
 	for i, url := range urls {
 		fname := urlBaseName(url, i+1)
@@ -299,7 +297,7 @@ func saveImages(ctx context.Context, exec *Sandbox, urls []string, log *logger.L
 	return paths
 }
 
-func saveEditedImage(ctx context.Context, exec *Sandbox, url string, log *logger.Logger) []string {
+func saveEditedImage(ctx context.Context, exec ToolRuntime, url string, log *logger.Logger) []string {
 	fname := urlBaseName(url, 1)
 	fpath := filepath.Join(artifactDir, fname)
 
@@ -338,8 +336,8 @@ func urlBaseName(rawURL string, seq int) string {
 	return fmt.Sprintf("%s_%d%s", nameNoExt, seq, ext)
 }
 
-func downloadTo(ctx context.Context, exec *Sandbox, url, fpath string) error {
-	if err := os.MkdirAll(filepath.Dir(fpath), 0o755); err != nil {
+func downloadTo(ctx context.Context, exec ToolRuntime, url, fpath string) error {
+	if err := exec.MkdirAll(ctx, filepath.Dir(fpath)); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 	resp, err := exec.HTTPGet(ctx, url, HTTPOptions{})
@@ -349,18 +347,16 @@ func downloadTo(ctx context.Context, exec *Sandbox, url, fpath string) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("download status %d", resp.StatusCode)
 	}
-	f, err := os.Create(fpath)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer f.Close()
-	if _, err := io.Copy(f, bytes.NewReader(resp.Body)); err != nil {
+	if _, err := exec.WriteFile(ctx, fpath, resp.Body, WriteFileOptions{
+		Overwrite: true,
+		MaxSize:   int64(len(resp.Body)),
+	}); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	return nil
 }
 
-func doPost(ctx context.Context, exec *Sandbox, url string, body string, headers map[string]string) ([]byte, error) {
+func doPost(ctx context.Context, exec ToolRuntime, url string, body string, headers map[string]string) ([]byte, error) {
 	resp, err := exec.HTTPPost(ctx, url, body, HTTPOptions{Headers: headers, MaxBody: 64 << 10})
 	if err != nil {
 		return nil, fmt.Errorf("http post %s: %w", url, err)

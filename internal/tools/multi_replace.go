@@ -114,7 +114,7 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 	if err != nil {
 		return "", err
 	}
-	readRes, err := t.cfg.Sandbox.ReadFile(ctx, abs, ReadFileOptions{
+	readRes, err := t.cfg.Runtime.ReadFile(ctx, abs, ReadFileOptions{
 		MaxSize: t.cfg.MaxFileSize,
 	})
 	if err != nil {
@@ -146,7 +146,7 @@ func (t *multiReplaceTool) Execute(ctx context.Context, raw string) (string, err
 		return "", fmt.Errorf("%w: result %d bytes > %d", ErrContentTooLarge, len(current), t.cfg.MaxWriteSize)
 	}
 
-	if _, werr := t.cfg.Sandbox.WriteFile(ctx, abs, []byte(current), WriteFileOptions{
+	if _, werr := t.cfg.Runtime.WriteFile(ctx, abs, []byte(current), WriteFileOptions{
 		Overwrite: true,
 		MaxSize:   t.cfg.MaxWriteSize,
 	}); werr != nil {

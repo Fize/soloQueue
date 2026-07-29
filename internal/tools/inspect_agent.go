@@ -64,7 +64,7 @@ func NewInspectAgentTool(fn InspectQueryFn) *InspectAgentTool {
 }
 
 func (t *InspectAgentTool) Name() string        { return "inspect_agent" }
-func (t *InspectAgentTool) Description() string  { return inspectAgentDesc }
+func (t *InspectAgentTool) Description() string { return inspectAgentDesc }
 func (t *InspectAgentTool) Parameters() json.RawMessage {
 	return json.RawMessage(inspectAgentParams)
 }

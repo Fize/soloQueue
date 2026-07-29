@@ -13,6 +13,7 @@ func (tc ToolsConfig) ToToolsConfig() tools.Config {
 
 // ToToolsConfigWithSandbox converts config.ToolsConfig and config.SandboxConfig to tools.Config.
 func (tc ToolsConfig) ToToolsConfigWithSandbox(sandbox SandboxConfig) tools.Config {
+	runtimeType := sandbox.RuntimeType()
 	return tools.Config{
 		MaxFileSize:        defaultInt64(tc.MaxFileSize, 1<<20),
 		MaxMatches:         DefaultInt(tc.MaxMatches, 100),
@@ -36,7 +37,27 @@ func (tc ToolsConfig) ToToolsConfigWithSandbox(sandbox SandboxConfig) tools.Conf
 
 		ImageModels: toImgModelCfgs(tc.ImageModels),
 
-		SandboxEnabled: sandbox.Enabled,
+		RuntimeType:    runtimeType,
+		SandboxEnabled: runtimeType == tools.RuntimeSandbox,
+	}
+}
+
+// RuntimeType normalizes the new Host/Sandbox field with the legacy enabled
+// boolean. Invalid values fail closed to Host at config conversion; validation
+// reports them before production startup.
+func (c SandboxConfig) RuntimeType() tools.RuntimeType {
+	switch c.Runtime {
+	case string(tools.RuntimeSandbox):
+		return tools.RuntimeSandbox
+	case string(tools.RuntimeHost):
+		return tools.RuntimeHost
+	case "":
+		if c.Enabled {
+			return tools.RuntimeSandbox
+		}
+		return tools.RuntimeHost
+	default:
+		return tools.RuntimeHost
 	}
 }
 
@@ -49,7 +70,7 @@ func toImgModelCfgs(cfgs []ImageModelConfig) []tools.ImgModelCfg {
 			SecretKey: c.SecretKey, SecretKeyEnv: c.SecretKeyEnv,
 			APIKey: c.APIKey, APIKeyEnv: c.APIKeyEnv,
 			APIBaseHost: c.APIBaseHost,
-			Region: c.Region, IsDefault: c.IsDefault, Enabled: c.Enabled,
+			Region:      c.Region, IsDefault: c.IsDefault, Enabled: c.Enabled,
 		}
 	}
 	return out

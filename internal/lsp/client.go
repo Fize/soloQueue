@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // DefaultTimeout is the default timeout for LSP requests.
@@ -21,7 +21,11 @@ const DefaultTimeout = 30 * time.Second
 // Client manages a single LSP server connection.
 type Client struct {
 	id        string
-	cmd       *exec.Cmd
+	command   string
+	args      []string
+	workDir   string
+	runtime   tools.ToolRuntime
+	process   tools.Process
 	stdin     io.WriteCloser
 	transport *transport
 	log       *logger.Logger
@@ -40,11 +44,29 @@ type Client struct {
 
 // NewClient creates a new LSP client. Command and args are the LSP server binary.
 func NewClient(id, languageID, rootURI, command string, args []string, log *logger.Logger) *Client {
+	return NewClientWithRuntime(id, languageID, rootURI, command, args, uriToPath(rootURI), tools.NewHostRuntime(), log)
+}
+
+// NewClientWithRuntime creates an LSP client whose process is launched through
+// the selected Host/Sandbox runtime.
+func NewClientWithRuntime(
+	id, languageID, rootURI, command string,
+	args []string,
+	workDir string,
+	runtime tools.ToolRuntime,
+	log *logger.Logger,
+) *Client {
+	if runtime == nil {
+		runtime = tools.NewHostRuntime()
+	}
 	return &Client{
 		id:         id,
 		languageID: languageID,
 		rootURI:    rootURI,
-		cmd:        exec.Command(command, args...),
+		command:    command,
+		args:       append([]string(nil), args...),
+		workDir:    workDir,
+		runtime:    runtime,
 		pending:    make(map[int64]chan *Response),
 		shutdown:   make(chan struct{}),
 		done:       make(chan struct{}),
@@ -54,28 +76,23 @@ func NewClient(id, languageID, rootURI, command string, args []string, log *logg
 
 // Start launches the LSP server process and initializes the connection.
 func (c *Client) Start(ctx context.Context) error {
-	stdin, err := c.cmd.StdinPipe()
+	process, err := c.runtime.StartProcess(ctx, tools.ProcessSpec{
+		Command:          c.command,
+		Args:             c.args,
+		WorkingDirectory: c.workDir,
+	})
 	if err != nil {
-		return fmt.Errorf("create stdin pipe for %q: %w", c.id, err)
+		return fmt.Errorf("start %s server %q in %s runtime: %w", c.id, c.command, c.runtime.Type(), err)
 	}
-	stdout, err := c.cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("create stdout pipe for %q: %w", c.id, err)
-	}
-	stderr, err := c.cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("create stderr pipe for %q: %w", c.id, err)
-	}
-
-	c.stdin = stdin
-	c.transport = newTransport(stdout, stdin)
-
-	if err := c.cmd.Start(); err != nil {
-		return fmt.Errorf("start %s server %q: %w", c.id, c.cmd.Path, err)
-	}
+	c.process = process
+	c.stdin = process.Stdin()
+	c.transport = newTransport(process.Stdout(), process.Stdin())
 
 	go c.readLoop()
-	go c.drainStderr(stderr)
+	go c.drainStderr(process.Stderr())
+	go func() {
+		_ = process.Wait()
+	}()
 
 	if err := c.initialize(ctx); err != nil {
 		c.Stop()
@@ -84,7 +101,8 @@ func (c *Client) Start(ctx context.Context) error {
 
 	if c.log != nil {
 		c.log.Info(logger.CatMCP, "LSP server started",
-			"server", c.id, "command", c.cmd.Path, "root", c.rootURI)
+			"server", c.id, "command", c.command, "root", c.rootURI,
+			"runtime", c.runtime.Type(), "backend", c.runtime.BackendName())
 	}
 	return nil
 }
@@ -92,28 +110,34 @@ func (c *Client) Start(ctx context.Context) error {
 // Stop sends shutdown+exit and waits for the process to terminate.
 func (c *Client) Stop() {
 	c.mu.Lock()
-	if !c.initialized {
-		c.mu.Unlock()
-		return
-	}
+	initialized := c.initialized
+	process := c.process
 	c.mu.Unlock()
 
-	close(c.shutdown)
+	if initialized {
+		// Best-effort protocol shutdown before terminating the runtime process.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = c.sendRequest(shutdownCtx, c.reqID.Add(1), "shutdown", nil)
+		cancel()
+		c.sendNotification("exit", nil)
+	}
 
-	// Best-effort shutdown
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	_ = c.sendRequest(shutdownCtx, c.reqID.Add(1), "shutdown", nil)
-	c.sendNotification("exit", nil)
+	select {
+	case <-c.shutdown:
+	default:
+		close(c.shutdown)
+	}
 
 	select {
 	case <-c.done:
 	case <-time.After(5 * time.Second):
-		c.cmd.Process.Kill()
+	}
+	if process != nil {
+		_ = process.Kill()
 	}
 
 	if c.log != nil {
-		c.log.Info(logger.CatMCP, "LSP server stopped", "server", c.id)
+		c.log.Info(logger.CatMCP, "LSP server stopped", "server", c.id, "runtime", c.runtime.Type())
 	}
 }
 
@@ -128,11 +152,11 @@ func (c *Client) initialize(ctx context.Context) error {
 					DynamicRegistration: false,
 					DidSave:             false,
 				},
-				Hover:          &BoolCapability{DynamicRegistration: false},
-				Definition:     &BoolCapability{DynamicRegistration: false},
-				References:     &BoolCapability{DynamicRegistration: false},
+				Hover:      &BoolCapability{DynamicRegistration: false},
+				Definition: &BoolCapability{DynamicRegistration: false},
+				References: &BoolCapability{DynamicRegistration: false},
 				DocumentSymbol: &struct {
-					DynamicRegistration             bool `json:"dynamicRegistration,omitempty"`
+					DynamicRegistration               bool `json:"dynamicRegistration,omitempty"`
 					HierarchicalDocumentSymbolSupport bool `json:"hierarchicalDocumentSymbolSupport,omitempty"`
 				}{HierarchicalDocumentSymbolSupport: true},
 				Implementation: &BoolCapability{DynamicRegistration: false},

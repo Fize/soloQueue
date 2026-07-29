@@ -159,7 +159,7 @@ func (t *httpFetchTool) Execute(ctx context.Context, raw string) (string, error)
 		maxBody = 5 << 20
 	}
 
-	httpResp, err := t.cfg.Sandbox.HTTPGet(ctx, a.URL, HTTPOptions{
+	httpResp, err := t.cfg.Runtime.HTTPGet(ctx, a.URL, HTTPOptions{
 		Timeout:      t.cfg.HTTPTimeout,
 		MaxBody:      maxBody,
 		Headers:      a.Headers,

@@ -286,6 +286,14 @@ func (s *Sandbox) Stat(ctx context.Context, path string) (FileInfo, error) {
 	return FileInfo{Size: fi.Size(), IsDir: fi.IsDir()}, nil
 }
 
+// MkdirAll creates a directory tree in HostRuntime.
+func (s *Sandbox) MkdirAll(ctx context.Context, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return os.MkdirAll(path, 0o755)
+}
+
 // ─── Glob ───────────────────────────────────────────────────────────────────
 
 func (s *Sandbox) Glob(ctx context.Context, dir string, pattern string, opts GlobOptions) ([]string, error) {

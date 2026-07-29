@@ -4,28 +4,38 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // Client manages a single MCP server connection via stdio transport.
 type Client struct {
-	cfg    ServerConfig
-	client *mcpclient.Client
-	tools  []mcp.Tool
-	mu     sync.Mutex
-	log    *logger.Logger
+	cfg     ServerConfig
+	client  *mcpclient.Client
+	tools   []mcp.Tool
+	mu      sync.Mutex
+	log     *logger.Logger
+	runtime tools.ToolRuntime
+	workDir string
 }
 
 // NewClient creates a new Client for the given server config.
 func NewClient(cfg ServerConfig, log *logger.Logger) *Client {
-	return &Client{cfg: cfg, log: log}
+	return NewClientWithRuntime(cfg, tools.NewHostRuntime(), "", log)
+}
+
+// NewClientWithRuntime creates a protocol-compatible MCP client whose stdio
+// process is launched entirely in the selected runtime.
+func NewClientWithRuntime(cfg ServerConfig, runtime tools.ToolRuntime, workDir string, log *logger.Logger) *Client {
+	if runtime == nil {
+		runtime = tools.NewHostRuntime()
+	}
+	return &Client{cfg: cfg, log: log, runtime: runtime, workDir: workDir}
 }
 
 // Connect starts the MCP server subprocess, initializes the session,
@@ -38,16 +48,12 @@ func (c *Client) Connect(ctx context.Context) error {
 		return nil // already connected
 	}
 
-	env := os.Environ()
-	for k, v := range c.cfg.Env {
-		env = append(env, k+"="+v)
-	}
-
-	stdioTransport := transport.NewStdioWithOptions(
-		c.cfg.Command,
-		env,
-		c.cfg.Args,
-	)
+	stdioTransport := newRuntimeTransport(c.runtime, tools.ProcessSpec{
+		Command:          c.cfg.Command,
+		Args:             c.cfg.Args,
+		Env:              c.cfg.Env,
+		WorkingDirectory: c.workDir,
+	})
 
 	if err := stdioTransport.Start(ctx); err != nil {
 		return fmt.Errorf("start stdio transport for %q: %w", c.cfg.Name, err)
@@ -82,6 +88,8 @@ func (c *Client) Connect(ctx context.Context) error {
 			"server", c.cfg.Name,
 			"command", c.cfg.Command,
 			"tools", len(c.tools),
+			"runtime", c.runtime.Type(),
+			"backend", c.runtime.BackendName(),
 		)
 	}
 
@@ -172,16 +180,12 @@ func (c *Client) reconnect(ctx context.Context) error {
 		c.tools = nil
 	}
 
-	env := os.Environ()
-	for k, v := range c.cfg.Env {
-		env = append(env, k+"="+v)
-	}
-
-	stdioTransport := transport.NewStdioWithOptions(
-		c.cfg.Command,
-		env,
-		c.cfg.Args,
-	)
+	stdioTransport := newRuntimeTransport(c.runtime, tools.ProcessSpec{
+		Command:          c.cfg.Command,
+		Args:             c.cfg.Args,
+		Env:              c.cfg.Env,
+		WorkingDirectory: c.workDir,
+	})
 
 	if err := stdioTransport.Start(ctx); err != nil {
 		return fmt.Errorf("restart stdio: %w", err)
@@ -215,6 +219,7 @@ func (c *Client) reconnect(ctx context.Context) error {
 		c.log.Info(logger.CatMCP, "MCP server reconnected",
 			"server", c.cfg.Name,
 			"tools", len(c.tools),
+			"runtime", c.runtime.Type(),
 		)
 	}
 
@@ -226,6 +231,13 @@ func (c *Client) IsConnected() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.client != nil
+}
+
+func (c *Client) RuntimeType() tools.RuntimeType {
+	if c.runtime == nil {
+		return tools.RuntimeHost
+	}
+	return c.runtime.Type()
 }
 
 func extractTextContent(result *mcp.CallToolResult) (string, error) {

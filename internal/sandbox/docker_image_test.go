@@ -49,3 +49,20 @@ func TestResolveImageAndBuild_Matrix(t *testing.T) {
 		t.Errorf("got image %q, want %q", img, defaultLocalImage)
 	}
 }
+
+func TestValidateSandboxImageRequiresV2Contract(t *testing.T) {
+	t.Parallel()
+	if err := validateSandboxImage(map[string]string{
+		"org.soloqueue.sandbox.schema": sandboxImageSchema,
+	}); err != nil {
+		t.Fatalf("valid image rejected: %v", err)
+	}
+	if err := validateSandboxImage(nil); err == nil {
+		t.Fatal("image without a sandbox contract label must be rejected")
+	}
+	if err := validateSandboxImage(map[string]string{
+		"org.soloqueue.sandbox.schema": "1",
+	}); err == nil {
+		t.Fatal("stale sandbox image must be rejected")
+	}
+}

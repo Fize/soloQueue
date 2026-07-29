@@ -29,7 +29,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -102,8 +101,16 @@ type Config struct {
 	Logger *logger.Logger
 
 	// ── Sandbox executor ──────────────────────────────────────────────
-	// Sandbox is the execution backend for all tools; it handles all host-system interactions.
-	// If nil, Build automatically injects NewSandbox (useful for tests and local development).
+	// Runtime is the execution boundary for all model-controlled process,
+	// filesystem and network operations.
+	Runtime ToolRuntime
+
+	// RuntimeManager provides hot-reloadable Host/Sandbox selection. Build
+	// creates a workspace-scoped view from it when Runtime is nil.
+	RuntimeManager *RuntimeManager
+
+	// Sandbox is the deprecated host-executor field retained for focused tests
+	// and callers compiled against the previous API. New code uses Runtime.
 	Sandbox *Sandbox
 
 	// ── Work directory ────────────────────────────────────────────
@@ -133,6 +140,7 @@ type Config struct {
 	ImageModels []ImgModelCfg
 
 	// ── Docker Sandbox ───────────────────────────────────────
+	RuntimeType    RuntimeType
 	SandboxEnabled bool
 }
 
@@ -155,24 +163,21 @@ type ImgModelCfg struct {
 
 // ─── Build ────────────────────────────────────────────────────────────────
 
-// ensureSandbox ensures cfg.Sandbox is never nil by injecting the default implementation.
+// ensureSandbox resolves the ToolRuntime without creating backend resources.
+// The historical name is retained to avoid a broad constructor churn.
 func ensureSandbox(cfg *Config) {
-	if cfg.Sandbox == nil {
-		cfg.Sandbox = NewSandbox()
-	}
-	if cfg.Sandbox.log == nil && cfg.Logger != nil {
-		cfg.Sandbox.SetLogger(cfg.Logger)
-	}
-	if cfg.SandboxEnabled && cfg.Sandbox.DockerRunner() == nil {
-		runner, err := sandbox.NewDockerRunner(cfg.Logger)
-		if err == nil {
-			cfg.Sandbox.SetDockerRunner(runner)
-		} else if cfg.Logger != nil {
-			cfg.Logger.LogError(nil, logger.CatTool, "sandbox: initialize docker runner failed", err)
+	if cfg.Runtime == nil {
+		switch {
+		case cfg.RuntimeManager != nil:
+			cfg.Runtime = cfg.RuntimeManager.View(cfg.WorkDir, cfg.PlanDir)
+		case cfg.Sandbox != nil:
+			cfg.Runtime = cfg.Sandbox
+		default:
+			cfg.Runtime = NewHostRuntime()
 		}
-	} else if !cfg.SandboxEnabled && cfg.Sandbox.DockerRunner() != nil {
-		_ = cfg.Sandbox.DockerRunner().Stop(nil)
-		cfg.Sandbox.SetDockerRunner(nil)
+	}
+	if host, ok := cfg.Runtime.(*Sandbox); ok && host.log == nil && cfg.Logger != nil {
+		host.SetLogger(cfg.Logger)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── LLM Providers ───────────────────────────────────────────────────────────
@@ -1002,7 +1003,13 @@ func (m *Mux) handleGetSandboxConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settings := m.configSvc.Get()
-	m.writeJSON(w, http.StatusOK, settings.Sandbox)
+	cfg := settings.Sandbox
+	cfg.Runtime = string(cfg.RuntimeType())
+	cfg.Enabled = cfg.Runtime == string(tools.RuntimeSandbox)
+	if cfg.Backend == "" {
+		cfg.Backend = "docker"
+	}
+	m.writeJSON(w, http.StatusOK, cfg)
 }
 
 // PUT /api/config/sandbox
@@ -1016,10 +1023,54 @@ func (m *Mux) handleUpdateSandboxConfig(w http.ResponseWriter, r *http.Request) 
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	switch cfg.Runtime {
+	case "":
+		if cfg.Enabled {
+			cfg.Runtime = string(tools.RuntimeSandbox)
+		} else {
+			cfg.Runtime = string(tools.RuntimeHost)
+		}
+	case string(tools.RuntimeHost), string(tools.RuntimeSandbox):
+	default:
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runtime must be host or sandbox"})
+		return
+	}
+	if cfg.Backend == "" {
+		cfg.Backend = "docker"
+	}
+	if cfg.Backend != "docker" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported sandbox backend"})
+		return
+	}
+	cfg.Enabled = cfg.Runtime == string(tools.RuntimeSandbox)
 	if err := m.configSvc.UpdateSandbox(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	m.triggerOnConfigChange()
 	m.writeJSON(w, http.StatusOK, cfg)
+}
+
+// GET /api/config/sandbox/status
+func (m *Mux) handleGetSandboxStatus(w http.ResponseWriter, r *http.Request) {
+	if m.runtimeManager == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runtime manager not available"})
+		return
+	}
+	workspace := m.workDir
+	planDir := ""
+	if m.toolsCfg != nil {
+		if m.toolsCfg.WorkDir != "" {
+			workspace = m.toolsCfg.WorkDir
+		}
+		planDir = m.toolsCfg.PlanDir
+	}
+	status := m.runtimeManager.Status(workspace, planDir)
+	if m.mcpManager != nil {
+		status.HostExceptions = m.mcpManager.HostExceptionCount()
+		if status.HostExceptions > 0 {
+			status.IsolationComplete = false
+		}
+	}
+	m.writeJSON(w, http.StatusOK, status)
 }

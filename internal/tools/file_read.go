@@ -100,7 +100,7 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", err
 	}
 
-	res, err := t.cfg.Sandbox.ReadFile(ctx, abs, ReadFileOptions{
+	res, err := t.cfg.Runtime.ReadFile(ctx, abs, ReadFileOptions{
 		MaxSize: ReadToolMaxBytes,
 	})
 	if err != nil {

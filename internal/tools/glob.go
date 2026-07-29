@@ -79,7 +79,7 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", err
 	}
 
-	fi, err := t.cfg.Sandbox.Stat(ctx, absDir)
+	fi, err := t.cfg.Runtime.Stat(ctx, absDir)
 	if err != nil {
 		return "", err
 	}
@@ -92,7 +92,7 @@ func (t *globTool) Execute(ctx context.Context, raw string) (string, error) {
 		maxItems = 1000
 	}
 
-	matches, err := t.cfg.Sandbox.Glob(ctx, absDir, a.Pattern, GlobOptions{
+	matches, err := t.cfg.Runtime.Glob(ctx, absDir, a.Pattern, GlobOptions{
 		MaxItems: maxItems,
 		Timeout:  globTimeout(ctx),
 	})

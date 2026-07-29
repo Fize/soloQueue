@@ -6,6 +6,7 @@ import type {
   SessionConfig,
   ToolsConfig,
   SandboxConfig,
+  SandboxRuntimeStatus,
   EmbeddingConfig,
   QQBotConfig,
   WeChatAccountView,
@@ -21,6 +22,9 @@ import type {
   SkillInfo,
   MCPConfig,
   MCPAvailableResponse,
+  MCPPolicy,
+  MCPPolicyListResponse,
+  MCPRuntimeType,
 } from "@/types";
 import { request, API_BASE } from "./core";
 import { useConnectionStore } from "@/stores/connectionStore";
@@ -140,6 +144,10 @@ export async function updateSandboxConfig(
     method: "PUT",
     body: JSON.stringify(data),
   });
+}
+
+export async function getSandboxRuntimeStatus(): Promise<SandboxRuntimeStatus> {
+  return request<SandboxRuntimeStatus>("/config/sandbox/status");
 }
 
 export async function getQQBotsConfig(): Promise<QQBotConfig[]> {
@@ -300,6 +308,33 @@ export async function updateMCPConfig(config: MCPConfig): Promise<MCPConfig> {
 
 export async function getAvailableMCPServers(): Promise<MCPAvailableResponse> {
   return request<MCPAvailableResponse>("/mcp/available");
+}
+
+export async function getMCPPolicies(): Promise<MCPPolicyListResponse> {
+  return request<MCPPolicyListResponse>("/mcp/policies?scope=global");
+}
+
+export async function approveMCPPolicy(
+  serverName: string,
+  runtime: MCPRuntimeType,
+  networkEnabled = false,
+): Promise<MCPPolicy> {
+  return request<MCPPolicy>(`/mcp/policies/${encodeURIComponent(serverName)}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      scope: "global",
+      runtime,
+      network_enabled: networkEnabled,
+      confirm_host_access: runtime === "host",
+    }),
+  });
+}
+
+export async function revokeMCPPolicy(serverName: string): Promise<void> {
+  await request<void>(
+    `/mcp/policies/${encodeURIComponent(serverName)}?scope=global`,
+    { method: "DELETE" },
+  );
 }
 
 // ─── Skill Management & Store APIs ──────────────────────────────────────────

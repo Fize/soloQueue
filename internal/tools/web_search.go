@@ -103,7 +103,7 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 	form := url.Values{}
 	form.Set("q", a.Query)
 
-	httpResp, err := t.cfg.Sandbox.HTTPPost(ctx, "https://lite.duckduckgo.com/lite/",
+	httpResp, err := t.cfg.Runtime.HTTPPost(ctx, "https://lite.duckduckgo.com/lite/",
 		form.Encode(),
 		HTTPOptions{
 			Timeout:     t.cfg.WebSearchTimeout,

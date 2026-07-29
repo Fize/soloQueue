@@ -55,8 +55,18 @@ type SpeechConfig struct {
 	ModelDir string `json:"modelDir" yaml:"model_dir,omitempty"` // "" = ~/.soloqueue/models
 }
 
-// SandboxConfig controls Docker sandbox execution.
+// SandboxConfig controls the Host/Sandbox execution boundary.
 type SandboxConfig struct {
+	// Runtime is "host" or "sandbox". Empty preserves compatibility with the
+	// legacy Enabled field.
+	Runtime string `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+	// Backend is an implementation detail used only when Runtime is sandbox.
+	// The first supported backend is "docker".
+	Backend string `json:"backend,omitempty" yaml:"backend,omitempty"`
+	// NetworkEnabled grants outbound network access to commands and long-lived
+	// processes inside the global sandbox. It is denied by default.
+	NetworkEnabled bool `json:"network_enabled" yaml:"network_enabled,omitempty"`
+	// Enabled is the legacy compatibility field: false -> host, true -> sandbox.
 	Enabled bool `json:"enabled" yaml:"enabled,omitempty"`
 }
 
@@ -69,21 +79,21 @@ type SandboxConfig struct {
 // Tauri Store), not in backend settings file —— backend does not do i18n, logs
 // are uniformly output in English, no need to help frontend manage storage.
 type Settings struct {
-	Session       SessionConfig       `json:"session" yaml:"session,omitempty"`
-	Auth          AuthConfig          `json:"auth" yaml:"auth,omitempty"`
-	Log           LogConfig           `json:"log" yaml:"log,omitempty"`
-	Tools         ToolsConfig         `json:"tools" yaml:"tools,omitempty"`
-	Sandbox       SandboxConfig       `json:"sandbox" yaml:"sandbox,omitempty"`
-	Providers     []LLMProvider       `json:"providers" yaml:"providers,omitempty"`
-	Models        []LLMModel          `json:"models" yaml:"models,omitempty"`
-	Embedding     EmbeddingConfig     `json:"embedding" yaml:"embedding,omitempty"`
-	ModelRoutes   ModelRoutesConfig   `json:"modelRoutes" yaml:"model_routes,omitempty"`
-	QQBots        []QQBotConfig       `json:"qqbots" yaml:"qqbots,omitempty"`
-	WechatBots    []WechatBotConfig   `json:"wechatBots" yaml:"wechat_bots,omitempty"`
-	Agent         AgentConfig         `json:"agent" yaml:"agent,omitempty"`
-	LSPMCP        LSPMCPConfig        `json:"lspmcp" yaml:"lspmcp,omitempty"`
-	Simulation    SimulationConfig    `json:"simulation" yaml:"simulation,omitempty"`
-	Speech        SpeechConfig        `json:"speech" yaml:"speech,omitempty"`
+	Session     SessionConfig     `json:"session" yaml:"session,omitempty"`
+	Auth        AuthConfig        `json:"auth" yaml:"auth,omitempty"`
+	Log         LogConfig         `json:"log" yaml:"log,omitempty"`
+	Tools       ToolsConfig       `json:"tools" yaml:"tools,omitempty"`
+	Sandbox     SandboxConfig     `json:"sandbox" yaml:"sandbox,omitempty"`
+	Providers   []LLMProvider     `json:"providers" yaml:"providers,omitempty"`
+	Models      []LLMModel        `json:"models" yaml:"models,omitempty"`
+	Embedding   EmbeddingConfig   `json:"embedding" yaml:"embedding,omitempty"`
+	ModelRoutes ModelRoutesConfig `json:"modelRoutes" yaml:"model_routes,omitempty"`
+	QQBots      []QQBotConfig     `json:"qqbots" yaml:"qqbots,omitempty"`
+	WechatBots  []WechatBotConfig `json:"wechatBots" yaml:"wechat_bots,omitempty"`
+	Agent       AgentConfig       `json:"agent" yaml:"agent,omitempty"`
+	LSPMCP      LSPMCPConfig      `json:"lspmcp" yaml:"lspmcp,omitempty"`
+	Simulation  SimulationConfig  `json:"simulation" yaml:"simulation,omitempty"`
+	Speech      SpeechConfig      `json:"speech" yaml:"speech,omitempty"`
 }
 
 // UnmarshalYAML accepts the former weixin_bots key for one compatibility
@@ -435,7 +445,7 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"wechat_bots", "WeChat iLink bot integrations", s.WechatBots},
 		{"lspmcp", "Built-in LSP-based MCP servers", s.LSPMCP},
 		{"tools", "Tool execution limits", s.Tools},
-		{"sandbox", "Docker sandbox settings (experimental)", s.Sandbox},
+		{"sandbox", "Host/Sandbox execution settings", s.Sandbox},
 		{"simulation", "Simulation engine defaults", s.Simulation},
 		{"speech", "Local speech-to-text via whisper.cpp", s.Speech},
 		{"agent", "MCP server whitelists: nil/omitted = load all; [] = load none", s.Agent},

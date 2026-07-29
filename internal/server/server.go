@@ -70,6 +70,7 @@ type Mux struct {
 	hub               *Hub
 	wsTokens          sync.Map
 	toolsCfg          *tools.Config
+	runtimeManager    *tools.RuntimeManager
 	skillReg          *skill.SkillRegistry
 	skillDirs         map[string]string // skill categories → paths, for on-demand reload
 	rebuildPrompt     func() error      // rebuilds L1 system prompt after soul/rules edit
@@ -141,6 +142,11 @@ func WithHub(hub *Hub) MuxOption {
 // WithToolsConfig sets the tools configuration for the /api/tools endpoint.
 func WithToolsConfig(cfg *tools.Config) MuxOption {
 	return func(m *Mux) { m.toolsCfg = cfg }
+}
+
+// WithRuntimeManager sets the Host/Sandbox runtime status source.
+func WithRuntimeManager(manager *tools.RuntimeManager) MuxOption {
+	return func(m *Mux) { m.runtimeManager = manager }
 }
 
 // WithSkillRegistry sets the skill registry for the /api/skills endpoint.
@@ -412,6 +418,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Route("/sandbox", func(r chi.Router) {
 			r.Get("/", m.handleGetSandboxConfig)
 			r.Put("/", m.handleUpdateSandboxConfig)
+			r.Get("/status", m.handleGetSandboxStatus)
 		})
 
 		r.Route("/qqbots", func(r chi.Router) {
@@ -553,6 +560,9 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Get("/api/mcp", m.handleGetMCPConfig)
 	r.Patch("/api/mcp", m.handleUpdateMCPConfig)
 	r.Get("/api/mcp/available", m.handleGetAvailableMCPServers)
+	r.Get("/api/mcp/policies", m.handleGetMCPPolicies)
+	r.Put("/api/mcp/policies/{serverName}", m.handleApproveMCPPolicy)
+	r.Delete("/api/mcp/policies/{serverName}", m.handleRevokeMCPPolicy)
 
 	// File routes (read-only access to plan directory and team workspaces)
 	r.Get("/api/files/content", m.handleGetFileContent)
