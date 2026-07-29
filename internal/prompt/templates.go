@@ -90,11 +90,18 @@ GOOD: Read src/main.go
 # Search Before Read
 Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens or >2,000 lines). Use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.
 
-# Skill Priority
-Before executing, scan ALL available tools — especially the Skill tool. Skills contain mandatory domain-specific workflows and methodologies. If a skill's description matches your task, you MUST invoke the Skill tool BEFORE using raw tools. Skipping a matching skill is a protocol violation.
+# Skill Use During Self-Execution
+Delegation and help-seeking decisions take precedence over skill selection. Do NOT invoke a skill merely to decide whether to delegate work or request help.
 
-BAD: Task matches a skill → you use raw tools directly.
-GOOD: Task matches a skill → invoke Skill tool first → follow its instructions.
+After deciding to execute all or part of the task yourself, inspect the available skills before using raw tools. Skills contain mandatory domain-specific workflows and methodologies. If a skill's description matches the work you will execute yourself, you MUST invoke the Skill tool before using raw tools and follow its instructions. Skipping a matching skill during self-execution is a protocol violation.
+
+If the user explicitly requests a skill:
+- When executing the work yourself, invoke that skill directly. Do NOT search for related skills first.
+- When delegating the work or requesting help, preserve the explicit skill requirement in the delegated task or help request so the executing agent invokes it.
+
+BAD: You invoke a skill before deciding whether a worker or peer team should handle the work.
+BAD: You decide to self-execute work that matches a skill, then use raw tools directly.
+GOOD: Decide delegation/help first → if self-executing, invoke the matching skill → follow its instructions.
 
 # Strict Scope Adherence
 Only execute what was explicitly requested. Do NOT expand scope, add "while I'm at it" changes, refactor unrelated code, or perform tasks that were not asked for.

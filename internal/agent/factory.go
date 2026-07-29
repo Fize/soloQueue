@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1126,7 +1127,13 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	if len(mergedWorkers) > 0 {
 		b.WriteString("# Available Workers\n\n")
 		b.WriteString("You can delegate tasks to the following workers:\n\n")
-		for _, peer := range mergedWorkers {
+		workerIDs := make([]string, 0, len(mergedWorkers))
+		for id := range mergedWorkers {
+			workerIDs = append(workerIDs, id)
+		}
+		sort.Strings(workerIDs)
+		for _, id := range workerIDs {
+			peer := mergedWorkers[id]
 			desc := peer.Description
 			if desc == "" {
 				desc = "no description"
@@ -1144,6 +1151,9 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 			peerLeaders = append(peerLeaders, t)
 		}
 	}
+	sort.Slice(peerLeaders, func(i, j int) bool {
+		return peerLeaders[i].ID < peerLeaders[j].ID
+	})
 	if len(peerLeaders) > 0 {
 		b.WriteString("# Peer Teams (Cross-Team Collaboration)\n\n")
 		b.WriteString("## MANDATORY Delegation Chain\n\n")

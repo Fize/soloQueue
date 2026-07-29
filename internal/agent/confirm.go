@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -86,39 +85,7 @@ func (a *Agent) ToolSpecs() []llm.ToolDef {
 	if a.tools == nil {
 		return nil
 	}
-	specs := a.tools.Specs()
-	level := a.EffectiveTaskType()
-	if level == "" {
-		return specs
-	}
-
-	filtered := make([]llm.ToolDef, 0, len(specs))
-	for _, spec := range specs {
-		if !isToolPruned(level, spec.Function.Name) {
-			filtered = append(filtered, spec)
-		}
-	}
-	return filtered
-}
-
-// isToolPruned matches the pruning map logic to determine if a tool is pruned at the current level.
-func isToolPruned(level string, name string) bool {
-	if level == "" {
-		return false
-	}
-	lvl := strings.ToUpper(strings.TrimSpace(level))
-	if strings.HasPrefix(lvl, "L0") {
-		// L0-Conversation: full tool chain (same as L1-L3)
-		return false
-	}
-	if strings.HasPrefix(lvl, "L1") {
-		// L1-SimpleSingleFile: full tool chain (same as L0/L2/L3)
-		// delegate_* tools are NOT pruned — the system prompt controls
-		// delegation behavior. Pruning delegate tools breaks L2 supervisors
-		// that receive L1 task classifications from direct user queries.
-		return false
-	}
-	return false
+	return a.tools.Specs()
 }
 
 const (

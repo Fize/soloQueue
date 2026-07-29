@@ -89,3 +89,34 @@ func TestDefaultRules(t *testing.T) {
 		t.Error("DefaultRules should reference need_clarification status")
 	}
 }
+
+func TestSharedAgentRules_SkillPriorityAppliesAfterDelegationDecision(t *testing.T) {
+	required := []string{
+		"Delegation and help-seeking decisions take precedence over skill selection",
+		"After deciding to execute all or part of the task yourself",
+		"inspect the available skills before using raw tools",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(SharedAgentRules, phrase) {
+			t.Errorf("SharedAgentRules should contain %q", phrase)
+		}
+	}
+
+	if strings.Contains(SharedAgentRules, "Before executing, scan ALL available tools") {
+		t.Error("SharedAgentRules should not require skill selection before delegation decisions")
+	}
+}
+
+func TestSharedAgentRules_ExplicitSkillRequest(t *testing.T) {
+	required := []string{
+		"If the user explicitly requests a skill",
+		"invoke that skill directly",
+		"Do NOT search for related skills first",
+		"preserve the explicit skill requirement in the delegated task or help request",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(SharedAgentRules, phrase) {
+			t.Errorf("SharedAgentRules should contain %q", phrase)
+		}
+	}
+}

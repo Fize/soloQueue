@@ -57,6 +57,21 @@ func TestAgent_ToolSpecs_NilSafe(t *testing.T) {
 	}
 }
 
+func TestAgent_ToolSpecsMatchesRegistry(t *testing.T) {
+	zeta := newFakeTool("zeta")
+	alpha := newFakeTool("alpha")
+	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil, WithTools(zeta, alpha))
+
+	specs := a.ToolSpecs()
+	if len(specs) != 2 {
+		t.Fatalf("ToolSpecs returned %d tools, want 2", len(specs))
+	}
+	if specs[0].Function.Name != "alpha" || specs[1].Function.Name != "zeta" {
+		t.Errorf("ToolSpecs order = [%s, %s], want [alpha, zeta]",
+			specs[0].Function.Name, specs[1].Function.Name)
+	}
+}
+
 // ─── Single tool_call → Final reply ───────────────────────────────────────────
 
 func TestAgent_Ask_SingleToolCall_ThenFinal(t *testing.T) {

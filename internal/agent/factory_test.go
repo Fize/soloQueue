@@ -859,6 +859,76 @@ func TestBuildL2SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 }
 
+func TestBuildL2SystemPrompt_DeterministicCapabilityOrder(t *testing.T) {
+	leader := AgentTemplate{
+		ID:       "leader",
+		Name:     "Leader",
+		IsLeader: true,
+		Group:    "core",
+	}
+	templates := map[string]AgentTemplate{
+		"worker-z": {
+			ID:          "worker-z",
+			Name:        "Zeta Worker",
+			Description: "zeta",
+			Group:       "core",
+		},
+		"peer-z": {
+			ID:          "peer-z",
+			Name:        "Zeta Peer",
+			Description: "zeta peer",
+			IsLeader:    true,
+			Group:       "other",
+		},
+		"leader": leader,
+		"worker-a": {
+			ID:          "worker-a",
+			Name:        "Alpha Worker",
+			Description: "alpha",
+			Group:       "core",
+		},
+		"peer-a": {
+			ID:          "peer-a",
+			Name:        "Alpha Peer",
+			Description: "alpha peer",
+			IsLeader:    true,
+			Group:       "other",
+		},
+	}
+	projectAgents := []AgentTemplate{{
+		ID:          "worker-z",
+		Name:        "Project Zeta Worker",
+		Description: "project override",
+	}}
+
+	var baseline string
+	for i := 0; i < 20; i++ {
+		got := buildL2SystemPrompt(leader, templates, nil, "", "/work", "/explore", projectAgents, false)
+		if i == 0 {
+			baseline = got
+			continue
+		}
+		if got != baseline {
+			t.Fatalf("buildL2SystemPrompt produced different output on iteration %d", i)
+		}
+	}
+
+	alphaWorker := strings.Index(baseline, "- **Alpha Worker**: alpha")
+	zetaWorker := strings.Index(baseline, "- **Project Zeta Worker**: project override")
+	if alphaWorker == -1 || zetaWorker == -1 || alphaWorker >= zetaWorker {
+		t.Errorf("workers are not ordered by ID: alpha=%d zeta=%d", alphaWorker, zetaWorker)
+	}
+	if strings.Contains(baseline, "Zeta Worker**: zeta") {
+		t.Error("project-level worker should override the global worker with the same ID")
+	}
+
+	alphaPeer := strings.Index(baseline, "- **Alpha Peer**: alpha peer")
+	zetaPeer := strings.Index(baseline, "- **Zeta Peer**: zeta peer")
+	if alphaPeer == -1 || zetaPeer == -1 || alphaPeer >= zetaPeer {
+		t.Errorf("peer leaders are not ordered by ID: alpha=%d zeta=%d", alphaPeer, zetaPeer)
+	}
+}
+
 func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	tmpl := AgentTemplate{
 		ID:           "backend",
