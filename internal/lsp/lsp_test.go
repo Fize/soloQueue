@@ -1,8 +1,49 @@
 package lsp
 
 import (
+	"io"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+type stopTestProcess struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func (p *stopTestProcess) Stdin() io.WriteCloser { return nil }
+func (p *stopTestProcess) Stdout() io.Reader     { return strings.NewReader("") }
+func (p *stopTestProcess) Stderr() io.Reader     { return strings.NewReader("") }
+func (p *stopTestProcess) Wait() error {
+	<-p.done
+	return nil
+}
+func (p *stopTestProcess) Kill() error {
+	p.once.Do(func() { close(p.done) })
+	return nil
+}
+
+func TestClientStopKillsUninitializedProcessBeforeWaiting(t *testing.T) {
+	process := &stopTestProcess{done: make(chan struct{})}
+	client := &Client{
+		process:  process,
+		shutdown: make(chan struct{}),
+		done:     process.done,
+	}
+
+	start := time.Now()
+	client.Stop()
+	if elapsed := time.Since(start); elapsed >= time.Second {
+		t.Fatalf("Stop blocked for %v; uninitialized process must be killed before waiting", elapsed)
+	}
+	select {
+	case <-process.done:
+	default:
+		t.Fatal("Stop returned without killing the uninitialized process")
+	}
+}
 
 func TestBuiltinServers_NotEmpty(t *testing.T) {
 	servers := BuiltinServers()

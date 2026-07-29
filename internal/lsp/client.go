@@ -128,12 +128,19 @@ func (c *Client) Stop() {
 		close(c.shutdown)
 	}
 
+	if !initialized {
+		if process != nil {
+			_ = process.Kill()
+		}
+		return
+	}
+
 	select {
 	case <-c.done:
 	case <-time.After(5 * time.Second):
-	}
-	if process != nil {
-		_ = process.Kill()
+		if process != nil {
+			_ = process.Kill()
+		}
 	}
 
 	if c.log != nil {
