@@ -1,12 +1,14 @@
 ---
 name: fullstack-dev
 description: >-
-  Fullstack development scenario-flow methodology. Routes to the correct scenario
-  based on user intent and executes phase-by-phase with mandatory checklists.
-when_to_use: >-
-  When user requests involve writing/modifying/designing/deploying code.
-  Greenfield, feature iteration, bug fix, refactor, or deploy scenarios.
-  Trigger phrases: 想做, 从零, 新项目, 做一个, 帮我搭个, 写个App, 创建服务, 初始化, 脚手架, new project, scaffold, greenfield, build from scratch, 加功能, 新增, 迭代, 实现, 添加, 支持, 接入, 集成, add feature, implement, integrate, enhancement, 报错, bug, 不工作, 崩溃, 异常, 出错, 失败, 返回500, 空指针, panic, error, crash, fix, hotfix, debug, troubleshoot, 重构, 优化, 太慢, 太乱, 清理, 改进, 性能, 拆分, refactor, optimize, perf, cleanup, restructure, 部署, 上线, 发版, 容器化, 发布, deploy, release, CI/CD, Docker, K8s, helm, rollout, ship, /git-flow, git 工作流, commit 提交, push 推送, pull 拉取, branch 分支
+  Fullstack development scenario-flow methodology. Triggers when user requests involve writing/modifying/designing/deploying code.
+  Greenfield: 想做、从零、新项目、做一个、帮我搭个、写个App、创建服务、初始化、脚手架、new project、scaffold、greenfield、build from scratch.
+  Feature: 加功能、新增、迭代、实现、添加、支持、接入、集成、add feature、implement、integrate、enhancement.
+  Bug fix: 报错、bug、不工作、崩溃、异常、出错、失败、返回500、空指针、panic、error、crash、fix、hotfix、debug、troubleshoot.
+  Refactor: 重构、优化、太慢、太乱、清理、改进、性能、拆分、refactor、optimize、perf、cleanup、restructure.
+  Deploy: 部署、上线、发版、容器化、发布、deploy、release、CI/CD、Docker、K8s、helm、rollout、ship.
+  Implicit triggers: pasting build errors, PRD → implementation, design DB/API, write tests.
+  Explicit override: @phase:requirement|architecture|backend|frontend|devops
 ---
 
 # Fullstack Development Skill
@@ -23,12 +25,6 @@ You are NOT a general-purpose assistant while this skill is active.
 > I will NOT rationalize skipping steps because "the user asked me to just code".
 > If the user explicitly asks to skip a phase, I will state the risk and ask for confirmation.
 > I will invoke `/dev-method` at Implementation phases to select the appropriate development method.
-> I will DELEGATE version control to the `git-flow` skill. I will invoke `/git-flow branch` right before starting any Implementation phase, `/git-flow commit` iteratively during Implementation, and `/git-flow push` only after full Verification. I will NOT use git-flow during Requirement or Architecture phases.
-
-<delegates-to>
-- `/dev-method` → selects TDD / BDD / API-First / Security-First / Direct Implementation
-- `/git-flow` → branch, commit, push, pull operations
-</delegates-to>
 
 **These are not suggestions. Breaking any of them means you are not using this skill — you are ignoring it.**
 
@@ -46,11 +42,11 @@ Match the user's intent to a scenario flow, then execute step by step. You MUST 
 
 **Flow**:
 
-1. Requirement scoping → output MVP definition (MUST reference [Requirement Checklist](references/checklists.md#requirement-phase))
-2. Tech stack + DB design → output DDL + API contract (MUST reference [Architecture Checklist](references/checklists.md#architecture-phase))
-3. Core API implementation → invoke `/dev-method` to select method, then implement (MUST reference [Backend Checklist](references/checklists.md#backend-phase))
-4. Page implementation → invoke `/dev-method` to select method, then implement (MUST reference [Frontend Checklist](references/checklists.md#frontend-phase))
-5. Deploy config → output deploy commands + health check (MUST reference [DevOps Checklist](references/checklists.md#devops-phase))
+1. Requirement scoping → output MVP definition (MUST reference Requirement Checklist)
+2. Tech stack + DB design → output DDL + API contract (MUST reference Architecture Checklist)
+3. Core API implementation → invoke `/dev-method` to select method, then implement (MUST reference Backend Checklist)
+4. Page implementation → invoke `/dev-method` to select method, then implement (MUST reference Frontend Checklist)
+5. Deploy config → output deploy commands + health check (MUST reference DevOps Checklist)
 
 **Hard Constraints**:
 
@@ -79,18 +75,64 @@ Match the user's intent to a scenario flow, then execute step by step. You MUST 
 
 **Triggers**: 报错、bug、不工作、崩溃、异常、出错、失败、返回500、空指针、panic、error、crash、fix、hotfix、debug、troubleshoot
 
-**Flow**:
+**Bug Fix Flow**:
 
-1. Reproduce → obtain complete error message, logs, and call stack
-2. Root cause analysis → pinpoint to exact file:line, explain WHY
-3. Fix → surgical change, provide diff
-4. Verify → provide reproduction command + expected result
+1. **Classify** → identify bug type and activate mode-specific strategy
+2. **Reproduce + Evidence** → obtain complete error/logs/stack; code-first reading
+3. **Hypothesis** → quality gate: specific file:line + evidence; mandatory before touching code
+4. **Fix** → surgical change; bisect mode for regressions; scope discipline
+5. **Blast** → pattern grep, sibling match classification
+6. **Verify** → runtime evidence ladder; regression guard (red-green)
+
+**Bug Types** (see [references/bug-fix-modes.md](references/bug-fix-modes.md) for detailed protocols):
+
+| Type | Signal | Strategy |
+|------|--------|----------|
+| Regression | 以前是好的, used to work | Bisect: `git diff <last-good>..HEAD` first; only run `git bisect` if diff is too large |
+| Intermittent | 时好时坏, 偶尔, 不稳定 | Instrument with targeted logging (yes/no questions); reproduce reliably before diagnosing |
+| Performance | 慢, slow, 卡顿, lag | Measure baseline first, fix, re-measure with before/after numbers |
+| Rendering/UI | 显示有问题, 样式不对 | Static analysis first (paint layers, stacking contexts); verify rendered surface |
+| Default | All other bugs | Standard flow: reproduce → hypothesis → fix → verify |
 
 **Hard Constraints**:
 
-- You MUST NOT attempt a fix without first reproducing the issue or obtaining the error output. Guessing is forbidden.
-- The fix MUST NOT introduce new side effects. If it does, you MUST disclose them explicitly.
-- If the root cause lies in a dependency or upstream service, you MUST state this clearly. NEVER paper over upstream bugs with local workarounds without informing the user.
+Don't Touch Code Without a Testable Hypothesis:
+
+- **Hypothesis quality gate**: Before touching ANY code, you MUST form a testable hypothesis with specific file:line and evidence. "A state management issue" is not testable. "Stale cache in `useUser` at `src/hooks/user.ts:42` because the dependency array is missing `userId`" is testable. Write the hypothesis aloud before editing.
+- **Code-first rule**: You MUST actually read the code. Function names, file names, and comments may be misleading — they can describe intent that was never implemented, or be outdated. Only the code is authoritative.
+
+Know When to Stop:
+
+- **Stop after 3 failed hypotheses**: If three hypotheses are tested and ruled out, you MUST stop immediately. Output the Handoff format (symptoms, hypotheses tested and why ruled out, evidence collected, unknowns, suggested next steps). Do NOT form a fourth hypothesis.
+- **Same symptom after a fix is a hard stop**: If the symptom persists unchanged after a fix, the hypothesis is disproven. Re-read the execution path from scratch. Do NOT stack another patch on a disproven hypothesis.
+- **Approach reconsideration**: If two or more fixes fail to resolve the issue, step back. The problem may not be the implementation details — the overall approach to the feature or component may be fundamentally wrong. State explicitly: "The current approach may be flawed because..." and propose an alternative direction before attempting further fixes.
+
+Fix with Discipline:
+
+- **No guessing**: You MUST NOT attempt a fix without first reproducing the issue or obtaining the error output. Guessing is forbidden.
+- **No silent side effects**: The fix MUST NOT introduce new side effects. If it does, you MUST disclose them explicitly.
+- **Upstream bugs**: If the root cause lies in a dependency or upstream service, you MUST state this clearly. NEVER paper over upstream bugs with local workarounds without informing the user.
+- **Fix scope discipline**: If the fix touches 5 or more files, pause and confirm scope with the user. No silent refactoring bundled into the fix.
+
+Verify Like a Proof, Not a Guess:
+
+- **Scope blast**: After fixing, extract the pattern signature, grep the entire repo (excluding generated/vendored dirs), and classify each match: same bug / safe (why) / unsure. Report in the Output block. Do not claim "fixed" until the blast report is complete.
+- **Regression guard**: For any bug that recurred or was previously "fixed", red-green MUST be actually run: revert the fix, watch the new test fail, restore the fix, watch it pass. State the red run in the output. A regression test that has only ever been observed passing pins nothing.
+- **Runtime evidence ladder**: Before claiming a bug is fixed, escalate: 1) source trace (file:line), 2) deterministic repro, 3) logs/state/cache, 4) build/test output, 5) real runtime check (for UI/visual bugs: open app/page and verify rendered surface). Compile-only is not enough for UI, visual, or rendering bugs.
+
+**Gotchas**: Load [references/bug-fix-gotchas.md](references/bug-fix-gotchas.md) when diagnosing. It contains accumulated failure patterns — read it before forming your first hypothesis.
+
+**Output After Fix**:
+
+```
+Status:            resolved / resolved with caveats: [what] / blocked on: [what]
+Root cause:        [what was wrong, file:line]
+Fix:               [what changed, file:line]
+Sibling sweep:     [N same-shape sites checked, N fixed / none found / not applicable]
+Confirmed:         [evidence that proves the fix]
+Regression guard:  [test file:line] or [none, reason]
+Verification:      [repro command] → [expected result]
+```
 
 ### Scenario 4: Refactor / Optimization
 
@@ -128,41 +170,78 @@ Match the user's intent to a scenario flow, then execute step by step. You MUST 
 
 ---
 
-## Phase Checklists
+## Phase Checklists (reference as needed)
 
-→ See [references/checklists.md](references/checklists.md) for all phase checklists (Requirement, Architecture, Backend, Frontend, DevOps).
+### Requirement Phase
+
+- [ ] Project name (one sentence)
+- [ ] Core user stories (≤5, "As a... I want... So that...")
+- [ ] MVP feature list (P0/P1/P2 labeled)
+- [ ] Explicitly out-of-scope items (prevent scope creep)
+- [ ] Non-functional requirements summary
+- [ ] MVP validation method
+
+### Architecture Phase
+
+- [ ] Entity relationship description (natural language) → DDL
+- [ ] Table/column names: snake_case singular, MUST include created_at, updated_at
+- [ ] API contract: RESTful, unified response format `{"data": ..., "error": ...}`
+- [ ] Pagination strategy (cursor or offset/limit) + rationale
+- [ ] Tech stack selection + rationale (prefer boring/reliable, what the team knows)
+
+### Backend Phase
+
+- [ ] ALL input validated and sanitized. SQL concatenation is FORBIDDEN.
+- [ ] Sensitive operations MUST have auth checks
+- [ ] Functions: single responsibility, error handling complete
+- [ ] Structured logging at key points (NEVER inside loops)
+- [ ] Comments explain WHY, never WHAT
+- [ ] NEVER output secrets/passwords — use env var placeholders
+- [ ] Curl test command provided
+- [ ] Formal method: invoke `/dev-method` (auto-selects TDD/BDD/API-First/Security-First), or `/dev-method tdd` to force TDD
+
+### Frontend Phase
+
+- [ ] Async requests: MUST handle all 3 states — Loading / Data / Error
+- [ ] User actions: immediate feedback, form validation on frontend
+- [ ] Empty data: placeholder UI, NEVER blank screen
+- [ ] Props types MUST be defined
+- [ ] Split files ONLY when >200 lines
+- [ ] Extra state management library ONLY when multiple components share complex state
+- [ ] Browser verification steps provided
+- [ ] Formal method: invoke `/dev-method` (auto-selects TDD/BDD/API-First/Security-First), or `/dev-method tdd` to force TDD
+
+### DevOps Phase
+
+- [ ] Environment isolation — NEVER detect environment in code
+- [ ] Test pyramid: critical business paths MUST have integration tests
+- [ ] Test data: NEVER use production data
+- [ ] DB migrations MUST support rollback
+- [ ] CI minimum: Lint → Unit tests → Build → Deploy to staging
+- [ ] Health check verification command
+- [ ] First deployment: monitoring recommendations
 
 ---
 
 ## Pitfalls
 
-→ See [references/pitfalls.md](references/pitfalls.md) for common anti-patterns and the verification protocol.
+- **Skipping think-then-code**: The most common mistake under vague requirements. You MUST write down your understanding and approach BEFORE writing any code. No exceptions.
+- **Over-engineering**: Introducing abstraction layers when there's only one implementation. Violates Simplicity. It increases maintenance cost, not reduces it.
+- **Drive-by refactoring**: "While I'm here" refactoring during a bug fix or feature. Violates Surgical Changes. It introduces uncontrolled risk.
+- **No verification instructions**: Ending a task after writing code. Violates Goal-Driven. The user CANNOT confirm the fix works.
+- **Hardcoded env config**: Embedding config values or paths in code. It WILL break in deployment. ALWAYS use env vars.
 
----
+## Verification
 
-## Error Recovery
+After completing any scenario flow, you MUST output the following:
 
-### Scenario Switch Protocol
+**For Scenarios 1, 2, 4, 5 (Greenfield, Feature, Refactor, Deploy):**
 
-If the user's intent changes mid-flow (e.g., Feature Iteration → Bug Fix):
+1. **Change Summary**: which files changed, what changed in each
+2. **Verification Commands**: concrete curl / test / browser steps that the user can run
+3. **Rollback Plan**: how to revert (git revert command or DB rollback SQL)
+4. **Context Summary** (complex tasks only): key decisions, dependencies, follow-up items
 
-1. **Acknowledge the switch**: "I see the situation has changed from [current scenario] to [new scenario]."
-2. **Save checkpoint**: Note the current phase and what was completed.
-3. **Reset to new scenario**: Start the new scenario flow from Step 1.
-4. **Do NOT carry over assumptions** from the previous scenario.
+**For Scenario 3 (Bug Fix):**
 
-### Dev-Method Delegation Failure
-
-If `/dev-method` fails to load (e.g., method file missing or corrupted):
-
-1. **Fallback to Direct Implementation**: Use the [Direct Implementation](../dev-method/references/direct-implementation.md) rules as a minimal safety net.
-2. **Inform the user**: "The selected method file could not be loaded. Falling back to Direct Implementation with basic checks."
-3. **Continue the current scenario flow** — do NOT restart.
-
-### Git-Flow Delegation Failure
-
-If `/git-flow` is unavailable during Implementation:
-
-1. **Continue implementation** without git operations.
-2. **Queue git operations**: Note which commits should have been created.
-3. **Inform the user**: "Git operations are unavailable. I will proceed with implementation and batch git operations when available."
+Use the structured output format defined within the Scenario 3 block (Status, Root cause, Fix, Sibling sweep, Confirmed, Regression guard, Verification).
