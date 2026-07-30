@@ -34,6 +34,9 @@ func TestBuildWireRequest_Minimal(t *testing.T) {
 	if w.StreamOptions != nil {
 		t.Error("StreamOptions should be nil without include_usage")
 	}
+	if w.Thinking == nil || w.Thinking.Type != "disabled" {
+		t.Errorf("Thinking = %+v, want type disabled", w.Thinking)
+	}
 }
 
 func TestBuildWireRequest_FullFields(t *testing.T) {
@@ -211,6 +214,9 @@ func TestBuildWireRequest_ReasoningEffort(t *testing.T) {
 	if w.ReasoningEffort == nil || *w.ReasoningEffort != "high" {
 		t.Errorf("ReasoningEffort = %v, want \"high\"", w.ReasoningEffort)
 	}
+	if w.Thinking == nil || w.Thinking.Type != "enabled" {
+		t.Errorf("Thinking = %+v, want type enabled", w.Thinking)
+	}
 
 	// Verify JSON output includes reasoning_effort
 	data, err := json.Marshal(w)
@@ -245,6 +251,42 @@ func TestBuildWireRequest_ReasoningEffort_Empty(t *testing.T) {
 	w := buildWireRequest(req, true, false)
 	if w.ReasoningEffort != nil {
 		t.Errorf("ReasoningEffort should be nil for empty string, got %v", w.ReasoningEffort)
+	}
+}
+
+func TestBuildWireRequest_ThinkingTypeAdaptive(t *testing.T) {
+	req := agent.LLMRequest{
+		Model:           "minimax-m3",
+		Messages:        []agent.LLMMessage{{Role: "user", Content: "hi"}},
+		ThinkingEnabled: true,
+		ThinkingType:    "adaptive",
+	}
+	w := buildWireRequest(req, true, false)
+	if w.Thinking == nil || w.Thinking.Type != "adaptive" {
+		t.Errorf("Thinking = %+v, want type adaptive", w.Thinking)
+	}
+}
+
+func TestBuildWireRequest_DisabledThinkingOverridesTypeAndEffort(t *testing.T) {
+	req := agent.LLMRequest{
+		Model:           "deepseek-v4-flash",
+		Messages:        []agent.LLMMessage{{Role: "user", Content: "hi"}},
+		ReasoningEffort: "max",
+		ThinkingType:    "adaptive",
+	}
+	w := buildWireRequest(req, true, false)
+	if w.Thinking == nil || w.Thinking.Type != "disabled" {
+		t.Errorf("Thinking = %+v, want type disabled", w.Thinking)
+	}
+	if w.ReasoningEffort != nil {
+		t.Errorf("ReasoningEffort = %v, want nil", w.ReasoningEffort)
+	}
+	data, err := json.Marshal(w)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !contains(string(data), `"thinking":{"type":"disabled"}`) {
+		t.Errorf("JSON should include disabled thinking, got: %s", data)
 	}
 }
 

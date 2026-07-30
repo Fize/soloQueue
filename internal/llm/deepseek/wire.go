@@ -224,8 +224,8 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 	if req.ResponseJSON {
 		out.ResponseFormat = &wireRespFormat{Type: "json_object"}
 	}
-	// Thinking and temperature are mutually exclusive.
-	// When thinking is disabled, do NOT send thinking.type or reasoning_effort.
+	// DeepSeek defaults an omitted thinking switch to enabled, so both boolean
+	// states must be explicit on the wire.
 	if req.ThinkingEnabled {
 		if req.ReasoningEffort != "" {
 			out.ReasoningEffort = &req.ReasoningEffort
@@ -235,6 +235,8 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 			t = "enabled" // default: DeepSeek convention
 		}
 		out.Thinking = &wireThinking{Type: t}
+	} else {
+		out.Thinking = &wireThinking{Type: "disabled"}
 	}
 	return out
 }
