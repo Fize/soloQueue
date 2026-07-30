@@ -28,6 +28,7 @@ type Loader[T any] struct {
 	watchStop chan struct{}
 	watchPath string
 	onChange  func() error
+	onError   func(error)
 
 	lastWrite time.Time
 	writeMu   sync.Mutex
@@ -158,6 +159,13 @@ func (l *Loader[T]) SetOnChange(fn func() error) {
 	l.mu.Unlock()
 }
 
+// SetOnError registers a callback for asynchronous reload and watcher errors.
+func (l *Loader[T]) SetOnError(fn func(error)) {
+	l.mu.Lock()
+	l.onError = fn
+	l.mu.Unlock()
+}
+
 // Watch starts watching the config file for external changes and reloads automatically.
 // It calls onChange (if set) after reloading.
 func (l *Loader[T]) Watch() error {
@@ -231,8 +239,13 @@ func (l *Loader[T]) watchLoop() {
 				continue
 			}
 			if err := l.Load(); err != nil {
-				// Errors are swallowed; a partial/broken file may be transient.
-				_ = err
+				l.mu.RLock()
+				onError := l.onError
+				l.mu.RUnlock()
+				if onError != nil {
+					onError(err)
+				}
+				continue
 			}
 			l.mu.RLock()
 			onChange := l.onChange
@@ -240,9 +253,15 @@ func (l *Loader[T]) watchLoop() {
 			if onChange != nil {
 				_ = onChange()
 			}
-		case _, ok := <-l.watcher.Errors:
+		case err, ok := <-l.watcher.Errors:
 			if !ok {
 				return
+			}
+			l.mu.RLock()
+			onError := l.onError
+			l.mu.RUnlock()
+			if onError != nil {
+				onError(err)
 			}
 		}
 	}

@@ -47,6 +47,13 @@ func (s *GlobalService) SetLogger(log *logger.Logger) {
 	s.dbMu.Lock()
 	s.log = log
 	s.dbMu.Unlock()
+	if log == nil {
+		s.Loader.SetOnError(nil)
+		return
+	}
+	s.Loader.SetOnError(func(err error) {
+		log.Error(logger.CatConfig, "config hot-reload failed", "err", err.Error())
+	})
 }
 
 // SetDB sets the SQLite connection. Configuration is no longer read from the

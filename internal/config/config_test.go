@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 
 	"gopkg.in/yaml.v3"
@@ -270,6 +271,118 @@ func TestLoader_Watch_ReloadsOnChange(t *testing.T) {
 	if settings.Log.Level != "debug" {
 		t.Errorf("after reload log level = %q, want debug", settings.Log.Level)
 	}
+}
+
+func TestLoader_Watch_InvalidYAMLReportsErrorAndKeepsLastValidSettings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	writeYAML(t, path, map[string]any{
+		"log": map[string]any{"level": "debug"},
+	})
+
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
+	if err := loader.Load(); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if err := loader.Watch(); err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	defer loader.StopWatch()
+
+	reloadErrors := make(chan error, 1)
+	loader.SetOnError(func(err error) {
+		select {
+		case reloadErrors <- err:
+		default:
+		}
+	})
+	changed := make(chan struct{}, 1)
+	loader.SetOnChange(func() error {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+
+	if err := os.WriteFile(path, []byte("log: ["), 0o644); err != nil {
+		t.Fatalf("write invalid YAML: %v", err)
+	}
+
+	select {
+	case err := <-reloadErrors:
+		if !strings.Contains(err.Error(), "parse "+path) {
+			t.Fatalf("reload error = %q, want parse error for %s", err, path)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reload error not reported")
+	}
+
+	if got := loader.Get().Log.Level; got != "debug" {
+		t.Fatalf("log level after rejected reload = %q, want debug", got)
+	}
+	select {
+	case <-changed:
+		t.Fatal("onChange called after rejected reload")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	writeYAML(t, path, map[string]any{
+		"log": map[string]any{"level": "error"},
+	})
+	select {
+	case <-changed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("onChange not called after valid YAML restored")
+	}
+	if got := loader.Get().Log.Level; got != "error" {
+		t.Fatalf("log level after valid reload = %q, want error", got)
+	}
+}
+
+func TestGlobalService_Watch_InvalidYAMLLogsReloadFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	writeYAML(t, path, map[string]any{
+		"log": map[string]any{"level": "info"},
+	})
+
+	service, err := New(dir)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	if err := service.Load(); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	log, err := logger.New(dir, logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("new logger: %v", err)
+	}
+	defer log.Close()
+	service.SetLogger(log)
+	if err := service.Watch(); err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	defer service.StopWatch()
+
+	if err := os.WriteFile(path, []byte("log: ["), 0o644); err != nil {
+		t.Fatalf("write invalid YAML: %v", err)
+	}
+
+	logPath := filepath.Join(dir, "logs", "system", "config-"+time.Now().Format("2006-01-02")+".jsonl")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		data, readErr := os.ReadFile(logPath)
+		if readErr == nil && strings.Contains(string(data), "config hot-reload failed") &&
+			strings.Contains(string(data), "parse "+path) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("reload failure was not written to %s", logPath)
 }
 
 func TestLoader_ReadFromDisk(t *testing.T) {
