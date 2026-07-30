@@ -26,7 +26,6 @@ type Loader[T any] struct {
 	watcher   *fsnotify.Watcher
 	watchMu   sync.Mutex
 	watchStop chan struct{}
-	watchPath string
 	onChange  func() error
 	onError   func(error)
 
@@ -197,10 +196,9 @@ func (l *Loader[T]) Watch() error {
 	}
 
 	l.watcher = watcher
-	l.watchPath = pp
 	l.watchStop = make(chan struct{})
 
-	go l.watchLoop()
+	go l.watchLoop(watcher, l.watchStop, pp)
 	return nil
 }
 
@@ -216,16 +214,16 @@ func (l *Loader[T]) StopWatch() {
 	l.watcher = nil
 }
 
-func (l *Loader[T]) watchLoop() {
+func (l *Loader[T]) watchLoop(watcher *fsnotify.Watcher, stop <-chan struct{}, path string) {
 	for {
 		select {
-		case <-l.watchStop:
+		case <-stop:
 			return
-		case event, ok := <-l.watcher.Events:
+		case event, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			if event.Name != l.watchPath {
+			if event.Name != path {
 				continue
 			}
 			if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Rename) && !event.Has(fsnotify.Create) && !event.Has(fsnotify.Remove) {
@@ -253,7 +251,7 @@ func (l *Loader[T]) watchLoop() {
 			if onChange != nil {
 				_ = onChange()
 			}
-		case err, ok := <-l.watcher.Errors:
+		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
 			}

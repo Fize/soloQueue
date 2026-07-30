@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -270,6 +271,22 @@ func TestLoader_Watch_ReloadsOnChange(t *testing.T) {
 	settings := loader.Get()
 	if settings.Log.Level != "debug" {
 		t.Errorf("after reload log level = %q, want debug", settings.Log.Level)
+	}
+}
+
+func TestLoader_Watch_RepeatedStartStopIsRaceFree(t *testing.T) {
+	dir := t.TempDir()
+	loader, err := NewLoader(DefaultSettings(), filepath.Join(dir, "settings.yaml"))
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
+
+	for range 100 {
+		if err := loader.Watch(); err != nil {
+			t.Fatalf("watch: %v", err)
+		}
+		runtime.Gosched()
+		loader.StopWatch()
 	}
 }
 
