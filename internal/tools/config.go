@@ -29,6 +29,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -130,6 +131,11 @@ type Config struct {
 	// MemoryEngine is the long-term memory engine (nil means disabled).
 	// Remember / RecallMemory and related memory tools only take effect when non-nil.
 	MemoryEngine *memoryengine.Engine
+
+	// ── Team store ──────────────────────────────────────────────────────
+	// TeamStore is the project/team/agent persistence store.
+	// When non-nil, resolve_project and related tools are registered.
+	TeamStore *teamstore.Store
 	// ── Cron tasks ───────────────────────────────────────────────────
 	CronStore     *cron.DBStore
 	CronScheduler *cron.Scheduler
@@ -211,6 +217,10 @@ func Build(cfg Config) []Tool {
 			newConsolidateMemoriesTool(cfg),
 		)
 	}
+	if cfg.TeamStore != nil {
+		tools = append(tools, newResolveProjectTool(cfg))
+	}
+
 	if cfg.CronStore != nil && cfg.CronScheduler != nil && cfg.CronScope.Enabled() {
 		tools = append(tools,
 			newScheduleTaskTool(cfg),

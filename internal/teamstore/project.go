@@ -58,6 +58,45 @@ func (s *Store) GetProject(ctx context.Context, id string) (*Project, error) {
 	return &p, nil
 }
 
+// ResolveProject finds a project by case-insensitive fuzzy matching on id, name, or path.
+// It returns all matching projects (max 10) so the caller can handle ambiguous results.
+func (s *Store) ResolveProject(ctx context.Context, query string) ([]Project, error) {
+	if s.db == nil {
+		return nil, errors.New("teamstore: db not configured")
+	}
+
+	pattern := "%" + query + "%"
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, path, description, created_at, updated_at FROM projects
+		 WHERE LOWER(id) = LOWER(?) OR LOWER(name) LIKE LOWER(?) OR LOWER(path) LIKE LOWER(?)
+		 ORDER BY
+		   CASE
+		     WHEN LOWER(id) = LOWER(?) THEN 0
+		     WHEN LOWER(name) = LOWER(?) THEN 1
+		     ELSE 2
+		   END, name ASC
+		 LIMIT 10`,
+		query, pattern, pattern, query, query,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("teamstore: resolve project: %w", err)
+	}
+	defer rows.Close()
+
+	var projects []Project
+	for rows.Next() {
+		var p Project
+		if err := rows.Scan(&p.ID, &p.Name, &p.Path, &p.Description, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("teamstore: scan project: %w", err)
+		}
+		projects = append(projects, p)
+	}
+	if len(projects) == 0 {
+		return nil, fmt.Errorf("teamstore: no project matching %q", query)
+	}
+	return projects, nil
+}
+
 func (s *Store) ListProjects(ctx context.Context) ([]Project, error) {
 	if s.db == nil {
 		return nil, nil
