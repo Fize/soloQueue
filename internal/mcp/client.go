@@ -167,6 +167,10 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 		return "", fmt.Errorf("extract content from %q on %q: %w", name, c.cfg.Name, err)
 	}
 
+	if result.IsError {
+		return "", fmt.Errorf("MCP tool %q on %q returned error: %s", name, c.cfg.Name, content)
+	}
+
 	return content, nil
 }
 

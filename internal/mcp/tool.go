@@ -67,7 +67,7 @@ func (t *Tool) Execute(ctx context.Context, args string) (string, error) {
 
 	result, err := t.client.CallTool(ctx, t.mcpToolName, argsMap)
 	if err != nil {
-		return "error: " + err.Error(), nil
+		return "", err
 	}
 
 	return result, nil
