@@ -198,6 +198,7 @@ Verification:      [repro command] → [expected result]
 - [ ] Comments explain WHY, never WHAT
 - [ ] NEVER output secrets/passwords — use env var placeholders
 - [ ] Curl test command provided
+- [ ] Test strategy: invoke `/qa-blueprint` to determine test types, frameworks, and environment setup before writing code
 - [ ] Formal method: invoke `/dev-method` (auto-selects TDD/BDD/API-First/Security-First), or `/dev-method tdd` to force TDD
 
 ### Frontend Phase
@@ -209,6 +210,7 @@ Verification:      [repro command] → [expected result]
 - [ ] Split files ONLY when >200 lines
 - [ ] Extra state management library ONLY when multiple components share complex state
 - [ ] Browser verification steps provided
+- [ ] Test strategy: invoke `/qa-blueprint` to determine test types, frameworks, and environment setup before writing code
 - [ ] Formal method: invoke `/dev-method` (auto-selects TDD/BDD/API-First/Security-First), or `/dev-method tdd` to force TDD
 
 ### DevOps Phase
@@ -217,7 +219,7 @@ Verification:      [repro command] → [expected result]
 - [ ] Test pyramid: critical business paths MUST have integration tests
 - [ ] Test data: NEVER use production data
 - [ ] DB migrations MUST support rollback
-- [ ] CI minimum: Lint → Unit tests → Build → Deploy to staging
+- [ ] CI minimum: Lint → Unit tests → Build → Deploy to staging (reference `/qa-blueprint` references/ci-integration.md for CI patterns)
 - [ ] Health check verification command
 - [ ] First deployment: monitoring recommendations
 
