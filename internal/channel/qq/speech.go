@@ -1,34 +1,47 @@
 package qq
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
-// Transcriber converts audio (SILK format from QQ) to text using whisper.cpp.
-// It shells out to ffmpeg for SILK→WAV conversion and whisper-cli for transcription.
-type Transcriber struct {
-	binary   string // absolute path to whisper-cli, or empty if not found
-	modelDir string // directory containing ggml model files
-	model    string // model name (tiny/base/small/medium)
+var silkMagic = []byte("#!SILK_V3")
+
+// isSilkAudio reports whether data is a QQ/WeChat SILK V3 stream. Tencent may
+// prefix the normal SILK header with a one-byte 0x02 wrapper.
+func isSilkAudio(data []byte) bool {
+	return bytes.HasPrefix(data, silkMagic) || (len(data) > 1 && data[0] == 0x02 && bytes.HasPrefix(data[1:], silkMagic))
 }
 
-// NewTranscriber creates a Transcriber. binary is auto-detected from PATH.
+// Transcriber converts audio (SILK format from QQ) to text using whisper.cpp.
+// It shells out to silk-decoder for SILK→PCM, ffmpeg for PCM→WAV, and
+// whisper-cli for transcription.
+type Transcriber struct {
+	binary      string // absolute path to whisper-cli, or empty if not found
+	silkDecoder string // absolute path to silk-decoder, or empty if not found
+	modelDir    string // directory containing ggml model files
+	model       string // model name (tiny/base/small/medium)
+}
+
+// NewTranscriber creates a Transcriber. Required binaries are auto-detected.
 func NewTranscriber(model, modelDir string) *Transcriber {
 	return &Transcriber{
-		binary:   findWhisperBinary(),
-		modelDir: modelDir,
-		model:    model,
+		binary:      findWhisperBinary(),
+		silkDecoder: findSilkDecoder(),
+		modelDir:    modelDir,
+		model:       model,
 	}
 }
 
-// Available returns whether both whisper-cli and the model file are present.
+// Available returns whether all required binaries and the model file are present.
 func (t *Transcriber) Available() bool {
-	if t.binary == "" {
+	if t.binary == "" || t.silkDecoder == "" {
 		return false
 	}
 	if _, err := os.Stat(t.ModelPath()); err != nil {
@@ -42,8 +55,8 @@ func (t *Transcriber) ModelPath() string {
 	return filepath.Join(t.modelDir, "ggml-"+t.model+".bin")
 }
 
-// Transcribe converts SILK audio data to 16kHz WAV via ffmpeg, then runs
-// whisper-cli for speech-to-text. Returns the transcript text.
+// Transcribe converts SILK audio data to 16kHz WAV, then runs whisper-cli for
+// speech-to-text. Returns the transcript text.
 func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string, error) {
 	tmpDir := os.TempDir()
 
@@ -61,7 +74,21 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	}
 	silkFile.Close()
 
-	// Step 2: convert SILK → 16kHz mono WAV via ffmpeg
+	// Step 2: decode SILK → 16kHz mono PCM. ffmpeg does not ship a SILK demuxer.
+	pcmFile, err := os.CreateTemp(tmpDir, "soloqueue_audio_*.pcm")
+	if err != nil {
+		return "", fmt.Errorf("create temp pcm file: %w", err)
+	}
+	pcmPath := pcmFile.Name()
+	pcmFile.Close()
+	defer os.Remove(pcmPath)
+
+	decode := exec.CommandContext(ctx, t.silkDecoder, "-Fs_API", "16000", silkPath, pcmPath)
+	if out, err := decode.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("silk decode: %w\n%s", err, string(out))
+	}
+
+	// Step 3: convert raw PCM → WAV for whisper-cli.
 	wavFile, err := os.CreateTemp(tmpDir, "soloqueue_audio_*.wav")
 	if err != nil {
 		return "", fmt.Errorf("create temp wav file: %w", err)
@@ -71,19 +98,19 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	defer os.Remove(wavPath)
 
 	convert := exec.CommandContext(ctx, "ffmpeg",
-		"-y",             // overwrite output
-		"-f", "silk",     // input format
-		"-i", silkPath,
-		"-ar", "16000",   // 16kHz sample rate
-		"-ac", "1",       // mono
+		"-y",          // overwrite output
+		"-f", "s16le", // signed 16-bit little-endian PCM
+		"-ar", "16000", // 16kHz sample rate
+		"-ac", "1", // mono
+		"-i", pcmPath,
 		"-f", "wav",
 		wavPath,
 	)
 	if out, err := convert.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("ffmpeg convert silk→wav: %w\n%s", err, string(out))
+		return "", fmt.Errorf("ffmpeg convert pcm→wav: %w\n%s", err, string(out))
 	}
 
-	// Step 3: transcribe via whisper-cli
+	// Step 4: transcribe via whisper-cli
 	transcribe := exec.CommandContext(ctx, t.binary,
 		"-m", t.ModelPath(),
 		"-f", wavPath,
@@ -102,6 +129,9 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 // Binary returns the detected whisper-cli path (may be empty).
 func (t *Transcriber) Binary() string { return t.binary }
 
+// SilkDecoder returns the detected silk-decoder path (may be empty).
+func (t *Transcriber) SilkDecoder() string { return t.silkDecoder }
+
 // Model returns the whisper model name.
 func (t *Transcriber) Model() string { return t.model }
 
@@ -112,6 +142,25 @@ func findWhisperBinary() string {
 		if path, err := exec.LookPath(name); err == nil {
 			return path
 		}
+	}
+	return ""
+}
+
+func findSilkDecoder() string {
+	if path, err := exec.LookPath("silk-decoder"); err == nil {
+		return path
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	name := "silk-decoder"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(homeDir, ".soloqueue", "bin", name)
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		return path
 	}
 	return ""
 }

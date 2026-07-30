@@ -134,7 +134,9 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	}
 
 	// 2b. Register channel sender for system notifications (cron, etc.).
-	if s, ok := b.sess.(interface{ SetChannelSender(string, func(context.Context, string) error) }); ok {
+	if s, ok := b.sess.(interface {
+		SetChannelSender(string, func(context.Context, string) error)
+	}); ok {
 		s.SetChannelSender("qq", func(ctx context.Context, text string) error {
 			formatted := QQMarkdown(text)
 			return b.SendActiveMessage(ctx, msg, MsgTypeMarkdown, formatted)
@@ -184,6 +186,15 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 			data, filename, err := downloadFile(ctx, file.URL)
 			if err != nil {
 				b.log.WarnContext(ctx, logger.CatApp, "qqbot failed to download attachment", "url", file.URL, "err", err.Error())
+				continue
+			}
+			if isSilkAudio(data) {
+				b.log.InfoContext(ctx, logger.CatApp, "qqbot SILK audio detected from file attachment", "size", len(data))
+				if !b.processAudioData(ctx, &msg, data) {
+					return
+				}
+				promptBuilder.Reset()
+				promptBuilder.WriteString(msg.Content)
 				continue
 			}
 
@@ -376,16 +387,11 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 	}
 }
 
-// processAudioMessage downloads the SILK audio from msg.AudioURL, transcodes to
-// WAV via ffmpeg, and transcribes using whisper.cpp. On success, msg.Content is
+// processAudioMessage downloads the SILK audio from msg.AudioURL and transcribes
+// it. On success, msg.Content is
 // set to the transcript and the caller continues normal text processing.
 // Returns false if the audio could not be processed (error reply already sent).
 func (b *SessionBridge) processAudioMessage(ctx context.Context, msg *QQMessage) bool {
-	if b.transcriber == nil || !b.transcriber.Available() {
-		b.sendReply(ctx, *msg, MsgTypeText, "语音转写未配置，请发送文字消息。")
-		return false
-	}
-
 	b.log.InfoContext(ctx, logger.CatApp, "qqbot audio message received",
 		"url", msg.AudioURL)
 
@@ -398,6 +404,15 @@ func (b *SessionBridge) processAudioMessage(ctx context.Context, msg *QQMessage)
 	}
 	b.log.InfoContext(ctx, logger.CatApp, "qqbot audio downloaded",
 		"size", len(audioData))
+
+	return b.processAudioData(ctx, msg, audioData)
+}
+
+func (b *SessionBridge) processAudioData(ctx context.Context, msg *QQMessage, audioData []byte) bool {
+	if b.transcriber == nil || !b.transcriber.Available() {
+		b.sendReply(ctx, *msg, MsgTypeText, "语音转写未配置，请发送文字消息。")
+		return false
+	}
 
 	transcript, err := b.transcriber.Transcribe(ctx, audioData)
 	if err != nil {

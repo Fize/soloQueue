@@ -120,10 +120,14 @@ export function SpeechSection({ config, onChange, onSave, status, onInstall, ins
           <p className="text-xs font-semibold text-muted-foreground">{t('config.speechStatus')}</p>
           <div className="flex flex-wrap gap-x-6 gap-y-1">
             {statusIndicator('whisper-cli', status.whisperAvailable)}
+            {statusIndicator('silk-decoder', status.silkAvailable)}
             {statusIndicator(t('config.speechModelFile'), status.modelExists)}
           </div>
           {status.whisperAvailable && (
             <p className="text-xs text-muted-foreground/70 font-mono">{status.whisperBinary}</p>
+          )}
+          {status.silkAvailable && (
+            <p className="text-xs text-muted-foreground/70 font-mono">{status.silkDecoder}</p>
           )}
           {status.modelExists && (
             <p className="text-xs text-muted-foreground/70 font-mono">{status.modelPath}</p>

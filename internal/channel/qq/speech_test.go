@@ -1,12 +1,61 @@
 package qq
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
 
 // ─── AudioURL ──────────────────────────────────────────────────────────────────
+
+func TestIsSilkAudio(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{name: "standard header", data: []byte("#!SILK_V3 payload"), want: true},
+		{name: "QQ wrapper", data: append([]byte{0x02}, []byte("#!SILK_V3 payload")...), want: true},
+		{name: "ordinary file", data: []byte("not audio"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSilkAudio(tt.data); got != tt.want {
+				t.Errorf("isSilkAudio() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTranscribe_DecodesSilkBeforeWhisper(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg is required for speech transcription")
+	}
+	dir := t.TempDir()
+	decoderPath := filepath.Join(dir, "silk-decoder")
+	if err := os.WriteFile(decoderPath, []byte("#!/bin/sh\n[ \"$1\" = -Fs_API ] && [ \"$2\" = 16000 ] || exit 1\nprintf '\\0\\0\\0\\0' > \"$4\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	whisperPath := filepath.Join(dir, "whisper-cli")
+	if err := os.WriteFile(whisperPath, []byte("#!/bin/sh\nprintf 'transcript from whisper\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	modelPath := filepath.Join(dir, "ggml-small.bin")
+	if err := os.WriteFile(modelPath, []byte("model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tr := &Transcriber{binary: whisperPath, silkDecoder: decoderPath, modelDir: dir, model: "small"}
+	got, err := tr.Transcribe(context.Background(), append([]byte{0x02}, []byte("#!SILK_V3 test")...))
+	if err != nil {
+		t.Fatalf("Transcribe: %v", err)
+	}
+	if got != "transcript from whisper" {
+		t.Errorf("Transcribe() = %q, want transcript from whisper", got)
+	}
+}
 
 func TestAudioURL_AudioAttachment(t *testing.T) {
 	atts := []QQAttachment{
@@ -129,9 +178,10 @@ func TestTranscriberAvailable_BothPresent(t *testing.T) {
 	}
 
 	tr := &Transcriber{
-		binary:   "/usr/bin/whisper-cli", // fake
-		modelDir: dir,
-		model:    "small",
+		binary:      "/usr/bin/whisper-cli",  // fake
+		silkDecoder: "/usr/bin/silk-decoder", // fake
+		modelDir:    dir,
+		model:       "small",
 	}
 	if !tr.Available() {
 		t.Error("Available() should be true when binary and model file both exist")

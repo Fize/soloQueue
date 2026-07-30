@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -703,6 +704,8 @@ type speechStatusResponse struct {
 	ModelExists      bool   `json:"modelExists"`
 	WhisperBinary    string `json:"whisperBinary"`
 	WhisperAvailable bool   `json:"whisperAvailable"`
+	SilkDecoder      string `json:"silkDecoder"`
+	SilkAvailable    bool   `json:"silkAvailable"`
 	Ready            bool   `json:"ready"`
 }
 
@@ -740,8 +743,10 @@ func (m *Mux) handleGetSpeechStatus(w http.ResponseWriter, r *http.Request) {
 		status.WhisperBinary = path
 		status.WhisperAvailable = true
 	}
+	status.SilkDecoder = qqbot.NewTranscriber("", "").SilkDecoder()
+	status.SilkAvailable = status.SilkDecoder != ""
 
-	status.Ready = status.Enabled && status.ModelExists && status.WhisperAvailable
+	status.Ready = status.Enabled && status.ModelExists && status.WhisperAvailable && status.SilkAvailable
 	m.writeJSON(w, http.StatusOK, status)
 }
 
@@ -750,8 +755,10 @@ type speechInstallResponse struct {
 	Success       bool   `json:"success"`
 	BinaryPath    string `json:"binaryPath,omitempty"`
 	ModelPath     string `json:"modelPath,omitempty"`
+	SilkPath      string `json:"silkPath,omitempty"`
 	BinaryMessage string `json:"binaryMessage,omitempty"`
 	ModelMessage  string `json:"modelMessage,omitempty"`
+	SilkMessage   string `json:"silkMessage,omitempty"`
 	Error         string `json:"error,omitempty"`
 	Detail        string `json:"detail,omitempty"` // step-by-step instructions on failure
 }
@@ -811,7 +818,23 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 		resp.BinaryMessage = msg
 	}
 
-	// ── Step 2: Download model file ────────────────────────────────────
+	// ── Step 2: Install SILK decoder ────────────────────────────────────
+	if decoder := qqbot.NewTranscriber("", "").SilkDecoder(); decoder != "" {
+		resp.SilkPath = decoder
+		resp.SilkMessage = "already exists"
+	} else {
+		installed, msg, detail, err := installSilkDecoder()
+		if err != nil {
+			resp.Error = err.Error()
+			resp.Detail = detail
+			m.writeJSON(w, http.StatusInternalServerError, resp)
+			return
+		}
+		resp.SilkPath = installed
+		resp.SilkMessage = msg
+	}
+
+	// ── Step 3: Download model file ────────────────────────────────────
 
 	modelPath := filepath.Join(modelDir, "ggml-"+model+".bin")
 	if _, err := os.Stat(modelPath); err == nil {
@@ -839,6 +862,73 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 
 	resp.Success = true
 	m.writeJSON(w, http.StatusOK, resp)
+}
+
+const silkDecoderRepo = "https://github.com/kn007/silk-v3-decoder.git"
+
+// installSilkDecoder installs the decoder into ~/.soloqueue/bin. macOS and
+// Linux build the upstream SDK; Windows uses the upstream prebuilt executable.
+func installSilkDecoder() (binaryPath, message, detail string, err error) {
+	workDir, err := config.DefaultWorkDir()
+	if err != nil {
+		return "", "", "无法确定 SoloQueue 工作目录。", err
+	}
+	binDir := filepath.Join(workDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return "", "", fmt.Sprintf("无法创建工具目录 %s。", binDir), err
+	}
+	name := "silk-decoder"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	destPath := filepath.Join(binDir, name)
+
+	if _, err := exec.LookPath("git"); err != nil {
+		return "", "", "未找到 git，无法下载安装 SILK decoder。请安装 git 后重试。", err
+	}
+	tmpDir, err := os.MkdirTemp("", "soloqueue-silk-*")
+	if err != nil {
+		return "", "", "无法创建临时安装目录。", err
+	}
+	defer os.RemoveAll(tmpDir)
+	repoDir := filepath.Join(tmpDir, "silk-v3-decoder")
+	if out, err := exec.Command("git", "clone", "--depth", "1", silkDecoderRepo, repoDir).CombinedOutput(); err != nil {
+		return "", "", fmt.Sprintf("无法下载 SILK decoder：%s", strings.TrimSpace(string(out))), err
+	}
+
+	var sourcePath string
+	if runtime.GOOS == "windows" {
+		sourcePath = filepath.Join(repoDir, "windows", "silk_v3_decoder.exe")
+	} else {
+		if out, err := exec.Command("make", "-C", filepath.Join(repoDir, "silk")).CombinedOutput(); err != nil {
+			return "", "", fmt.Sprintf("无法编译 SILK decoder。请安装 C 编译器和 make 后重试：%s", strings.TrimSpace(string(out))), err
+		}
+		sourcePath = filepath.Join(repoDir, "silk", "decoder")
+	}
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return "", "", "SILK decoder 安装文件缺失。", err
+	}
+	defer source.Close()
+	dest, err := os.OpenFile(destPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return "", "", fmt.Sprintf("无法写入 %s。", destPath), err
+	}
+	_, copyErr := io.Copy(dest, source)
+	closeErr := dest.Close()
+	if copyErr != nil || closeErr != nil {
+		return "", "", "无法写入 SILK decoder。", firstError(copyErr, closeErr)
+	}
+	return destPath, "installed to SoloQueue tools directory", "", nil
+}
+
+func firstError(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // installWhisperBinary tries to install whisper-cli.

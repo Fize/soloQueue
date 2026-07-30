@@ -232,6 +232,8 @@ export interface SpeechStatus {
   modelExists: boolean;
   whisperBinary: string;
   whisperAvailable: boolean;
+  silkDecoder: string;
+  silkAvailable: boolean;
   ready: boolean;
 }
 
@@ -239,8 +241,10 @@ export interface SpeechInstallResponse {
   success: boolean;
   binaryPath?: string;
   modelPath?: string;
+  silkPath?: string;
   binaryMessage?: string;
   modelMessage?: string;
+  silkMessage?: string;
   error?: string;
   detail?: string;  // step-by-step instructions on failure
 }

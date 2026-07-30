@@ -46,9 +46,10 @@ func StartQQBots(cfg *config.GlobalService, mgr *session.SessionManager, l2Store
 				"model", transcriber.Model(),
 				"model_path", transcriber.ModelPath(),
 				"binary", transcriber.Binary(),
+				"silk_decoder", transcriber.SilkDecoder(),
 			)
 		} else {
-			mainLog.Warn(logger.CatApp, "speech enabled but whisper-cli or model file not found",
+			mainLog.Warn(logger.CatApp, "speech enabled but required decoder, whisper-cli, or model file not found",
 				"model", settings.Speech.Model,
 				"model_dir", modelDir,
 			)
