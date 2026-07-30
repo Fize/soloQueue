@@ -19,6 +19,7 @@ import (
 // mockSession implements the Session interface for testing.
 type mockSession struct {
 	idle             bool
+	idleFn           func() bool
 	queued           []string
 	askStreamFn      func(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
 	modelParams      *iface.ModelOverrideParams
@@ -26,7 +27,12 @@ type mockSession struct {
 	sendViaChannelFn func(ctx context.Context, text string) error
 }
 
-func (m *mockSession) Idle() bool                 { return m.idle }
+func (m *mockSession) Idle() bool {
+	if m.idleFn != nil {
+		return m.idleFn()
+	}
+	return m.idle
+}
 func (m *mockSession) QueueMessage(prompt string) { m.queued = append(m.queued, prompt) }
 func (m *mockSession) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
 	if m.askStreamFn != nil {
@@ -240,6 +246,78 @@ func TestClaimOneTimeRunDeduplicatesSameSchedule(t *testing.T) {
 	task.NextRunAt = task.NextRunAt.Add(time.Minute)
 	if !s.claimOneTimeRun(task) {
 		t.Fatal("updated scheduled instant should be accepted")
+	}
+}
+
+func TestL1QueueExecutesDeferredTaskOnlyOnce(t *testing.T) {
+	store := openTestDB(t)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title:       "Deferred L1 task",
+		TaskType:    "general",
+		Expression:  "0 19 * * *",
+		Instruction: "run once after L1 is idle",
+		TargetAgent: "L1",
+		NextRunAt:   time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	var idle atomic.Bool
+	var asks atomic.Int32
+	completed := make(chan struct{}, 1)
+	session := &mockSession{
+		idleFn: idle.Load,
+		askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+			if asks.Add(1) == 1 {
+				completed <- struct{}{}
+			}
+			ch := make(chan iface.AgentEvent)
+			close(ch)
+			return ch, nil
+		},
+	}
+	s := NewScheduler(store, &mockSessionManager{session: session}, nil)
+	s.SetWorkDir(t.TempDir())
+	go s.l1QueueLoop()
+	t.Cleanup(s.Stop)
+
+	// A busy L1 queues the task instead of running it immediately.
+	s.executeTask(*task)
+	deadline := time.Now().Add(time.Second)
+	for {
+		s.l1Mu.Lock()
+		queued := len(s.l1Queue)
+		s.l1Mu.Unlock()
+		if queued == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("deferred task was not queued")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := asks.Load(); got != 0 {
+		t.Fatalf("Ask count while L1 is busy = %d, want 0", got)
+	}
+
+	idle.Store(true)
+	select {
+	case <-completed:
+	case <-time.After(time.Second):
+		t.Fatal("queued task did not execute after L1 became idle")
+	}
+
+	// The queue entry must be removed after it is consumed, so it cannot run again.
+	time.Sleep(25 * time.Millisecond)
+	if got := asks.Load(); got != 1 {
+		t.Fatalf("Ask count after deferred task completed = %d, want 1", got)
+	}
+	s.l1Mu.Lock()
+	queued := len(s.l1Queue)
+	s.l1Mu.Unlock()
+	if queued != 0 {
+		t.Fatalf("L1 queue length after execution = %d, want 0", queued)
 	}
 }
 

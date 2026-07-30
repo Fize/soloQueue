@@ -971,7 +971,7 @@ func (s *Scheduler) l1QueueLoop() {
 		}
 
 		ct := s.l1Queue[0]
-		s.l1Queue = s.l1Queue[0:]
+		s.l1Queue = s.l1Queue[1:]
 		s.l1Mu.Unlock()
 
 		// Wait for L1 to be idle.
