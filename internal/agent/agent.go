@@ -313,6 +313,14 @@ func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Con
 	return true
 }
 
+// SetSystemPrompt replaces the agent's system prompt.
+// The caller is responsible for also updating the context window
+// via ctxwin.ContextWindow.ReplacePrimarySystem().
+// Safe to call when the agent is idle (between jobs).
+func (a *Agent) SetSystemPrompt(prompt string) {
+	a.Def.SystemPrompt = prompt
+}
+
 // RegisterTool registers a tool into the agent's ToolRegistry at runtime.
 func (a *Agent) RegisterTool(t tools.Tool) error {
 	if a.tools == nil {

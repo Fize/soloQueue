@@ -242,6 +242,15 @@ func (s *Supervisor) ChildCount() int {
 	return count
 }
 
+// UpdateLeaderPrompt replaces the L2 leader's system prompt and re-wires
+// delegate tools. The caller must have already rebuilt the prompt from the
+// updated template, and must also update the Session-level ContextWindow
+// via ctxwin.ContextWindow.ReplacePrimarySystem().
+func (s *Supervisor) UpdateLeaderPrompt(newPrompt string, allTemplates []AgentTemplate) {
+	s.agent.SetSystemPrompt(newPrompt)
+	s.WireSpawnFns(allTemplates)
+}
+
 // ─── WireSpawnFns ──────────────────────────────────────────────────────────
 
 // WireSpawnFns rewires the L2 agent's DelegateTools to use Supervisor.SpawnChild
@@ -252,13 +261,20 @@ func (s *Supervisor) ChildCount() int {
 // allTemplates is the full template list used to resolve worker templates by ID.
 func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 	l2 := s.Agent()
+	if l2.tools == nil {
+		return
+	}
 	for _, tmpl := range allTemplates {
 		if tmpl.IsLeader || tmpl.Group == "" {
 			continue
 		}
 		tmpl := tmpl // capture loop variable
 		l2.SetDelegateSpawnFn(tmpl.ID, func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
-			child, err := s.SpawnChild(ctx, tmpl, wd)
+			freshTmpl, ok := s.factory.ResolveTemplate(ctx, tmpl.ID)
+			if !ok {
+				freshTmpl = tmpl
+			}
+			child, err := s.SpawnChild(ctx, freshTmpl, wd)
 			if err != nil {
 				return nil, err
 			}
@@ -284,23 +300,11 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 				}
 
 				if !ok && baseAgentName != "" {
-					for i := range allTemplates {
-						if strings.EqualFold(allTemplates[i].ID, baseAgentName) {
-							tmpl = allTemplates[i]
-							ok = true
-							break
-						}
-					}
+					tmpl, ok = s.factory.ResolveTemplate(ctx, baseAgentName)
 				}
 
 				if !ok {
-					for i := range allTemplates {
-						if strings.EqualFold(allTemplates[i].ID, name) {
-							tmpl = allTemplates[i]
-							ok = true
-							break
-						}
-					}
+					tmpl, ok = s.factory.ResolveTemplate(ctx, name)
 				}
 
 				tmpl.ID = strings.ToLower(name)

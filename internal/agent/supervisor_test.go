@@ -138,3 +138,21 @@ func TestSelfReapableAdapter_CleanupRunsOnce(t *testing.T) {
 		t.Errorf("agent state = %s, want stopped", state)
 	}
 }
+
+func TestSupervisor_UpdateLeaderPrompt(t *testing.T) {
+	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	// Agent needs a tool registry (even empty) for WireSpawnFns not to panic
+	a := NewAgent(Definition{ID: "l2", SystemPrompt: "old prompt"}, fakeLLM, nil,
+		WithTools())
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
+	sv := NewSupervisor(a, nil, nil)
+	sv.UpdateLeaderPrompt("new prompt", nil)
+
+	if a.Def.SystemPrompt != "new prompt" {
+		t.Fatalf("UpdateLeaderPrompt: agent.SystemPrompt = %q, want %q", a.Def.SystemPrompt, "new prompt")
+	}
+}

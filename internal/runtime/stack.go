@@ -107,6 +107,79 @@ func (s *Stack) ReloadFromTeamStore() error {
 	return nil
 }
 
+// ReloadAgentTemplates re-reads agent templates and groups from disk, updates
+// the factory cache, and propagates changes to running L2 supervisors.
+// Called by the hot-reload watcher when agents/ or groups/ files change.
+func (s *Stack) ReloadAgentTemplates(log *logger.Logger, agentsDir, groupsDir string) error {
+	if agentsDir == "" {
+		return nil
+	}
+	// 1. Re-read templates and groups from disk
+	newTemplates, err := agent.LoadAgentTemplates(agentsDir)
+	if err != nil {
+		return fmt.Errorf("reload agent templates: %w", err)
+	}
+	var newGroups map[string]prompt.GroupFile
+	if groupsDir != "" {
+		newGroups, err = prompt.LoadGroups(groupsDir)
+		if err != nil {
+			log.Warn(logger.CatApp, "reload agent templates: reload groups failed, using cached", "err", err.Error())
+		}
+	}
+	if newGroups == nil {
+		s.CfgMu.RLock()
+		newGroups = s.Groups
+		s.CfgMu.RUnlock()
+	}
+
+	// 2. Update factory cache (ensures future Create() calls use fresh templates)
+	if s.AgentFactory != nil {
+		s.AgentFactory.ReplaceTeamCatalog(newTemplates, newGroups)
+	}
+
+	// 3. Update stack's own cache
+	s.CfgMu.Lock()
+	s.AllTemplates = newTemplates
+	if newGroups != nil {
+		s.Groups = newGroups
+	}
+	supervisors := make([]*agent.Supervisor, len(s.Supervisors))
+	copy(supervisors, s.Supervisors)
+	s.CfgMu.Unlock()
+
+	// 4. Build leader index from templates for lookup
+	leaders := make(map[string]agent.AgentTemplate)
+	for _, tmpl := range newTemplates {
+		if tmpl.IsLeader {
+			leaders[tmpl.ID] = tmpl
+		}
+	}
+
+	// 5. Propagate to running supervisors
+	for _, sv := range supervisors {
+		if sv.Agent() == nil {
+			continue
+		}
+		// Check if this supervisor's leader template was updated
+		leaderID := sv.Agent().Def.ID
+		newTmpl, ok := leaders[leaderID]
+		if !ok {
+			continue
+		}
+		// Rebuild the L2 system prompt from the updated template
+		newPrompt, err := s.AgentFactory.RebuildLeaderPrompt(newTmpl, sv.Agent().WorkDir)
+		if err != nil {
+			log.Warn(logger.CatApp, "reload agent templates: rebuild leader prompt failed",
+				"leader", leaderID, "err", err.Error())
+			continue
+		}
+		sv.UpdateLeaderPrompt(newPrompt, newTemplates)
+		log.Info(logger.CatApp, "reload agent templates: updated leader prompt",
+			"leader", leaderID, "group", sv.Group())
+	}
+	return nil
+}
+
 // Shutdown gracefully reaps all child Agents managed by L2 Supervisors.
 func (s *Stack) Shutdown() {
 	if s.promptWatcherClose != nil {

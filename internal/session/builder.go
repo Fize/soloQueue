@@ -627,7 +627,12 @@ func (b *Builder) newL1LeaderDelegateTool(sessLog *logger.Logger, leader prompt.
 		if loc, ok := b.RT.AgentRegistry.LocateIdle(leader.Name); ok {
 			return loc, nil
 		}
-		child, _, err := b.RT.AgentFactory.Create(ctx, leaderTmpl, projectDir)
+		// Resolve fresh template from factory at runtime (hot-reload support)
+		freshTmpl, ok := b.RT.AgentFactory.ResolveTemplate(ctx, leader.Name)
+		if !ok {
+			freshTmpl = leaderTmpl // fallback to captured
+		}
+		child, _, err := b.RT.AgentFactory.Create(ctx, freshTmpl, projectDir)
 		if err != nil {
 			return nil, fmt.Errorf("spawn leader %q: %w", leader.Name, err)
 		}

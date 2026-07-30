@@ -1342,3 +1342,14 @@ func TestAgent_Watch_IdleAgentProducesNoEvents(t *testing.T) {
 		// expected: no events
 	}
 }
+
+func TestAgent_SetSystemPrompt(t *testing.T) {
+	a := NewAgent(Definition{ID: "test", SystemPrompt: "original"}, &FakeLLM{}, nil)
+	if a.Def.SystemPrompt != "original" {
+		t.Fatalf("initial prompt = %q, want %q", a.Def.SystemPrompt, "original")
+	}
+	a.SetSystemPrompt("updated prompt")
+	if a.Def.SystemPrompt != "updated prompt" {
+		t.Fatalf("after SetSystemPrompt = %q, want %q", a.Def.SystemPrompt, "updated prompt")
+	}
+}

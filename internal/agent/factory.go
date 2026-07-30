@@ -96,6 +96,14 @@ type AgentFactory interface {
 
 	// Registry returns the internal Agent Registry (for use by Supervisor)
 	Registry() *Registry
+
+	// ResolveTemplate returns the agent template by ID, first checking the
+	// DB-backed teamstore, then falling back to the in-memory template cache.
+	ResolveTemplate(ctx context.Context, id string) (AgentTemplate, bool)
+
+	// RebuildLeaderPrompt rebuilds the L2 leader system prompt from a template
+	// using the factory's cached templates and groups.
+	RebuildLeaderPrompt(tmpl AgentTemplate, workDir string) (string, error)
 }
 
 // CreateOptions provides optional overrides for agent creation.
@@ -210,6 +218,54 @@ func (f *DefaultFactory) ReplaceTeamCatalog(templates []AgentTemplate, groups ma
 	f.templates = templateMap
 	f.groups = groupMap
 	f.mu.Unlock()
+}
+
+// RebuildLeaderPrompt rebuilds the L2 leader system prompt from a template,
+// using the factory's cached templates and groups. Returns the new prompt
+// that the caller should set on the agent and context window.
+func (f *DefaultFactory) RebuildLeaderPrompt(tmpl AgentTemplate, workDir string) (string, error) {
+	f.mu.RLock()
+	templates := make(map[string]AgentTemplate, len(f.templates))
+	for id, t := range f.templates {
+		templates[id] = t
+	}
+	groups := make(map[string]prompt.GroupFile, len(f.groups))
+	for name, g := range f.groups {
+		groups[name] = g
+	}
+	toolsCfg := f.toolsCfg
+	exploreDir := f.exploreDir
+	f.mu.RUnlock()
+
+	// Compute planDir and effective workDir (same logic as CreateWithOptions)
+	planDir := toolsCfg.PlanDir
+	if f.workDir != "" && tmpl.Group != "" {
+		teamPlanDir := filepath.Join(f.workDir, "plan", tmpl.Group)
+		if err := os.MkdirAll(teamPlanDir, 0o755); err == nil {
+			planDir = teamPlanDir
+		}
+	}
+	effectiveWorkDir := workDir
+	if effectiveWorkDir == "" || effectiveWorkDir == f.workDir {
+		if tmpl.Group != "" && f.workDir != "" {
+			effectiveWorkDir = filepath.Join(f.workDir, "workspace", tmpl.Group)
+		} else if effectiveWorkDir == "" {
+			effectiveWorkDir = f.workDir
+		}
+	}
+	if exploreDir == "" && effectiveWorkDir != "" {
+		exploreDir = prompt.ExploreDir(effectiveWorkDir)
+	}
+
+	// Load project-level resources
+	var projRes projectResources
+	if effectiveWorkDir != "" && effectiveWorkDir != f.workDir {
+		projRes = f.loadProjectResources(effectiveWorkDir)
+	}
+
+	hasPermanentMemory := toolsCfg.MemoryEngine != nil
+	newPrompt := buildL2SystemPrompt(tmpl, templates, groups, planDir, effectiveWorkDir, exploreDir, projRes.agents, hasPermanentMemory)
+	return newPrompt, nil
 }
 
 // WithWorkDir sets the workDir (~/.soloqueue) for computing team-specific plan directories.
@@ -570,7 +626,11 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			peer := peer // capture loop variable
 			dt := tools.NewDelegateTool(peer.ID, peer.Description, 25*time.Minute, nil, f.log)
 			dt.SpawnFn = func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
-				child, _, err := f.Create(ctx, peer, wd)
+				freshTmpl, ok := f.ResolveTemplate(ctx, peer.ID)
+				if !ok {
+					freshTmpl = peer
+				}
+				child, _, err := f.Create(ctx, freshTmpl, wd)
 				if err != nil {
 					return nil, err
 				}

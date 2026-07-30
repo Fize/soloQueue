@@ -601,11 +601,22 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 				if debounceTimer != nil {
 					debounceTimer.Stop()
 				}
+				// Capture flags for the closure
+				changedAgents := isAgentsFile
+				changedGroups := isGroupsFile
 				debounceTimer = time.AfterFunc(200*time.Millisecond, func() {
 					if err := rt.RebuildPrompt(); err != nil {
 						log.Warn(logger.CatApp, "prompt hot-reload: rebuild failed", "err", err.Error())
 					} else {
 						log.Info(logger.CatApp, "prompt hot-reload completed", "file", filename)
+					}
+					// Propagate template/group changes to factory cache and running agents
+					if (changedAgents || changedGroups) && agentsDir != "" {
+						if err := rt.ReloadAgentTemplates(log, agentsDir, groupsDir); err != nil {
+							log.Warn(logger.CatApp, "prompt hot-reload: template propagation failed", "err", err.Error())
+						} else {
+							log.Info(logger.CatApp, "prompt hot-reload: templates propagated to factory and supervisors", "file", filename)
+						}
 					}
 				})
 				debounceMu.Unlock()
