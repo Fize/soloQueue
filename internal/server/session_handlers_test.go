@@ -100,7 +100,7 @@ func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 	}
 
 	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
-	
+
 	// Write the exact 3 events from the user's real log
 	events := []string{
 		`{"ts":"2026-06-19T09:03:39.426975+08:00","type":"message","msg":{"role":"user","content":"Based on this latest news, analyze the possible market trends after the holiday."}}`,
@@ -161,6 +161,148 @@ func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 
 	if !foundToolCall {
 		t.Errorf("Expected tool_call segment not found in history")
+	}
+}
+
+func TestHTTP_SessionHistory_DedupPartialFlush(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	// Reproduces the production duplicate: assistant content written once by
+	// the agent's per-iteration push hook (with tool_calls), then again by the
+	// session's partial flush (same content, no tool_calls) after a cancel.
+	events := []string{
+		`{"ts":"2026-07-31T16:37:49+08:00","type":"message","msg":{"role":"user","content":"哈哈"}}`,
+		`{"ts":"2026-07-31T16:37:57+08:00","type":"message","msg":{"role":"assistant","content":"哈哈哈别笑","reasoning":"thinking...","tool_calls":[{"id":"call_1","type":"function","name":"delegate","arguments":"{}"}]}}`,
+		`{"ts":"2026-07-31T16:37:57+08:00","type":"message","msg":{"role":"tool","content":"","name":"delegate","tool_call_id":"call_1","ephemeral":true}}`,
+		`{"ts":"2026-07-31T16:38:23+08:00","type":"message","msg":{"role":"assistant","content":"哈哈哈别笑","reasoning":"thinking..."}}`,
+	}
+
+	f, err := os.Create(timelinePath)
+	if err != nil {
+		t.Fatalf("Create timeline file: %v", err)
+	}
+	for _, ev := range events {
+		_, _ = f.WriteString(ev + "\n")
+	}
+	f.Close()
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Segments []struct {
+				Text string `json:"text"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	var contents []string
+	for _, msg := range resp.Messages {
+		for _, seg := range msg.Segments {
+			if seg.Text != "" {
+				contents = append(contents, seg.Text)
+			}
+		}
+	}
+	// "哈哈哈别笑" must appear exactly once (dedup), not twice.
+	var dup int
+	for _, c := range contents {
+		if c == "哈哈哈别笑" {
+			dup++
+		}
+	}
+	if dup != 1 {
+		t.Errorf("content rendered %d times, want 1; contents=%q", dup, contents)
+	}
+}
+
+func TestHTTP_SessionHistory_DoesNotDedupLegitRepeats(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	// Two consecutive assistant rows with identical content but NO tool_calls
+	// are not a partial-flush duplicate signature (that requires the previous
+	// row to carry tool_calls). Both segments must survive — the dedup guard
+	// must not drop legitimate repeated text.
+	events := []string{
+		`{"ts":"2026-07-31T10:00:00+08:00","type":"message","msg":{"role":"user","content":"hi"}}`,
+		`{"ts":"2026-07-31T10:00:05+08:00","type":"message","msg":{"role":"assistant","content":"ok","ts":"2026-07-31T10:00:05+08:00"}}`,
+		`{"ts":"2026-07-31T10:00:10+08:00","type":"message","msg":{"role":"assistant","content":"ok","ts":"2026-07-31T10:00:10+08:00"}}`,
+	}
+
+	f, err := os.Create(timelinePath)
+	if err != nil {
+		t.Fatalf("Create timeline file: %v", err)
+	}
+	for _, ev := range events {
+		_, _ = f.WriteString(ev + "\n")
+	}
+	f.Close()
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Segments []struct {
+				Text string `json:"text"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	var contents []string
+	for _, msg := range resp.Messages {
+		for _, seg := range msg.Segments {
+			if seg.Text != "" {
+				contents = append(contents, seg.Text)
+			}
+		}
+	}
+	// Both "ok" segments must render (merged into one assistant message).
+	var n int
+	for _, c := range contents {
+		if c == "ok" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("content rendered %d times, want 2 (legit repeat must not be deduped); contents=%q", n, contents)
 	}
 }
 
@@ -245,7 +387,7 @@ func TestHTTP_SessionHistory_Delegation_Completed(t *testing.T) {
 	}
 
 	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
-	
+
 	// Write the exact 4 events (with completion)
 	events := []string{
 		`{"ts":"2026-06-19T09:03:39.426975+08:00","type":"message","msg":{"role":"user","content":"Based on this latest news, analyze the possible market trends after the holiday."}}`,

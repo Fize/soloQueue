@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,7 +14,9 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 // ─── Test helpers ──────────────────────────────────────────────────────
@@ -633,6 +636,286 @@ func TestSession_AskStream_CloseTurnDoneIdempotent(t *testing.T) {
 }
 
 // ─── Level lock helpers ─────────────────────────────────────────────────
+
+// startTimelineSession builds a session whose CW push hook writes to a real
+// timeline (mirroring the production builder wiring), returning the session
+// plus a function to read back the persisted assistant rows.
+func startTimelineSession(t *testing.T, fake *agent.FakeLLM, tools ...tools.Tool) (*Session, func() []string) {
+	t.Helper()
+	dir := t.TempDir()
+	tl, err := timeline.NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("timeline.NewWriter: %v", err)
+	}
+	t.Cleanup(func() { _ = tl.Close() })
+
+	opts := []agent.Option{}
+	if len(tools) > 0 {
+		opts = append(opts, agent.WithTools(tools...))
+	}
+	a := agent.NewAgent(agent.Definition{ID: "tl-agent"}, fake, nil, opts...)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("agent Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(2 * time.Second) })
+
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer(),
+		ctxwin.WithPushHook(func(msg ctxwin.Message) {
+			if msg.Role != ctxwin.RoleAssistant {
+				return
+			}
+			var tcs []timeline.ToolCallRec
+			for _, tc := range msg.ToolCalls {
+				tcs = append(tcs, timeline.ToolCallRec{
+					ID:        tc.ID,
+					Type:      tc.Type,
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				})
+			}
+			_ = tl.AppendMessage(&timeline.MessagePayload{
+				Role:             string(msg.Role),
+				Content:          msg.Content,
+				ReasoningContent: msg.ReasoningContent,
+				ToolCalls:        tcs,
+				AgentID:          "tl-agent",
+			})
+		}),
+	)
+	cw.SetReplayMode(true)
+	cw.Push(ctxwin.RoleSystem, "sys")
+	cw.SetReplayMode(false)
+
+	s := NewSession("s1", "t1", a, cw, tl, nil)
+
+	readAssistants := func() []string {
+		var out []string
+		events, err := timeline.ReadFileEvents(timelineLatestFile(dir))
+		if err != nil {
+			return out
+		}
+		for _, ev := range events {
+			if ev.EventType != timeline.EventMessage || ev.Message == nil {
+				continue
+			}
+			if ev.Message.Role == "assistant" && ev.Message.Content != "" {
+				out = append(out, ev.Message.Content)
+			}
+		}
+		return out
+	}
+	return s, readAssistants
+}
+
+// timelineLatestFile returns the newest timeline-*.jsonl in dir.
+func timelineLatestFile(dir string) string {
+	files, _ := timeline.ListTimelineFiles(dir, "timeline")
+	if len(files) == 0 {
+		return ""
+	}
+	return files[len(files)-1]
+}
+
+// syncEchoTool is a synchronous tool used to trigger postIteration CW pushes
+// (assistant content with tool_calls) inside the agent tool loop.
+type syncEchoTool struct{}
+
+func (syncEchoTool) Name() string                { return "echo" }
+func (syncEchoTool) Description() string         { return "echoes its argument" }
+func (syncEchoTool) Parameters() json.RawMessage { return json.RawMessage(`{}`) }
+func (syncEchoTool) Execute(ctx context.Context, args string) (string, error) {
+	return "echoed", nil
+}
+
+// TestSession_AskStream_CancelAfterToolCall_NoDuplicateTimeline is a regression
+// test for duplicate timeline rows: when a turn is cancelled after the agent's
+// postIteration has already persisted assistant content (tool loop iteration),
+// the partial flush must NOT write the same content a second time.
+func TestSession_AskStream_CancelAfterToolCall_NoDuplicateTimeline(t *testing.T) {
+	// Turn 0: content + tool_call (postIteration → pushHook → timeline).
+	// Turn 1: delayed content — cancellation lands here, after content was
+	// already persisted, reproducing the production duplicate-row bug.
+	var llmCalls int
+	fake := &agent.FakeLLM{
+		StreamDeltas: [][]string{{"first", ""}, {"second"}},
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
+			{
+				{Index: 0, ID: "call_1", Name: "echo", Arguments: `{}`},
+			},
+			nil,
+		},
+		FinishByTurn: []llm.FinishReason{llm.FinishToolCalls, llm.FinishStop},
+		Delay:        300 * time.Millisecond,
+		Hook: func(agent.LLMRequest) {
+			llmCalls++
+		},
+	}
+	s, readAssistants := startTimelineSession(t, fake, syncEchoTool{})
+
+	ch, err := s.AskStream(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+
+	// Wait until the second LLM call (turn 1) is in flight — by then the
+	// first iteration's content is already persisted via postIteration.
+	// Cancelling here exits the forwarder with gotDone=false while accContent
+	// still holds "first", reproducing the production duplicate-row bug.
+	deadline := time.Now().Add(3 * time.Second)
+	for llmCalls < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if llmCalls < 2 {
+		t.Fatal("agent did not reach second LLM call")
+	}
+
+	if err := s.CancelCurrent("test cancel after tool call"); err != nil {
+		t.Fatalf("CancelCurrent: %v", err)
+	}
+	for range ch {
+	}
+
+	// The timeline must contain exactly one row with content "first".
+	var contents []string
+	for _, c := range readAssistants() {
+		if strings.Contains(c, "first") {
+			contents = append(contents, c)
+		}
+	}
+	if len(contents) != 1 {
+		t.Errorf("timeline contains %d rows with content %q, want exactly 1 (duplicate partial flush)", len(contents), contents)
+	}
+}
+
+// TestPartialFlushRemainder covers the TrimPrefix semantics deterministically:
+// the guard must strip only the already-persisted prefix and keep the
+// increment (never swallow it, never duplicate it).
+func TestPartialFlushRemainder(t *testing.T) {
+	cases := []struct {
+		name      string
+		pending   string
+		persisted string
+		want      string
+	}{
+		{"increment preserved", "firstsecond", "first", "second"},
+		{"pure duplicate -> empty", "first", "first", ""},
+		{"nothing persisted -> full buffer", "first", "", "first"},
+		{"no prefix match -> full buffer", "first", "xyz", "first"},
+		{"prefix overlap -> increment", "abc", "a", "bc"},
+		{"multibyte prefix", "中文回复后续", "中文回复", "后续"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := partialFlushRemainder(tc.pending, tc.persisted)
+			if got != tc.want {
+				t.Errorf("partialFlushRemainder(%q, %q) = %q, want %q", tc.pending, tc.persisted, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSession_AskStream_CancelNoDuplicate_AfterSamePrevTurn is a regression
+// test for the assistantDump scoping fix: the persisted-content scan must only
+// cover THIS turn's assistant rows. When a previous turn's reply shares text
+// with this turn's output, the guard must still dedupe correctly.
+func TestSession_AskStream_CancelNoDuplicate_AfterSamePrevTurn(t *testing.T) {
+	// Regression for the assistantDump scoping fix: the persisted-content
+	// scan must only cover THIS turn's assistant rows. Scenario: the CW
+	// already holds a previous turn whose assistant reply shares the exact
+	// same text ("same") as this turn's output. turn 0 emits "same" +
+	// tool_call → postIteration persists "same"; cancellation then triggers
+	// the partial flush with pending="same". If assistantDump wrongly
+	// included the previous turn's "same" (rows before cwLenBeforeTurn),
+	// the prefix check would fail and a duplicate row would be written.
+	fake := &agent.FakeLLM{
+		StreamDeltas: [][]string{{"same", ""}},
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
+			{
+				{Index: 0, ID: "call_1", Name: "echo", Arguments: `{}`},
+			},
+		},
+		FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
+		Delay:        300 * time.Millisecond,
+	}
+
+	dir := t.TempDir()
+	tl, err := timeline.NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("timeline.NewWriter: %v", err)
+	}
+	t.Cleanup(func() { _ = tl.Close() })
+	a := agent.NewAgent(agent.Definition{ID: "tl-agent2"}, fake, nil, agent.WithTools(syncEchoTool{}))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("agent Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(2 * time.Second) })
+	cw2 := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer(),
+		ctxwin.WithPushHook(func(msg ctxwin.Message) {
+			if msg.Role != ctxwin.RoleAssistant {
+				return
+			}
+			_ = tl.AppendMessage(&timeline.MessagePayload{
+				Role:    string(msg.Role),
+				Content: msg.Content,
+				AgentID: "tl-agent2",
+			})
+		}),
+	)
+	cw2.SetReplayMode(true)
+	cw2.Push(ctxwin.RoleSystem, "sys")
+	// Pre-populate the previous turn: user prompt + assistant reply "same".
+	cw2.Push(ctxwin.RoleUser, "first")
+	cw2.Push(ctxwin.RoleAssistant, "same")
+	cw2.SetReplayMode(false)
+	s2 := NewSession("s2", "t1", a, cw2, tl, nil)
+
+	ch2, err := s2.AskStream(context.Background(), "second")
+	if err != nil {
+		t.Fatalf("second AskStream: %v", err)
+	}
+	// Wait until postIteration has persisted "same" (turn 0 completed).
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		events, _ := timeline.ReadFileEvents(timelineLatestFile(dir))
+		found := false
+		for _, ev := range events {
+			if ev.EventType == timeline.EventMessage && ev.Message != nil &&
+				ev.Message.Role == "assistant" && ev.Message.Content == "same" {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for postIteration to persist 'same'")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if err := s2.CancelCurrent("test cancel"); err != nil {
+		t.Fatalf("CancelCurrent: %v", err)
+	}
+	for range ch2 {
+	}
+
+	// Expect exactly 1 "same" row in THIS session's timeline: the turn-0
+	// postIteration row. The partial flush must be skipped — no duplicate.
+	var contents []string
+	events, err := timeline.ReadFileEvents(timelineLatestFile(dir))
+	if err == nil {
+		for _, ev := range events {
+			if ev.EventType == timeline.EventMessage && ev.Message != nil &&
+				ev.Message.Role == "assistant" && ev.Message.Content == "same" {
+				contents = append(contents, ev.Message.Content)
+			}
+		}
+	}
+	if len(contents) != 1 {
+		t.Errorf("content %q persisted %d times, want 1; contents=%q", "same", len(contents), contents)
+	}
+}
 
 func TestParseLevelLockCommand(t *testing.T) {
 	tests := []struct {

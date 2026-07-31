@@ -1164,6 +1164,39 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 				Timestamp: msgTimestamp,
 			})
 		case "assistant":
+			// Dedup: skip duplicate partial-flush events. A cancelled turn can
+			// leave the timeline with the same assistant content written twice:
+			// once by the agent's per-iteration push hook (with tool_calls), and
+			// once by the session's partial flush (no tool_calls, same content).
+			// Detect that signature and skip the redundant event so history does
+			// not render the same content twice.
+			//
+			// Requires the PREVIOUS assistant row to carry tool_call segments:
+			// that combination (assistant-with-tool_calls followed by identical
+			// content without tool_calls) uniquely identifies a partial-flush
+			// duplicate. Without this guard, a legitimate final reply that
+			// happens to repeat an earlier iteration's text would be dropped.
+			if len(msg.ToolCalls) == 0 && msg.Content != "" && len(msgs) > 0 && msgs[len(msgs)-1].Role == "assistant" {
+				lastMsg := msgs[len(msgs)-1]
+				prevHasToolCall := false
+				for _, seg := range lastMsg.Segments {
+					if seg["type"] == "tool_call" {
+						prevHasToolCall = true
+						break
+					}
+				}
+				if prevHasToolCall {
+					for j := len(lastMsg.Segments) - 1; j >= 0; j-- {
+						if lastMsg.Segments[j]["type"] == "content" {
+							if lastText, _ := lastMsg.Segments[j]["text"].(string); lastText == msg.Content {
+								// Same content already rendered — skip this duplicate event.
+								goto nextEvent
+							}
+							break
+						}
+					}
+				}
+			}
 			segments := []map[string]interface{}{}
 			newPendingStart := len(pendingToolCalls) // track new tool calls added in this batch
 			if msg.ReasoningContent != "" {
@@ -1240,6 +1273,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	nextEvent:
 	}
 
 	if msgs == nil {

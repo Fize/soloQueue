@@ -1335,9 +1335,31 @@ enqueued:
 		var accContent strings.Builder // accumulates streamed content for partial flush on non-normal exit
 		var accReasoning strings.Builder
 		var lastPushedContent string // tracks last content pushed to cw (avoids duplicate partial flush)
+		// persistedAssistantDump captures the concatenation of every assistant
+		// content already written to the timeline via the CW push hook (agent's
+		// postIteration pushes assistant(tool_calls) per iteration). Captured
+		// BEFORE rollback truncates the CW, so the partial-flush defer can skip
+		// content that was already persisted (prevents duplicate timeline rows
+		// when a turn is cancelled mid-delegation or after tool execution).
+		var persistedAssistantDump string
+		// Only scans assistant rows pushed AFTER this turn's user message
+		// (index cwLenBeforeTurn). Assistant content from previous turns lives
+		// before that index — including it would make the prefix comparison
+		// fail whenever a previous reply shares text with this turn's output,
+		// silently defeating the duplicate-flush guard.
+		assistantDump := func() string {
+			var b strings.Builder
+			for i := cwLenBeforeTurn; i < s.cw.Len(); i++ {
+				if m, ok := s.cw.MessageAt(i); ok && m.Role == ctxwin.RoleAssistant {
+					b.WriteString(m.Content)
+				}
+			}
+			return b.String()
+		}
 		var rollbackOnce sync.Once
 		rollbackTurn := func() {
 			rollbackOnce.Do(func() {
+				persistedAssistantDump = assistantDump()
 				s.mu.Lock()
 				s.cw.Truncate(cwLenBeforeTurn)
 				s.mu.Unlock()
@@ -1358,6 +1380,31 @@ enqueued:
 				// content) and the session is force-killed before the last DoneEvent.
 				if pending == lastPushedContent {
 					return
+				}
+				// The accumulated content may already be persisted by the agent's
+				// per-iteration CW pushes (postIteration → pushHook → timeline).
+				// When a turn is cancelled after tool execution / async delegation,
+				// the agent has already written the earlier iterations' content;
+				// flushing the whole buffer again produces duplicate timeline rows.
+				// Strip the already-persisted prefix and flush only the increment —
+				// this preserves content produced by the cancelled in-flight turn
+				// while avoiding the duplicate row for what was already written.
+				dump := persistedAssistantDump
+				if dump == "" {
+					// rollbackTurn never ran (e.g. srcCh closed without a DoneEvent):
+					// scan the CW directly — it still holds the persisted content.
+					dump = assistantDump()
+				}
+				if dump != "" {
+					pending = partialFlushRemainder(pending, dump)
+					if pending == "" {
+						s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial flush skipped (content already persisted by push hook)",
+							"session_id", s.ID,
+							"content_len", accContent.Len(),
+							"persisted_len", len(dump),
+						)
+						return
+					}
 				}
 				_ = s.tl.AppendMessage(&timeline.MessagePayload{
 					Role:             "assistant",
@@ -1518,6 +1565,25 @@ enqueued:
 		)
 	}()
 	return out, nil
+}
+
+// partialFlushRemainder computes what a non-normal-exit flush should actually
+// write, given the accumulated content buffer and the assistant content that
+// was already persisted this turn by the agent's per-iteration CW pushes.
+//
+// Returns "" when everything pending was already persisted (pure duplicate —
+// flush should be skipped), otherwise the un-persisted increment.
+func partialFlushRemainder(pending, persisted string) string {
+	if persisted == "" {
+		return pending
+	}
+	if strings.HasPrefix(pending, persisted) {
+		return strings.TrimPrefix(pending, persisted)
+	}
+	// Accumulated content does not start with the persisted content (e.g.
+	// previous turns share text with this turn's output): cannot safely
+	// slice — write the whole buffer rather than dropping anything.
+	return pending
 }
 
 // Close marks session as closed, preventing new Asks; does not stop agent
