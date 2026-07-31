@@ -40,30 +40,40 @@ type ActiveRequest struct {
 // It is keyed by both session ID and request ID.
 type ActiveRequestRegistry struct {
 	mu        sync.RWMutex
-	bySession map[string]*ActiveRequest
+	bySession map[string]map[string]*ActiveRequest // sessionID -> requestID -> request
 	byRequest map[string]*ActiveRequest
 }
 
 // NewActiveRequestRegistry creates a new ActiveRequestRegistry instance.
 func NewActiveRequestRegistry() *ActiveRequestRegistry {
 	return &ActiveRequestRegistry{
-		bySession: make(map[string]*ActiveRequest),
+		bySession: make(map[string]map[string]*ActiveRequest),
 		byRequest: make(map[string]*ActiveRequest),
 	}
 }
 
 // Reserve registers a new active request for a session.
-// Returns ErrSessionBusy if the session already has an active request.
+// L1 sessions allow concurrent requests; L2 and other sessions are single-flight.
+// Returns ErrSessionBusy if a single-flight session already has an active request.
 // Returns ErrDuplicateRequestID if the request ID is already registered.
 func (r *ActiveRequestRegistry) Reserve(sessionID, requestID, ownerClientID string) (ActiveRequest, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.bySession[sessionID]; exists {
-		return ActiveRequest{}, ErrSessionBusy
+	// L1 sessions allow concurrent requests.
+	// L2 sessions and other sessions are single-flight.
+	isL1 := sessionID == "l1"
+	if !isL1 {
+		if reqs, exists := r.bySession[sessionID]; exists && len(reqs) > 0 {
+			return ActiveRequest{}, ErrSessionBusy
+		}
 	}
 	if _, exists := r.byRequest[requestID]; exists {
 		return ActiveRequest{}, ErrDuplicateRequestID
+	}
+
+	if r.bySession[sessionID] == nil {
+		r.bySession[sessionID] = make(map[string]*ActiveRequest)
 	}
 
 	req := &ActiveRequest{
@@ -74,21 +84,40 @@ func (r *ActiveRequestRegistry) Reserve(sessionID, requestID, ownerClientID stri
 		StartedAt:      time.Now(),
 		PendingCallIDs: make(map[string]struct{}),
 	}
-	r.bySession[sessionID] = req
+	r.bySession[sessionID][requestID] = req
 	r.byRequest[requestID] = req
 
 	return r.snapshot(req), nil
 }
 
-// GetBySession returns the active request snapshot for a session, if any.
+// GetBySession returns an active request snapshot for a session, if any.
+// For multi-request sessions (L1), any active request is returned.
 func (r *ActiveRequestRegistry) GetBySession(sessionID string) (ActiveRequest, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	req, ok := r.bySession[sessionID]
-	if !ok {
+	reqs, ok := r.bySession[sessionID]
+	if !ok || len(reqs) == 0 {
 		return ActiveRequest{}, false
 	}
-	return r.snapshot(req), true
+	for _, req := range reqs {
+		return r.snapshot(req), true
+	}
+	return ActiveRequest{}, false
+}
+
+// GetBySessionAll returns all active request snapshots for a session.
+func (r *ActiveRequestRegistry) GetBySessionAll(sessionID string) []ActiveRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	reqs, ok := r.bySession[sessionID]
+	if !ok {
+		return nil
+	}
+	result := make([]ActiveRequest, 0, len(reqs))
+	for _, req := range reqs {
+		result = append(result, r.snapshot(req))
+	}
+	return result
 }
 
 // Validate checks that a request ID exists and belongs to the specified session ID.
@@ -189,7 +218,10 @@ func (r *ActiveRequestRegistry) Finalize(sessionID, requestID string) bool {
 	}
 
 	delete(r.byRequest, requestID)
-	delete(r.bySession, sessionID)
+	delete(r.bySession[sessionID], requestID)
+	if len(r.bySession[sessionID]) == 0 {
+		delete(r.bySession, sessionID)
+	}
 	return true
 }
 

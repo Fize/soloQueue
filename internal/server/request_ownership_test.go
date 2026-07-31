@@ -72,6 +72,9 @@ func TestRequestSessionMismatch_CancelValidation(t *testing.T) {
 	}
 }
 
+// TestBusySessionRejection verifies that L2 sessions reject concurrent requests.
+// L1 sessions (sessionID == "l1") are explicitly excluded from single-flight enforcement,
+// as tested separately in TestL1AllowsConcurrentRequests.
 func TestBusySessionRejection(t *testing.T) {
 	h := NewHub(nil)
 	client := &Client{
@@ -110,6 +113,33 @@ func TestBusySessionRejection(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected session_busy message")
+	}
+}
+
+func TestL1AllowsConcurrentRequests(t *testing.T) {
+	h := NewHub(nil)
+
+	// Reserve first L1 request — must succeed.
+	_, err := h.requests.Reserve("l1", "req-1", "c1")
+	if err != nil {
+		t.Fatalf("first L1 Reserve failed: %v", err)
+	}
+
+	// Reserve second L1 request — must succeed (L1 allows concurrent requests).
+	_, err = h.requests.Reserve("l1", "req-2", "c2")
+	if err != nil {
+		t.Fatalf("second L1 Reserve should succeed but got: %v", err)
+	}
+
+	// L2 should still reject concurrent requests.
+	const l2Session = "l2:test"
+	_, err = h.requests.Reserve(l2Session, "req-l2-1", "c1")
+	if err != nil {
+		t.Fatalf("L2 Reserve failed: %v", err)
+	}
+	_, err = h.requests.Reserve(l2Session, "req-l2-2", "c2")
+	if err != ErrSessionBusy {
+		t.Errorf("L2 second Reserve: got %v, want ErrSessionBusy", err)
 	}
 }
 

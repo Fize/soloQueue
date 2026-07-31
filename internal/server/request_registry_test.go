@@ -41,6 +41,125 @@ func TestActiveRequestRegistry_ReserveAndGet(t *testing.T) {
 	}
 }
 
+func TestActiveRequestRegistry_L1ConcurrentRequests(t *testing.T) {
+	reg := NewActiveRequestRegistry()
+
+	// L1 allows concurrent requests
+	req1, err := reg.Reserve("l1", "req-1", "client-1")
+	if err != nil {
+		t.Fatalf("Reserve req-1 failed: %v", err)
+	}
+	if req1.SessionID != "l1" {
+		t.Errorf("SessionID = %q, want l1", req1.SessionID)
+	}
+
+	_, err = reg.Reserve("l1", "req-2", "client-2")
+	if err != nil {
+		t.Fatalf("Reserve req-2 failed: %v", err)
+	}
+
+	_, err = reg.Reserve("l1", "req-3", "client-1")
+	if err != nil {
+		t.Fatalf("Reserve req-3 failed: %v", err)
+	}
+
+	// GetBySession returns any one of the three
+	snap, ok := reg.GetBySession("l1")
+	if !ok {
+		t.Fatal("GetBySession returned false")
+	}
+	if snap.SessionID != "l1" {
+		t.Errorf("SessionID = %q, want l1", snap.SessionID)
+	}
+
+	// GetBySessionAll returns all 3
+	all := reg.GetBySessionAll("l1")
+	if len(all) != 3 {
+		t.Errorf("GetBySessionAll count = %d, want 3", len(all))
+	}
+
+	// Finalize req-1
+	if !reg.Finalize("l1", "req-1") {
+		t.Error("Finalize req-1 returned false")
+	}
+
+	all = reg.GetBySessionAll("l1")
+	if len(all) != 2 {
+		t.Errorf("GetBySessionAll after one finalize = %d, want 2", len(all))
+	}
+
+	// Finalize remaining
+	if !reg.Finalize("l1", "req-2") {
+		t.Error("Finalize req-2 returned false")
+	}
+	if !reg.Finalize("l1", "req-3") {
+		t.Error("Finalize req-3 returned false")
+	}
+
+	all = reg.GetBySessionAll("l1")
+	if len(all) != 0 {
+		t.Errorf("GetBySessionAll after all finalized = %d, want 0", len(all))
+	}
+	_, ok = reg.GetBySession("l1")
+	if ok {
+		t.Error("GetBySession should return false after all finalized")
+	}
+}
+
+func TestActiveRequestRegistry_L2RejectsConcurrent(t *testing.T) {
+	reg := NewActiveRequestRegistry()
+
+	// First request for L2 session succeeds
+	_, err := reg.Reserve("l2:s1", "req-1", "client-1")
+	if err != nil {
+		t.Fatalf("Reserve req-1 failed: %v", err)
+	}
+
+	// Second request for same L2 session must fail
+	_, err = reg.Reserve("l2:s1", "req-2", "client-2")
+	if err != ErrSessionBusy {
+		t.Errorf("err = %v, want ErrSessionBusy", err)
+	}
+
+	// Finalize frees the session
+	if !reg.Finalize("l2:s1", "req-1") {
+		t.Error("Finalize req-1 returned false")
+	}
+
+	// Now a new request can be reserved
+	_, err = reg.Reserve("l2:s1", "req-3", "client-1")
+	if err != nil {
+		t.Errorf("Reserve req-3 after Finalize failed: %v", err)
+	}
+}
+
+func TestActiveRequestRegistry_L1FinalizeDoesNotAffectOtherL1Requests(t *testing.T) {
+	reg := NewActiveRequestRegistry()
+
+	_, _ = reg.Reserve("l1", "req-A", "client-1")
+	_, _ = reg.Reserve("l1", "req-B", "client-2")
+
+	// Finalize req-A
+	reg.Finalize("l1", "req-A")
+
+	// req-B still exists
+	snap, ok := reg.GetBySession("l1")
+	if !ok {
+		t.Fatal("GetBySession returned false after finalizing req-A")
+	}
+	if snap.RequestID != "req-B" {
+		t.Errorf("RequestID = %q, want req-B", snap.RequestID)
+	}
+
+	all := reg.GetBySessionAll("l1")
+	if len(all) != 1 {
+		t.Errorf("GetBySessionAll count = %d, want 1", len(all))
+	}
+	if all[0].RequestID != "req-B" {
+		t.Errorf("remaining request = %q, want req-B", all[0].RequestID)
+	}
+}
+
 func TestActiveRequestRegistry_ValidateAndPendingCall(t *testing.T) {
 	reg := NewActiveRequestRegistry()
 	_, _ = reg.Reserve("l2:s1", "req-1", "client-1")

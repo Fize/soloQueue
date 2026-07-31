@@ -755,19 +755,31 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 				if l1Sess.CW() != nil {
 					used, limit, _ = l1Sess.CW().TokenUsage()
 				}
-				info := SessionRuntimeInfo{
-					SessionID:   "l1",
-					State:       "idle",
-					Revision:    hub.GetSessionRevision("l1"),
-					CtxwinUsed:  used,
-					CtxwinLimit: limit,
+				l1Reqs := hub.requests.GetBySessionAll("l1")
+				if len(l1Reqs) == 0 {
+					info := SessionRuntimeInfo{
+						SessionID:   "l1",
+						State:       "idle",
+						Revision:    hub.GetSessionRevision("l1"),
+						CtxwinUsed:  used,
+						CtxwinLimit: limit,
+					}
+					sessions["l1"] = info
+				} else {
+					for _, req := range l1Reqs {
+						info := SessionRuntimeInfo{
+							SessionID:   "l1",
+							RequestID:   req.RequestID,
+							State:       string(req.State),
+							Delegating:  req.Delegating,
+							Revision:    hub.GetSessionRevision("l1"),
+							CtxwinUsed:  used,
+							CtxwinLimit: limit,
+						}
+						key := "l1:" + req.RequestID
+						sessions[key] = info
+					}
 				}
-				if req, active := hub.requests.GetBySession("l1"); active {
-					info.RequestID = req.RequestID
-					info.State = string(req.State)
-					info.Delegating = req.Delegating
-				}
-				sessions["l1"] = info
 			}
 		}
 

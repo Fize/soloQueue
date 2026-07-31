@@ -355,9 +355,8 @@ func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 	sessionID := ref.String()
 
 	// Validate ownership via global ActiveRequestRegistry
-	req, ok := h.requests.GetBySession(sessionID)
-	if !ok || (msg.RequestID != "" && req.RequestID != msg.RequestID) {
-		// Session has no active request or request_id mismatch — drop
+	req, err := h.requests.Validate(sessionID, msg.RequestID)
+	if err != nil {
 		return
 	}
 

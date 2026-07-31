@@ -45,7 +45,6 @@ var (
 
 	// ErrNoActiveTask is returned when there is no active task to cancel
 	ErrNoActiveTask = errors.New("session: no active task")
-
 )
 
 type rejectBusyQueueKey struct{}
