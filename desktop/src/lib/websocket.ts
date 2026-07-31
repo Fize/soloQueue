@@ -43,6 +43,7 @@ export interface ChatHandler {
   }) => void
   onDone?: (data: { content: string; reasoning_content: string }) => void
   onError?: (error: string) => void
+  onQueued?: (data: { error?: string }) => void
   onDelegationStart?: (data: { num_tasks: number }) => void
   onDelegationDone?: (data: {
     target_agent_id: string
@@ -293,6 +294,11 @@ class WebSocketManager {
       case 'chat_error': {
         const h = this.chatHandlers.get(msg.request_id)
         h?.onError?.(msg.error)
+        return
+      }
+      case 'chat_queued': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onQueued?.({ error: msg.error })
         return
       }
       case 'delegation_start': {

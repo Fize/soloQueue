@@ -56,7 +56,12 @@ export function useChatStream() {
       const state = useChatStore.getState()
       const sid = sessionIdOverride || state.activeSessionId
       if (!sid || !prompt.trim()) return
-      if (state.streamingSessions[sid]) return
+
+      // The session may already be streaming (busy). Instead of dropping the
+      // message, we still send it: the server queues it and replies with
+      // chat_queued. We must NOT touch the shared streaming/route state in
+      // that case — it belongs to the in-flight request.
+      const isBusy = !!state.streamingSessions[sid]
 
       const trimmedPrompt = prompt.trim().toLowerCase()
       const isClear = trimmedPrompt === '/clear'
@@ -85,13 +90,15 @@ export function useChatStream() {
       const isDesignMode = useRuntimeStore.getState().isDesignMode
 
       const requestId = generateRequestId()
-      activeRequestsRef.current[sid] = requestId
-      setRoute({
-        requestId,
-        sessionId: sid,
-        taskLevel: '',
-        modelId: '',
-      })
+      if (!isBusy) {
+        activeRequestsRef.current[sid] = requestId
+        setRoute({
+          requestId,
+          sessionId: sid,
+          taskLevel: '',
+          modelId: '',
+        })
+      }
 
       // Add empty assistant message placeholder.
       const asstId = `msg-${Date.now() + 1}`
@@ -102,24 +109,30 @@ export function useChatStream() {
         timestamp: new Date().toISOString(),
       })
 
-      setStreaming(true, sid)
-      if (isSystemCommand) {
-        setSystemCommandRunning(true, sid)
+      if (!isBusy) {
+        setStreaming(true, sid)
+        if (isSystemCommand) {
+          setSystemCommandRunning(true, sid)
+        }
       }
 
       const isL2 = sid.startsWith('l2:')
-      const shouldGenTitle = isL2 && !state.titleGenerated[sid]
+      const shouldGenTitle = !isBusy && isL2 && !state.titleGenerated[sid]
       let finalContent = ''
 
       let finished = false
       const finishRequest = () => {
         if (finished) return
         finished = true
-        setStreaming(false, sid)
-        setSystemCommandRunning(false, sid)
-        setDelegating(false, sid)
-        clearRoute(sid, requestId)
-        delete activeRequestsRef.current[sid]
+        // A queued request never owned the streaming/route state — leave it
+        // untouched so the in-flight request keeps working.
+        if (!isBusy) {
+          setStreaming(false, sid)
+          setSystemCommandRunning(false, sid)
+          setDelegating(false, sid)
+          clearRoute(sid, requestId)
+          delete activeRequestsRef.current[sid]
+        }
         wsManager.unregisterChat(requestId)
       }
 
@@ -193,6 +206,18 @@ export function useChatStream() {
           // This prevents issues where newly created local messages have client-side
           // timestamps that fail to match backend timestamps during operations like deletion.
           useChatStore.getState().loadHistory(sid)
+        },
+        onQueued: (data) => {
+          // The session is serial: the server accepted the message into its
+          // pending queue and will inject it before the agent's next LLM
+          // call. Show the queued status on the assistant placeholder.
+          updateAssistantSegment(sid, asstId, {
+            type: 'content',
+            text:
+              data.error ||
+              '⏳ Message queued — it will be processed in the current task turn.',
+          })
+          finishRequest()
         },
         onError: (error) => {
           updateAssistantSegment(sid, asstId, { type: 'error', text: error })

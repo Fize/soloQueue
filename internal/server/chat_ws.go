@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -47,26 +48,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		return
 	}
 
-	// Reserve request in global ActiveRequestRegistry.
-	// Rejects duplicate/concurrent sends to the same session with session_busy.
-	_, err := h.requests.Reserve(sessionID, msg.RequestID, "")
-	if err != nil {
-		client.sendJSON(WSMessage{
-			Type:      "session_busy",
-			RequestID: msg.RequestID,
-			SessionID: sessionID,
-			Error:     "session is currently busy processing another request",
-		})
-		return
-	}
-	defer func() {
-		if !streamStarted {
-			h.finalizeRequest(sessionID, msg.RequestID)
-		}
-	}()
-	h.NextSessionRevision(sessionID)
-	h.Notify()
-
 	if h.mux == nil || h.mux.sessionMgr == nil {
 		client.sendJSON(WSMessage{
 			Type:      "chat_error",
@@ -85,6 +66,15 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			RequestID: msg.RequestID,
 			SessionID: sessionID,
 			Error:     err.Error(),
+		})
+		return
+	}
+	if sess == nil {
+		client.sendJSON(WSMessage{
+			Type:      "chat_error",
+			RequestID: msg.RequestID,
+			SessionID: sessionID,
+			Error:     "session not found",
 		})
 		return
 	}
@@ -254,6 +244,38 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		}
 	}
 
+	// Reserve request in global ActiveRequestRegistry.
+	// Single-flight sessions (L2 and the default session) are serial, but a
+	// concurrent user message is NOT rejected: it is queued into the session's
+	// pending queue and injected before the agent's next LLM API call.
+	_, err = h.requests.Reserve(sessionID, msg.RequestID, "")
+	if err != nil {
+		if errors.Is(err, ErrSessionBusy) {
+			sess.QueueMessage(finalPrompt)
+			client.sendJSON(WSMessage{
+				Type:      "chat_queued",
+				RequestID: msg.RequestID,
+				SessionID: sessionID,
+				Error:     "session is busy; message queued and will be processed in the current turn",
+			})
+			return
+		}
+		client.sendJSON(WSMessage{
+			Type:      "session_busy",
+			RequestID: msg.RequestID,
+			SessionID: sessionID,
+			Error:     "session is currently busy processing another request",
+		})
+		return
+	}
+	defer func() {
+		if !streamStarted {
+			h.finalizeRequest(sessionID, msg.RequestID)
+		}
+	}()
+	h.NextSessionRevision(sessionID)
+	h.Notify()
+
 	// Request lifetime is owned by the session/global registry, not by the
 	// WebSocket connection. A disconnected client merely loses its forwarder.
 	reqCtx, reqCancel := context.WithCancel(context.Background())
@@ -276,10 +298,15 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	ch, askErr := sess.AskStream(reqCtx, finalPrompt)
 	if askErr != nil {
 		if askErr == session.ErrQueued {
+			// AskStream got queued behind an in-flight request (e.g. the L1
+			// session, which the registry permits to be concurrent). Accept
+			// the message into the pending queue instead of rejecting it.
+			sess.QueueMessage(finalPrompt)
 			client.sendJSON(WSMessage{
-				Type:      "chat_error",
+				Type:      "chat_queued",
 				RequestID: msg.RequestID,
-				Error:     "session is busy, message queued",
+				SessionID: sessionID,
+				Error:     "session is busy; message queued and will be processed in the current turn",
 			})
 			client.removeActiveRequest(msg.RequestID)
 			return

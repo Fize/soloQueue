@@ -83,6 +83,13 @@ export interface WSChatError {
   error: string;
 }
 
+export interface WSChatQueued {
+  type: "chat_queued";
+  request_id: string;
+  session_id?: string;
+  error?: string;
+}
+
 export interface WSDelegationStart {
   type: "delegation_start";
   request_id: string;
@@ -145,6 +152,7 @@ export type WSMessage =
   | WSToolConfirm
   | WSChatDone
   | WSChatError
+  | WSChatQueued
   | WSDelegationStart
   | WSDelegationDone
   | WSSessionName

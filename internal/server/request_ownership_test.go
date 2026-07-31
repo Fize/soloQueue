@@ -7,7 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/timeline"
 )
 
 // ─── Request Ownership Validation Tests (Phase 2) ─────────────────────────────
@@ -72,48 +77,97 @@ func TestRequestSessionMismatch_CancelValidation(t *testing.T) {
 	}
 }
 
-// TestBusySessionRejection verifies that L2 sessions reject concurrent requests.
-// L1 sessions (sessionID == "l1") are explicitly excluded from single-flight enforcement,
-// as tested separately in TestL1AllowsConcurrentRequests.
+// TestBusySessionRejection verifies that a busy single-flight session QUEUES
+// a concurrent request instead of rejecting it: the client receives
+// chat_queued and the message enters the session's pending queue, where it is
+// injected before the agent's next LLM call.
 func TestBusySessionRejection(t *testing.T) {
-	h := NewHub(nil)
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+
+	// Minimal real session via SessionManager so resolveSession succeeds.
+	def := agent.Definition{
+		Name: "test-agent",
+	}
+	// Delay keeps the first request in-flight so the second one queues.
+	fakeLLM := &agent.FakeLLM{
+		StreamDeltas: [][]string{{"first"}},
+		Delay:        300 * time.Millisecond,
+	}
+	a := agent.NewAgent(def, fakeLLM, log, agent.WithAgentWorkDir(workDir))
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		return a, cw, nil, nil
+	}
+	mgr := session.NewSessionManager(factory, log)
+	if _, err := mgr.Init(context.Background(), "default"); err != nil {
+		t.Fatalf("Init manager: %v", err)
+	}
+	mux := NewMux(workDir, log, WithSessionManager(mgr))
+	defer mux.Close()
+
+	h := NewHub(mux)
 	client := &Client{
-		send: make(chan []byte, 10),
+		send:           make(chan []byte, 16),
+		activeRequests: make(map[string]*activeRequest),
 	}
 
-	const sessionID = "l2:550e8400-e29b-41d4-a716-446655440000"
-	// Reserve first request
-	_, err := h.requests.Reserve(sessionID, "req-first", "c1")
-	if err != nil {
-		t.Fatalf("Reserve first failed: %v", err)
-	}
+	const sessionID = "l1"
 
-	// Second request to same session
-	msg2 := &ClientMessage{
+	// First request — starts streaming immediately (AskStream is async).
+	h.handleChatSend(client, &ClientMessage{
+		Type:      "chat_send",
+		RequestID: "req-first",
+		SessionID: sessionID,
+		Prompt:    "first",
+	})
+
+	// Second request to the same (now busy) session.
+	h.handleChatSend(client, &ClientMessage{
 		Type:      "chat_send",
 		RequestID: "req-second",
 		SessionID: sessionID,
 		Prompt:    "hello again",
+	})
+
+	// Client should receive chat_queued (message accepted, not rejected).
+	gotQueued := false
+	for i := 0; i < 4; i++ {
+		select {
+		case data := <-client.send:
+			var wsMsg WSMessage
+			if err := json.Unmarshal(data, &wsMsg); err != nil {
+				t.Fatalf("unmarshal error: %v", err)
+			}
+			if wsMsg.Type == "chat_queued" {
+				if wsMsg.RequestID != "req-second" || wsMsg.SessionID != sessionID {
+					t.Errorf("unexpected queued envelope: %#v", wsMsg)
+				}
+				gotQueued = true
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for chat_queued message")
+		}
+		if gotQueued {
+			break
+		}
+	}
+	if !gotQueued {
+		t.Fatal("expected chat_queued message")
 	}
 
-	h.handleChatSend(client, msg2)
-
-	// Client should receive session_busy error
-	select {
-	case data := <-client.send:
-		var wsMsg WSMessage
-		if err := json.Unmarshal(data, &wsMsg); err != nil {
-			t.Fatalf("unmarshal error: %v", err)
-		}
-		if wsMsg.Type != "session_busy" {
-			t.Errorf("Type = %q, want session_busy", wsMsg.Type)
-		}
-		if wsMsg.RequestID != "req-second" || wsMsg.SessionID != sessionID {
-			t.Errorf("unexpected envelopes: %#v", wsMsg)
-		}
-	default:
-		t.Fatal("expected session_busy message")
+	// The message must have been queued on the session, ready for injection
+	// before the agent's next LLM call.
+	sess := mgr.Session()
+	if sess == nil {
+		t.Fatal("session is nil")
 	}
+	if !sess.HasPending() {
+		t.Error("expected queued message in session pending queue")
+	}
+
+	// Let the first request finish cleanly.
+	time.Sleep(400 * time.Millisecond)
 }
 
 func TestL1AllowsConcurrentRequests(t *testing.T) {

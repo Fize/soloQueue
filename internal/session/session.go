@@ -524,6 +524,11 @@ func (s *Session) QueueMessage(prompt string) {
 	)
 }
 
+// HasPending reports whether user messages are waiting in the pending queue.
+func (s *Session) HasPending() bool {
+	return s.pending.HasPending()
+}
+
 // SetMemoryHook sets the optional callback for short-term memory recording.
 // The hook is called when conversation context is discarded via compaction or /clear.
 func (s *Session) SetMemoryHook(hook MemoryHook) {

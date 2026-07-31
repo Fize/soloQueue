@@ -78,7 +78,7 @@ describe('useChatStream', () => {
     expect(cancelMsg.request_id).toBe(reqA)
   })
 
-  it('does not send or append a second prompt while the session is busy', async () => {
+  it('queues a second prompt while the session is busy', async () => {
     useChatStore.setState({
       activeSessionId: 'l2:session-A',
       streamingSessions: { 'l2:session-A': true },
@@ -90,8 +90,33 @@ describe('useChatStream', () => {
       await result.current.send('keep this draft', undefined, 'l2:session-A')
     })
 
-    expect(wsManager.send).not.toHaveBeenCalled()
-    expect(useChatStore.getState().messages['l2:session-A']).toEqual([])
+    // The message is still sent so the server can queue it (not dropped).
+    expect(wsManager.send).toHaveBeenCalled()
+    const sendMsg = vi.mocked(wsManager.send).mock.calls[0][0] as any
+    expect(sendMsg.type).toBe('chat_send')
+    expect(sendMsg.prompt).toBe('keep this draft')
+
+    // User message + assistant placeholder appended.
+    const msgs = useChatStore.getState().messages['l2:session-A']
+    expect(msgs.length).toBe(2)
+    expect(msgs[0].role).toBe('user')
+    expect(msgs[1].role).toBe('assistant')
+
+    // Simulate the server replying chat_queued.
+    const registerCall = vi.mocked(wsManager.registerChat).mock.calls[0]
+    const handler = registerCall[1]
+    act(() => {
+      handler.onQueued?.({ error: 'session is busy; message queued' })
+    })
+
+    // The assistant placeholder shows the queued status.
+    const after = useChatStore.getState().messages['l2:session-A']
+    expect(after[1].segments).toEqual([
+      { type: 'content', text: 'session is busy; message queued' },
+    ])
+
+    // The in-flight request's streaming state must NOT be cleared.
+    expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(true)
   })
 
   it('routes stream chunks to the assistant placeholder created for that request', async () => {
