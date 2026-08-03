@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // ─── MockChatClient ─────────────────────────────────────────────────────────
