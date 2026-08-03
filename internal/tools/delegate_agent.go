@@ -8,6 +8,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	workdirutil "github.com/xiaobaitu/soloqueue/internal/workdir"
 )
 
 // delegateAgentArgs holds the parameters for the delegate_agent tool.
@@ -25,6 +26,7 @@ type delegateAgentArgs struct {
 // It implements both Tool and AsyncTool.
 type DelegateAgentTool struct {
 	logger                *logger.Logger
+	workDirPolicy         DelegateWorkDirPolicy
 	SpawnFn               func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error)
 	SkillInstructionsLook func(skillID string) (instructions string, agentName string, skillDir string, ok bool)
 }
@@ -36,10 +38,11 @@ var (
 )
 
 // NewDelegateAgentTool creates a new DelegateAgentTool.
-func NewDelegateAgentTool(l *logger.Logger, spawnFn func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error)) *DelegateAgentTool {
+func NewDelegateAgentTool(l *logger.Logger, spawnFn func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error), workDirPolicy DelegateWorkDirPolicy) *DelegateAgentTool {
 	return &DelegateAgentTool{
-		logger:  l,
-		SpawnFn: spawnFn,
+		logger:        l,
+		SpawnFn:       spawnFn,
+		workDirPolicy: workDirPolicy,
 	}
 }
 
@@ -49,8 +52,16 @@ func (DelegateAgentTool) Description() string {
 	return "Delegate a task to a dynamically created child agent with a specific name, system prompt, and task description. Supports both synchronous (blocking) and asynchronous (background) execution."
 }
 
-func (DelegateAgentTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{
+func (t DelegateAgentTool) Parameters() json.RawMessage {
+	workDirProperty := ""
+	if t.workDirPolicy == WorkDirExplicitOrInherited {
+		workDirProperty = `,
+			"work_dir": {
+				"type": "string",
+				"description": "Optional working directory for the agent. Defaults to the caller's working directory."
+			}`
+	}
+	return json.RawMessage(fmt.Sprintf(`{
 		"type": "object",
 		"properties": {
 			"name": {
@@ -68,11 +79,7 @@ func (DelegateAgentTool) Parameters() json.RawMessage {
 			"task": {
 				"type": "string",
 				"description": "The task query or prompt to delegate to the target agent."
-			},
-			"work_dir": {
-				"type": "string",
-				"description": "The working directory for the agent. REQUIRED."
-			},
+			}%s,
 			"async": {
 				"type": "boolean",
 				"description": "If true, runs asynchronously in the background. If false (default), runs synchronously and blocks until complete."
@@ -82,8 +89,25 @@ func (DelegateAgentTool) Parameters() json.RawMessage {
 				"description": "Optional model ID to override the default model."
 			}
 		},
-		"required": ["name", "task", "work_dir"]
-	}`)
+		"required": ["name", "task"]
+	}`, workDirProperty))
+}
+
+func (t *DelegateAgentTool) resolveWorkDir(ctx context.Context, requested string) (string, error) {
+	inherited := iface.WorkDirFromContext(ctx)
+	if t.workDirPolicy == WorkDirInheritOnly {
+		if inherited == "" {
+			return "", fmt.Errorf("delegate_agent: parent work directory is not configured")
+		}
+		return inherited, nil
+	}
+	if requested != "" {
+		return workdirutil.NormalizeExistingDir(requested)
+	}
+	if inherited == "" {
+		return "", fmt.Errorf("delegate_agent: work directory is not configured")
+	}
+	return inherited, nil
 }
 
 // Execute is called for synchronous execution (fallback when async=false).
@@ -123,8 +147,13 @@ func (t *DelegateAgentTool) Execute(ctx context.Context, rawArgs string) (string
 		}
 	}
 
+	workDir, err := t.resolveWorkDir(ctx, args.WorkDir)
+	if err != nil {
+		return "", err
+	}
+
 	// Spawn the agent
-	target, err := t.SpawnFn(ctx, args.Name, systemPrompt, args.ModelID, args.Task, args.WorkDir, baseAgentName, skillDir)
+	target, err := t.SpawnFn(ctx, args.Name, systemPrompt, args.ModelID, args.Task, workDir, baseAgentName, skillDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to spawn agent %q: %w", args.Name, err)
 	}
@@ -220,8 +249,13 @@ func (t *DelegateAgentTool) ExecuteAsync(ctx context.Context, rawArgs string) (*
 		}
 	}
 
+	workDir, err := t.resolveWorkDir(ctx, args.WorkDir)
+	if err != nil {
+		return nil, err
+	}
+
 	// Spawn the agent
-	target, err := t.SpawnFn(ctx, args.Name, systemPrompt, args.ModelID, args.Task, args.WorkDir, baseAgentName, skillDir)
+	target, err := t.SpawnFn(ctx, args.Name, systemPrompt, args.ModelID, args.Task, workDir, baseAgentName, skillDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn agent %q: %w", args.Name, err)
 	}

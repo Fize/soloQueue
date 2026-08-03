@@ -134,7 +134,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 					// for newly added workers not known when L2 was created.
 					if !l2.SetDelegateSpawnFn(name, sv.SpawnFnFor(tmpl)) {
 						dt := tools.NewDelegateTool(name, tmpl.Description,
-							25*time.Minute, nil, sessLog)
+							25*time.Minute, nil, sessLog, tools.WorkDirInheritOnly)
 						dt.SpawnFn = sv.SpawnFnFor(tmpl)
 						if err := l2.RegisterTool(dt); err != nil {
 							sessLog.Warn(logger.CatActor,
@@ -309,7 +309,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		return agent.NewSelfReapableAdapterWithCleanup(child, sv, func() {
 			b.RT.RemoveSupervisor(sv)
 		}), nil
-	})
+	}, tools.WorkDirExplicitOrInherited)
 	dat.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if s, ok := b.RT.SkillRegistry.GetSkill(skillID); ok {
 			return s.Instructions, s.Agent, s.Dir, true
@@ -418,7 +418,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			return
 		}
 
-		dt := tools.NewDelegateTool(name, name+" team leader", 30*time.Minute, b.RT.AgentRegistry, sessLog)
+		dt := tools.NewDelegateTool(name, name+" team leader", 30*time.Minute, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited)
 		dt.SpawnFn = spawnFn
 		if err := a.RegisterTool(dt); err != nil {
 			cleanupSupervisor(sv)
@@ -622,9 +622,9 @@ func (b *Builder) ReconcileL1TeamCatalog(sess *Session, systemPrompt string) err
 }
 
 func (b *Builder) newL1LeaderDelegateTool(sessLog *logger.Logger, leader prompt.LeaderInfo, leaderTmpl agent.AgentTemplate) *tools.DelegateTool {
-	dt := tools.NewDelegateTool(leader.Name, leader.Description, 30*time.Minute, b.RT.AgentRegistry, sessLog)
+	dt := tools.NewDelegateTool(leader.Name, leader.Description, 30*time.Minute, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited)
 	dt.SpawnFn = func(ctx context.Context, task string, projectDir string) (iface.Locatable, error) {
-		if loc, ok := b.RT.AgentRegistry.LocateIdle(leader.Name); ok {
+		if loc, ok := b.RT.AgentRegistry.LocateIdleInWorkDir(leader.Name, projectDir); ok {
 			return loc, nil
 		}
 		// Resolve fresh template from factory at runtime (hot-reload support)

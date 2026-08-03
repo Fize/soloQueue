@@ -207,6 +207,21 @@ func (r *Registry) LocateIdle(templateID string) (iface.Locatable, bool) {
 	return nil, false
 }
 
+// LocateIdleInWorkDir finds an idle agent instance for the template whose
+// project scope exactly matches workDir. It prevents cross-project reuse of
+// leaders with the same template ID.
+func (r *Registry) LocateIdleInWorkDir(templateID, workDir string) (iface.Locatable, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := r.byTemplate[templateID]
+	for _, id := range ids {
+		if a, ok := r.agents[id]; ok && a.State() == StateIdle && a.WorkDir == workDir {
+			return &LocatableAdapter{Agent: a}, true
+		}
+	}
+	return nil, false
+}
+
 // List returns a snapshot slice of all current agents, sorted by name for
 // stable display.
 //

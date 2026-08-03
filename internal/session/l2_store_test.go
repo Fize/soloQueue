@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	workdirutil "github.com/xiaobaitu/soloqueue/internal/workdir"
 )
 
 // ─── L2SessionStore tests ──────────────────────────────────────────────────
@@ -32,13 +34,29 @@ func TestL2SessionStore_Create(t *testing.T) {
 func TestL2SessionStore_CreateWithWorkDir(t *testing.T) {
 	dir := t.TempDir()
 	store := newTestStore(t, dir)
+	projectDir := t.TempDir()
+	normalizedProjectDir, err := workdirutil.NormalizeExistingDir(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	info, err := store.Create(context.Background(), "wd-test", "dev", "proj1", "/path/to/proj1")
+	info, err := store.Create(context.Background(), "wd-test", "dev", "proj1", projectDir)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if info.ProjectID != "proj1" {
 		t.Errorf("ProjectID = %q, want %q", info.ProjectID, "proj1")
+	}
+	if info.WorkDir != normalizedProjectDir {
+		t.Errorf("WorkDir = %q, want %q", info.WorkDir, normalizedProjectDir)
+	}
+}
+
+func TestL2SessionStore_CreateRejectsMissingWorkDir(t *testing.T) {
+	store := newTestStore(t, t.TempDir())
+	_, err := store.Create(context.Background(), "missing-wd", "dev", "", filepath.Join(t.TempDir(), "missing"))
+	if err == nil {
+		t.Fatal("expected missing work directory error")
 	}
 }
 
@@ -280,7 +298,12 @@ func TestL2SessionStore_SetName_PersistAndRestore(t *testing.T) {
 	store := newTestStore(t, dir)
 
 	id := "test-persist-id"
-	_, err := store.Create(context.Background(), id, "dev", "", "/project/path")
+	projectDir := t.TempDir()
+	normalizedProjectDir, normalizeErr := workdirutil.NormalizeExistingDir(projectDir)
+	if normalizeErr != nil {
+		t.Fatal(normalizeErr)
+	}
+	_, err := store.Create(context.Background(), id, "dev", "", projectDir)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -314,8 +337,8 @@ func TestL2SessionStore_SetName_PersistAndRestore(t *testing.T) {
 			if s.Group != "dev" {
 				t.Errorf("Group = %q, want %q", s.Group, "dev")
 			}
-			if s.WorkDir != "/project/path" {
-				t.Errorf("WorkDir = %q, want %q", s.WorkDir, "/project/path")
+			if s.WorkDir != normalizedProjectDir {
+				t.Errorf("WorkDir = %q, want %q", s.WorkDir, normalizedProjectDir)
 			}
 			break
 		}
@@ -330,7 +353,8 @@ func TestL2SessionStore_UpdatePlanStatus_PersistAndRestore(t *testing.T) {
 	store := newTestStore(t, dir)
 
 	id := "test-plan-id"
-	_, err := store.Create(context.Background(), id, "dev", "", "/project/path")
+	projectDir := t.TempDir()
+	_, err := store.Create(context.Background(), id, "dev", "", projectDir)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -341,8 +365,8 @@ func TestL2SessionStore_UpdatePlanStatus_PersistAndRestore(t *testing.T) {
 	}
 
 	// 1. Add some plan paths
-	plan1 := "/project/path/plan/dev/task1.md"
-	plan2 := "/project/path/plan/dev/task2.md"
+	plan1 := filepath.Join(projectDir, "plan/dev/task1.md")
+	plan2 := filepath.Join(projectDir, "plan/dev/task2.md")
 
 	store.UpdatePlanStatus(id, plan1)
 	store.UpdatePlanStatus(id, plan2)

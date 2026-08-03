@@ -671,7 +671,8 @@ func TestDelegateTool_IsAsync(t *testing.T) {
 func TestDelegateTool_ExecuteAsync(t *testing.T) {
 	target := &mockLocatable{}
 	dt := &tools.DelegateTool{
-		LeaderID: "dev",
+		LeaderID:      "dev",
+		WorkDirPolicy: tools.WorkDirExplicitOrInherited,
 		SpawnFn: func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
 			return target, nil
 		},
@@ -1528,7 +1529,7 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 			return nil, fmt.Errorf("unexpected systemPrompt: %q, want %q", systemPrompt, expectedPrompt)
 		}
 		return target, nil
-	})
+	}, tools.WorkDirExplicitOrInherited)
 	tool.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if skillID == "my-skill" {
 			return "run checks", "some-agent", "/path/to/skill", true
@@ -1719,7 +1720,8 @@ This is the analyzer system prompt.`
 
 	// Invoke delegate_agent synchronously
 	args := fmt.Sprintf(`{"name":"analyzer-instance","skill_id":"my-skill","task":"test task","work_dir":%q,"async":false}`, tempDir)
-	res, err := dat.Execute(context.Background(), args)
+	ctx := iface.ContextWithWorkDir(context.Background(), tempDir)
+	res, err := dat.Execute(ctx, args)
 	if err != nil {
 		t.Fatalf("failed to execute delegate_agent: %v", err)
 	}
@@ -1802,7 +1804,7 @@ func TestL1DynamicDelegationEndToEnd(t *testing.T) {
 		return &LocatableAdapter{Agent: child}, nil
 	}
 
-	dat := tools.NewDelegateAgentTool(newTestLogger(t), spawnFn)
+	dat := tools.NewDelegateAgentTool(newTestLogger(t), spawnFn, tools.WorkDirExplicitOrInherited)
 
 	host := startedAgent(t, hostLLM, WithTools(dat))
 	defer host.Stop(time.Second)

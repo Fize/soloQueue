@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 func TestSupervisor_New(t *testing.T) {
@@ -72,6 +74,26 @@ func TestSupervisor_SpawnFnFor(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when factory is nil")
 	}
+}
+
+func TestSupervisor_SpawnFnForForcesParentWorkDir(t *testing.T) {
+	parentDir := t.TempDir()
+	wrongDir := t.TempDir()
+	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	registry := NewRegistry(nil)
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, nil, WithWorkDir(t.TempDir()))
+	parent := NewAgent(Definition{ID: "l2"}, fakeLLM, nil, WithAgentWorkDir(parentDir))
+	sv := NewSupervisor(parent, factory, nil)
+
+	loc, err := sv.SpawnFnFor(AgentTemplate{ID: "worker", Name: "Worker"})(context.Background(), "task", wrongDir)
+	if err != nil {
+		t.Fatalf("SpawnFnFor: %v", err)
+	}
+	child := loc.(*reapableAdapter).Agent
+	if child.WorkDir != parentDir {
+		t.Fatalf("child WorkDir = %q, want parent %q", child.WorkDir, parentDir)
+	}
+	t.Cleanup(func() { _ = sv.ReapAll(time.Second) })
 }
 
 func TestSupervisor_SpawnFnForID_NotFound(t *testing.T) {

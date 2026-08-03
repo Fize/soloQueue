@@ -614,7 +614,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 				return nil, err
 			}
 			return &LocatableAdapter{Agent: child}, nil
-		})
+		}, tools.WorkDirInheritOnly)
 		dat.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 			if s, ok := mergedSkillReg.GetSkill(skillID); ok {
 				return s.Instructions, s.Agent, s.Dir, true
@@ -625,7 +625,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 
 		for _, peer := range visibleWorkers(templates, tmpl, projRes.agents) {
 			peer := peer // capture loop variable
-			dt := tools.NewDelegateTool(peer.ID, peer.Description, 25*time.Minute, nil, f.log)
+			dt := tools.NewDelegateTool(peer.ID, peer.Description, 25*time.Minute, nil, f.log, tools.WorkDirInheritOnly)
 			dt.SpawnFn = func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
 				freshTmpl, ok := f.ResolveTemplate(ctx, peer.ID)
 				if !ok {
@@ -650,9 +650,9 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			}
 		}
 		if hasPeerTeams {
-			// locateOrSpawn: reuse LocateIdle to find an idle peer leader; spawn a new instance if not found.
+			// locateOrSpawn: only reuse an idle peer leader from the same project.
 			locateOrSpawn := func(ctx context.Context, teamName string) (iface.Locatable, bool, error) {
-				if loc, ok := f.registry.LocateIdle(teamName); ok {
+				if loc, ok := f.registry.LocateIdleInWorkDir(teamName, effectiveWorkDir); ok {
 					return loc, false, nil
 				}
 				// No idle instance found → spawn a new peer leader

@@ -13,6 +13,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/timeline"
+	workdirutil "github.com/xiaobaitu/soloqueue/internal/workdir"
 )
 
 type l2LifecycleState uint8
@@ -123,6 +124,14 @@ func (s *L2SessionStore) WorkDir() string {
 // Create creates a new L2 session entry (metadata only, agent is lazily built).
 // The session is NOT activated until the first message is sent via GetOrActivate.
 func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workDir string) (*L2SessionInfo, error) {
+	if workDir != "" {
+		normalized, err := workdirutil.NormalizeExistingDir(workDir)
+		if err != nil {
+			return nil, err
+		}
+		workDir = normalized
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -145,6 +154,7 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 		s.logger.InfoContext(ctx, logger.CatApp, "L2 session created",
 			"id", id,
 			"group", group,
+			"work_dir", workDir,
 		)
 	}
 
@@ -170,6 +180,22 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 	meta, err := LoadMeta(s.workDir, id)
 	if err != nil {
 		return fmt.Errorf("L2 session %q: cannot determine group from disk: %w", id, err)
+	}
+	if meta.WorkDir != "" {
+		if normalized, normalizeErr := workdirutil.NormalizeExistingDir(meta.WorkDir); normalizeErr == nil {
+			if normalized != meta.WorkDir {
+				meta.WorkDir = normalized
+				if saveErr := MergeAndSave(s.workDir, id, func(m *SessionMeta) {
+					m.WorkDir = normalized
+				}); saveErr != nil && s.logger != nil {
+					s.logger.WarnContext(ctx, logger.CatApp, "L2 session work directory backfill failed",
+						"id", id, "err", saveErr.Error())
+				}
+			}
+		} else if s.logger != nil {
+			s.logger.WarnContext(ctx, logger.CatApp, "L2 session has invalid work directory",
+				"id", id, "work_dir", meta.WorkDir, "err", normalizeErr.Error())
+		}
 	}
 
 	// If name is empty, try to resolve it from the timeline.
@@ -318,6 +344,12 @@ func (s *L2SessionStore) Activate(ctx context.Context, id string) (*Session, err
 					err = fmt.Errorf("panic during BuildL2: %v", r)
 				}
 			}()
+			if workDir != "" {
+				workDir, err = workdirutil.NormalizeExistingDir(workDir)
+				if err != nil {
+					return
+				}
+			}
 			sess, err = s.builder.BuildL2(buildCtx, id, group, workDir)
 		}()
 

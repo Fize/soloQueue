@@ -319,6 +319,26 @@ func TestRegistry_LocateIdle(t *testing.T) {
 	}
 }
 
+func TestRegistry_LocateIdleInWorkDir(t *testing.T) {
+	r := NewRegistry(nil)
+	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	a := NewAgent(Definition{ID: "dev"}, fakeLLM, nil, WithAgentWorkDir("/project/a"))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	if err := r.Register(a); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := r.LocateIdleInWorkDir("dev", "/project/b"); ok {
+		t.Fatal("must not reuse an agent from another project")
+	}
+	if _, ok := r.LocateIdleInWorkDir("dev", "/project/a"); !ok {
+		t.Fatal("expected same-project idle agent")
+	}
+}
+
 func TestRegistry_LocateSkipsStoppedInstance(t *testing.T) {
 	r := NewRegistry(nil)
 	a := newBareAgentWithInstance("dev", "stopped-instance")

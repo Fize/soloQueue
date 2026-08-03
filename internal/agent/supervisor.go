@@ -89,6 +89,7 @@ func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate, workDir
 			"instance_id", child.InstanceID,
 			"template_id", tmpl.ID,
 			"child_name", tmpl.Name,
+			"work_dir", child.WorkDir,
 		)
 	}
 
@@ -274,7 +275,7 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 			if !ok {
 				freshTmpl = tmpl
 			}
-			child, err := s.SpawnChild(ctx, freshTmpl, wd)
+			child, err := s.spawnInheritedChild(ctx, freshTmpl)
 			if err != nil {
 				return nil, err
 			}
@@ -328,7 +329,7 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 					tmpl.ModelID = modelID
 				}
 
-				child, err := s.SpawnChild(ctx, tmpl, workDir)
+				child, err := s.spawnInheritedChild(ctx, tmpl)
 				if err != nil {
 					return nil, err
 				}
@@ -347,10 +348,11 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 //
 // Injects into the L2's DelegateTool.SpawnFn, allowing the DelegateTool to dynamically spawn L3 agents.
 // The DelegateTool is unaware of the Supervisor/Factory's existence; it only calls the injected closure.
-// workDir is passed through from the delegate tool.
+// The workDir argument is retained for the DelegateTool callback contract, but
+// L2 children always inherit the supervisor's parent work directory.
 func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, task string, workDir string) (iface.Locatable, error) {
 	return func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
-		child, err := s.SpawnChild(ctx, tmpl, wd)
+		child, err := s.spawnInheritedChild(ctx, tmpl)
 		if err != nil {
 			return nil, err
 		}
@@ -359,6 +361,13 @@ func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, ta
 			supervisor:       s,
 		}, nil
 	}
+}
+
+func (s *Supervisor) spawnInheritedChild(ctx context.Context, tmpl AgentTemplate) (*Agent, error) {
+	if s.agent == nil || s.agent.WorkDir == "" {
+		return nil, fmt.Errorf("supervisor: parent work directory is not configured")
+	}
+	return s.SpawnChild(ctx, tmpl, s.agent.WorkDir)
 }
 
 // SpawnFnForID finds a template by child ID and creates a SpawnFn

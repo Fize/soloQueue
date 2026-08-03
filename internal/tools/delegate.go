@@ -9,6 +9,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
+	workdirutil "github.com/xiaobaitu/soloqueue/internal/workdir"
 )
 
 // --- Delegate constants ---
@@ -26,11 +27,21 @@ const (
 // delegateArgs is the parameter struct for DelegateTool.
 type delegateArgs struct {
 	Task    string `json:"task"`
-	WorkDir string `json:"work_dir"`
+	WorkDir string `json:"work_dir,omitempty"`
 }
 
-// Pre-computed parameter schema.
-var delegateParamsSchema = json.RawMessage(`{
+var inheritedDelegateParamsSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "description": "Task description to delegate"
+    }
+  },
+  "required": ["task"]
+}`)
+
+var explicitDelegateParamsSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
     "task": {
@@ -39,11 +50,20 @@ var delegateParamsSchema = json.RawMessage(`{
     },
     "work_dir": {
       "type": "string",
-      "description": "Working directory for the delegated agent. REQUIRED."
+      "description": "Optional working directory for the delegated agent. Defaults to the caller's working directory."
     }
   },
-  "required": ["task", "work_dir"]
+  "required": ["task"]
 }`)
+
+// DelegateWorkDirPolicy controls whether a delegated agent must inherit the
+// caller's project scope or may explicitly select another existing directory.
+type DelegateWorkDirPolicy int
+
+const (
+	WorkDirInheritOnly DelegateWorkDirPolicy = iota
+	WorkDirExplicitOrInherited
+)
 
 // DelegateTool delegates tasks to other agents.
 //
@@ -62,10 +82,11 @@ var delegateParamsSchema = json.RawMessage(`{
 //
 // If the two modes diverge significantly, split into separate types.
 type DelegateTool struct {
-	LeaderID string // target agent identifier (e.g., "dev")
-	Desc     string // leader description (for Tool.Description)
-	Timeout  time.Duration
-	logger   *logger.Logger // optional logger for delegation tracking
+	LeaderID      string // target agent identifier (e.g., "dev")
+	Desc          string // leader description (for Tool.Description)
+	Timeout       time.Duration
+	WorkDirPolicy DelegateWorkDirPolicy
+	logger        *logger.Logger // optional logger for delegation tracking
 
 	// Synchronous mode (L2 -> L3): look up an already-registered agent.
 	Locator iface.AgentLocator
@@ -84,7 +105,7 @@ var (
 )
 
 // NewDelegateTool creates a new DelegateTool with optional logger.
-func NewDelegateTool(leaderID, desc string, timeout time.Duration, locator iface.AgentLocator, l *logger.Logger) *DelegateTool {
+func NewDelegateTool(leaderID, desc string, timeout time.Duration, locator iface.AgentLocator, l *logger.Logger, workDirPolicy DelegateWorkDirPolicy) *DelegateTool {
 	if l == nil {
 		var err error
 		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
@@ -94,11 +115,12 @@ func NewDelegateTool(leaderID, desc string, timeout time.Duration, locator iface
 		}
 	}
 	return &DelegateTool{
-		LeaderID: leaderID,
-		Desc:     desc,
-		Timeout:  timeout,
-		Locator:  locator,
-		logger:   l,
+		LeaderID:      leaderID,
+		Desc:          desc,
+		Timeout:       timeout,
+		Locator:       locator,
+		WorkDirPolicy: workDirPolicy,
+		logger:        l,
 	}
 }
 
@@ -116,7 +138,27 @@ func (dt *DelegateTool) Description() string {
 }
 
 func (dt *DelegateTool) Parameters() json.RawMessage {
-	return delegateParamsSchema
+	if dt.WorkDirPolicy == WorkDirExplicitOrInherited {
+		return explicitDelegateParamsSchema
+	}
+	return inheritedDelegateParamsSchema
+}
+
+func (dt *DelegateTool) resolveWorkDir(ctx context.Context, requested string) (string, error) {
+	inherited := iface.WorkDirFromContext(ctx)
+	if dt.WorkDirPolicy == WorkDirInheritOnly {
+		if inherited == "" {
+			return "", fmt.Errorf("delegate '%s': parent work directory is not configured", dt.LeaderID)
+		}
+		return inherited, nil
+	}
+	if requested != "" {
+		return workdirutil.NormalizeExistingDir(requested)
+	}
+	if inherited == "" {
+		return "", fmt.Errorf("delegate '%s': work directory is not configured", dt.LeaderID)
+	}
+	return inherited, nil
 }
 
 // Execute runs delegation synchronously (L2 -> L3 path).
@@ -160,11 +202,11 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 	var isSpawned bool
 
 	if dt.SpawnFn != nil {
-		if dArgs.WorkDir == "" {
-			return "", fmt.Errorf("delegate '%s': work_dir is required", dt.LeaderID)
+		workDir, err := dt.resolveWorkDir(ctx, dArgs.WorkDir)
+		if err != nil {
+			return "", err
 		}
-		var err error
-		targetAgent, err = dt.SpawnFn(ctx, dArgs.Task, dArgs.WorkDir)
+		targetAgent, err = dt.SpawnFn(ctx, dArgs.Task, workDir)
 		if err != nil {
 			if dt.logger != nil {
 				dt.logger.WarnContext(ctx, logger.CatTool, "delegate: failed to spawn agent",
@@ -492,10 +534,11 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 	var err error
 
 	if dt.SpawnFn != nil {
-		if dArgs.WorkDir == "" {
-			return nil, fmt.Errorf("delegate '%s': work_dir is required", dt.LeaderID)
+		workDir, resolveErr := dt.resolveWorkDir(ctx, dArgs.WorkDir)
+		if resolveErr != nil {
+			return nil, resolveErr
 		}
-		target, err = dt.SpawnFn(ctx, dArgs.Task, dArgs.WorkDir)
+		target, err = dt.SpawnFn(ctx, dArgs.Task, workDir)
 		if err != nil {
 			if dt.logger != nil {
 				dt.logger.WarnContext(ctx, logger.CatTool, "delegate async: failed to spawn agent",

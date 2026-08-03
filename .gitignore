@@ -45,3 +45,4 @@ dist-ssr
 dist-desktop/
 .pnpm-store/
 .codegraph/
+.waveloom/
