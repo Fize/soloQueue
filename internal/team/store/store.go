@@ -1,7 +1,7 @@
 // Package teamstore manages teams and agents using the filesystem.
 // It keeps them as markdown files under groups/ and agents/ directories,
 // providing full compatibility with the prompt and supervisor reloading systems.
-package teamstore
+package store
 
 import (
 	"context"

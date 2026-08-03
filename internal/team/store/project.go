@@ -1,4 +1,4 @@
-package teamstore
+package store
 
 import (
 	"context"
