@@ -9,23 +9,22 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine/vectorstore"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
@@ -54,15 +53,15 @@ type Stack struct {
 	RulesCreated  bool
 	TaskRouter    *router.Router
 	SkillRegistry *skill.SkillRegistry
-	MemoryManager *conversationlog.Manager // Short-term memory manager
-	MemoryEngine  *memoryengine.Engine     // Memory engine (BM25 + KG + optional vector)
+	MemoryManager *conversation.Manager // Short-term memory manager
+	MemoryEngine  *engine.Engine     // Memory engine (BM25 + KG + optional vector)
 	SharedDB      *sqlitedb.DB             // Shared SQLite connection
 	MCPManager    *mcp.Manager             // MCP server manager
 	LSPManager    *lsp.Manager             // Built-in LSP MCP server manager
 
 	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
 
-	TeamStore *teamstore.Store // DB-backed team/agent store (nil = disabled)
+	TeamStore *store.Store // DB-backed team/agent store (nil = disabled)
 
 	// L1Channels and L1NotifyChannel hold the L1 main agent's channel bindings,
 	// loaded from ~/.soloqueue/agents/main.md at startup.
@@ -77,7 +76,7 @@ type Stack struct {
 	WorkflowRuns   *workflow.RunManager
 
 	// compactorInstance stores the concrete type for internal use.
-	compactorInstance *compactor.LLMCompactor
+	compactorInstance *LLMCompactor
 
 	// promptRebuildFuncs holds callbacks to rebuild the L1 system prompt.
 	promptRebuildFuncs []func() error
@@ -443,7 +442,7 @@ func (s *Stack) rebuildMemoryEngine(cfg config.EmbeddingConfig) {
 		)
 	}
 
-	newEngine := memoryengine.New(s.SharedDB.DB, &s.SharedDB.WMu, emb, vecStore, s.Log)
+	newEngine := engine.New(s.SharedDB.DB, &s.SharedDB.WMu, emb, vecStore, s.Log)
 	s.MemoryEngine = newEngine
 	s.ToolsCfg.MemoryEngine = newEngine
 

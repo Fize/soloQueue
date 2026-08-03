@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
+	"github.com/xiaobaitu/soloqueue/internal/tools/sandbox"
 )
 
 // RuntimeType is the user-visible execution boundary.

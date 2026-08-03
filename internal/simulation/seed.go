@@ -9,7 +9,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 // SuggestedAgent holds the structured output from LLM seed analysis.
@@ -23,7 +23,7 @@ type SuggestedAgent struct {
 
 // SeedExtraction holds the structured output from LLM seed analysis.
 type SeedExtraction struct {
-	Entities             []memoryengine.EntityExtraction `json:"entities"`
+	Entities             []engine.EntityExtraction `json:"entities"`
 	WorldState           map[string]any                  `json:"world_state"`
 	KeyTopics            []string                        `json:"key_topics"`
 	ConflictAreas        []string                        `json:"conflict_areas"`
@@ -38,13 +38,13 @@ type SeedExtractor struct {
 	llm          agent.LLMClient
 	model        string
 	providerID   string
-	memoryEngine *memoryengine.Engine // nil = skip KG writes
+	memoryEngine *engine.Engine // nil = skip KG writes
 	maxTokens    int                  // 0 = use sensible default per phase
 	log          *logger.Logger
 }
 
 // NewSeedExtractor creates a new SeedExtractor.
-func NewSeedExtractor(llm agent.LLMClient, model, providerID string, mem *memoryengine.Engine) *SeedExtractor {
+func NewSeedExtractor(llm agent.LLMClient, model, providerID string, mem *engine.Engine) *SeedExtractor {
 	return &SeedExtractor{llm: llm, model: model, providerID: providerID, memoryEngine: mem}
 }
 
@@ -160,12 +160,12 @@ func (s *SeedExtractor) extractChunk(ctx context.Context, chunk string) (*SeedEx
 			s.log.DebugContext(ctx, logger.CatSimulation, "extractChunk: saving to KG", "entities", len(ext.Entities))
 		}
 		now := time.Now()
-		_, err := s.memoryEngine.Ingest(ctx, memoryengine.MemoryCandidate{
+		_, err := s.memoryEngine.Ingest(ctx, engine.MemoryCandidate{
 			Content:    chunk,
-			MemoryType: memoryengine.MemoryTypeStableFact,
-			ScopeType:  memoryengine.ScopeSimulation,
+			MemoryType: engine.MemoryTypeStableFact,
+			ScopeType:  engine.ScopeSimulation,
 			ScopeID:    "seed",
-			SourceType: memoryengine.SourceSimulation,
+			SourceType: engine.SourceSimulation,
 			SourceID:   "seed",
 			Date:       now.Format("2006-01-02"),
 			EventTime:  now.Format(time.RFC3339),
@@ -293,7 +293,7 @@ func mergeExtractions(a, b *SeedExtraction) *SeedExtraction {
 
 	// Merge entities (dedup by name)
 	seen := make(map[string]bool)
-	var mergedEntities []memoryengine.EntityExtraction
+	var mergedEntities []engine.EntityExtraction
 	for _, e := range append(a.Entities, b.Entities...) {
 		if !seen[e.Name] {
 			seen[e.Name] = true

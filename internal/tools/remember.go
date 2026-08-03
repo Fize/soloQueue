@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
-// rememberTool lets the LLM save important information to permanent conversationlog.
+// rememberTool lets the LLM save important information to permanent conversation.
 type rememberTool struct {
 	cfg    Config
 	logger *logger.Logger
@@ -26,7 +26,7 @@ func newRememberTool(cfg Config) *rememberTool {
 func (rememberTool) Name() string { return "Remember" }
 
 func (rememberTool) Description() string {
-	return "Save important information to long-term conversationlog. " +
+	return "Save important information to long-term conversation. " +
 		"Use this when the user explicitly asks you to remember something, " +
 		"or when you encounter information likely to be useful in future conversations. " +
 		"Save only durable preferences, decisions, stable facts, or reusable solutions. " +
@@ -52,7 +52,7 @@ type rememberArgs struct {
 	MemoryType          string                          `json:"memory_type"`
 	ExplicitUserRequest bool                            `json:"explicit_user_request,omitempty"`
 	Timestamp           string                          `json:"timestamp"`
-	Entities            []memoryengine.EntityExtraction `json:"entities,omitempty"`
+	Entities            []engine.EntityExtraction `json:"entities,omitempty"`
 }
 
 type rememberResult struct {
@@ -95,11 +95,11 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 	eventTime := at.Format(time.RFC3339)
 
 	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
-	sourceType := memoryengine.SourceAgent
+	sourceType := engine.SourceAgent
 	if a.ExplicitUserRequest {
-		sourceType = memoryengine.SourceExplicit
+		sourceType = engine.SourceExplicit
 	}
-	result, err := t.cfg.MemoryEngine.Ingest(ctx, memoryengine.MemoryCandidate{
+	result, err := t.cfg.MemoryEngine.Ingest(ctx, engine.MemoryCandidate{
 		Content:             a.Content,
 		MemoryType:          a.MemoryType,
 		ScopeType:           scopeType,
@@ -133,9 +133,9 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 func memoryScopeForWorkDir(workDir string) (string, string) {
 	workDir = filepath.Clean(strings.TrimSpace(workDir))
 	if workDir == "." || workDir == "" || strings.HasSuffix(workDir, string(filepath.Separator)+".soloqueue") {
-		return memoryengine.ScopeGlobal, ""
+		return engine.ScopeGlobal, ""
 	}
-	return memoryengine.ScopeProject, workDir
+	return engine.ScopeProject, workDir
 }
 
 var _ Tool = (*rememberTool)(nil)

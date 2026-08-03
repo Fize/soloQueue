@@ -18,7 +18,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -39,9 +39,9 @@ type AutoReloadConfig struct {
 	// tmpl is the full parsed template (not a reference — safe to retain).
 	OnWorkerCreated func(ctx context.Context, name, group string, ag *agent.Agent, tmpl agent.AgentTemplate)
 
-	// TeamStore is an optional teamstore.Store for syncing DB records when
+	// TeamStore is an optional store.Store for syncing DB records when
 	// agent/group files are auto-reloaded. If nil, DB sync is skipped.
-	TeamStore *teamstore.Store
+	TeamStore *store.Store
 }
 
 // WrapWithAutoReload wraps a file-writing tool so that writes to the agents/
@@ -210,7 +210,7 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 
 	// Sync to teamstore DB if configured (non-fatal).
 	if w.cfg.TeamStore != nil {
-		storeAgent := &teamstore.Agent{
+		storeAgent := &store.Agent{
 			Name:         fm.Name,
 			Description:  fm.Description,
 			TeamName:     fm.Group,
@@ -271,7 +271,7 @@ func (w *reloadWrapper) reloadGroup(ctx context.Context, path string) string {
 
 	// Sync to teamstore DB if configured (non-fatal).
 	if w.cfg.TeamStore != nil {
-		storeTeam := &teamstore.Team{
+		storeTeam := &store.Team{
 			Name:        gf.Frontmatter.Name,
 			Description: gf.Body,
 		}

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	workdirutil "github.com/xiaobaitu/soloqueue/internal/workdir"
 )
 

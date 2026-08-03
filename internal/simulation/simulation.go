@@ -15,7 +15,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
@@ -29,7 +29,7 @@ type SimulationEngine struct {
 	log      *logger.Logger
 	config   config.SimulationConfig
 
-	memoryEngine *memoryengine.Engine // optional, for KG-based seed processing
+	memoryEngine *engine.Engine // optional, for KG-based seed processing
 	resolveModel agent.ModelResolver  // nil = skip model resolution (tests)
 
 	subscribers   map[chan SimulationEvent]struct{}
@@ -205,7 +205,7 @@ func (e *SimulationEngine) SetDBPath(path string) error {
 }
 
 // SetMemoryEngine wires an optional MemoryEngine for KG-based seed processing.
-func (e *SimulationEngine) SetMemoryEngine(mem *memoryengine.Engine) {
+func (e *SimulationEngine) SetMemoryEngine(mem *engine.Engine) {
 	e.memoryEngine = mem
 }
 
@@ -1621,7 +1621,7 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 		return
 	}
 
-	var entities []memoryengine.EntityExtraction
+	var entities []engine.EntityExtraction
 
 	// Helper to prefix agent IDs with SimulationID to prevent collision
 	prefixAgent := func(id string) string {
@@ -1630,7 +1630,7 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 
 	// 1. Each agent becomes an entity with their persona traits
 	for _, sa := range simAgents {
-		entity := memoryengine.EntityExtraction{
+		entity := engine.EntityExtraction{
 			Name:       prefixAgent(sa.PersonaID()),
 			Type:       "agent",
 			Confidence: 1.0,
@@ -1639,7 +1639,7 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 		p := sa.Persona()
 		for k, v := range p.Traits {
 			if len(k) > 7 && k[:7] == "stance:" {
-				entity.Relations = append(entity.Relations, memoryengine.RelationExtraction{
+				entity.Relations = append(entity.Relations, engine.RelationExtraction{
 					TargetName: k[7:], // Topic/entity is global, not prefixed
 					RelType:    "stance_" + v,
 					Weight:     0.8,
@@ -1651,11 +1651,11 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 
 	// 2. Convert RelationGraph edges to KG relations
 	for _, edge := range graph.Edges() {
-		entities = append(entities, memoryengine.EntityExtraction{
+		entities = append(entities, engine.EntityExtraction{
 			Name:       prefixAgent(edge.Source),
 			Type:       "agent",
 			Confidence: 0.9,
-			Relations: []memoryengine.RelationExtraction{
+			Relations: []engine.RelationExtraction{
 				{
 					TargetName: prefixAgent(edge.Target),
 					RelType:    string(edge.Type),
@@ -1671,7 +1671,7 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 		// Take snapshot of final state for the context
 		finalState := ws.Snapshot()
 		for k := range finalState {
-			entities = append(entities, memoryengine.EntityExtraction{
+			entities = append(entities, engine.EntityExtraction{
 				Name:       "world_" + k,
 				Type:       "world_state",
 				Confidence: 0.7,
@@ -1687,12 +1687,12 @@ func (e *SimulationEngine) indexSimulationToKG(ctx context.Context, simID, topic
 
 	// 5. Save to KG
 	now := time.Now().Format(time.RFC3339)
-	result, err := e.memoryEngine.Ingest(ctx, memoryengine.MemoryCandidate{
+	result, err := e.memoryEngine.Ingest(ctx, engine.MemoryCandidate{
 		Content:    content,
-		MemoryType: memoryengine.MemoryTypeStableFact,
-		ScopeType:  memoryengine.ScopeSimulation,
+		MemoryType: engine.MemoryTypeStableFact,
+		ScopeType:  engine.ScopeSimulation,
 		ScopeID:    simID,
-		SourceType: memoryengine.SourceSimulation,
+		SourceType: engine.SourceSimulation,
 		SourceID:   simID,
 		Date:       time.Now().Format("2006-01-02"),
 		EventTime:  now,

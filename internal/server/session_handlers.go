@@ -22,7 +22,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/session"
-	"github.com/xiaobaitu/soloqueue/internal/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 
 // SessionStatusResponse represents the current session status and context window history.
@@ -585,7 +585,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// L2 sessions in conversationlog.
+	// L2 sessions in conversation.
 	if m.l2Store != nil {
 		for _, info := range m.l2Store.List() {
 			activeUsed, activeLimit := 0, 0
@@ -616,7 +616,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Scan disk for past L2 sessions not currently in conversationlog.
+	// Scan disk for past L2 sessions not currently in conversation.
 	seenInMemory := map[string]bool{}
 	for _, s := range sessions {
 		if strings.HasPrefix(s.ID, "l2:") {

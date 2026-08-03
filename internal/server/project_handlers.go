@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
 type createProjectRequest struct {
@@ -29,7 +29,7 @@ func (m *Mux) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if projects == nil {
-		projects = []teamstore.Project{}
+		projects = []store.Project{}
 	}
 	m.writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
 }
@@ -58,7 +58,7 @@ func (m *Mux) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := &teamstore.Project{
+	p := &store.Project{
 		ID:          req.ID,
 		Name:        req.Name,
 		Path:        req.Path,

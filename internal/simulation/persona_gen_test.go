@@ -8,7 +8,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 func TestPersonaGenerator_Basic(t *testing.T) {
@@ -36,7 +36,7 @@ func TestPersonaGenerator_Basic(t *testing.T) {
 	}
 
 	extraction := &SeedExtraction{
-		Entities: []memoryengine.EntityExtraction{
+		Entities: []engine.EntityExtraction{
 			{Name: "Rust", Type: "technology", Confidence: 0.9},
 			{Name: "Go", Type: "technology", Confidence: 0.9},
 		},
@@ -80,7 +80,7 @@ func TestPersonaGenerator_ContrarianConstraint(t *testing.T) {
 	}
 
 	extraction := &SeedExtraction{
-		Entities: []memoryengine.EntityExtraction{{Name: "X", Type: "concept", Confidence: 0.8}},
+		Entities: []engine.EntityExtraction{{Name: "X", Type: "concept", Confidence: 0.8}},
 	}
 
 	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
@@ -121,7 +121,7 @@ func TestPersonaGenerator_CountBounds(t *testing.T) {
 		}`},
 	}
 
-	extraction := &SeedExtraction{Entities: []memoryengine.EntityExtraction{{Name: "Test", Type: "concept"}}}
+	extraction := &SeedExtraction{Entities: []engine.EntityExtraction{{Name: "Test", Type: "concept"}}}
 
 	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
 
@@ -157,7 +157,7 @@ func TestPersonaGenerator_MalformedJSON(t *testing.T) {
 		Responses: []string{`{invalid`},
 	}
 
-	extraction := &SeedExtraction{Entities: []memoryengine.EntityExtraction{{Name: "Test", Type: "concept"}}}
+	extraction := &SeedExtraction{Entities: []engine.EntityExtraction{{Name: "Test", Type: "concept"}}}
 	gen := NewPersonaGenerator(fakeLLM, "", "", nil)
 	_, err := gen.Generate(context.Background(), extraction, "test", 2, "zh")
 	if err == nil {
@@ -228,7 +228,7 @@ func TestPersonaGenerator_BatchedGeneration(t *testing.T) {
 	}
 
 	extraction := &SeedExtraction{
-		Entities:        []memoryengine.EntityExtraction{{Name: "Topic", Type: "concept", Confidence: 0.8}},
+		Entities:        []engine.EntityExtraction{{Name: "Topic", Type: "concept", Confidence: 0.8}},
 		SuggestedAgents: suggestedAgents,
 	}
 
@@ -301,7 +301,7 @@ func TestPersonaGenerator_BatchSplitsCorrectly(t *testing.T) {
 	}
 
 	extraction := &SeedExtraction{
-		Entities:        []memoryengine.EntityExtraction{{Name: "T", Type: "concept"}},
+		Entities:        []engine.EntityExtraction{{Name: "T", Type: "concept"}},
 		SuggestedAgents: suggestedAgents,
 	}
 	gen := NewPersonaGenerator(fakeLLM, "", "", nil)

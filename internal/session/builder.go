@@ -13,7 +13,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
@@ -21,7 +21,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
-	"github.com/xiaobaitu/soloqueue/internal/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	workflowtool "github.com/xiaobaitu/soloqueue/internal/workflow/tool"
 )
@@ -472,16 +472,16 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			memories, _ := extractMemoriesFromSummary(seg.Summary)
 			for _, mem := range memories {
 				if b.RT.MemoryEngine != nil {
-					scopeType, scopeID := memoryengine.ScopeGlobal, ""
+					scopeType, scopeID := engine.ScopeGlobal, ""
 					if effectiveTeam != "default" {
-						scopeType, scopeID = memoryengine.ScopeTeam, effectiveTeam
+						scopeType, scopeID = engine.ScopeTeam, effectiveTeam
 					}
-					_, err := b.RT.MemoryEngine.Ingest(context.Background(), memoryengine.MemoryCandidate{
+					_, err := b.RT.MemoryEngine.Ingest(context.Background(), engine.MemoryCandidate{
 						Content:    mem,
-						MemoryType: memoryengine.MemoryTypeStableFact,
+						MemoryType: engine.MemoryTypeStableFact,
 						ScopeType:  scopeType,
 						ScopeID:    scopeID,
-						SourceType: memoryengine.SourceCompaction,
+						SourceType: engine.SourceCompaction,
 						SourceID:   effectiveTeam,
 						Date:       seg.Date.Format("2006-01-02"),
 						EventTime:  seg.Date.Format(time.RFC3339),

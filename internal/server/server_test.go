@@ -15,7 +15,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
 func startTestServer(t *testing.T) *httptest.Server {
@@ -169,11 +169,11 @@ func TestHTTP_TeamAgents(t *testing.T) {
 	_ = os.MkdirAll(groupsDir, 0755)
 	_ = os.MkdirAll(agentsDir, 0755)
 
-	store := teamstore.NewStore(groupsDir, agentsDir, nil)
+	ts := store.NewStore(groupsDir, agentsDir, nil)
 	ctx := context.Background()
 
 	// Create a team
-	err := store.CreateTeam(ctx, &teamstore.Team{
+	err := ts.CreateTeam(ctx, &store.Team{
 		Name:        "Devs",
 		Description: "Dev team",
 	})
@@ -182,7 +182,7 @@ func TestHTTP_TeamAgents(t *testing.T) {
 	}
 
 	// Create an agent
-	err = store.CreateAgent(ctx, &teamstore.Agent{
+	err = ts.CreateAgent(ctx, &store.Agent{
 		Name:        "Alice",
 		TeamName:    "Devs",
 		Description: "Coder",
@@ -191,7 +191,7 @@ func TestHTTP_TeamAgents(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	mux := NewMux(tempDir, nil, WithTeamStore(store))
+	mux := NewMux(tempDir, nil, WithTeamStore(ts))
 	defer mux.Close()
 
 	// 1. Test GET /api/teams
@@ -257,10 +257,10 @@ func TestHTTP_TeamAgents(t *testing.T) {
 
 func TestHTTP_BuiltinTeamCatalogAndInstall(t *testing.T) {
 	tempDir := t.TempDir()
-	store := teamstore.NewStore(filepath.Join(tempDir, "groups"), filepath.Join(tempDir, "agents"), nil)
+	ts := store.NewStore(filepath.Join(tempDir, "groups"), filepath.Join(tempDir, "agents"), nil)
 	reloads := 0
 	mux := NewMux(tempDir, nil,
-		WithTeamStore(store),
+		WithTeamStore(ts),
 		WithTeamCatalogReload(func() error {
 			reloads++
 			return nil
@@ -283,7 +283,7 @@ func TestHTTP_BuiltinTeamCatalogAndInstall(t *testing.T) {
 		t.Fatalf("decode catalog: %v", err)
 	}
 	if len(catalog.Teams) != 1 || catalog.Teams[0].ID != "engineering" ||
-		catalog.Teams[0].Status != teamstore.BuiltinTeamAvailable {
+		catalog.Teams[0].Status != store.BuiltinTeamAvailable {
 		t.Fatalf("catalog = %+v", catalog.Teams)
 	}
 
@@ -309,7 +309,7 @@ func TestHTTP_BuiltinTeamCatalogAndInstall(t *testing.T) {
 	if err := json.Unmarshal(getRec.Body.Bytes(), &catalog); err != nil {
 		t.Fatalf("decode installed catalog: %v", err)
 	}
-	if catalog.Teams[0].Status != teamstore.BuiltinTeamInstalled {
+	if catalog.Teams[0].Status != store.BuiltinTeamInstalled {
 		t.Fatalf("installed status = %q", catalog.Teams[0].Status)
 	}
 }

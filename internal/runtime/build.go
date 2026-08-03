@@ -16,23 +16,22 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	lsp "github.com/xiaobaitu/soloqueue/internal/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
@@ -73,7 +72,7 @@ func Build(
 	if err := bc.initSharedDB(); err != nil {
 		return nil, err
 	}
-	bc.teamstore = teamstore.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"), bc.sharedDB)
+	bc.teamstore = store.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"), bc.sharedDB)
 
 	// Wire DB to Config and load DB-backed settings
 	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {
@@ -316,9 +315,9 @@ type buildContext struct {
 	leaders           []prompt.LeaderInfo
 	allTemplates      []agent.AgentTemplate
 	memoryDir         string
-	memoryMgr         *conversationlog.Manager
+	memoryMgr         *conversation.Manager
 	sharedDB          *sqlitedb.DB
-	memoryEngine      *memoryengine.Engine
+	memoryEngine      *engine.Engine
 	planDir           string
 	mcpServers        []string
 	systemPrompt      string
@@ -328,10 +327,10 @@ type buildContext struct {
 	skillDirs         map[string]string
 	exploreDir        string
 	agentFactory      *agent.DefaultFactory
-	teamstore         *teamstore.Store
+	teamstore         *store.Store
 	supervisors       []*agent.Supervisor
 	tokenizer         *ctxwin.Tokenizer
-	compactorInstance *compactor.LLMCompactor
+	compactorInstance *LLMCompactor
 	taskRouter        *router.Router
 	simEngine         *simulation.SimulationEngine
 	workflowStore     *workflow.Store

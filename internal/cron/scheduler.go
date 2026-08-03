@@ -18,7 +18,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 
 // Session defines the interface required by the Scheduler to trigger tasks.

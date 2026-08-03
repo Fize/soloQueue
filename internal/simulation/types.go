@@ -296,7 +296,7 @@ type SimulationProgress struct {
 	RecentLogs            []string                        `json:"recent_logs,omitempty"`
 }
 
-// MemoryRecord is a single entry in an agent's conversationlog.
+// MemoryRecord is a single entry in an agent's conversation.
 type MemoryRecord struct {
 	Round        int            `json:"round"`
 	Role         string         `json:"role"`

@@ -7,7 +7,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 
 // DefaultContextLimit resolves the default model context window limit from runtime settings.

@@ -6,19 +6,19 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine/vectorstore"
 )
 
 // buildMemory initializes the storage layer: shared SQLite, short-term memory,
 // and the memory engine (BM25 + KG + optional vector embedding).
 func (bc *buildContext) buildMemory() error {
 	// Short-term Memory Manager
-	bc.memoryMgr = conversationlog.NewManager(bc.memoryDir, bc.llmClient, bc.fastModelProviderID, bc.fastModelID, bc.log)
+	bc.memoryMgr = conversation.NewManager(bc.memoryDir, bc.llmClient, bc.fastModelProviderID, bc.fastModelID, bc.log)
 
 	// Shared SQLite DB (already opened in buildMemory() or opened now)
 	embStart := time.Now()
@@ -65,7 +65,7 @@ func (bc *buildContext) buildMemoryEngine() {
 	}
 
 	start := time.Now()
-	bc.memoryEngine = memoryengine.New(bc.sharedDB.DB, &bc.sharedDB.WMu, emb, vecStore, bc.log)
+	bc.memoryEngine = engine.New(bc.sharedDB.DB, &bc.sharedDB.WMu, emb, vecStore, bc.log)
 	bc.log.Debug(logger.CatApp, "build: memory engine ready",
 		"duration", time.Since(start).String(),
 		"has_vector", emb != nil,

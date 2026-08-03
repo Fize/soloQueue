@@ -8,7 +8,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 func TestSeedExtractor_BasicExtraction(t *testing.T) {
@@ -259,13 +259,13 @@ func TestParseExtraction_WorldStateObject(t *testing.T) {
 
 func TestMergeExtractions(t *testing.T) {
 	a := &SeedExtraction{
-		Entities:      []memoryengine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
+		Entities:      []engine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
 		WorldState:    map[string]any{"version": "1.22"},
 		KeyTopics:     []string{"Go"},
 		ConflictAreas: []string{"simplicity"},
 	}
 	b := &SeedExtraction{
-		Entities:      []memoryengine.EntityExtraction{{Name: "Rust", Type: "technology", Confidence: 0.9}, {Name: "Go", Type: "technology", Confidence: 0.9}},
+		Entities:      []engine.EntityExtraction{{Name: "Rust", Type: "technology", Confidence: 0.9}, {Name: "Go", Type: "technology", Confidence: 0.9}},
 		WorldState:    map[string]any{"rust_version": "2024"},
 		KeyTopics:     []string{"Rust", "memory safety"},
 		ConflictAreas: []string{"performance"},
@@ -346,7 +346,7 @@ func TestParseExtraction_InitialRelationshipsOmitted(t *testing.T) {
 
 func TestMergeExtractions_InitialRelationships(t *testing.T) {
 	a := &SeedExtraction{
-		Entities:   []memoryengine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
+		Entities:   []engine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
 		WorldState: map[string]any{"version": "1.22"},
 		KeyTopics:  []string{"Go"},
 		InitialRelationships: []InitialRelationship{
@@ -354,7 +354,7 @@ func TestMergeExtractions_InitialRelationships(t *testing.T) {
 		},
 	}
 	b := &SeedExtraction{
-		Entities:   []memoryengine.EntityExtraction{{Name: "Rust", Type: "technology", Confidence: 0.9}},
+		Entities:   []engine.EntityExtraction{{Name: "Rust", Type: "technology", Confidence: 0.9}},
 		WorldState: map[string]any{"rust_version": "2024"},
 		KeyTopics:  []string{"Rust"},
 		InitialRelationships: []InitialRelationship{
@@ -396,7 +396,7 @@ func TestMergeExtractions_InitialRelationshipsDedup(t *testing.T) {
 
 func TestMergeExtractions_NilFirst(t *testing.T) {
 	b := &SeedExtraction{
-		Entities:      []memoryengine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
+		Entities:      []engine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
 		WorldState:    map[string]any{"version": "1.22"},
 		KeyTopics:     []string{"Go"},
 		ConflictAreas: []string{},

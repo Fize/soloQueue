@@ -9,7 +9,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 // PersonaGenEntry is the LLM output for one persona.
@@ -40,13 +40,13 @@ type PersonaGenerator struct {
 	llm          agent.LLMClient
 	model        string
 	providerID   string
-	memoryEngine *memoryengine.Engine // nil = skip KG enhancement
+	memoryEngine *engine.Engine // nil = skip KG enhancement
 	maxTokens    int                  // 0 = use API default
 	log          *logger.Logger
 }
 
 // NewPersonaGenerator creates a new PersonaGenerator.
-func NewPersonaGenerator(llm agent.LLMClient, model, providerID string, mem *memoryengine.Engine) *PersonaGenerator {
+func NewPersonaGenerator(llm agent.LLMClient, model, providerID string, mem *engine.Engine) *PersonaGenerator {
 	return &PersonaGenerator{llm: llm, model: model, providerID: providerID, memoryEngine: mem}
 }
 
@@ -371,14 +371,14 @@ func (g *PersonaGenerator) generateLegacyBatched(ctx context.Context, extraction
 // Entity types like "person", "organization", "publicfigure" etc. are selected.
 // Entities are ordered by mention_count descending, capped at count.
 // If suggestedAgents are present, only entities matching those names are selected.
-func (g *PersonaGenerator) selectPersonaEntities(entities []memoryengine.GraphNode, extraction *SeedExtraction, count int) []memoryengine.GraphNode {
+func (g *PersonaGenerator) selectPersonaEntities(entities []engine.GraphNode, extraction *SeedExtraction, count int) []engine.GraphNode {
 	if extraction != nil && len(extraction.SuggestedAgents) > 0 {
 		// Suggested agent mode: filter entities by name match
 		agentNames := make(map[string]bool, len(extraction.SuggestedAgents))
 		for _, sa := range extraction.SuggestedAgents {
 			agentNames[strings.ToLower(sa.Name)] = true
 		}
-		var matched []memoryengine.GraphNode
+		var matched []engine.GraphNode
 		for _, e := range entities {
 			if agentNames[strings.ToLower(e.Name)] {
 				matched = append(matched, e)
@@ -400,7 +400,7 @@ func (g *PersonaGenerator) selectPersonaEntities(entities []memoryengine.GraphNo
 		"group": true, "community": true,
 	}
 
-	var selected []memoryengine.GraphNode
+	var selected []engine.GraphNode
 	for _, e := range entities {
 		if personaTypes[strings.ToLower(e.Type)] {
 			selected = append(selected, e)
@@ -414,7 +414,7 @@ func (g *PersonaGenerator) selectPersonaEntities(entities []memoryengine.GraphNo
 }
 
 // buildEntityContext builds rich context for an entity by fetching edges and connected nodes.
-func (g *PersonaGenerator) buildEntityContext(ctx context.Context, entity memoryengine.GraphNode) string {
+func (g *PersonaGenerator) buildEntityContext(ctx context.Context, entity engine.GraphNode) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Entity: %s (type: %s, mention_count: %d, confidence: %.2f)\n", entity.Name, entity.Type, entity.MentionCount, entity.Confidence))
 
@@ -505,7 +505,7 @@ func (g *PersonaGenerator) buildKGContext(ctx context.Context, extraction *SeedE
 
 // buildEntityPersonaPrompt creates a detailed persona generation prompt for a
 // single KG entity, modeled after MiroFish's OasisProfileGenerator approach.
-func buildEntityPersonaPrompt(entity memoryengine.GraphNode, entityCtx, topic string, extraction *SeedExtraction, language string) string {
+func buildEntityPersonaPrompt(entity engine.GraphNode, entityCtx, topic string, extraction *SeedExtraction, language string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Generate a detailed persona profile for the following entity to serve as a social simulation agent.\n\n"))
 	b.WriteString(fmt.Sprintf("Entity name: %s\n", entity.Name))

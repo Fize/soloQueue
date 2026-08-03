@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
-// recallMemoryTool lets the LLM search long-term conversationlog.
+// recallMemoryTool lets the LLM search long-term conversation.
 type recallMemoryTool struct {
 	cfg    Config
 	logger *logger.Logger
@@ -70,7 +70,7 @@ func (t *recallMemoryTool) Execute(ctx context.Context, raw string) (string, err
 	}
 
 	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
-	result, err := t.cfg.MemoryEngine.Search(ctx, memoryengine.SearchQuery{
+	result, err := t.cfg.MemoryEngine.Search(ctx, engine.SearchQuery{
 		Text:                strings.TrimSpace(a.Query),
 		Entities:            a.Entities,
 		Limit:               limit,

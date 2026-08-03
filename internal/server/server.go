@@ -49,7 +49,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
@@ -83,7 +83,7 @@ type Mux struct {
 	authConfig        config.AuthConfig
 	effectiveAuthUser string
 	effectiveAuthPass string
-	teamstore         *teamstore.Store // team/agent DB store; nil if not backed by SQLite
+	teamstore         *store.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange    func() error     // callback on LLM config update
 	simEngine         *simulation.SimulationEngine
 	sharedDB          *sqlitedb.DB // for metric reporting
@@ -195,7 +195,7 @@ func WithAuthConfig(cfg config.AuthConfig) MuxOption {
 // WithTeamStore sets the team/agent SQLite store for CRUD endpoints.
 // When nil, POST/PUT/DELETE team and agent endpoints return 503;
 // GET endpoints fall back to file-based loading.
-func WithTeamStore(store *teamstore.Store) MuxOption {
+func WithTeamStore(store *store.Store) MuxOption {
 	return func(m *Mux) { m.teamstore = store }
 }
 
@@ -268,7 +268,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	}
 
 	if m.teamstore == nil && m.workDir != "" {
-		m.teamstore = teamstore.NewStore(
+		m.teamstore = store.NewStore(
 			filepath.Join(m.workDir, "groups"),
 			filepath.Join(m.workDir, "agents"),
 			m.sharedDB,

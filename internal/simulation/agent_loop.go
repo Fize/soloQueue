@@ -11,7 +11,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 // GAAgentLoop implements the Generative Agents decision loop:
@@ -29,7 +29,7 @@ type GAAgentLoop struct {
 	plan            *DailyPlan
 	planGen         *PlanGenerator
 	relationshipMgr *RelationshipManager
-	memoryEngine    *memoryengine.Engine
+	memoryEngine    *engine.Engine
 	reflectionEng   *ReflectionEngine
 	dialogueMgr     *DialogueManager
 	worldState      *WorldState
@@ -63,7 +63,7 @@ func NewGAAgentLoop(
 	clock *SimClock,
 	planGen *PlanGenerator,
 	relationshipMgr *RelationshipManager,
-	memEngine *memoryengine.Engine,
+	memEngine *engine.Engine,
 	reflectionEng *ReflectionEngine,
 	dialogueMgr *DialogueManager,
 	worldState *WorldState,
@@ -461,7 +461,7 @@ func (gal *GAAgentLoop) retrieveRelevantMemories(ctx context.Context, observatio
 		return ""
 	}
 
-	results, err := gal.memoryEngine.Search(ctx, memoryengine.SearchQuery{
+	results, err := gal.memoryEngine.Search(ctx, engine.SearchQuery{
 		Text:  query,
 		Limit: 5,
 	})
@@ -777,12 +777,12 @@ func (gal *GAAgentLoop) runReflection(ctx context.Context) {
 
 	// Also save to MemoryEngine for cross-simulation recall
 	if gal.memoryEngine != nil {
-		_, err := gal.memoryEngine.Ingest(ctx, memoryengine.MemoryCandidate{
+		_, err := gal.memoryEngine.Ingest(ctx, engine.MemoryCandidate{
 			Content:    record.Content,
-			MemoryType: memoryengine.MemoryTypeStableFact,
-			ScopeType:  memoryengine.ScopeSimulation,
+			MemoryType: engine.MemoryTypeStableFact,
+			ScopeType:  engine.ScopeSimulation,
 			ScopeID:    persona.ID,
-			SourceType: memoryengine.SourceSimulation,
+			SourceType: engine.SourceSimulation,
 			SourceID:   persona.ID,
 			Date:       record.GeneratedAt.Format("2006-01-02"),
 			EventTime:  record.GeneratedAt.Format(time.RFC3339),

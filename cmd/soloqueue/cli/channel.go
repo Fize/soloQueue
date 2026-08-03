@@ -6,7 +6,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -31,14 +31,14 @@ func newChannelSessionProvider(binding channelBinding, mgr *session.SessionManag
 		return session.NewErrorChannelAdapter("配置错误：该渠道被绑定到 L2，但尚未指定目标 Agent。")
 	}
 
-	var mm *conversationlog.Manager
+	var mm *conversation.Manager
 	if rt.LLMClient != nil {
 		memoryDir := filepath.Join(workDir, "memory", binding.bindAgent)
 		if err := os.MkdirAll(memoryDir, 0o755); err != nil {
 			log.Warn(logger.CatApp, "failed to create channel L2 memory dir", "dir", memoryDir, "err", err)
 		}
 		model := rt.ReadDefaultModel()
-		mm = conversationlog.NewManager(memoryDir, rt.LLMClient, model.ProviderID, model.ID, log)
+		mm = conversation.NewManager(memoryDir, rt.LLMClient, model.ProviderID, model.ID, log)
 	}
 	adapter := session.NewL2ChannelAdapter(l2Store, binding.channelID, binding.accountID, binding.bindAgent, log, mm)
 	adapter.SetSupervisorsFn(supervisorsFn)

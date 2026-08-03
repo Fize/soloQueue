@@ -13,7 +13,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -322,16 +322,16 @@ type L2ChannelAdapter struct {
 	channelID     string
 	botAppID      string
 	bindAgent     string
-	memoryManager *conversationlog.Manager
+	memoryManager *conversation.Manager
 }
 
 // NewL2QQBotAdapter creates a SessionProvider backed by an L2 session.
-func NewL2QQBotAdapter(l2Store *L2SessionStore, botAppID, bindAgent string, log *logger.Logger, mm *conversationlog.Manager) *L2ChannelAdapter {
+func NewL2QQBotAdapter(l2Store *L2SessionStore, botAppID, bindAgent string, log *logger.Logger, mm *conversation.Manager) *L2ChannelAdapter {
 	return NewL2ChannelAdapter(l2Store, "qqbot", botAppID, bindAgent, log, mm)
 }
 
 // NewL2ChannelAdapter creates an L2 session isolated by channel and account.
-func NewL2ChannelAdapter(l2Store *L2SessionStore, channelID, accountID, bindAgent string, log *logger.Logger, mm *conversationlog.Manager) *L2ChannelAdapter {
+func NewL2ChannelAdapter(l2Store *L2SessionStore, channelID, accountID, bindAgent string, log *logger.Logger, mm *conversation.Manager) *L2ChannelAdapter {
 	return &L2ChannelAdapter{
 		channelAdapterBase: channelAdapterBase{log: log},
 		l2Store:            l2Store,

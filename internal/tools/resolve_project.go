@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
 type resolveProjectTool struct {
-	store   *teamstore.Store
+	store   *store.Store
 	runtime ToolRuntime
 }
 

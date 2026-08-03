@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
 func setupResolveProjectTool(t *testing.T) (*resolveProjectTool, func()) {
@@ -20,24 +20,24 @@ func setupResolveProjectTool(t *testing.T) (*resolveProjectTool, func()) {
 
 	groupsDir := t.TempDir()
 	agentsDir := t.TempDir()
-	store := teamstore.NewStore(groupsDir, agentsDir, db)
+	ts := store.NewStore(groupsDir, agentsDir, db)
 	ctx := context.Background()
 
-	projects := []teamstore.Project{
+	projects := []store.Project{
 		{ID: "soloqueue", Name: "soloQueue", Path: "/Users/xiaobaitu/github.com/soloQueue", Description: "main project"},
 		{ID: "blog", Name: "My Blog", Path: "/Users/xiaobaitu/github.com/blog", Description: "blog"},
 		{ID: "docs", Name: "Documentation", Path: "/Users/xiaobaitu/github.com/docs", Description: "docs project"},
 	}
 	for _, p := range projects {
 		cp := p
-		if err := store.CreateProject(ctx, &cp); err != nil {
+		if err := ts.CreateProject(ctx, &cp); err != nil {
 			db.Close()
 			t.Fatalf("CreateProject: %v", err)
 		}
 	}
 
 	cfg := Config{
-		TeamStore: store,
+		TeamStore: ts,
 		Runtime:   NewHostRuntime(),
 	}
 	tool := newResolveProjectTool(cfg)
@@ -156,21 +156,21 @@ func TestResolveProjectTool_Execute(t *testing.T) {
 			t.Fatalf("Open: %v", err)
 		}
 		defer db.Close()
-		store := teamstore.NewStore(t.TempDir(), t.TempDir(), db)
+		ts := store.NewStore(t.TempDir(), t.TempDir(), db)
 
-		extra := []teamstore.Project{
+		extra := []store.Project{
 			{ID: "test1", Name: "Test One", Path: "/tmp/test1", Description: "t1"},
 			{ID: "test2", Name: "Test Two", Path: "/tmp/test2", Description: "t2"},
 		}
 		for _, p := range extra {
 			cp := p
-			if err := store.CreateProject(ctx, &cp); err != nil {
+			if err := ts.CreateProject(ctx, &cp); err != nil {
 				t.Fatalf("CreateProject: %v", err)
 			}
 		}
 
 		cfg := Config{
-			TeamStore: store,
+			TeamStore: ts,
 			Runtime:   NewHostRuntime(),
 		}
 		t2 := newResolveProjectTool(cfg)

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/sandbox"
+	"github.com/xiaobaitu/soloqueue/internal/tools/sandbox"
 )
 
 type fakeSandboxBackend struct {

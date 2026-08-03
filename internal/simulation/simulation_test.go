@@ -11,7 +11,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -1124,7 +1124,7 @@ func TestIndexSimulationToKG_Namespacing(t *testing.T) {
 	defer db.Close()
 
 	// Build a memory engine with nil embedder and nil vecstore (provider "none")
-	memEngine := memoryengine.New(db.DB, &db.WMu, nil, nil, nil)
+	memEngine := engine.New(db.DB, &db.WMu, nil, nil, nil)
 
 	engine := NewSimulationEngine(nil, nil, nil, tools.Config{}, config.SimulationConfig{}, nil)
 	engine.SetMemoryEngine(memEngine)

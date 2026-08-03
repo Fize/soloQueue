@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 // kgIndexTool lets the agent index entities and relations in the knowledge graph.
@@ -43,7 +43,7 @@ func (kgIndexTool) Parameters() json.RawMessage {
 }
 
 type kgIndexArgs struct {
-	Entities   []memoryengine.EntityExtraction `json:"entities"`
+	Entities   []engine.EntityExtraction `json:"entities"`
 	SourceHash string                          `json:"source_hash,omitempty"`
 }
 

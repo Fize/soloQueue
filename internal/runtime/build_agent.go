@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/compactor"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
@@ -48,11 +47,11 @@ func (bc *buildContext) buildAgentInfra() {
 	if compactorModelID == "" {
 		compactorModelID = compactorModel.ID
 	}
-	bc.compactorInstance = compactor.NewLLMCompactor(
-		compactor.NewAgentChatClient(bc.llmClient),
+	bc.compactorInstance = NewLLMCompactor(
+		NewAgentChatClient(bc.llmClient),
 		compactorModel.ProviderID,
 		compactorModelID,
-		compactor.WithLogger(bc.log),
+		WithLogger(bc.log),
 	)
 
 	bc.tokenizer = ctxwin.NewTokenizer()

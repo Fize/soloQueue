@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 )
@@ -114,7 +114,7 @@ type fromSeedRequest struct {
 
 type fromSeedResponse struct {
 	SimulationID string                          `json:"simulation_id"`
-	Entities     []memoryengine.EntityExtraction `json:"entities"`
+	Entities     []engine.EntityExtraction `json:"entities"`
 	Personas     []simulation.Persona           `json:"personas"`
 	Topic        string                          `json:"topic"`
 }

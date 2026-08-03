@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 // DailyMemoryFlusher runs a daily task at midnight that:
@@ -14,13 +14,13 @@ import (
 //  2. Runs memory engine consolidation (decay, stale cleanup, communities).
 type DailyMemoryFlusher struct {
 	sessionMgr   *SessionManager
-	memoryEngine *memoryengine.Engine // nil = skip consolidation
+	memoryEngine *engine.Engine // nil = skip consolidation
 	logger       *logger.Logger
 }
 
 // NewDailyMemoryFlusher creates a flusher. engine may be nil if memory engine
 // is disabled (consolidation step will be skipped).
-func NewDailyMemoryFlusher(sm *SessionManager, engine *memoryengine.Engine, l *logger.Logger) *DailyMemoryFlusher {
+func NewDailyMemoryFlusher(sm *SessionManager, engine *engine.Engine, l *logger.Logger) *DailyMemoryFlusher {
 	return &DailyMemoryFlusher{
 		sessionMgr:   sm,
 		memoryEngine: engine,
@@ -60,7 +60,7 @@ func (f *DailyMemoryFlusher) doFlush(ctx context.Context) {
 		}
 	}()
 
-	// Step 1: Flush unpersisted messages to short-term conversationlog.
+	// Step 1: Flush unpersisted messages to short-term conversation.
 	s := f.sessionMgr.Session()
 	if s != nil {
 		s.FlushMemory(ctx)

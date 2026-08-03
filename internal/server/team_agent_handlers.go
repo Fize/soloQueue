@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
 type BuiltinTeamMemberResponse struct {
@@ -23,7 +23,7 @@ type BuiltinTeamResponse struct {
 	Description   string                             `json:"description"`
 	Leader        string                             `json:"leader"`
 	Members       []BuiltinTeamMemberResponse        `json:"members"`
-	Status        teamstore.BuiltinTeamInstallStatus `json:"status"`
+	Status        store.BuiltinTeamInstallStatus `json:"status"`
 	MissingAgents []string                           `json:"missing_agents"`
 	Conflicts     []string                           `json:"conflicts"`
 }
@@ -60,8 +60,8 @@ type AgentResponse struct {
 
 // ─── Conversion Helpers ─────────────────────────────────────────────────────
 
-// teamToResponse converts a teamstore.Team to a TeamResponse.
-func teamToResponse(t *teamstore.Team, agents []AgentResponse) TeamResponse {
+// teamToResponse converts a store.Team to a TeamResponse.
+func teamToResponse(t *store.Team, agents []AgentResponse) TeamResponse {
 	return TeamResponse{
 		ID:          t.ID,
 		Name:        t.Name,
@@ -72,8 +72,8 @@ func teamToResponse(t *teamstore.Team, agents []AgentResponse) TeamResponse {
 	}
 }
 
-// agentToResponse converts a teamstore.Agent to an AgentResponse.
-func agentToResponse(a *teamstore.Agent) AgentResponse {
+// agentToResponse converts a store.Agent to an AgentResponse.
+func agentToResponse(a *store.Agent) AgentResponse {
 	mcp := a.MCPServers
 	if mcp == nil {
 		mcp = []string{}
@@ -161,7 +161,7 @@ func (m *Mux) handleInstallBuiltinTeams(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		status := http.StatusBadRequest
 		code := "invalid_team_ids"
-		if errors.Is(err, teamstore.ErrBuiltinTeamConflict) {
+		if errors.Is(err, store.ErrBuiltinTeamConflict) {
 			status = http.StatusConflict
 			code = "builtin_team_conflict"
 		}
@@ -246,7 +246,7 @@ func (m *Mux) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t := &teamstore.Team{
+	t := &store.Team{
 		Name:        req.Name,
 		Description: req.Description,
 	}
@@ -347,7 +347,7 @@ func (m *Mux) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 func (m *Mux) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	teamName := r.URL.Query().Get("team")
 
-	var agents []teamstore.Agent
+	var agents []store.Agent
 	var err error
 	if teamName != "" {
 		agents, err = m.teamstore.ListAgentsByTeam(r.Context(), teamName)
@@ -398,7 +398,7 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a := &teamstore.Agent{
+	a := &store.Agent{
 		Name:          req.Name,
 		Description:   req.Description,
 		TeamName:      req.TeamName,

@@ -13,7 +13,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 	"gopkg.in/yaml.v3"
 )
 
@@ -107,7 +107,7 @@ func (bc *buildContext) buildPrompt() error {
 
 // loadFromTeamStore loads teams and agents from the DB-backed store and converts
 // them to the in-memory types used by the prompt and agent systems.
-func loadFromTeamStore(store *teamstore.Store) (map[string]prompt.GroupFile, []prompt.LeaderInfo, []agent.AgentTemplate, error) {
+func loadFromTeamStore(store *store.Store) (map[string]prompt.GroupFile, []prompt.LeaderInfo, []agent.AgentTemplate, error) {
 	// Load teams → GroupFile map
 	teams, err := store.ListTeams(context.Background())
 	if err != nil {

@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 )
 
@@ -111,7 +111,7 @@ func memoryCleanupCmd() *cobra.Command {
 	return cmd
 }
 
-func openMemoryEngine(path string) (*memoryengine.Engine, func(), string, error) {
+func openMemoryEngine(path string) (*engine.Engine, func(), string, error) {
 	path, err := resolveMemoryDBPath(path)
 	if err != nil {
 		return nil, nil, "", err
@@ -120,11 +120,11 @@ func openMemoryEngine(path string) (*memoryengine.Engine, func(), string, error)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	engine := memoryengine.New(db.DB, &db.WMu, nil, nil, nil)
+	engine := engine.New(db.DB, &db.WMu, nil, nil, nil)
 	return engine, func() { _ = db.Close() }, path, nil
 }
 
-func openMemoryEngineReadOnly(path string) (*memoryengine.Engine, func(), string, error) {
+func openMemoryEngineReadOnly(path string) (*engine.Engine, func(), string, error) {
 	path, err := resolveMemoryDBPath(path)
 	if err != nil {
 		return nil, nil, "", err
@@ -134,7 +134,7 @@ func openMemoryEngineReadOnly(path string) (*memoryengine.Engine, func(), string
 		return nil, nil, "", err
 	}
 	var mu sync.Mutex
-	engine := memoryengine.New(db, &mu, nil, nil, nil)
+	engine := engine.New(db, &mu, nil, nil, nil)
 	return engine, func() { _ = db.Close() }, path, nil
 }
 
@@ -153,7 +153,7 @@ func resolveMemoryDBPath(path string) (string, error) {
 	return path, nil
 }
 
-func writeManifest(path string, manifest memoryengine.CleanupManifest) error {
+func writeManifest(path string, manifest engine.CleanupManifest) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create manifest directory: %w", err)
 	}
@@ -167,7 +167,7 @@ func writeManifest(path string, manifest memoryengine.CleanupManifest) error {
 	return nil
 }
 
-func backupDatabase(ctx context.Context, engine *memoryengine.Engine, dbPath string) (string, error) {
+func backupDatabase(ctx context.Context, engine *engine.Engine, dbPath string) (string, error) {
 	backupDir := filepath.Join(filepath.Dir(dbPath), "backups")
 	if err := os.MkdirAll(backupDir, 0o700); err != nil {
 		return "", err

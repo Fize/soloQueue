@@ -22,13 +22,13 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
-	"github.com/xiaobaitu/soloqueue/internal/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 
 // ─── Errors ────────────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ type Session struct {
 	metaBaseline map[string]string // path→sha256 snapshot, non-git projects only
 
 	memoryHook    MemoryHook               // optional callback for short-term memory (nil = disabled)
-	memoryManager *conversationlog.Manager // for dedup cursor; set alongside memoryHook
+	memoryManager *conversation.Manager // for dedup cursor; set alongside memoryHook
 
 	idleTimeout      time.Duration // 0 = disabled; auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum CW tokens to trigger compact
@@ -537,7 +537,7 @@ func (s *Session) SetMemoryHook(hook MemoryHook) {
 
 // SetMemoryManager sets the memory manager for dedup cursor tracking.
 // Must be set alongside SetMemoryHook for dedup to work.
-func (s *Session) SetMemoryManager(mm *conversationlog.Manager) {
+func (s *Session) SetMemoryManager(mm *conversation.Manager) {
 	s.memoryManager = mm
 }
 
@@ -604,7 +604,7 @@ func (s *Session) Clear() error {
 
 // Compact compacts the context window by summarizing older messages
 // into a condensed representation using the compactor. Unlike Clear,
-// it preserves the recent context and does NOT save to conversationlog.
+// it preserves the recent context and does NOT save to conversation.
 func (s *Session) Compact(ctx context.Context) (string, error) {
 	compactCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -1072,7 +1072,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				out <- agent.ContentDeltaEvent{Delta: "Clear failed: " + err.Error()}
 				out <- agent.DoneEvent{Content: "Clear failed: " + err.Error()}
 			} else {
-				out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared and saved to conversationlog."}
+				out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared and saved to conversation."}
 				out <- agent.DoneEvent{Content: "Session history cleared."}
 			}
 		}()
@@ -1732,7 +1732,7 @@ type SessionManager struct {
 	factory       AgentFactory
 	routerFunc    TaskRouterFunc
 	memoryHook    MemoryHook
-	memoryManager *conversationlog.Manager
+	memoryManager *conversation.Manager
 	logger        *logger.Logger
 
 	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
@@ -1772,7 +1772,7 @@ func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 
 // SetMemoryManager sets the memory manager for dedup cursor tracking.
 // Must be set alongside SetMemoryHook. Not thread-safe for setup.
-func (m *SessionManager) SetMemoryManager(mm *conversationlog.Manager) {
+func (m *SessionManager) SetMemoryManager(mm *conversation.Manager) {
 	m.memoryManager = mm
 }
 
