@@ -274,13 +274,12 @@ export function ChatInput({
     return teamProjectsMap[selectedGroup] || []
   }, [selectedGroup, teamProjectsMap])
 
-  // Automatically select the first filtered project if the current selection is invalid
+  // An empty path represents the agent's local default workspace. Preserve it
+  // instead of forcing every new session onto the first configured project.
   useEffect(() => {
     if (showL2Selectors && selectedGroup && onProjectChange) {
       const activeProj = filteredProjects.find(p => p.path === selectedProjectPath)
-      if (!activeProj && filteredProjects.length > 0) {
-        onProjectChange(filteredProjects[0].path)
-      } else if (filteredProjects.length === 0 && selectedProjectPath !== '') {
+      if (selectedProjectPath && !activeProj) {
         onProjectChange('')
       }
     }
@@ -679,8 +678,8 @@ export function ChatInput({
                       )}
                     </div>
 
-                    {/* Project Select - Only show if the team actually has projects */}
-                    {filteredProjects.length > 0 && (
+                    {/* Workspace Select */}
+                    {selectedGroup && (
                       <>
                         <span className="text-muted-foreground/20 font-mono select-none">/</span>
                         <div className="relative shrink-0" ref={projectRef}>
@@ -699,7 +698,7 @@ export function ChatInput({
                           >
                             <Laptop className="h-2.5 w-2.5 text-muted-foreground/60" />
                             <span className="text-foreground/80 truncate max-w-[120px]">
-                              {projects.find((p) => p.path === selectedProjectPath)?.name || 'Select Project'}
+                              {projects.find((p) => p.path === selectedProjectPath)?.name || t('chat.local')}
                             </span>
                             {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
                           </button>
@@ -710,6 +709,17 @@ export function ChatInput({
                               className="fixed z-50 w-52 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
                               style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
                             >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onProjectChange) onProjectChange('')
+                                  setActiveDropdown(null)
+                                }}
+                                className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
+                              >
+                                <span className="truncate">{t('chat.local')}</span>
+                                {!selectedProjectPath && <Check className="h-3 w-3 text-primary" />}
+                              </button>
                               {filteredProjects.map((p) => (
                                 <button
                                   key={p.id}

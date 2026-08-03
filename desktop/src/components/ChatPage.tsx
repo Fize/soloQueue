@@ -248,26 +248,26 @@ export function ChatPage() {
     if (hasActiveSession) {
       setSelectedGroup(activeGroup || "");
       setSelectedProjectPath(activeProjectPath || "");
-    } else if (l2Groups.length > 0) {
-      setSelectedGroup(l2Groups[0]);
+    } else {
+      if (l2Groups.length > 0) {
+        setSelectedGroup(l2Groups[0]);
+      }
+      setSelectedProjectPath("");
     }
   }, [hasActiveSession, activeGroup, activeProjectPath, l2Groups]);
 
-  // Sync first project of selected group when selectedGroup changes
+  // Keep local as the default while clearing project selections that no
+  // longer belong to the selected group.
   useEffect(() => {
     if (selectedGroup) {
       const groupProjs = teamProjectsMap[selectedGroup] || [];
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedProjectPath((prevPath) => {
-        const valid = groupProjs.some((p) => p.path === prevPath);
-        if (!valid) {
-          if (groupProjs.length > 0) return groupProjs[0].path;
-          if (projects.length > 0) return projects[0].path;
-        }
-        return prevPath; // same ref → React bails, no re-render
+        if (!prevPath) return "";
+        return groupProjs.some((p) => p.path === prevPath) ? prevPath : "";
       });
     }
-  }, [selectedGroup, teamProjectsMap, projects]);
+  }, [selectedGroup, teamProjectsMap]);
 
   const selectedProject = projects.find((p) => p.path === selectedProjectPath);
 
@@ -847,7 +847,7 @@ export function ChatPage() {
                     <h1 className="text-3xl font-semibold text-foreground tracking-tight text-center">
                       {isL1Session
                         ? t('chat.welcomeL1')
-                        : t('chat.welcomeL2', { project: selectedProject?.name || 'soloQueue' })}
+                        : t('chat.welcomeL2', { project: selectedProject?.name || t('chat.local') })}
                     </h1>
                   )}
 
