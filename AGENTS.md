@@ -130,28 +130,29 @@ internal/agenttools/mcp MCP server manager + config (includes lsp subpackage)
 internal/agenttools/skill Claude Code-compatible skill system
 internal/agenttools/tools native tool implementations + sandbox execution backend
 internal/channel/       shared channel contracts plus QQ and WeChat implementations
-internal/compactor/     LLM-based context compression
 internal/config/        hot-reload config (YAML schema + settings)
-internal/conversationlog/  short-term memory: LLM-driven conversation summaries
 internal/cron/          cron-based scheduled task execution
-internal/ctxwin/        context window (tiktoken, dual-waterline compaction)
 internal/iface/         shared interfaces (breaks agent↔tools cycle)
+internal/infra/         technical infrastructure (db, logger, telemetry, workdir)
+internal/infra/db/      SQLite wrapper + schema migrations
+internal/infra/logger/  structured logging + rotating file writer
+internal/infra/telemetry LLM token usage tracking (wraps LLMClient)
+internal/infra/workdir/ work directory helper
 internal/llm/           provider-agnostic LLM protocol + DeepSeek transport
-internal/logger/        structured logging (file + console)
-internal/memoryengine/  long-term memory: BM25 (FTS5) + KG + optional vector
+internal/memory/        memory & context subsystem (ctxwin, conversation, engine, timeline)
+internal/memory/conversation/ short-term memory: LLM-driven conversation summaries
+internal/memory/ctxwin/       context window (tiktoken, dual-waterline compaction)
+internal/memory/engine/       long-term memory: BM25 (FTS5) + KG + optional vector
+internal/memory/timeline/     append-only JSONL event sourcing
 internal/prompt/        prompt assembly, templates, team management
-internal/rotating/      size-based rotating file writer (shared by logger & timeline)
 internal/router/        L0-L3 task classification & model routing
 internal/runtime/       shared dependency container (Stack, built once)
 internal/sandbox/       Docker-based tool execution sandbox
 internal/server/        REST + WebSocket HTTP router (chi/v5)
 internal/session/       session manager (single active, inFlight atomic CAS)
 internal/simulation/    Generative Agents simulation engine
-internal/sqlitedb/      shared SQLite wrapper + schema migrations
 internal/team/          auto-reload for LLM-written agent/group files
-internal/teamstore/     filesystem-backed team & agent persistence
-internal/telemetry/     LLM token usage tracking (wraps LLMClient)
-internal/timeline/      append-only JSONL event sourcing
+internal/team/store/    filesystem-backed team & agent persistence
 internal/workflow/      YAML DAG workflow engine (v1) with outcome routing + bounded loops
 desktop/                Electron app (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
 portal/                 Lightweight web portal (React 19 + Vite + TailwindCSS v4, embedded in Go binary)
