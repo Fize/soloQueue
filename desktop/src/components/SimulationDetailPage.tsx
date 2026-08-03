@@ -957,7 +957,7 @@ export function SimulationDetailPage() {
       ) {
         try {
           parsedVal = JSON.parse(trimmed)
-        } catch (e) {
+        } catch {
           // Not a valid JSON, keep as is
         }
       }

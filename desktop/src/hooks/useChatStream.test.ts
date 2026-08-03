@@ -55,8 +55,6 @@ describe('useChatStream', () => {
     const sendCall2 = vi.mocked(wsManager.send).mock.calls[1][0] as any
     expect(sendCall2.type).toBe('chat_send')
     expect(sendCall2.session_id).toBe('l2:session-B')
-    const reqB = sendCall2.request_id
-
     // 4. Switch back to session A and trigger cancel()
     act(() => {
       useChatStore.setState({ activeSessionId: 'l2:session-A' })

@@ -123,7 +123,7 @@ export const useAgentStore = create<AgentState>((set) => ({
     inflightLiveAgentsLoad = (async () => {
       try {
         await tryFetch()
-      } catch (err) {
+      } catch {
         // Same retry-once pattern as loadSessions/fetchTeams.
         try {
           await tryFetch()

@@ -103,7 +103,7 @@ export function AgentDetailPanel({
         } else {
           setPlanError('Failed to load daily plan')
         }
-      } catch (err) {
+      } catch {
         setPlanError('Network error')
       } finally {
         setPlanLoading(false)
@@ -120,7 +120,7 @@ export function AgentDetailPanel({
         } else {
           setMemoriesError('Failed to load memories')
         }
-      } catch (err) {
+      } catch {
         setMemoriesError('Network error')
       } finally {
         setMemoriesLoading(false)
@@ -137,7 +137,7 @@ export function AgentDetailPanel({
         } else {
           setReflectionsError('Failed to load higher-order reflections')
         }
-      } catch (err) {
+      } catch {
         setReflectionsError('Network error')
       } finally {
         setReflectionsLoading(false)

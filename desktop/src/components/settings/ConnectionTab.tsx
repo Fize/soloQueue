@@ -63,7 +63,7 @@ function BackendManagement() {
       } else {
         toast.success(t('connection.started'))
       }
-    } catch (err) {
+    } catch {
       toast.error(t('connection.startFailed'))
     }
   }
