@@ -23,8 +23,8 @@ describe('injectSelectionBridge', () => {
     expect(stylePos).toBeGreaterThan(0)
     expect(stylePos).toBeLessThan(headEnd)
 
-    // Unique JS variable from selection-bridge.js (not in CSS)
-    const jsContentPos = result.indexOf('var ALLOWED_PROPS')
+    // Use a live bridge variable that cannot be supplied by the injected CSS.
+    const jsContentPos = result.indexOf('var commentEnabled')
     expect(jsContentPos).toBeGreaterThan(headEnd)
     expect(jsContentPos).toBeLessThan(bodyEnd)
   })
@@ -63,9 +63,6 @@ describe('injectSelectionBridge', () => {
     const result = injectSelectionBridge(doc)
 
     expect(result).toContain('data-od-selection-bridge')
-    // Script should be at the end (after </html>)
-    const htmlEnd = result.indexOf('</html>')
-    const scriptIndex = result.indexOf('data-od-selection-bridge')
     // Script is injected before </body> — but there's no </body>, so it falls back to </html>
     // ...actually the extraction removed the standalone JS, so let me just verify the marker is present
     expect(result).toContain('data-od-selection-bridge')

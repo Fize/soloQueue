@@ -1,10 +1,4 @@
 (function(){
-  var ALLOWED_PROPS = {
-    color:1, 'background-color':1, 'font-size':1, 'font-weight':1, 'line-height':1,
-    'padding-top':1, 'padding-right':1, 'padding-bottom':1, 'padding-left':1,
-    'border-radius':1, 'text-align':1, 'font-family':1
-  };
-
   var commentEnabled = false;
   var mode = 'picker'; // 'picker' | 'pod' | 'interact'
   var hoveredId = null;
@@ -81,7 +75,7 @@
     return 'body > ' + parts.join(' > ');
   }
 
-  function targetFrom(el, clickedEl){
+  function targetFrom(el){
     var id = el.getAttribute('data-od-id');
     var selector = id ? '[data-od-id="' + esc(id) + '"]' : null;
     if (!id && meaningfulDomFallbackTarget(el)) {
@@ -94,7 +88,7 @@
     var tag = el.tagName ? el.tagName.toLowerCase() : 'element';
     var cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/).slice(0,2).join('.') : '';
     var html = '';
-    try { html = (el.outerHTML || '').replace(/\s+/g, ' ').match(/^<[^>]+>/)?.[0] || ''; } catch (_) {}
+    try { html = (el.outerHTML || '').replace(/\s+/g, ' ').match(/^<[^>]+>/)?.[0] || ''; } catch (_) { /* Best-effort preview only. */ }
 
     return {
       type: 'od:comment-target',
@@ -135,7 +129,7 @@
       if (!commentEnabled || (mode !== 'pod' && mode !== 'interact')) {
         drawing = false;
         stroke = [];
-        try { window.parent.postMessage({ type: 'od:pod-clear' }, '*'); } catch (_) {}
+        try { window.parent.postMessage({ type: 'od:pod-clear' }, '*'); } catch (_) { /* Parent access may be unavailable. */ }
       }
       return;
     }
@@ -145,7 +139,7 @@
     if (!commentEnabled || mode !== 'picker') return;
     var result = closestTarget(ev);
     if (!result) return;
-    var payload = targetFrom(result.target, result.clicked);
+    var payload = targetFrom(result.target);
     if (!payload || payload.elementId === hoveredId) return;
     hoveredId = payload.elementId;
     hoveredEl = result.target;
@@ -174,7 +168,7 @@
       if (result) {
         ev.preventDefault();
         ev.stopPropagation();
-        var payload = targetFrom(result.target, result.clicked);
+        var payload = targetFrom(result.target);
         if (payload) {
           selectedEl = result.target;
           window.parent.postMessage(payload, '*');
@@ -212,15 +206,15 @@
 
     if (commentEnabled && mode === 'picker') {
       if (selectedEl) {
-        var payload = targetFrom(selectedEl, selectedEl);
-        if (payload) {
-          window.parent.postMessage(Object.assign({}, payload, { type: 'od:comment-scroll-selected' }), '*');
+        var selectedPayload = targetFrom(selectedEl);
+        if (selectedPayload) {
+          window.parent.postMessage(Object.assign({}, selectedPayload, { type: 'od:comment-scroll-selected' }), '*');
         }
       }
       if (hoveredEl) {
-        var payload = targetFrom(hoveredEl, hoveredEl);
-        if (payload) {
-          window.parent.postMessage(Object.assign({}, payload, { type: 'od:comment-scroll-hovered' }), '*');
+        var hoveredPayload = targetFrom(hoveredEl);
+        if (hoveredPayload) {
+          window.parent.postMessage(Object.assign({}, hoveredPayload, { type: 'od:comment-scroll-hovered' }), '*');
         }
       }
     }
