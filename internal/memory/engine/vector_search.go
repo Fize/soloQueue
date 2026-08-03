@@ -1,10 +1,10 @@
-package memoryengine
+package engine
 
 import (
 	"context"
 
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine/vectorstore"
 )
 
 // VectorSearcher wraps embedding-based vector search. No-op when embedder is nil.

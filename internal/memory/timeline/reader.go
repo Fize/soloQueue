@@ -1,0 +1,395 @@
+package timeline
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/rotating"
+)
+
+// ─── Segment ─────────────────────────────────────────────────────────────────
+
+// Segment is a collection of messages between two /clear events.
+type Segment struct {
+	Messages []MessagePayload
+}
+
+func ListTimelineFiles(dir, baseName string) ([]string, error) {
+	legacy, err := rotating.ListFiles(dir, baseName)
+	if err != nil {
+		return nil, err
+	}
+	dateSize, err := rotating.ListDateSizeFiles(dir, baseName)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, 0, len(legacy)+len(dateSize))
+	files = append(files, legacy...)
+	files = append(files, dateSize...)
+	return files, nil
+}
+
+// ─── ReadTail / ReadTailBefore ───────────────────────────────────────────────
+
+// ReadTail reads conversation turns from timeline files.
+// maxTurns > 0: return at most that many user turns (newest first).
+// maxTurns <= 0: return all turns since the last compact/clear boundary (no limit).
+// Returns messages and a cursor for paginating further back.
+func ReadTail(dir, baseName string, maxTurns int, agentID string) ([]Segment, *time.Time, error) {
+	return readTailSince(dir, baseName, maxTurns, time.Time{}, agentID)
+}
+
+func ReadTailBefore(dir, baseName string, maxTurns int, before time.Time, agentID string) ([]Segment, *time.Time, error) {
+	return readTailSince(dir, baseName, maxTurns, before, agentID)
+}
+
+// readTailSince is the shared implementation.
+//
+// It respects /clear control events as segment boundaries: only messages
+// after the most recent /clear are replayed.  It also filters by agentID
+// so old sessions do not pollute a new L1 session on restart.
+func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID string) ([]Segment, *time.Time, error) {
+	files, err := ListTimelineFiles(dir, baseName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("timeline: list files: %w", err)
+	}
+	if len(files) == 0 {
+		return nil, nil, nil
+	}
+
+	// Read files oldest-first so allEvents remains chronological.
+	var allEvents []Event
+	for _, file := range files {
+		events, err := ReadFileEvents(file)
+		if err != nil {
+			continue
+		}
+		allEvents = append(allEvents, events...)
+	}
+
+	if len(allEvents) == 0 {
+		return nil, nil, nil
+	}
+
+	// Split events into segments by /clear control events.
+	// Only the last segment (after the most recent /clear) is replayed.
+	var segments [][]Event
+	currentSegment := []Event{}
+	for _, evt := range allEvents {
+		if evt.EventType == EventControl && evt.Control != nil && evt.Control.Action == "clear" {
+			segments = append(segments, currentSegment)
+			currentSegment = []Event{}
+		} else {
+			currentSegment = append(currentSegment, evt)
+		}
+	}
+	segments = append(segments, currentSegment)
+
+	if len(segments) == 0 {
+		return nil, nil, nil
+	}
+
+	lastSegmentEvents := segments[len(segments)-1]
+
+	// Collect messages from the end, stopping after maxTurns user messages
+	// or when hitting a message at/after the since cursor.
+	type collected struct {
+		msg  MessagePayload
+		role string
+	}
+	var rev []collected
+	userCount := 0
+	hasSummary := false
+	validThreshold := ""
+	deletedSet := make(map[string]bool)
+
+	for i := len(lastSegmentEvents) - 1; i >= 0 && (maxTurns <= 0 || userCount < maxTurns); i-- {
+		evt := lastSegmentEvents[i]
+		if evt.EventType == EventControl && evt.Control != nil {
+			switch evt.Control.Action {
+			case "summary":
+				if evt.Control.Content != "" {
+					msg := MessagePayload{
+						Role:      "system",
+						Content:   "[Conversation Summary]\n" + evt.Control.Content,
+						Timestamp: evt.Timestamp,
+					}
+					rev = append(rev, collected{msg: msg, role: msg.Role})
+				}
+				hasSummary = true
+			case "rewind":
+				if len(evt.Control.TargetTs) > 0 {
+					ts := evt.Control.TargetTs[0]
+					if validThreshold == "" || ts < validThreshold {
+						validThreshold = ts
+					}
+				}
+			case "delete":
+				for _, ts := range evt.Control.TargetTs {
+					deletedSet[ts] = true
+				}
+			}
+			continue
+		}
+
+		if evt.EventType == EventMessage && evt.Message != nil {
+			if hasSummary {
+				// We already collected contiguous summary event(s) and now hit a message.
+				// This message is part of the history that was compacted, so we must stop.
+				break
+			}
+			msg := *evt.Message
+
+			// Backward traversal logic for rewind and delete
+			if msg.Timestamp != "" {
+				if validThreshold != "" && msg.Timestamp >= validThreshold {
+					continue
+				}
+				if deletedSet[msg.Timestamp] {
+					continue
+				}
+			}
+
+			// Pagination: skip messages at or after the cursor (already loaded).
+			if !since.IsZero() && msg.Timestamp != "" {
+				if ts, err := time.Parse(time.RFC3339Nano, msg.Timestamp); err == nil {
+					if !ts.Before(since) {
+						continue
+					}
+				}
+			}
+
+			// Agent ID filter: ignore messages from other sessions.
+			// Empty AgentID (legacy data) is allowed through.
+			if agentID != "" && msg.AgentID != "" && msg.AgentID != agentID {
+				continue
+			}
+
+			// Skip system prompts (CW metadata, not conversation).
+			if msg.Role == "system" && strings.Contains(msg.Content, "<identity>") {
+				continue
+			}
+			// Skip summary system messages (handled by control events).
+			if msg.Role == "system" && strings.Contains(msg.Content, "[Conversation Summary]") {
+				continue
+			}
+			// Skip empty assistant messages.
+			if msg.Role == "assistant" && msg.Content == "" && len(msg.ToolCalls) == 0 {
+				continue
+			}
+
+			if msg.Role == "user" {
+				userCount++
+			}
+			rev = append(rev, collected{msg: msg, role: msg.Role})
+		}
+	}
+
+	if len(rev) == 0 {
+		return nil, nil, nil
+	}
+
+	// Reverse to chronological order
+	msgs := make([]MessagePayload, len(rev))
+	for i, c := range rev {
+		msgs[len(rev)-1-i] = c.msg
+	}
+
+	cursorMsgs := readTailCursor(msgs)
+	return []Segment{{Messages: msgs}}, cursorMsgs, nil
+}
+
+// readTailCursor extracts the timestamp of the oldest message as a cursor
+// for the next page. Returns nil if no parsable timestamp found.
+func readTailCursor(msgs []MessagePayload) *time.Time {
+	if len(msgs) == 0 {
+		return nil
+	}
+	if ts, err := time.Parse(time.RFC3339Nano, msgs[0].Timestamp); err == nil {
+		return &ts
+	}
+	return nil
+}
+
+// ─── ReplayInto ──────────────────────────────────────────────────────────────
+
+// ReplayInto replays segments into the ContextWindow.
+//
+// It skips system prompts (already pushed by factory) and pushes the remaining messages
+// in order to the ContextWindow. The caller should ensure ContextWindow is in
+// replayMode (disabling Push Hook).
+//
+// Orphaned tool_calls fix: If an assistant message has tool_calls but lacks
+// corresponding tool result messages (e.g., session exited after async delegation
+// yield), the entire assistant(tool_calls) + any partial tool results that arrived
+// are skipped. This prevents the LLM API from returning HTTP 400 due to
+// "insufficient tool messages".
+func ReplayInto(cw *ctxwin.ContextWindow, segments []Segment) {
+	for _, seg := range segments {
+		replaySegment(cw, seg.Messages)
+	}
+}
+
+// replaySegment replays a segment of messages, skipping orphaned tool_calls.
+func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
+	type pendingGroup struct {
+		assistant   *MessagePayload
+		toolCallIDs map[string]bool
+		toolResults []MessagePayload
+		allFound    bool
+	}
+
+	var pending *pendingGroup
+
+	flushPending := func() {
+		if pending == nil {
+			return
+		}
+		if pending.allFound {
+			pushMessage(cw, *pending.assistant)
+			for _, tr := range pending.toolResults {
+				pushMessage(cw, tr)
+			}
+		}
+		pending = nil
+	}
+
+	for _, msg := range msgs {
+		if pending != nil && !pending.allFound {
+			if msg.Role == string(ctxwin.RoleTool) && msg.ToolCallID != "" {
+				if _, needed := pending.toolCallIDs[msg.ToolCallID]; needed {
+					pending.toolCallIDs[msg.ToolCallID] = true
+					pending.toolResults = append(pending.toolResults, msg)
+					allFound := true
+					for _, found := range pending.toolCallIDs {
+						if !found {
+							allFound = false
+							break
+						}
+					}
+					if allFound {
+						pending.allFound = true
+					}
+					continue
+				}
+			}
+			pending = nil
+			if msg.Role == string(ctxwin.RoleTool) {
+				continue
+			}
+		}
+
+		if pending != nil && pending.allFound {
+			flushPending()
+		}
+
+		// Skip identity system messages.
+		if msg.Role == string(ctxwin.RoleSystem) {
+			if strings.Contains(msg.Content, "<identity>") {
+				continue
+			}
+		}
+
+		// Skip empty assistant.
+		if msg.Role == string(ctxwin.RoleAssistant) && msg.Content == "" && len(msg.ToolCalls) == 0 {
+			continue
+		}
+
+		// New assistant(tool_calls) → start pending group.
+		if msg.Role == string(ctxwin.RoleAssistant) && len(msg.ToolCalls) > 0 {
+			ids := make(map[string]bool, len(msg.ToolCalls))
+			for _, tc := range msg.ToolCalls {
+				ids[tc.ID] = false
+			}
+			pending = &pendingGroup{
+				assistant:   &msg,
+				toolCallIDs: ids,
+			}
+			continue
+		}
+
+		if msg.Role == string(ctxwin.RoleTool) {
+			continue
+		}
+
+		pushMessage(cw, msg)
+	}
+
+	flushPending()
+}
+
+// pushMessage pushes a single message to the ContextWindow.
+func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
+	opts := make([]ctxwin.PushOption, 0, 5)
+	if msg.ReasoningContent != "" {
+		opts = append(opts, ctxwin.WithReasoningContent(msg.ReasoningContent))
+	}
+	if msg.IsEphemeral {
+		opts = append(opts, ctxwin.WithEphemeral(true))
+	}
+	if msg.Name != "" {
+		opts = append(opts, ctxwin.WithToolName(msg.Name))
+	}
+	if msg.ToolCallID != "" {
+		opts = append(opts, ctxwin.WithToolCallID(msg.ToolCallID))
+	}
+	if len(msg.ToolCalls) > 0 {
+		tcs := make([]llm.ToolCall, len(msg.ToolCalls))
+		for i, tc := range msg.ToolCalls {
+			tcs[i] = llm.ToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: llm.FunctionCall{
+					Name:      tc.Name,
+					Arguments: tc.Arguments,
+				},
+			}
+		}
+		opts = append(opts, ctxwin.WithToolCalls(tcs))
+	}
+	if msg.Timestamp != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, msg.Timestamp); err == nil {
+			opts = append(opts, ctxwin.WithTimestamp(ts))
+		} else if ts, err := time.Parse(time.RFC3339, msg.Timestamp); err == nil {
+			opts = append(opts, ctxwin.WithTimestamp(ts))
+		}
+	}
+
+	cw.Push(ctxwin.MessageRole(msg.Role), msg.Content, opts...)
+}
+
+// ─── Internal Methods ────────────────────────────────────────────────────────────────
+
+// ReadFileEvents reads all events from a single JSONL file.
+// Exported so callers outside the package (e.g. l2_store) can scan raw timeline files.
+func ReadFileEvents(path string) ([]Event, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var events []Event
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var evt Event
+		if err := json.Unmarshal(line, &evt); err != nil {
+			continue
+		}
+		events = append(events, evt)
+	}
+
+	return events, scanner.Err()
+}

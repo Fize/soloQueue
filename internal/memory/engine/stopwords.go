@@ -1,4 +1,4 @@
-package memoryengine
+package engine
 
 var englishStopwords = map[string]bool{
 	"a": true, "an": true, "the": true, "and": true, "or": true, "but": true,

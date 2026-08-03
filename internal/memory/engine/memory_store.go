@@ -1,4 +1,4 @@
-package memoryengine
+package engine
 
 import (
 	"context"
@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine/embedding"
-	"github.com/xiaobaitu/soloqueue/internal/memoryengine/vectorstore"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine/vectorstore"
 )
 
 // MemoryStore provides CRUD and BM25 search over mem_entries.

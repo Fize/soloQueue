@@ -1,4 +1,4 @@
-package conversationlog
+package conversation
 
 import (
 	"context"

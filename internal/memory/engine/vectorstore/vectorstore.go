@@ -1,4 +1,4 @@
-// Package vectorstore provides a local file-backed vector store for permanent conversationlog.
+// Package vectorstore provides a local file-backed vector store for permanent conversation.
 package vectorstore
 
 import (

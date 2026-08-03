@@ -15,7 +15,7 @@
 //	- Discussed memory system design
 //
 // Files older than 7 days are removed on each write.
-package conversationlog
+package conversation
 
 import (
 	"context"
