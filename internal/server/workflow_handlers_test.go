@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
 
@@ -40,7 +40,7 @@ nodes:
 
 func newWorkflowTestMux(t *testing.T) *Mux {
 	t.Helper()
-	db, err := sqlitedb.Open(t.TempDir() + "/soloqueue.db")
+	db, err := db.Open(t.TempDir() + "/soloqueue.db")
 	if err != nil {
 		t.Fatal(err)
 	}

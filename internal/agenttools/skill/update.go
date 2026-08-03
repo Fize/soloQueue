@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // SkillsUpdateConfig defines which skills are allowed to be auto-updated.

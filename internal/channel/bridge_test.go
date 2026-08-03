@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 type fakeSession struct {

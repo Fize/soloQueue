@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/cron"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 func newCronToolTestConfig(t *testing.T, scope CronAccessScope) Config {
 	t.Helper()
-	db, err := sqlitedb.Open(filepath.Join(t.TempDir(), "cron.db"))
+	db, err := db.Open(filepath.Join(t.TempDir(), "cron.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

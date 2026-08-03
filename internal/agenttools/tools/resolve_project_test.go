@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
 func setupResolveProjectTool(t *testing.T) (*resolveProjectTool, func()) {
 	t.Helper()
 
-	db, err := sqlitedb.Open(":memory:")
+	db, err := db.Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open(:memory:) = %v", err)
 	}
@@ -151,7 +151,7 @@ func TestResolveProjectTool_Execute(t *testing.T) {
 		defer cleanup()
 
 		// Create a separate store with duplicate-name projects
-		db, err := sqlitedb.Open(":memory:")
+		db, err := db.Open(":memory:")
 		if err != nil {
 			t.Fatalf("Open: %v", err)
 		}

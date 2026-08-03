@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 // Task is a scheduled/timer task persisted in SQLite.
@@ -117,7 +117,7 @@ type DBStore struct {
 }
 
 // NewDBStore creates a DBStore from a shared DB reference.
-func NewDBStore(db *sqlitedb.DB) *DBStore {
+func NewDBStore(db *db.DB) *DBStore {
 	return &DBStore{
 		db: db.DB,
 		mu: &db.WMu,

@@ -4,7 +4,7 @@
 // so opening it from multiple places causes DDL races and fragmented
 // migrations. This package exposes a single *sql.DB and a shared write
 // mutex that callers use to serialize writes across stores.
-package sqlitedb
+package db
 
 import (
 	"database/sql"

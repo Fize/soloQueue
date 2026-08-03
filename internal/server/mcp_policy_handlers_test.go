@@ -10,13 +10,13 @@ import (
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 func TestMCPPolicyHandlersRequireExplicitHostApprovalAndInvalidateChanges(t *testing.T) {
 	dir := t.TempDir()
-	db, err := sqlitedb.Open(filepath.Join(dir, "soloqueue.db"))
+	db, err := db.Open(filepath.Join(dir, "soloqueue.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

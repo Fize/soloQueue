@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // ─── Provider interface ───────────────────────────────────────────────

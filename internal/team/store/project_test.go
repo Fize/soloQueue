@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 func TestResolveProject(t *testing.T) {
-	db, err := sqlitedb.Open(":memory:")
+	db, err := db.Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open(:memory:) = %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
@@ -36,10 +36,10 @@ type Policy struct {
 }
 
 type PolicyStore struct {
-	db *sqlitedb.DB
+	db *db.DB
 }
 
-func NewPolicyStore(db *sqlitedb.DB) *PolicyStore {
+func NewPolicyStore(db *db.DB) *PolicyStore {
 	if db == nil {
 		return nil
 	}

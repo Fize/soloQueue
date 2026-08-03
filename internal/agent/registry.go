@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // Registry maps InstanceID (UUID) → Agent with a secondary index by template ID (Def.ID).

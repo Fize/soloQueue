@@ -12,7 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
@@ -1117,7 +1117,7 @@ func TestBuildSimulationSystemPrompt_Moderator(t *testing.T) {
 
 func TestIndexSimulationToKG_Namespacing(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test_soloqueue.db")
-	db, err := sqlitedb.Open(dbPath)
+	db, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open sqlite db: %v", err)
 	}

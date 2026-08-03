@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/cron"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
@@ -28,7 +28,7 @@ func (mockSessionManager) GetSession(ctx context.Context, teamID, taskID string)
 func TestHTTP_CronHandlers(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "soloqueue.db")
-	sdb, err := sqlitedb.Open(dbPath)
+	sdb, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open sqlite DB: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestHTTP_CronHandlers_Invalid(t *testing.T) {
 func TestHTTP_CronHistory(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "soloqueue.db")
-	sdb, err := sqlitedb.Open(dbPath)
+	sdb, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open sqlite DB: %v", err)
 	}

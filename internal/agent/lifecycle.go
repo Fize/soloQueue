@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // ─── Lifecycle ──────────────────────────────────────────────────────────────

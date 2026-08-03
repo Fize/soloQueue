@@ -43,12 +43,12 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
@@ -86,7 +86,7 @@ type Mux struct {
 	teamstore         *store.Store // team/agent DB store; nil if not backed by SQLite
 	onConfigChange    func() error     // callback on LLM config update
 	simEngine         *simulation.SimulationEngine
-	sharedDB          *sqlitedb.DB // for metric reporting
+	sharedDB          *db.DB // for metric reporting
 	workflowStore     *workflow.Store
 	workflowRuns      *workflow.RunManager
 	distFS            fs.FS
@@ -220,7 +220,7 @@ func WithSimulationEngine(engine *simulation.SimulationEngine) MuxOption {
 }
 
 // WithSharedDB sets the SQLite DB for token and router stats.
-func WithSharedDB(db *sqlitedb.DB) MuxOption {
+func WithSharedDB(db *db.DB) MuxOption {
 	return func(m *Mux) { m.sharedDB = db }
 }
 

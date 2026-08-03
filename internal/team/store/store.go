@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"gopkg.in/yaml.v3"
 )
 
@@ -69,12 +69,12 @@ type AgentTemplate struct {
 type Store struct {
 	groupsDir string
 	agentsDir string
-	db        *sqlitedb.DB
+	db        *db.DB
 	mu        sync.RWMutex
 }
 
 // NewStore creates a new teamstore backed by groups/ and agents/ directories.
-func NewStore(groupsDir, agentsDir string, db *sqlitedb.DB) *Store {
+func NewStore(groupsDir, agentsDir string, db *db.DB) *Store {
 	_ = os.MkdirAll(groupsDir, 0755)
 	_ = os.MkdirAll(agentsDir, 0755)
 	return &Store{

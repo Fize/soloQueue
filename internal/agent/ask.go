@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // --- Ask / Submit -----------------------------------------------------------

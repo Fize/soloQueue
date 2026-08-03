@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	lsp "github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 )

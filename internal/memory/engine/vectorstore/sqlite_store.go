@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 // SQLiteStore stores memory entries in a SQLite database.
@@ -24,7 +24,7 @@ type SQLiteStore struct {
 	// When a caller injects a shared DB via NewSQLiteStoreFromDB, ownership
 	// stays with the caller and ownsDB is false.
 	ownsDB   bool
-	sharedDB *sqlitedb.DB // non-nil only when this store owns the *sqlitedb.DB (path-based constructor)
+	sharedDB *db.DB // non-nil only when this store owns the *db.DB (path-based constructor)
 	log      *logger.Logger
 }
 
@@ -44,7 +44,7 @@ func WithTableName(name string) func(*SQLiteStore) {
 // its own connection. Prefer NewSQLiteStoreFromDB when the same database
 // file is shared with other stores (e.g. the todo store).
 func NewSQLiteStore(path string, opts ...func(*SQLiteStore)) (*SQLiteStore, error) {
-	shared, err := sqlitedb.Open(path)
+	shared, err := db.Open(path)
 	if err != nil {
 		return nil, err
 	}

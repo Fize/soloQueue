@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/vectorstore"
 )
 
@@ -24,7 +24,7 @@ func (bc *buildContext) buildMemory() error {
 	embStart := time.Now()
 	if bc.sharedDB == nil {
 		sharedDBPath := filepath.Join(bc.workDir, "soloqueue.db")
-		sharedDB, sharedDBErr := sqlitedb.Open(sharedDBPath)
+		sharedDB, sharedDBErr := db.Open(sharedDBPath)
 		if sharedDBErr != nil {
 			return fmt.Errorf("open shared sqlite db: %w", sharedDBErr)
 		}

@@ -17,7 +17,7 @@ import (
 	robfig "github.com/robfig/cron/v3"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 

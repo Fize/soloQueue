@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // sendFileTool shares a local file (by path) or a public URL with the user.

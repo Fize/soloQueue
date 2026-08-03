@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/xiaobaitu/soloqueue/internal/rotating"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger/rotating"
 )
 
 // rotateWriter is a unified file writer that rotates by date and size.

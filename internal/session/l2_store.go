@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
-	workdirutil "github.com/xiaobaitu/soloqueue/internal/workdir"
+	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
 )
 
 type l2LifecycleState uint8

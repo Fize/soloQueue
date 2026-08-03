@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 func TestPolicyLifecycleBindsApprovalToDefinitionAndRuntime(t *testing.T) {
-	db, err := sqlitedb.Open(filepath.Join(t.TempDir(), "policy.db"))
+	db, err := db.Open(filepath.Join(t.TempDir(), "policy.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

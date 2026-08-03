@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	workdirutil "github.com/xiaobaitu/soloqueue/internal/workdir"
+	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
 )
 
 // ─── L2SessionStore tests ──────────────────────────────────────────────────

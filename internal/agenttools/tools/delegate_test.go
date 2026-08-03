@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	workdirutil "github.com/xiaobaitu/soloqueue/internal/workdir"
+	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
 )
 
 func TestDelegateTool_PreferredTimeout_Explicit(t *testing.T) {

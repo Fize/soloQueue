@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 func testBridge(t *testing.T, transcriber *Transcriber) *SessionBridge {

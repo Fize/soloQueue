@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/vectorstore"
 )

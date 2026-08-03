@@ -14,7 +14,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 func MemoryCmd() *cobra.Command {
@@ -116,7 +116,7 @@ func openMemoryEngine(path string) (*engine.Engine, func(), string, error) {
 	if err != nil {
 		return nil, nil, "", err
 	}
-	db, err := sqlitedb.Open(path)
+	db, err := db.Open(path)
 	if err != nil {
 		return nil, nil, "", err
 	}

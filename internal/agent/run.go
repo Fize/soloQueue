@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // jobWatchdogGrace: bounded wait for async goroutines after ctx cancellation.

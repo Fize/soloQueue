@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 // NodeRunView and RunDetail are transport-safe snapshots. They deliberately do
@@ -73,7 +73,7 @@ type WorkflowEdge struct {
 
 type RunManager struct {
 	engine  *Engine
-	db      *sqlitedb.DB
+	db      *db.DB
 	workDir string
 
 	mu     sync.RWMutex
@@ -81,7 +81,7 @@ type RunManager struct {
 	runs   map[string]RunDetail
 }
 
-func NewRunManager(engine *Engine, db *sqlitedb.DB, workDir string) *RunManager {
+func NewRunManager(engine *Engine, db *db.DB, workDir string) *RunManager {
 	m := &RunManager{engine: engine, db: db, workDir: workDir, active: make(map[string]context.CancelFunc), runs: make(map[string]RunDetail)}
 	m.reconcileInterrupted()
 	return m

@@ -12,7 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
@@ -22,10 +22,10 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
-	"github.com/xiaobaitu/soloqueue/internal/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
@@ -55,7 +55,7 @@ type Stack struct {
 	SkillRegistry *skill.SkillRegistry
 	MemoryManager *conversation.Manager // Short-term memory manager
 	MemoryEngine  *engine.Engine     // Memory engine (BM25 + KG + optional vector)
-	SharedDB      *sqlitedb.DB             // Shared SQLite connection
+	SharedDB      *db.DB             // Shared SQLite connection
 	MCPManager    *mcp.Manager             // MCP server manager
 	LSPManager    *lsp.Manager             // Built-in LSP MCP server manager
 

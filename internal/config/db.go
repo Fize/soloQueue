@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 // ─── LLM Provider CRUD ───────────────────────────────────────────────────────
 
-func LoadProviders(ctx context.Context, db *sqlitedb.DB) ([]LLMProvider, error) {
+func LoadProviders(ctx context.Context, db *db.DB) ([]LLMProvider, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func LoadProviders(ctx context.Context, db *sqlitedb.DB) ([]LLMProvider, error) 
 	return providers, rows.Err()
 }
 
-func SaveProvider(ctx context.Context, db *sqlitedb.DB, p LLMProvider) error {
+func SaveProvider(ctx context.Context, db *db.DB, p LLMProvider) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func SaveProvider(ctx context.Context, db *sqlitedb.DB, p LLMProvider) error {
 	return nil
 }
 
-func DeleteProvider(ctx context.Context, db *sqlitedb.DB, id string) error {
+func DeleteProvider(ctx context.Context, db *db.DB, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func DeleteProvider(ctx context.Context, db *sqlitedb.DB, id string) error {
 
 // ─── LLM Model CRUD ──────────────────────────────────────────────────────────
 
-func LoadModels(ctx context.Context, db *sqlitedb.DB) ([]LLMModel, error) {
+func LoadModels(ctx context.Context, db *db.DB) ([]LLMModel, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func LoadModels(ctx context.Context, db *sqlitedb.DB) ([]LLMModel, error) {
 	return models, rows.Err()
 }
 
-func SaveModel(ctx context.Context, db *sqlitedb.DB, m LLMModel) error {
+func SaveModel(ctx context.Context, db *db.DB, m LLMModel) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func SaveModel(ctx context.Context, db *sqlitedb.DB, m LLMModel) error {
 	return nil
 }
 
-func DeleteModel(ctx context.Context, db *sqlitedb.DB, providerID, modelID string) error {
+func DeleteModel(ctx context.Context, db *db.DB, providerID, modelID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -239,7 +239,7 @@ func DeleteModel(ctx context.Context, db *sqlitedb.DB, providerID, modelID strin
 }
 
 // SaveSystemSetting serializes config struct to JSON and upserts into system_settings.
-func SaveSystemSetting(ctx context.Context, db *sqlitedb.DB, key string, val interface{}) error {
+func SaveSystemSetting(ctx context.Context, db *db.DB, key string, val interface{}) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -270,7 +270,7 @@ func SaveSystemSetting(ctx context.Context, db *sqlitedb.DB, key string, val int
 
 // LoadSystemSetting loads config struct from JSON in system_settings.
 // Returns (true, nil) if found and unmarshalled successfully, (false, nil) if not found.
-func LoadSystemSetting(ctx context.Context, db *sqlitedb.DB, key string, target interface{}) (bool, error) {
+func LoadSystemSetting(ctx context.Context, db *db.DB, key string, target interface{}) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}

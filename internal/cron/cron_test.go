@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 // mockSession implements the Session interface for testing.
@@ -415,7 +415,7 @@ func TestSchedulerAskWithTaskModel(t *testing.T) {
 func openTestDB(t *testing.T) *DBStore {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.db")
-	db, err := sqlitedb.Open(path)
+	db, err := db.Open(path)
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}

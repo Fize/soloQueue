@@ -8,8 +8,8 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
-	"github.com/xiaobaitu/soloqueue/internal/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 )
 
 func TestWithTelemetryContext_RoundTrip(t *testing.T) {
@@ -135,7 +135,7 @@ func TestTelemetryClient_logUsageAsync_NilDB(t *testing.T) {
 }
 
 func TestTelemetryClient_logUsageAsync_WithDB(t *testing.T) {
-	db, err := sqlitedb.Open(":memory:")
+	db, err := db.Open(":memory:")
 	if err != nil {
 		t.Fatalf("open in-memory db: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestTelemetryClient_logUsageAsync_WithDB(t *testing.T) {
 }
 
 func TestTelemetryClient_logUsageAsync_EmptyUsageType(t *testing.T) {
-	db, err := sqlitedb.Open(":memory:")
+	db, err := db.Open(":memory:")
 	if err != nil {
 		t.Fatalf("open in-memory db: %v", err)
 	}

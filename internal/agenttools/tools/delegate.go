@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
-	workdirutil "github.com/xiaobaitu/soloqueue/internal/workdir"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
 )
 
 // --- Delegate constants ---

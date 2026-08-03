@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // handleGetTokenStats returns aggregated token usage statistics from the DB.

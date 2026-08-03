@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // maxPeerDepth limits how many L2→L2 hops a single task can make.

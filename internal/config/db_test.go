@@ -4,12 +4,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 func TestSetDB_DoesNotSeed(t *testing.T) {
 	dir := t.TempDir()
-	db, err := sqlitedb.Open(filepath.Join(dir, "soloqueue.db"))
+	db, err := db.Open(filepath.Join(dir, "soloqueue.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

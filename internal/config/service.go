@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
@@ -17,7 +17,7 @@ import (
 type GlobalService struct {
 	*Loader[Settings]
 	workDir string
-	db      *sqlitedb.DB
+	db      *db.DB
 	dbMu    sync.RWMutex
 	log     *logger.Logger
 }
@@ -58,7 +58,7 @@ func (s *GlobalService) SetLogger(log *logger.Logger) {
 
 // SetDB sets the SQLite connection. Configuration is no longer read from the
 // database; the database is used only for runtime data such as memory and timelines.
-func (s *GlobalService) SetDB(db *sqlitedb.DB) error {
+func (s *GlobalService) SetDB(db *db.DB) error {
 	s.dbMu.Lock()
 	s.db = db
 	s.dbMu.Unlock()
@@ -66,7 +66,7 @@ func (s *GlobalService) SetDB(db *sqlitedb.DB) error {
 }
 
 // GetDB returns the database connection of the config service.
-func (s *GlobalService) GetDB() *sqlitedb.DB {
+func (s *GlobalService) GetDB() *db.DB {
 	s.dbMu.RLock()
 	defer s.dbMu.RUnlock()
 	return s.db

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // httpFetchTool performs outbound HTTP GET requests with SSRF protection.

@@ -21,7 +21,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	lsp "github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
@@ -29,10 +29,10 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
-	"github.com/xiaobaitu/soloqueue/internal/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 	"github.com/xiaobaitu/soloqueue/internal/workflow/agentexec"
@@ -316,7 +316,7 @@ type buildContext struct {
 	allTemplates      []agent.AgentTemplate
 	memoryDir         string
 	memoryMgr         *conversation.Manager
-	sharedDB          *sqlitedb.DB
+	sharedDB          *db.DB
 	memoryEngine      *engine.Engine
 	planDir           string
 	mcpServers        []string
@@ -429,7 +429,7 @@ func (bc *buildContext) initSharedDB() error {
 		return fmt.Errorf("create soloqueue.db dir: %w", err)
 	}
 
-	sharedDB, err := sqlitedb.Open(sharedDBPath)
+	sharedDB, err := db.Open(sharedDBPath)
 	if err != nil {
 		return fmt.Errorf("open shared sqlite db: %w", err)
 	}

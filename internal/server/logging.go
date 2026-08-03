@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/xiaobaitu/soloqueue/internal/rotating"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger/rotating"
 )
 
 // ─── HTTP Access Logger ─────────────────────────────────────────────────────

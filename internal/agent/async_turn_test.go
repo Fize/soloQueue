@@ -17,7 +17,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
@@ -1583,7 +1583,7 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 
 // TestFactoryCronToolScopes verifies L2 team scope and L3/cron-execution filtering.
 func TestFactoryCronToolScopes(t *testing.T) {
-	db, err := sqlitedb.Open(filepath.Join(t.TempDir(), "cron.db"))
+	db, err := db.Open(filepath.Join(t.TempDir(), "cron.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

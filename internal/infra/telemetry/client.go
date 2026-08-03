@@ -5,18 +5,18 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
-	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 // TelemetryClient wraps an underlying agent.LLMClient to automatically capture
 // and log token usage statistics to the provided database.
 type TelemetryClient struct {
 	inner agent.LLMClient
-	db    *sqlitedb.DB
+	db    *db.DB
 }
 
 // NewTelemetryClient creates a new telemetry client wrapper.
-func NewTelemetryClient(inner agent.LLMClient, db *sqlitedb.DB) *TelemetryClient {
+func NewTelemetryClient(inner agent.LLMClient, db *db.DB) *TelemetryClient {
 	return &TelemetryClient{
 		inner: inner,
 		db:    db,

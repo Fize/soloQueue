@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/xiaobaitu/soloqueue/internal/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 func (s *Sandbox) RunCommand(ctx context.Context, cmd string, opts RunCommandOptions) (RunCommandResult, error) {
