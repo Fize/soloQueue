@@ -16,10 +16,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-// ─── Bypass Confirm Context ─────────────────────────────────────────────────
-
-// WithBypassConfirm returns a context that skips all tool confirmations.
-// Used by QQ bot and other non-interactive channels.
+// WithBypassConfirmCtx returns a context that skips all tool confirmations.
 func WithBypassConfirmCtx(ctx context.Context) context.Context {
 	return iface.ContextWithBypassConfirm(ctx)
 }
@@ -30,11 +27,7 @@ func WithBypassConfirmCtx(ctx context.Context) context.Context {
 // and are injected via tools.WithToolEventChannel / tools.WithConfirmForwarder.
 // The agent package uses them through these exported helpers to avoid cross-package context key type mismatches.
 
-// ─── Stream Event Accumulator ───────────────────────────────────────────────
-//
-// streamAccumulator holds accumulated state during a single LLM streaming
-// iteration. Used to eliminate 123-line duplication across runOnceStream,
-// runOnceStreamWithHistory, and runOnceStreamWithHistoryFromIter.
+// streamAccumulator holds state accumulated during a single streaming iteration.
 type streamAccumulator struct {
 	content   strings.Builder
 	reasoning strings.Builder
@@ -43,12 +36,7 @@ type streamAccumulator struct {
 	usage     llm.Usage
 }
 
-// processStreamEvents processes a single LLM streaming event channel and
-// accumulates response into acc. This extracts the 123-line identical
-// event processing loop from all 3 run* functions.
-//
-// Returns after stream is exhausted (normally or on error).
-// On context cancel or LLM error, emits ErrorEvent before returning.
+// processStreamEvents reads LLM events and accumulates response into acc.
 func (a *Agent) processStreamEvents(
 	ctx context.Context,
 	iter int,
@@ -66,9 +54,7 @@ func (a *Agent) processStreamEvents(
 		case ev, ok := <-evCh:
 			if !ok {
 				// channel close but no Done/Error — abnormal end, report as error
-				// This happens when the LLM stream is interrupted (e.g., HTTP timeout,
-				// idle watchdog, or connection reset) and the error was not properly
-				// delivered through the event channel.
+				// Stream interrupted unexpectedly without EventDone or EventError.
 				err := fmt.Errorf("agent: llm stream ended unexpectedly without done event")
 				durMs := time.Since(start).Milliseconds()
 				a.logError(ctx, logger.CatLLM, "llm chat failed", err,
@@ -81,9 +67,7 @@ func (a *Agent) processStreamEvents(
 			}
 			switch ev.Type {
 			case llm.EventDelta:
-				// DeepSeek can include the final reasoning fragment and the first
-				// visible-content fragment in one SSE delta. Reasoning semantically
-				// precedes the answer, so preserve that order in the event stream.
+				// Preserve reasoning before content in the event stream.
 				if ev.ReasoningContentDelta != "" {
 					acc.reasoning.WriteString(ev.ReasoningContentDelta)
 					if !a.emit(ctx, out, ReasoningDeltaEvent{
@@ -133,20 +117,7 @@ func (a *Agent) processStreamEvents(
 	return nil
 }
 
-// --- Strategy pattern for stream loop deduplication ---
-//
-// The three run* functions (runOnceStream, runOnceStreamWithHistory,
-// runOnceStreamWithHistoryFromIter) share ~90% identical code. The only
-// differences are:
-//   - How messages are built (in-memory vs ContextWindow)
-//   - Whether overflow checking / calibration applies
-//   - Which execTools variant is called (sync vs async-aware)
-//   - How tool results are stored (in-memory msgs vs ContextWindow push)
-//
-// streamStrategy encapsulates these differences so streamLoop contains
-// the shared logic exactly once.
-
-// streamStrategy defines the variant behavior injected into streamLoop.
+// streamStrategy abstracts variant behavior across streaming functions.
 type streamStrategy interface {
 	// buildMessages returns the LLM messages for this iteration.
 	// Returns an error for overflow or other pre-flight failures.
@@ -164,9 +135,7 @@ type streamStrategy interface {
 	promptLen() int
 }
 
-// recoverAndEmit catches panics, emits ErrorEvent, and re-panics.
-// Used as a deferred call in streamLoop to ensure errors are always
-// reported before the channel closes.
+// recoverAndEmit catches panics, emits ErrorEvent, and re-panics for outer recovery.
 func (a *Agent) recoverAndEmit(ctx context.Context, out chan<- AgentEvent) {
 	if r := recover(); r != nil {
 		a.emit(ctx, out, ErrorEvent{
@@ -177,10 +146,7 @@ func (a *Agent) recoverAndEmit(ctx context.Context, out chan<- AgentEvent) {
 }
 
 
-// startRelayGoroutine launches a goroutine that forwards ToolNeedsConfirmEvent
-// and ErrorEvent from relayCh to out, with panic recovery. Returns a channel
-// that is closed when the goroutine exits after relayCh is closed.
-// If onEvent is non-nil, it is called for each event before forwarding.
+// startRelayGoroutine forwards ToolNeedsConfirmEvent and ErrorEvent from relayCh to out.
 func (a *Agent) startRelayGoroutine(ctx context.Context, relayCh <-chan iface.AgentEvent, out chan<- AgentEvent, onEvent func(iface.AgentEvent)) <-chan struct{} {
 	relayDone := make(chan struct{})
 	go func() {
@@ -210,15 +176,7 @@ func (a *Agent) startRelayGoroutine(ctx context.Context, relayCh <-chan iface.Ag
 }
 
 // streamLoop is the unified LLM tool-use loop.
-//
-// GOROUTINE SAFETY CONTRACT:
-// The caller MUST either:
-//  1. Consume the out channel until close (range), OR
-//  2. Cancel ctx before abandoning the channel
-//
-// If ctx is cancelled, emit() returns false and streamLoop exits,
-// triggering defer close(out). The 64-slot buffer absorbs transient
-// backpressure.
+// Caller MUST either consume out until close or cancel ctx before abandoning.
 func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat streamStrategy, startIter int) (yielded bool) {
 	// Only close out when the stream finishes normally (yielded == false).
 	// When async delegation starts, streamLoop yields (returns true) and out
@@ -832,22 +790,8 @@ func sortedToolCalls(slots map[int]*llm.ToolCall) []llm.ToolCall {
 	return out
 }
 
-// execTools executes all tool_calls in the current round and returns a result slice in the same order as calls
-//
-// Dispatch strategy:
-//   - len(calls) <= 1 or parallelTools=false → sequential execution
-//     (concurrency yields no benefit for a single tool; sequential execution is the consensus path)
-//   - Otherwise, use errgroup for concurrency: one goroutine per call,
-//     gctx is shared by errgroup (cancellation of any ctx propagates to all unfinished tools)
-//
-// Error semantics:
-//   - execToolStream already formats tool errors as "error: ..." strings before returning,
-//     so each goroutine returns nil — errgroup **never short-circuits**
-//   - Even if a tool fails or times out, other tools continue to completion
-//   - When the upstream ctx is cancelled: **running** tools will receive ctx.Done (propagated via gctx),
-//     but unfinished slots will be filled with "error: ..." placeholder strings by execToolStream
-//
-// Result order guarantee: results[i] strictly corresponds to calls[i], independent of goroutine completion order
+// execTools runs tool calls sequentially (single call or parallel=false) or concurrently (errgroup).
+// Errors are formatted as "error: ..." strings and fed back to LLM; errgroup never short-circuits.
 func (a *Agent) execTools(
 	ctx context.Context,
 	iter int,
@@ -882,13 +826,8 @@ func (a *Agent) execTools(
 	return results
 }
 
-// execToolStream executes a tool_call and sends Start/Done events along out
-//
-// Always returns a string (to be placed back into the LLM's tool-role message):
-//   - On success: result of tool.Execute
-//   - On tool not found / Execute returns error: `"error: " + err.Error()`, LLM decides whether to retry
-//
-// Errors **do not break the loop** — this is the "feedback tool errors to the LLM" strategy.
+// execToolStream executes one tool_call and emits start/done events.
+// Tool errors are returned as "error: ..." strings for LLM self-correction.
 func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, out chan<- AgentEvent) string {
 	name := tc.Function.Name
 	args := tc.Function.Arguments

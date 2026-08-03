@@ -12,7 +12,7 @@ import (
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// payloadToLLMMessages converts a slice of ctxwin.PayloadMessage to a slice of LLMMessage.
+
 func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
 	out := make([]LLMMessage, 0, len(payload))
 	for _, p := range payload {
@@ -33,9 +33,7 @@ func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
 	return out
 }
 
-// buildMessages assembles system + user messages.
-//
-// If systemPrompt is empty, the system message is skipped (to avoid `{"role":"system","content":""}`).
+// buildMessages assembles system + user messages. Empty systemPrompt is skipped.
 func buildMessages(systemPrompt, userPrompt string) []LLMMessage {
 	msgs := make([]LLMMessage, 0, 2)
 	if systemPrompt != "" {
@@ -60,11 +58,7 @@ func (a *Agent) logError(ctx context.Context, cat logger.Category, msg string, e
 	a.Log.LogError(ctx, cat, msg, err, args...)
 }
 
-// mergeCtx returns a context that is cancelled if either context a or b is cancelled.
-//
-// Implementation: A goroutine listens to both sources; the returned cancel func
-// ensures the goroutine always exits (either by calling cancel or if any source is
-// cancelled), preventing leaks.
+// mergeCtx returns a context cancelled if either a or b is cancelled.
 func mergeCtx(a, b context.Context) (context.Context, context.CancelFunc) {
 	merged, cancel := context.WithCancel(a)
 	if b == nil || b.Done() == nil {
@@ -83,11 +77,7 @@ func mergeCtx(a, b context.Context) (context.Context, context.CancelFunc) {
 
 // ─── Trace / actor_id injection ─────────────────────────────────────────────
 
-// ensureTraceID ensures the context carries a trace_id.
-//
-// Policy (user confirmation): Use existing if present, otherwise generate a new one.
-// The newly generated one is an 8-byte hex (16 characters), sufficient to distinguish
-// concurrent Ask calls within a single process.
+// ensureTraceID reuses existing trace_id or generates a new 8-byte hex one.
 func ensureTraceID(ctx context.Context) context.Context {
 	if logger.TraceIDFromContext(ctx) != "" {
 		return ctx
@@ -95,10 +85,7 @@ func ensureTraceID(ctx context.Context) context.Context {
 	return logger.WithTraceID(ctx, newTraceID())
 }
 
-// ctxWithAgentAttrs injects actor_id into the context for subsequent automatic extraction by the Logger.
-//
-// Uses InstanceID as the primary identifier (unique per instance),
-// and Def.ID as the template actor_id for backward-compatible log filtering.
+// ctxWithAgentAttrs injects actor_id (InstanceID) for structured logging.
 func (a *Agent) ctxWithAgentAttrs(ctx context.Context) context.Context {
 	if a.InstanceID != "" {
 		ctx = logger.WithActorID(ctx, a.InstanceID)

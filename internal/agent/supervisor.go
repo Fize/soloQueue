@@ -16,19 +16,8 @@ import (
 
 // ─── Supervisor ────────────────────────────────────────────────────────────
 
-// Supervisor is the L2 domain manager
-//
-// It composes an Agent (rather than embedding), holding the L2 Agent instance and AgentFactory,
-// responsible for L3 sub-Agent lifecycle management (Spawn/Reap).
-//
-// 'children' is a map from templateID to []childSlot, supporting multiple L3 instances of the same template
-// working in parallel (each instance having its own context window and mailbox).
-//
-// L2's Fan-out/Fan-in reuses the existing execTools parallel mechanism:
-//   - The L2 LLM returns multiple delegate_* tool_calls
-//   - execTools executes each DelegateTool in parallel
-//   - Each DelegateTool synchronously blocks on L3.Ask()
-//   - After all are completed, the results are injected into the L2 context
+// Supervisor is the L2 domain manager. Composes an Agent + Factory for L3 child lifecycle.
+// children[templateID] supports multiple L3 instances per template for parallel work.
 type Supervisor struct {
 	agent    *Agent
 	factory  AgentFactory
@@ -45,7 +34,7 @@ type childSlot struct {
 	createdAt time.Time
 }
 
-// NewSupervisor creates a Supervisor
+
 func NewSupervisor(agent *Agent, factory AgentFactory, log *logger.Logger) *Supervisor {
 	return &Supervisor{
 		agent:    agent,
@@ -55,12 +44,8 @@ func NewSupervisor(agent *Agent, factory AgentFactory, log *logger.Logger) *Supe
 	}
 }
 
-// SpawnChild instantiates an L3 child Agent from the given template.
-// Each call creates a new Agent instance with a unique InstanceID,
-// allowing multiple children of the same template to run concurrently.
-// workDir is passed through from the parent agent (L2→L3 passthrough).
-//
-// Flow: factory.Create → append to children[tmpl.ID] → return.
+// SpawnChild creates a new L3 child with a unique InstanceID.
+// workDir passes through from L2 to L3.
 func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, error) {
 	if s.factory == nil {
 		return nil, fmt.Errorf("supervisor: no factory configured")
@@ -96,12 +81,7 @@ func (s *Supervisor) SpawnChild(ctx context.Context, tmpl AgentTemplate, workDir
 	return child, nil
 }
 
-// ReapChild reaps a child Agent (by InstanceID)
-//
-// Full cleanup:
-//  1. Stop Agent (close mailbox + cancel ctx + wait for goroutines to exit)
-//  2. Unregister from Registry (break Locator reference)
-//  3. Explicitly release references (aid GC)
+// ReapChild stops a child, unregisters it, and releases references.
 func (s *Supervisor) ReapChild(instanceID string, timeout time.Duration) error {
 	s.childMu.Lock()
 	var tmplID string
@@ -142,7 +122,7 @@ func (s *Supervisor) ReapChild(instanceID string, timeout time.Duration) error {
 				"instance_id", instanceID,
 			)
 		}
-		// Continue cleanup, do not return an error (Stop timeout is not a fatal error)
+		// Continue cleanup even on Stop timeout.
 	}
 
 	// 2. Unregister from Registry
@@ -164,9 +144,7 @@ func (s *Supervisor) ReapChild(instanceID string, timeout time.Duration) error {
 	return nil
 }
 
-// ReapAll reaps all child Agents
-//
-// Returns reaping errors for each child Agent (if any). Even if some fail, it attempts to reap all.
+// ReapAll reaps all children. Best-effort: continues even if some fail.
 func (s *Supervisor) ReapAll(timeout time.Duration) []error {
 	s.childMu.Lock()
 	type reapTarget struct {
@@ -189,7 +167,7 @@ func (s *Supervisor) ReapAll(timeout time.Duration) []error {
 	return errs
 }
 
-// Children returns a snapshot of all current child Agents, sorted by name for stable display.
+
 func (s *Supervisor) Children() []*Agent {
 	s.childMu.RLock()
 	defer s.childMu.RUnlock()
@@ -210,9 +188,8 @@ func (s *Supervisor) Children() []*Agent {
 	return agents
 }
 
-// AdoptChild adds an already-created agent to the supervisor's children map
-// under its template ID. Used by auto-reload to track hot-instantiated workers
-// without going through SpawnChild.
+// AdoptChild tracks an existing agent without going through SpawnChild.
+// Used by auto-reload for hot-instantiated workers.
 func (s *Supervisor) AdoptChild(child *Agent) {
 	s.childMu.Lock()
 	tmplID := child.Def.ID
@@ -229,10 +206,10 @@ func (s *Supervisor) SetGroup(g string) { s.group = g }
 // Group returns the team group name.
 func (s *Supervisor) Group() string { return s.group }
 
-// Agent returns the L2 Agent managed by the Supervisor
+
 func (s *Supervisor) Agent() *Agent { return s.agent }
 
-// ChildCount returns the current number of child Agents
+
 func (s *Supervisor) ChildCount() int {
 	s.childMu.RLock()
 	defer s.childMu.RUnlock()
@@ -243,10 +220,8 @@ func (s *Supervisor) ChildCount() int {
 	return count
 }
 
-// UpdateLeaderPrompt replaces the L2 leader's system prompt and re-wires
-// delegate tools. The caller must have already rebuilt the prompt from the
-// updated template, and must also update the Session-level ContextWindow
-// via ctxwin.ContextWindow.ReplacePrimarySystem().
+// UpdateLeaderPrompt replaces the system prompt and re-wires delegate tools.
+// Caller must also update the session-level ContextWindow.
 func (s *Supervisor) UpdateLeaderPrompt(newPrompt string, allTemplates []AgentTemplate) {
 	s.agent.SetSystemPrompt(newPrompt)
 	s.WireSpawnFns(allTemplates)
@@ -254,12 +229,8 @@ func (s *Supervisor) UpdateLeaderPrompt(newPrompt string, allTemplates []AgentTe
 
 // ─── WireSpawnFns ──────────────────────────────────────────────────────────
 
-// WireSpawnFns rewires the L2 agent's DelegateTools to use Supervisor.SpawnChild
-// instead of direct factory.Create. This ensures L3 children spawned via
-// delegation are tracked in the Supervisor's children map.
-//
-// Must be called after the L2 agent is created and the Supervisor is constructed.
-// allTemplates is the full template list used to resolve worker templates by ID.
+// WireSpawnFns rewires delegate tools to use Supervisor.SpawnChild so L3
+// children are tracked. Must be called after the Supervisor is constructed.
 func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 	l2 := s.Agent()
 	if l2.tools == nil {
@@ -344,11 +315,8 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 
 // ─── SpawnFn closure injection ──────────────────────────────────────────────────────
 
-// SpawnFnFor creates a SpawnFn closure for the given SubAgent template
-//
-// Injects into the L2's DelegateTool.SpawnFn, allowing the DelegateTool to dynamically spawn L3 agents.
-// The DelegateTool is unaware of the Supervisor/Factory's existence; it only calls the injected closure.
-// The workDir argument is retained for the DelegateTool callback contract, but
+// SpawnFnFor creates a SpawnFn closure for the given template.
+// The DelegateTool calls this closure without knowing about the Supervisor.
 // L2 children always inherit the supervisor's parent work directory.
 func (s *Supervisor) SpawnFnFor(tmpl AgentTemplate) func(ctx context.Context, task string, workDir string) (iface.Locatable, error) {
 	return func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
@@ -370,9 +338,7 @@ func (s *Supervisor) spawnInheritedChild(ctx context.Context, tmpl AgentTemplate
 	return s.SpawnChild(ctx, tmpl, s.agent.WorkDir)
 }
 
-// SpawnFnForID finds a template by child ID and creates a SpawnFn
-//
-// Returns an error if the corresponding template is not found.
+// SpawnFnForID resolves a template by ID and creates a SpawnFn.
 func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) func(ctx context.Context, task string, workDir string) (iface.Locatable, error) {
 	var tmpl *AgentTemplate
 	for i := range allTemplates {
@@ -391,8 +357,7 @@ func (s *Supervisor) SpawnFnForID(childID string, allTemplates []AgentTemplate) 
 
 // ─── Reapable adapters ─────────────────────────────────────────────────────
 
-// reapableAdapter wraps a LocatableAdapter with a DoneNotifier that reaps the
-// child from the supervisor when delegation completes. Used for L3 workers.
+// reapableAdapter wraps LocatableAdapter with auto-reap on delegation completion.
 type reapableAdapter struct {
 	*LocatableAdapter
 	supervisor *Supervisor
@@ -413,11 +378,9 @@ func NewSelfReapableAdapter(agent *Agent, sv *Supervisor) *SelfReapableAdapter {
 	return NewSelfReapableAdapterWithCleanup(agent, sv, nil)
 }
 
-// NewSelfReapableAdapterWithCleanup creates a self-reaping adapter with an
-// optional callback that runs after the agent has been stopped, its children
-// reaped, and it has been unregistered. Runtime owners use the callback to
-// drop their Supervisor reference without making the agent package depend on
-// the runtime package.
+// NewSelfReapableAdapterWithCleanup creates a self-reaping adapter with an optional
+// post-reap callback. The callback breaks the runtime→supervisor reference without
+// introducing a package dependency.
 func NewSelfReapableAdapterWithCleanup(agent *Agent, sv *Supervisor, onReaped func()) *SelfReapableAdapter {
 	return &SelfReapableAdapter{
 		LocatableAdapter: &LocatableAdapter{Agent: agent},
@@ -426,9 +389,8 @@ func NewSelfReapableAdapterWithCleanup(agent *Agent, sv *Supervisor, onReaped fu
 	}
 }
 
-// SelfReapableAdapter wraps a LocatableAdapter with a DoneNotifier that reaps
-// the entire supervisor (L2 + all children) when delegation completes.
-// Used for dynamically created L2 agents (SpawnFn in main.go).
+// SelfReapableAdapter reaps the entire supervisor (L2 + all L3 children) on delegation done.
+// Used for dynamically created L2 agents.
 type SelfReapableAdapter struct {
 	*LocatableAdapter
 	supervisor *Supervisor

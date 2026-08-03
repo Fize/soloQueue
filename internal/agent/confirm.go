@@ -12,27 +12,22 @@ import (
 
 // ─── SessionConfirmStore ────────────────────────────────────────────────────
 
-// SessionConfirmStore is an abstraction for session-level tool approval storage.
+// SessionConfirmStore manages session-level tool approval state.
 type SessionConfirmStore interface {
-	// IsConfirmed checks if toolName has been approved for the current session.
 	IsConfirmed(toolName string) bool
 
-	// Confirm marks toolName as approved.
 	Confirm(toolName string)
 
-	// Clear clears all approval marks; called at Agent.Start to ensure each new session starts from scratch.
-	Clear()
+	Clear() // called at Agent.Start for each new session
 }
 
 // ─── memoryConfirmStore ─────────────────────────────────────────────────────
 
-// memoryConfirmStore is an in-memory implementation of SessionConfirmStore.
 type memoryConfirmStore struct {
 	mu    sync.RWMutex
 	tools map[string]struct{}
 }
 
-// NewMemoryConfirmStore returns an in-memory implementation of SessionConfirmStore.
 func NewMemoryConfirmStore() SessionConfirmStore {
 	return &memoryConfirmStore{
 		tools: make(map[string]struct{}),
@@ -61,7 +56,7 @@ func (s *memoryConfirmStore) Clear() {
 	s.mu.Unlock()
 }
 
-// Confirm injects a user's response to a pending tool_call confirmation into the agent.
+// Confirm injects a user's tool confirmation response.
 func (a *Agent) Confirm(callID string, choice string) error {
 	a.confirmMu.RLock()
 	slot, ok := a.pendingConfirm[callID]
@@ -80,7 +75,7 @@ func (a *Agent) Confirm(callID string, choice string) error {
 	}
 }
 
-// ToolSpecs returns a snapshot of all llm.ToolDef for tools registered with the current agent.
+
 func (a *Agent) ToolSpecs() []llm.ToolDef {
 	if a.tools == nil {
 		return nil
@@ -93,11 +88,7 @@ const (
 	choiceAllowInSession = tools.ChoiceAllowInSession
 )
 
-// Agent does not directly implement tools.Locatable; it is wrapped by locatableAdapter for adaptation.
-
-// routeConfirm creates a ConfirmForwarder closure used by DelegateTool. It
-// registers a proxy confirmSlot, blocks until the user makes a choice, handles
-// denial (empty choice), then forwards the choice to the child agent.
+// routeConfirm creates a ConfirmForwarder that proxies user confirmations to child agents.
 func (a *Agent) routeConfirm() iface.ConfirmForwarder {
 	return func(fwdCtx context.Context, callID string, child iface.Locatable) (string, error) {
 		slot := &confirmSlot{ch: make(chan string, 1)}

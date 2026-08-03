@@ -7,22 +7,14 @@ type prioritizedJob struct {
 	job job
 }
 
-// PriorityMailbox a mailbox that supports priorities
-//
-// Core design:
-//   - Two channels: highCh (capacity 4) and normalCh (capacity 8)
-//   - The run goroutine prioritizes checking highCh (delegation callbacks are processed first)
-//   - Prevents delegation results from waiting behind normal user messages
-//
-// Compatibility with chan job:
-//   - When Agent is initialized, priorityMailbox == nil indicates that a normal chan job is used
-//   - Enable priority mode via WithPriorityMailbox() Option
+// PriorityMailbox separates high-priority jobs (delegation callbacks) from
+// normal jobs (user messages) to prevent delegation results from being blocked.
 type PriorityMailbox struct {
-	highCh   chan prioritizedJob
-	normalCh chan prioritizedJob
+	highCh   chan prioritizedJob // cap 4
+	normalCh chan prioritizedJob // cap 8
 }
 
-// NewPriorityMailbox creates a new PriorityMailbox
+
 func NewPriorityMailbox() *PriorityMailbox {
 	return &PriorityMailbox{
 		highCh:   make(chan prioritizedJob, 4),
@@ -30,27 +22,27 @@ func NewPriorityMailbox() *PriorityMailbox {
 	}
 }
 
-// SubmitHigh submits a high-priority job
+
 func (pm *PriorityMailbox) SubmitHigh(jb job) {
 	pm.highCh <- prioritizedJob{job: jb}
 }
 
-// SubmitNormal submits a normal-priority job
+
 func (pm *PriorityMailbox) SubmitNormal(jb job) {
 	pm.normalCh <- prioritizedJob{job: jb}
 }
 
-// HighCh returns the high-priority channel (for consumption by the run goroutine)
+
 func (pm *PriorityMailbox) HighCh() <-chan prioritizedJob {
 	return pm.highCh
 }
 
-// NormalCh returns the normal-priority channel (for consumption by the run goroutine)
+
 func (pm *PriorityMailbox) NormalCh() <-chan prioritizedJob {
 	return pm.normalCh
 }
 
-// Len returns the current queue depth (approximate value, channel length is not precisely locked)
+// Len returns approximate queue depth.
 func (pm *PriorityMailbox) Len() (high, normal int) {
 	return len(pm.highCh), len(pm.normalCh)
 }

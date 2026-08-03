@@ -8,14 +8,10 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// jobWatchdogGrace is the time to wait for spawned async goroutines (tracked
-// via taskWg) to exit after ctx cancellation. This replaces the old 1-second
-// hard timeout with a bounded wait that respects the WaitGroup.
+// jobWatchdogGrace: bounded wait for async goroutines after ctx cancellation.
 const jobWatchdogGrace = 10 * time.Second
 
-// runJob runs fn(ctx) in a goroutine with a watchdog. After fn returns,
-// it waits for all async goroutines tracked by taskWg to complete before
-// closing done. This prevents orphan goroutines when the agent is stopped.
+// runJob runs fn(ctx), then waits for all async goroutines (taskWg) before closing done.
 func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
 	done := make(chan struct{}, 1)
 	go func() {
@@ -47,11 +43,8 @@ func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
 
 // ─── run goroutine ──────────────────────────────────────────────────────────
 
-// run is the agent's main loop
-//
-// Accepts ctx / mailbox / done as parameters (instead of reading from the receiver):
-// Start constructs them and passes them as local parameters, so run doesn't need to contend for locks with Start/Stop;
-// even if Stop resets a.mailbox, this local mailbox still points to the same channel.
+// run is the agent's main loop. Parameters are local copies from Start,
+// so run doesn't contend for locks with Start/Stop.
 func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{}) {
 	a.logInfo(ctx, logger.CatActor, "agent run goroutine started")
 	defer func() {
@@ -61,8 +54,7 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 			a.logError(ctx, logger.CatActor, "agent run goroutine panic", err)
 			a.setRuntimeState(StateStopped)
 			close(done)
-			// Panic is already recorded in exitErr, caller can retrieve it via Err();
-			// no re-panic: re-panic would skip close(done), causing the caller to block indefinitely on Done()
+			// Record in exitErr, don't re-panic: that would skip close(done) and hang the caller.
 		} else {
 			a.logInfo(ctx, logger.CatActor, "agent run goroutine stopped")
 			a.setRuntimeState(StateStopped)
@@ -88,10 +80,7 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 	}
 }
 
-// runWithPriorityMailbox is the main loop when PriorityMailbox is enabled
-//
-// Prioritizes consuming highCh (delegation callbacks, timeout events), then normalCh (user Ask/Submit).
-// Ensures that asynchronous delegation results are not blocked by normal messages.
+// runWithPriorityMailbox prioritizes highCh (delegation callbacks) over normalCh (user messages).
 func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox, done chan<- struct{}) {
 	a.logInfo(ctx, logger.CatActor, "agent run goroutine started")
 	defer func() {
@@ -176,13 +165,8 @@ drainNormal:
 	}
 }
 
-// drainMailbox invokes all enqueued jobs with an already canceled ctx
-//
-// Purpose: To allow each caller's Ask to receive a result from replyCh (usually ctx.Canceled),
-// preventing it from getting stuck indefinitely.
-// No further reads from outside the mailbox (the mailbox is never closed; senders will return ErrStopped directly after seeing agentDone is closed).
-//
-// Returns the number of drained jobs for logging statistics.
+// drainMailbox runs pending jobs with a cancelled ctx so blocked Ask callers
+// receive ctx.Canceled instead of hanging forever.
 func (a *Agent) drainMailbox(ctx context.Context, mailbox <-chan job) int {
 	n := 0
 	for {

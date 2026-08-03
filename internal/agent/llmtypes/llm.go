@@ -1,11 +1,5 @@
-// Package llmtypes defines the minimal LLM client contract used by the agent
-// framework: LLMMessage, LLMRequest, LLMResponse and the LLMClient interface.
-//
-// It lives in its own subpackage so that test-support packages (e.g.
-// internal/agent/agenttest) can implement LLMClient without importing
-// internal/agent (which would create an import cycle with package-internal
-// tests). The agent package re-exports these types via type aliases, so
-// external consumers can keep using agent.LLMClient / agent.LLMRequest etc.
+// Package llmtypes defines the minimal LLM client contract (LLMMessage, LLMRequest, LLMResponse, LLMClient).
+// In a subpackage to prevent import cycles with test packages.
 package llmtypes
 
 import (
@@ -14,23 +8,18 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
-// LLMMessage is a message passed to the LLM
-//
-// Supports tool-calling protocol:
-//   - role="system" / "user": Fill Content; user can optionally include Images (multimodal)
-//   - role="assistant": Content + optional ToolCalls (allows empty Content, with only tool_calls)
-//   - role="tool": ToolCallID + Content (tool execution result)
+// LLMMessage is a single message in the LLM conversation history.
 type LLMMessage struct {
 	Role             string
 	Content          string
 	Images           []llm.ImageContent // Multimodal images (used only in user messages)
 	ReasoningContent string             // DeepSeek thinking mode; must be returned when tool_calls are present
 	Name             string
-	ToolCallID       string         // Required when role="tool"
-	ToolCalls        []llm.ToolCall // Optional for role="assistant"
+	ToolCallID       string         // required when role="tool"
+	ToolCalls        []llm.ToolCall // optional for role="assistant"
 }
 
-// LLMRequest is the input for LLMClient.Chat / ChatStream
+// LLMRequest is the input for LLMClient.Chat / ChatStream.
 type LLMRequest struct {
 	ProviderID  string
 	Model       string
@@ -44,32 +33,20 @@ type LLMRequest struct {
 	PresencePenalty  float64
 	StopSequences    []string
 
-	// Reasoning effort level (V4 model thinking mode)
-	// "high" | "max" | "" (empty means this parameter is not sent)
-	ReasoningEffort string
-
-	// ThinkingEnabled enables thinking mode
+	ReasoningEffort string // "high" | "max" | ""
 	ThinkingEnabled bool
-	// ThinkingType sets the thinking.type value in the API request.
-	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3 etc.).
-	ThinkingType string
+	ThinkingType    string // "enabled" (DeepSeek) | "adaptive" (MiniMax M3)
 
-	// Tool-calling
-	Tools      []llm.ToolDef // Empty means no tool
+	Tools      []llm.ToolDef // empty = no tools
 	ToolChoice string        // "" | "none" | "auto" | "required"
 
-	// Output format
-	ResponseJSON bool // Corresponds to response_format: json_object
+	ResponseJSON bool // response_format: json_object
+	IncludeUsage bool // stream_options.include_usage
 
-	// Streaming options (only effective for ChatStream)
-	IncludeUsage bool // Corresponds to stream_options.include_usage
-
-	// Vision indicates whether the model supports multimodal image_url content.
-	// If false, the wire layer will discard image data and fall back to plain text.
-	Vision bool
+	Vision bool // false = discard image data, fall back to text
 }
 
-// LLMResponse is the return value of LLMClient.Chat
+// LLMResponse is the return value of LLMClient.Chat.
 type LLMResponse struct {
 	Content          string
 	ReasoningContent string // For deepseek-reasoner only
@@ -78,15 +55,8 @@ type LLMResponse struct {
 	Usage            llm.Usage
 }
 
-// LLMClient is the minimal interface for LLM calls
-//
-// Implementations must be concurrent-safe (multiple goroutines may call Chat / ChatStream simultaneously).
-// When ctx is cancelled, it should return ctx.Err() as soon as possible.
+// LLMClient is the minimal concurrent-safe interface for LLM calls.
 type LLMClient interface {
-	// Chat is a synchronous call: blocks until a complete response (internally may be accumulated from streaming)
 	Chat(ctx context.Context, req LLMRequest) (*LLMResponse, error)
-
-	// ChatStream returns an Event channel
-	// When the channel is closed, it means the stream has ended (normally or abnormally); an error event will be delivered before closing
 	ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Event, error)
 }

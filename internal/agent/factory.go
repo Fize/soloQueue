@@ -17,38 +17,29 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
-	"github.com/xiaobaitu/soloqueue/internal/teamstore"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-// ─── AgentTemplate ─────────────────────────────────────────────────────────
-
-// AgentTemplate is the complete description of an Agent instance
-//
-// Derived from YAML frontmatter + markdown body of ~/.soloqueue/agents/*.md
+// AgentTemplate describes an agent configuration parsed from YAML frontmatter + markdown body.
 type AgentTemplate struct {
-	ID           string   // Unique identifier (e.g., "dev", "fe")
-	Name         string   // Display name
-	Description  string   // Description for the LLM
-	SystemPrompt string   // markdown body
-	ModelID      string   // Model ID (populated from global default model, no longer read from config file)
-	IsLeader     bool     // Whether it is an L2 leader
-	Group        string   // The group name it belongs to
-	Permission   bool     // Privileged mode, skips tool confirmation
-	MCPServers   []string // List of MCP Server names
-	SkillIDs     []string // List of skill IDs required by this agent
-	// Channels maps channel types to instance IDs bound to this agent.
-	// e.g. {"qq": "my-qq-bot", "wechat": "default"}
+	ID           string
+	Name         string
+	Description  string
+	SystemPrompt string
+	ModelID      string
+	IsLeader     bool
+	Group        string
+	Permission   bool
+	MCPServers   []string
+	SkillIDs     []string
+	// Channels maps channel_type → instance_id.
 	Channels map[string]string
-	// NotifyChannel is the channel_type used for cron task completion notifications.
-	// Must be present in Channels. If empty, the first entry in Channels is used.
+	// NotifyChannel is the channel_type for cron notifications. Defaults to first channel.
 	NotifyChannel string
 }
 
-// ─── ModelInfo ────────────────────────────────────────────────────────────
-
-// ModelInfo holds the resolved model configuration for an agent.
-// Populated by ModelResolver from the settings model registry.
+// ModelInfo holds resolved model configuration.
 type ModelInfo struct {
 	ProviderID string
 
@@ -74,35 +65,21 @@ type ModelInfo struct {
 	Vision bool
 }
 
-// ModelResolver looks up a model ID in the settings registry.
-//
-// Returns (ModelInfo, nil) on success, or (zero, error) if the model ID
-// is not found or not enabled. Implemented by the config layer.
+// ModelResolver resolves a model ID to ModelInfo. Implemented by config layer.
 type ModelResolver func(modelID string) (ModelInfo, error)
 
-// ─── AgentFactory ──────────────────────────────────────────────────────────
-
-// AgentFactory instantiates an Agent from a template
+// AgentFactory creates and starts Agent instances from templates.
 type AgentFactory interface {
-	// Create creates and starts an Agent instance based on tmpl
-	// workDir is the project working directory for this agent.
-	// Empty string means use the factory's global workDir (~/.soloqueue).
+	// Create creates and starts an Agent instance.
 	Create(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, *ctxwin.ContextWindow, error)
 
-	// CreateWithOptions creates an agent with additional configuration.
-	// ExtraSystemPrompt is appended to the system prompt.
-	// ExtraTools are added to the agent's tool set (after built-in tools).
 	CreateWithOptions(ctx context.Context, tmpl AgentTemplate, workDir string, opts CreateOptions) (*Agent, *ctxwin.ContextWindow, error)
 
-	// Registry returns the internal Agent Registry (for use by Supervisor)
 	Registry() *Registry
 
-	// ResolveTemplate returns the agent template by ID, first checking the
-	// DB-backed teamstore, then falling back to the in-memory template cache.
+	// ResolveTemplate checks the DB teamstore first, then the in-memory cache.
 	ResolveTemplate(ctx context.Context, id string) (AgentTemplate, bool)
 
-	// RebuildLeaderPrompt rebuilds the L2 leader system prompt from a template
-	// using the factory's cached templates and groups.
 	RebuildLeaderPrompt(tmpl AgentTemplate, workDir string) (string, error)
 }
 
@@ -114,9 +91,7 @@ type CreateOptions struct {
 
 // ─── DefaultFactory ────────────────────────────────────────────────────────
 
-// DefaultFactory is the default implementation of AgentFactory
-//
-// Contains all dependencies needed to create an Agent. Created Agents are automatically registered in the Registry and started.
+// DefaultFactory creates agents, registers them in Registry, and starts them.
 type DefaultFactory struct {
 	mu sync.RWMutex
 
@@ -133,7 +108,7 @@ type DefaultFactory struct {
 	bypassConfirm  bool                        // global --bypass: skip all confirmations
 	mcpManager     *mcp.Manager                // MCP server manager (nil = MCP disabled)
 	exploreDir     string                      // exploration artifact directory (platform-appropriate)
-	teamstore      *teamstore.Store            // DB-backed team/agent store (nil = disabled)
+	teamstore      *store.Store            // DB-backed team/agent store (nil = disabled)
 }
 
 // NewDefaultFactory creates a DefaultFactory
@@ -298,7 +273,7 @@ func WithExploreDir(exploreDir string) FactoryOption {
 }
 
 // WithTeamStore sets the DB-backed team/agent store for the factory.
-func WithTeamStore(store *teamstore.Store) FactoryOption {
+func WithTeamStore(store *store.Store) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.teamstore = store
 	}

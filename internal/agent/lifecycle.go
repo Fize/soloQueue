@@ -9,10 +9,8 @@ import (
 
 // ─── Lifecycle ──────────────────────────────────────────────────────────────
 
-// Start launches the agent's run goroutine.
-//
-// Calling Start repeatedly returns ErrAlreadyStarted. After Stop, it can be Started again (resetting mailbox and exitErr).
-// parent is typically context.Background() or a process-level context; if parent is canceled, the agent will automatically exit.
+// Start launches the run goroutine. Idempotent: returns ErrAlreadyStarted if running.
+// After Stop, can be restarted. parent cancellation causes automatic exit.
 func (a *Agent) Start(parent context.Context) error {
 	if parent == nil {
 		parent = context.Background()
@@ -21,7 +19,7 @@ func (a *Agent) Start(parent context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// If the previous 'done' is not yet closed and 'ctx' is not nil, it means the agent is still running.
+	// Previous 'done' not yet closed + ctx non-nil = still running.
 	if a.ctx != nil {
 		select {
 		case <-a.done:
@@ -32,7 +30,7 @@ func (a *Agent) Start(parent context.Context) error {
 	}
 
 	a.ctx, a.cancel = context.WithCancel(parent)
-	// The agent's own ctx also injects actor_id, so run/drain logs automatically include it.
+	// Inject actor_id for structured logging in run/drain.
 	a.ctx = a.ctxWithAgentAttrs(a.ctx)
 	a.done = make(chan struct{})
 	a.setRuntimeExitErr(nil)
@@ -59,21 +57,13 @@ func (a *Agent) Start(parent context.Context) error {
 	return nil
 }
 
-// Stop requests the agent to stop.
-//
-//  1. Cancels agent ctx → the run goroutine exits in the next select iteration.
-//  2. The ctx of the currently executing job is also canceled (job should listen to ctx.Done).
-//  3. Enqueued pending jobs will be drained (each job called with an already canceled ctx),
-//     allowing Ask calls stuck on the reply channel to return ctx.Canceled.
-//  4. Waits for the run goroutine to exit; timeout <= 0 means infinite wait.
-//
-// Returns ErrStopTimeout on timeout, but the goroutine will eventually exit.
-// Calling Stop without Start first returns ErrNotStarted.
+// Stop cancels the agent context, drains pending jobs, and waits for the run
+// goroutine to exit. timeout <= 0 means infinite wait.
 func (a *Agent) Stop(timeout time.Duration) error {
 	a.mu.Lock()
 	cancel := a.cancel
 	done := a.done
-	// Snapshot a.ctx: its value (actor_id) is still readable after cancel, used for Stop logs.
+	// Snapshot ctx for stop logs (its actor_id is still readable after cancel).
 	stopCtx := a.ctx
 	a.mu.Unlock()
 
@@ -107,10 +97,8 @@ func (a *Agent) Stop(timeout time.Duration) error {
 	}
 }
 
-// Done returns a channel that is closed after the run goroutine exits.
-//
-// Semantically similar to context.Context.Done: can be used in a select statement to wait for the agent to exit.
-// When not Started, returns an already closed channel (immediately readable).
+// Done returns a channel closed after the run goroutine exits.
+// Not Started: returns an already-closed channel.
 func (a *Agent) Done() <-chan struct{} {
 	a.mu.Lock()
 	d := a.done
@@ -124,12 +112,7 @@ func (a *Agent) Done() <-chan struct{} {
 	return d
 }
 
-// Err returns the reason for the agent's exit.
-//
-//   - nil: Not Started / Running / Successfully Stopped.
-//   - non-nil: an internal panic occurred in the run goroutine, the value is a wrapped error.
-//
-// Only definitive after <-Done() returns.
+// Err returns the run goroutine's exit reason. Only definitive after <-Done().
 func (a *Agent) Err() error {
 	a.runtimeMu.RLock()
 	defer a.runtimeMu.RUnlock()

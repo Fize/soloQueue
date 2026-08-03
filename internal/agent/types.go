@@ -18,10 +18,7 @@ const (
 	KindCustom Kind = "custom"
 )
 
-// Definition is the static configuration of an agent
-//
-// All fields are immutable data "written once when the agent starts".
-// Does not include supervision / restart policy — in this phase, the agent does not manage its own lifecycle.
+// Definition is the static, immutable configuration of an agent.
 type Definition struct {
 	ID           string
 	Name         string
@@ -33,55 +30,37 @@ type Definition struct {
 	Temperature  float64
 	MaxTokens    int
 
-	// ReasoningEffort is the reasoning effort level, used to support thinking mode of V4 models
-	// "high" | "max" | "" (empty means this parameter is not sent)
+	// ReasoningEffort: "high" | "max" | "" (not sent)
 	ReasoningEffort string
 
-	// ThinkingEnabled indicates whether thinking mode is enabled (DeepSeek V4 models)
 	ThinkingEnabled bool
-	// ThinkingType sets the thinking.type value sent to the LLM API.
-	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3 etc.).
+	// ThinkingType: "enabled" (DeepSeek) or "adaptive" (MiniMax M3 etc.).
 	ThinkingType string
 
-	// MaxIterations is the maximum number of tool-use loop iterations (LLM.Chat calls allowed within one Ask)
-	//
-	// If <= 0, DefaultMaxIterations (100) is used.
-	// If no tools are present, the loop exits after the first round (LLM returns no tool_calls), making this value ineffective.
+	// MaxIterations caps tool-use loop iterations per Ask. <= 0 uses DefaultMaxIterations.
 	MaxIterations int
 
-	// ContextWindow is the model's context window size (in tokens), used for overflow hard limit checks.
-	// Corresponds to config.LLMModel.ContextWindow.
-	// If <= 0, the fallback default value 1048576 (1M tokens) is used.
+	// ContextWindow is the model's context window (tokens). <= 0 falls back to 1M.
 	ContextWindow int
 
-	// ExplicitModel indicates this agent's model was explicitly configured
-	// (from agent template YAML). When true, SetModelOverride is a no-op —
-	// the template's model takes precedence over task-level routing.
+	// ExplicitModel: template pinned this model — router cannot override.
 	ExplicitModel bool
 
-	// BypassConfirm skips all tool confirmations for this agent.
-	// Set from agent template `permission: true` or global --bypass flag.
+	// BypassConfirm: from template `permission: true` or global --bypass.
 	BypassConfirm bool
 
-	// Vision indicates the model supports multimodal image_url content parts.
 	Vision bool
 
-	// Channels maps channel types to instance IDs bound to this agent.
-	// e.g. {"qq": "my-qq-bot", "wechat": "default"}
-	// Each channel type may appear at most once.
+	// Channels: channel_type → instance_id. Each type appears at most once.
 	Channels map[string]string
 
-	// NotifyChannel is the channel_type used for cron task completion notifications.
-	// Must be present in Channels. If empty, the first entry in Channels is used.
+	// NotifyChannel: channel for cron notifications. Defaults to first Channels entry.
 	NotifyChannel string
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-// State is the observable runtime state of an agent
-//
-// For external observation only (UI / metrics), internally no branching decisions are made based on State
-// — the code flow itself is the state machine; there is no "transition table".
+// State is the observable runtime state (for UI/metrics only, not control flow).
 type State int32
 
 const (
@@ -95,7 +74,6 @@ const (
 	StateStopped
 )
 
-// String provides a convenient string representation for logging
 func (s State) String() string {
 	switch s {
 	case StateIdle:
@@ -113,83 +91,42 @@ func (s State) String() string {
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
-// DefaultMailboxCap is the default mailbox capacity
-//
-// Value choice: 16 is sufficient to absorb short-term bursts; a full Ask will block (with ctx fallback), no messages are lost.
-// For scenarios requiring larger capacity, specify via WithMailboxCap(N).
+// DefaultMailboxCap absorbs short-term bursts; a full Ask blocks with ctx fallback.
 const DefaultMailboxCap = 16
 
-// DefaultMaxIterations is the default maximum number of tool-use loop
-// iterations per Ask call.
-//
-// 100 accommodates complex multi-step tasks and delegation resumption.
-// Typical tasks: 2-4 rounds; with delegation: 10-20 rounds.
-// Exceeding 100 strongly suggests the LLM is looping or tools are misconfigured.
+// DefaultMaxIterations: 200 accommodates complex multi-step tasks.
+// Exceeding this strongly suggests a loop or misconfiguration.
 const DefaultMaxIterations = 200
 
-// DefaultContextWindow is the fallback context window size (tokens).
-// Used when Definition.ContextWindow is unset (<= 0).
+// DefaultContextWindow fallback when Definition.ContextWindow is unset.
 const DefaultContextWindow = 1048576
 
-// DefaultToolTimeout is the fallback timeout for tools that do not have
-// an explicit per-tool timeout via WithToolTimeout. Prevents indefinite
-// blocking when a tool hangs.
+// DefaultToolTimeout prevents indefinite blocking when a tool hangs.
 const DefaultToolTimeout = 5 * time.Minute
 
-// DefaultMaxConsecutiveFailures is the number of consecutive fatal streamLoop
-// failures before the circuit breaker opens and rejects new tasks.
-// Fatal failures include ChatStream errors, buildMessages errors, and
-// MaxIterations exceeded. Context cancellations are excluded.
+// DefaultMaxConsecutiveFailures before the circuit breaker opens.
+// Excludes context cancellations.
 const DefaultMaxConsecutiveFailures = 3
 
-// DefaultCircuitBreakerResetTimeout is how long an open circuit remains closed
-// before allowing one new task to probe whether the dependency recovered.
+// DefaultCircuitBreakerResetTimeout: cooldown before allowing a recovery probe.
 const DefaultCircuitBreakerResetTimeout = time.Minute
 
-// ─── ModelParams (per-ask override) ─────────────────────────────────────────
-
-// ModelParams captures per-ask model parameter overrides.
-//
-// When set on an Agent via SetModelOverride, the streamLoop uses these values
-// instead of Definition defaults for that specific ask cycle. After the ask
-// completes, the override is automatically cleared.
-//
-// This enables the Router to dynamically select different models based on
-// task complexity without recreating the Agent.
+// ModelParams captures per-ask model overrides set by the Router.
+// Auto-cleared when the ask completes.
 type ModelParams struct {
-	// ProviderID identifies which LLM provider to use (e.g., "deepseek", "openai").
-	// Empty means use the agent's default provider.
-	// Reserved for future multi-provider support — currently the Agent has a single LLMClient.
-	ProviderID string
+	ProviderID string // empty = use agent default; reserved for multi-provider
+	ModelID    string // empty = use Definition's ModelID
 
-	// ModelID is the actual API model name (e.g., "deepseek-v4-pro").
-	// Empty means use the agent Definition's ModelID.
-	ModelID string
-
-	// ThinkingEnabled controls whether thinking/reasoning mode is activated.
 	ThinkingEnabled bool
+	ReasoningEffort string // "high" | "max" | ""
+	ThinkingType    string // "enabled" (DeepSeek) | "adaptive" (MiniMax M3)
 
-	// ReasoningEffort controls the reasoning depth: "high", "max", or "" (disabled).
-	ReasoningEffort string
-
-	// ThinkingType is the value for thinking.type in the LLM API request.
-	// "enabled" (default, DeepSeek) or "adaptive" (MiniMax M3 etc.).
-	ThinkingType string
-
-	// TaskType is the stable task taxonomy selected by the router.
-	TaskType string
-
-	// ContextWindow is the model's context window capacity (tokens).
-	// Used to resize the ContextWindow when the model changes.
-	// 0 means don't change (backward compatible).
-	ContextWindow int
-
-	// Vision indicates the model supports multimodal image_url content parts.
-	// When false, image content is dropped and replaced with text annotations.
-	Vision bool
+	TaskType      string
+	ContextWindow int  // 0 = don't change
+	Vision        bool // drop image content when false
 }
 
-// ToIFaceOverride converts ModelParams to iface.ModelOverrideParams for context propagation.
+// ToIFaceOverride converts to iface.ModelOverrideParams for cross-package propagation.
 func (m *ModelParams) ToIFaceOverride() *iface.ModelOverrideParams {
 	if m == nil {
 		return nil
@@ -208,9 +145,8 @@ func (m *ModelParams) ToIFaceOverride() *iface.ModelOverrideParams {
 
 // ─── Runtime observability ───────────────────────────────────────────────
 
-// agentRuntime bundles all per-agent mutable runtime state under a single
-// sync.RWMutex. This replaces the previous scattered atomic fields and adds
-// work-tracking fields for the inspect_agent tool and Watch() method.
+// agentRuntime bundles mutable runtime state under a single RWMutex.
+// Replaces scattered atomics; read by inspect_agent and Watch().
 type agentRuntime struct {
 	state               State
 	errCount            int32
@@ -226,7 +162,7 @@ type agentRuntime struct {
 	startedAt time.Time
 }
 
-// WorkStatus is the public snapshot returned by Agent.CurrentWork().
+// WorkStatus is the public snapshot from Agent.CurrentWork().
 type WorkStatus struct {
 	State               State  `json:"state"`
 	Prompt              string `json:"prompt"`

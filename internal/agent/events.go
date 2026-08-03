@@ -7,18 +7,11 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
-// AgentEvent is the sealed event interface for agent streams.
-//
-// AskStream produces events implementing this interface. The sealed
-// pattern (unexported marker method) ensures only this package can
-// define event types, enabling exhaustive switch checking via linters.
-//
-// All concrete types also implement iface.AgentEvent (for cross-package
-// use) and iface.EventConsumer (for type-safe field extraction without
-// reflection).
+// AgentEvent is a sealed interface for streaming agent events.
+// Exhaustive switch: the unexported agentEvent() method prevents external implementations.
 type AgentEvent interface {
 	iface.AgentEvent
-	agentEvent() // package-level seal — external packages cannot implement
+	agentEvent() // seal
 }
 
 // ContentDeltaEvent carries an incremental LLM response content fragment.
@@ -27,17 +20,13 @@ type ContentDeltaEvent struct {
 	Delta string
 }
 
-// ReasoningDeltaEvent carries an incremental reasoning_content fragment
-// (DeepSeek reasoner models).
+// ReasoningDeltaEvent carries an incremental reasoning_content fragment.
 type ReasoningDeltaEvent struct {
 	Iter  int
 	Delta string
 }
 
 // ToolCallDeltaEvent carries an incremental tool_call arguments fragment.
-//
-// The first delta for a given call typically carries CallID and Name;
-// subsequent deltas for the same CallID carry only ArgsDelta.
 type ToolCallDeltaEvent struct {
 	Iter      int
 	CallID    string
@@ -45,7 +34,7 @@ type ToolCallDeltaEvent struct {
 	ArgsDelta string
 }
 
-// ToolExecStartEvent signals that the agent has started executing a tool.
+// ToolExecStartEvent signals a tool execution start.
 type ToolExecStartEvent struct {
 	Iter          int
 	CallID        string
@@ -54,10 +43,7 @@ type ToolExecStartEvent struct {
 	TargetAgentID string // unique instance ID of target agent (UUID) for delegation tools
 }
 
-// ToolExecDoneEvent signals that a tool execution has completed.
-//
-// When Err != nil, Result is typically empty. The error text has already
-// been formatted as "error: ..." and fed back to the LLM.
+// ToolExecDoneEvent signals a tool execution completion.
 type ToolExecDoneEvent struct {
 	Iter     int
 	CallID   string
@@ -67,8 +53,7 @@ type ToolExecDoneEvent struct {
 	Duration time.Duration
 }
 
-// IterationDoneEvent signals the end of an LLM iteration (one Chat stream
-// fully consumed). Emitted before tool execution begins.
+// IterationDoneEvent signals the end of an LLM iteration.
 type IterationDoneEvent struct {
 	Iter         int
 	FinishReason llm.FinishReason
@@ -82,12 +67,7 @@ type DoneEvent struct {
 	ReasoningContent string
 }
 
-// ToolNeedsConfirmEvent signals that a tool requires user confirmation
-// before execution.
-//
-// UI should display Prompt and Options (if any). The user's choice is
-// injected via Agent.Confirm(callID, choice). Empty Options means binary
-// confirm/deny; use "yes" to confirm or "" to deny.
+// ToolNeedsConfirmEvent signals that a tool requires user confirmation.
 type ToolNeedsConfirmEvent struct {
 	Iter           int
 	CallID         string
@@ -99,20 +79,17 @@ type ToolNeedsConfirmEvent struct {
 }
 
 // ErrorEvent signals that AskStream has terminated due to an error.
-// Always the last event before channel close.
 type ErrorEvent struct {
 	Err error
 }
 
 // DelegationStartedEvent signals that async delegation has begun.
-// Emitted when at least one tool call in the current iteration is async.
 type DelegationStartedEvent struct {
 	Iter     int
 	NumTasks int
 }
 
-// DelegationCompletedEvent signals that all async delegations have completed
-// and results have been injected into the context window.
+// DelegationCompletedEvent signals that all async delegations have completed.
 type DelegationCompletedEvent struct {
 	Iter            int
 	TargetAgentID   string

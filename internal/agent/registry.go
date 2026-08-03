@@ -12,21 +12,9 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
-// Registry is a concurrent-safe mapping of instance ID → Agent, with a secondary
-// index by template ID for multi-instance lookup.
-//
-// Keys:
-//   - Primary:   InstanceID (UUID, unique per agent instance)
-//   - Secondary: Def.ID   (template/role identifier, shared by all instances of
-//     the same template)
-//
-// This separation allows multiple agents with the same template ID to coexist,
-// enabling parallel scheduling (e.g., two "dev" L2 agents working concurrently
-// on different tasks).
-//
-// Design principle: Registry only manages the map; does **not** implicitly
-// trigger Start/Stop. Lifecycle control uses explicit APIs: StartAll / StopAll /
-// Shutdown.
+// Registry maps InstanceID (UUID) → Agent with a secondary index by template ID (Def.ID).
+// Multiple agents with the same template can coexist for parallel scheduling.
+// Lifecycle (Start/Stop) is explicit — Register/Unregister only manage the map.
 type Registry struct {
 	mu           sync.RWMutex
 	agents       map[string]*Agent   // InstanceID → Agent
@@ -37,11 +25,7 @@ type Registry struct {
 	onUnregister func(string) // optional callback invoked after Unregister (under write lock)
 }
 
-// NewRegistry constructs an empty registry
-//
-// log can be nil (log calls are skipped). After passing a logger, Register /
-// Unregister / StartAll / StopAll / Shutdown produce structured logs for
-// tracking batch lifecycle events.
+// NewRegistry constructs an empty registry. log can be nil.
 func NewRegistry(log *logger.Logger) *Registry {
 	return &Registry{
 		agents:     make(map[string]*Agent),
@@ -50,38 +34,29 @@ func NewRegistry(log *logger.Logger) *Registry {
 	}
 }
 
-// SetOnChange sets the callback invoked after Register or Unregister.
-// The callback is called under the write lock, so it must not call back
-// into the Registry (deadlock). Use non-blocking sends (select+default)
-// if notifying a channel.
+// SetOnChange sets a callback invoked (under write lock) after Register/Unregister.
+// Must not call back into the Registry (deadlock).
 func (r *Registry) SetOnChange(fn func()) {
 	r.mu.Lock()
 	r.onChange = fn
 	r.mu.Unlock()
 }
 
-// SetOnRegister sets the callback invoked after Register.
-// Called under the write lock with the registered agent.
+
 func (r *Registry) SetOnRegister(fn func(*Agent)) {
 	r.mu.Lock()
 	r.onRegister = fn
 	r.mu.Unlock()
 }
 
-// SetOnUnregister sets the callback invoked after Unregister.
-// Called under the write lock with the unregistered instance ID.
+
 func (r *Registry) SetOnUnregister(fn func(string)) {
 	r.mu.Lock()
 	r.onUnregister = fn
 	r.mu.Unlock()
 }
 
-// Register adds an agent keyed by InstanceID (never Def.ID).
-// Multiple agents with the same Def.ID (template) can coexist.
-//
-// Returns ErrAgentNil if agent is nil; ErrEmptyID if InstanceID is empty.
-//
-// Does not start the agent — caller must explicitly call Start or use StartAll.
+// Register adds an agent by InstanceID. Does not call Start.
 func (r *Registry) Register(a *Agent) error {
 	if a == nil {
 		return ErrAgentNil
@@ -120,10 +95,7 @@ func (r *Registry) Register(a *Agent) error {
 	return nil
 }
 
-// Unregister removes an agent by InstanceID; returns true if it existed and
-// was removed.
-//
-// Does not stop the agent — caller must explicitly call Stop or use Shutdown.
+// Unregister removes an agent by InstanceID. Does not call Stop.
 func (r *Registry) Unregister(id string) bool {
 	r.mu.Lock()
 	a, exists := r.agents[id]
@@ -165,7 +137,7 @@ func (r *Registry) Unregister(id string) bool {
 	return true
 }
 
-// Get looks up an agent by InstanceID; returns (nil, false) if not found.
+
 func (r *Registry) Get(id string) (*Agent, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -173,8 +145,7 @@ func (r *Registry) Get(id string) (*Agent, bool) {
 	return a, ok
 }
 
-// GetByTemplate returns all agent instances for a given template ID.
-// Returns nil if no instances exist.
+
 func (r *Registry) GetByTemplate(templateID string) []*Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -192,9 +163,7 @@ func (r *Registry) GetByTemplate(templateID string) []*Agent {
 }
 
 // LocateIdle finds an idle agent instance for the given template ID.
-// Returns (nil, false) if no idle instance is available.
-// This is the preferred method for SpawnFn — it reuses idle instances before
-// creating new ones.
+// Preferred for SpawnFn — reuses idle instances before creating new ones.
 func (r *Registry) LocateIdle(templateID string) (iface.Locatable, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -207,9 +176,8 @@ func (r *Registry) LocateIdle(templateID string) (iface.Locatable, bool) {
 	return nil, false
 }
 
-// LocateIdleInWorkDir finds an idle agent instance for the template whose
-// project scope exactly matches workDir. It prevents cross-project reuse of
-// leaders with the same template ID.
+// LocateIdleInWorkDir finds an idle instance matching both template and workDir.
+// Prevents cross-project reuse of leaders with the same template ID.
 func (r *Registry) LocateIdleInWorkDir(templateID, workDir string) (iface.Locatable, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -222,11 +190,7 @@ func (r *Registry) LocateIdleInWorkDir(templateID, workDir string) (iface.Locata
 	return nil, false
 }
 
-// List returns a snapshot slice of all current agents, sorted by name for
-// stable display.
-//
-// The returned slice is independent of the internal map; modifying it doesn't
-// affect registry; slice elements are still *Agent pointers.
+// List returns a snapshot of all agents, sorted by name.
 func (r *Registry) List() []*Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -253,11 +217,7 @@ func (r *Registry) Len() int {
 
 // ─── Batch lifecycle ────────────────────────────────────────────────────────
 
-// StartAll calls Start on all registered agents
-//
-// Returns all Start errors (at most one per agent); a nil slice indicates complete success.
-// If an agent is already running and returns ErrAlreadyStarted, should it be skipped from collection? No — collect it faithfully,
-// and let the caller decide whether to treat it as an error.
+// StartAll calls Start on all registered agents. Returns all errors.
 func (r *Registry) StartAll(parent context.Context) []error {
 	agents := r.List()
 	start := time.Now()
@@ -280,10 +240,7 @@ func (r *Registry) StartAll(parent context.Context) []error {
 	return errs
 }
 
-// StopAll calls Stop on all registered agents
-//
-// timeout is the individual timeout for each agent (not the total timeout).
-// Returns all Stop errors; nil indicates complete success.
+// StopAll calls Stop on all agents. timeout is per-agent, not total.
 func (r *Registry) StopAll(timeout time.Duration) []error {
 	agents := r.List()
 	start := time.Now()
@@ -311,11 +268,7 @@ func (r *Registry) StopAll(timeout time.Duration) []error {
 	return errs
 }
 
-// Shutdown sequentially stops all agents and then clears the registry.
-//
-// timeout is the individual timeout for each agent.
-// All agents are Unregistered after Stop completes; this continues even if some Stop operations time out.
-// Returns a joined error (a combination of all Stop errors); nil indicates complete success.
+// Shutdown stops all agents and clears the registry. Continues even if some Stop calls fail.
 func (r *Registry) Shutdown(timeout time.Duration) error {
 	start := time.Now()
 	r.logInfo(logger.CatActor, "registry shutdown",
@@ -344,14 +297,8 @@ func (r *Registry) Shutdown(timeout time.Duration) error {
 
 // ─── AgentLocator ───────────────────────────────────────────────────────────
 
-// Locate implements iface.AgentLocator.
-//
-// Finds an idle agent instance by template ID. If no idle instance exists,
-// returns the first active instance so callers may queue behind current work.
-// Stopping and stopped instances are never locatable.
-//
-// For SpawnFn callers that want to create a new instance when none are idle,
-// use LocateIdle instead.
+// Locate implements iface.AgentLocator. Prefers idle instances; falls back
+// to any active (non-stopping) instance for queueing.
 func (r *Registry) Locate(id string) (iface.Locatable, bool) {
 	// First try to find an idle instance
 	if loc, ok := r.LocateIdle(id); ok {
@@ -386,11 +333,8 @@ func (r *Registry) logInfo(cat logger.Category, msg string, args ...any) {
 
 // --- LocatableAdapter ---
 
-// LocatableAdapter wraps *Agent to satisfy the iface.Locatable interface.
-//
-// The primary adaptation is AskStream: Agent returns <-chan AgentEvent,
-// but iface.Locatable requires <-chan iface.AgentEvent. Since Go channels
-// are not covariant, a thin relay goroutine converts the channel type.
+// LocatableAdapter wraps *Agent to satisfy iface.Locatable.
+// AskStream uses a relay goroutine because Go channels are not covariant.
 type LocatableAdapter struct {
 	*Agent
 }
@@ -409,8 +353,7 @@ func (la *LocatableAdapter) Name() string {
 	return ""
 }
 
-// AskStream implements iface.Locatable.AskStream.
-// Relays typed AgentEvent values through an iface.AgentEvent channel.
+
 func (la *LocatableAdapter) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
 	eventCh, err := la.Agent.AskStream(ctx, prompt)
 	if err != nil {
@@ -454,7 +397,7 @@ var _ iface.ModelOverridable = (*LocatableAdapter)(nil)
 var _ iface.AgentLocator = (*Registry)(nil)
 
 // SetModelOverride implements iface.ModelOverridable.
-// Propagates task-level model override from parent to child during delegation.
+// Propagates model override from parent to child during delegation.
 func (la *LocatableAdapter) SetModelOverride(params *iface.ModelOverrideParams) {
 	if params == nil {
 		la.Agent.ClearModelOverride()

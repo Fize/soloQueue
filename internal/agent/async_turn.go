@@ -16,12 +16,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
-// ─── delegatedTask ─────────────────────────────────────────────────────────
-
-// delegatedTask represents a single delegation task (single responsibility)
-//
-// Each asynchronous tool_call corresponds to one delegatedTask, created by the framework in execTools.
-// It does not directly manage aggregation – aggregation is handled by asyncTurnState.
+// delegatedTask represents a single async tool_call delegation task.
 type delegatedTask struct {
 	replyCh   chan delegateResult
 	callID    string          // which tool_call it belongs to
@@ -35,33 +30,15 @@ type delegateResult struct {
 	duration time.Duration
 }
 
-// ─── asyncTurnState ────────────────────────────────────────────────────────
-
-// asyncTurnState represents an asynchronous turn state (aggregation layer)
-//
-// This struct is created by execTools when there is at least one asynchronous tool in a round of tool_calls.
-// It tracks the results of all tool_calls in this turn (synchronous results are filled immediately, asynchronous results are filled upon callback),
-// and triggers the tool loop resumption when the last asynchronous result arrives.
+// asyncTurnState tracks and aggregates all tool_call results in an async turn.
 type asyncTurnState struct {
 	agentID   string
 	out       chan<- AgentEvent
 	cw        *ctxwin.ContextWindow
 	iter      int
 	toolCalls []llm.ToolCall
-	// results holds tool execution results, indexed by tool call position.
-	//
-	// CONCURRENCY SAFETY: Each watchDelegatedTask goroutine writes to a
-	// distinct index (its own callIndex), never overlapping with other
-	// writers. The main goroutine only reads results in resumeTurn, which
-	// runs after ALL goroutines have completed. The happens-before
-	// relationship is established by:
-	//   1. watchDelegatedTask writes results[callIndex] THEN does pending.Add(-1)
-	//   2. The last Add(-1) returning 0 triggers submitHighPriority(resumeTurn)
-	//   3. resumeTurn reads results[] after the atomic publish
-	//
-	// The slice header (len/cap/ptr) is never modified after creation.
-	// This pattern is safe per the Go memory model for non-overlapping
-	// writes to different indices of a fixed-size slice.
+	// Concurrency safety: each worker writes to its distinct callIndex index.
+	// happens-before established by pending atomic counter hitting 0.
 	results   []string
 	durations []time.Duration
 	pending   atomic.Int32 // number of pending asynchronous calls
@@ -76,10 +53,7 @@ type asyncTurnState struct {
 	cancelMerged context.CancelFunc
 }
 
-// setDuration assigns d to durations[index], growing the slice lazily if
-// necessary. It is a defensive helper for tests or manual turn construction
-// that forget to preallocate durations; production code preallocates the
-// slice to len(toolCalls), so no growth occurs on the hot path.
+// setDuration assigns d to durations[index], growing slice lazily for tests.
 func (t *asyncTurnState) setDuration(index int, d time.Duration) {
 	if index < 0 {
 		return
@@ -101,19 +75,7 @@ func (t *asyncTurnState) setDuration(index int, d time.Duration) {
 	t.durations[index] = d
 }
 
-// ─── execTools asynchronous path ────────────────────────────────────────────────────
-
-// execToolsWithAsync is the async-aware version of execTools
-//
-// Process:
-//  1. Iterate through all toolCalls, identify AsyncTool
-//  2. Call ExecuteAsync on AsyncTool to get the intent (without starting a goroutine)
-//  3. Assemble asyncTurnState (all contexts are 100% ready)
-//  4. Register asyncTurnState to Agent
-//  5. Start all asynchronous goroutines
-//  6. Synchronous tools execute normally
-//
-// In the returned results, the positions for asynchronous tools are placeholder empty strings ("").
+// execToolsWithAsync identifies AsyncTools, pre-creates asyncTurnState, runs sync tools immediately, and spawns async goroutines.
 func (a *Agent) execToolsWithAsync(
 	ctx context.Context,
 	iter int,
@@ -385,12 +347,7 @@ func (a *Agent) execToolsWithAsync(
 	return results
 }
 
-// watchDelegatedTask listens for the result of a single delegation
-//
-// Runs in a goroutine. After the result arrives:
-//  1. Fill results[callIndex]
-//  2. pending.Add(-1)
-//  3. If pending == 0 (all completed), submit a high-priority job to resume the tool loop
+// watchDelegatedTask awaits one async result, stores it, and triggers resumeTurn when all pending complete.
 func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 	select {
 	case result := <-task.replyCh:
@@ -442,13 +399,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 	}
 }
 
-// resumeTurn resumes the tool loop
-//
-// Called by a high-priority job. At this point, all asynchronous results have arrived:
-//  1. Clean up asyncTurns registration
-//  2. Format the actual delegation results as a user message and push to cw
-//  3. Emit DelegationCompletedEvent
-//  4. Continue the tool loop
+// resumeTurn formats async delegation results, pushes to CW, emits events, and continues the tool loop.
 func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	// Clean up asyncTurns registration
 	a.turnMu.Lock()
@@ -534,10 +485,7 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	}
 }
 
-// continueToolLoop continues the tool loop from the specified iter
-//
-// The logic is consistent with the for loop in runOnceStreamWithHistory, but starting from startIter.
-// Returns true if the stream loop yielded (another async delegation started).
+// continueToolLoop resumes streamLoop from startIter.
 func (a *Agent) continueToolLoop(
 	ctx context.Context,
 	out chan<- AgentEvent,

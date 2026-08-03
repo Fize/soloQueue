@@ -10,8 +10,7 @@ import (
 
 // ─── Registry-scoped query ──────────────────────────────────────────────
 
-// RegistryInspectQuery returns a tools.InspectQueryFn that queries all agents
-// registered in the given Registry. This is used for L1 (session agent).
+// RegistryInspectQuery returns an InspectQueryFn for all agents in a Registry (L1).
 func RegistryInspectQuery(reg *Registry) tools.InspectQueryFn {
 	return func(ctx context.Context, agentID, template string) (*tools.InspectOutput, error) {
 		if agentID != "" {
@@ -77,8 +76,7 @@ func inspectAll(reg *Registry) (*tools.InspectOutput, error) {
 
 // ─── Supervisor-scoped query ────────────────────────────────────────────
 
-// SupervisorInspectQuery returns a tools.InspectQueryFn scoped to the children
-// of a Supervisor. This is used for L2 (domain leader) agents.
+// SupervisorInspectQuery returns an InspectQueryFn for Supervisor children (L2).
 func SupervisorInspectQuery(sv *Supervisor) tools.InspectQueryFn {
 	return func(ctx context.Context, agentID, template string) (*tools.InspectOutput, error) {
 		children := sv.Children()
