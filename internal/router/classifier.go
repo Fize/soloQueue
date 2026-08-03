@@ -22,12 +22,21 @@ type DefaultClassifier struct {
 
 func NewDefaultClassifier(config ClassifierConfig, client agent.LLMClient, providerID, model string, l *logger.Logger) *DefaultClassifier {
 	var semantic *LLMClassifier
-	if config.EnableLLM && client != nil && model != "" { semantic = NewLLMClassifier(client, providerID, model) }
-	return &DefaultClassifier{config: config, local: NewLocalClassifier(), llm: semantic, logger: l}
+	if config.EnableLLM && client != nil && model != "" {
+		semantic = NewLLMClassifier(client, providerID, model)
+	}
+	return &DefaultClassifier{
+		config: config,
+		local:  NewLocalClassifier(),
+		llm:    semantic,
+		logger: l,
+	}
 }
 
 func (c *DefaultClassifier) SetModelAndProvider(providerID, model string) {
-	if c.llm != nil { c.llm.SetModelAndProvider(providerID, model) }
+	if c.llm != nil {
+		c.llm.SetModelAndProvider(providerID, model)
+	}
 }
 
 func (c *DefaultClassifier) Classify(ctx context.Context, input ClassifyInput, history []ctxwin.PayloadMessage) ClassificationResult {

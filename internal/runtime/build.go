@@ -76,14 +76,6 @@ func Build(
 
 	bc.settings = bc.cfg.Get() // refresh with file-backed configuration
 
-	// Surface a one-time notice if a legacy settings.yaml is present in the
-	// work dir. The TOML migration path has been removed; settings.yaml is the
-	// single source of truth. Operators should remove the file manually.
-	if legacyToml := filepath.Join(bc.workDir, "settings.yaml"); legacyTomlExists(legacyToml) {
-		bc.log.Info(logger.CatApp,
-			"legacy settings.yaml detected and ignored; settings.yaml is the single source of truth — remove it manually",
-			"path", legacyToml)
-	}
 
 	// Phase 2: Validate & resolve config (now fully DB-backed)
 	if err := bc.resolveConfig(); err != nil {
@@ -625,10 +617,3 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 	log.Debug(logger.CatApp, "prompt hot-reload: watching directories", "roles", rolesDir, "groups", groupsDir, "agents", agentsDir)
 }
 
-// legacyTomlExists reports whether a legacy settings.yaml is present at the
-// given path. The TOML migration path has been removed; this helper is only
-// used to surface a one-time notice in the log.
-func legacyTomlExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}

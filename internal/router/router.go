@@ -38,22 +38,42 @@ func NewRouter(classifier Classifier, modelService ModelService, l *logger.Logge
 }
 
 func (r *Router) UpdateClassifierModel(provider, model string) {
-	if c, ok := r.classifier.(*DefaultClassifier); ok { c.SetModelAndProvider(provider, model) }
+	if c, ok := r.classifier.(*DefaultClassifier); ok {
+		c.SetModelAndProvider(provider, model)
+	}
 }
 
+// Route classifies the task input and resolves the corresponding configured execution model.
 func (r *Router) Route(ctx context.Context, input ClassifyInput, history []ctxwin.PayloadMessage) (RouteDecision, error) {
-	if r.classifier == nil { return RouteDecision{}, fmt.Errorf("task classifier is not configured") }
+	if r.classifier == nil {
+		return RouteDecision{}, fmt.Errorf("task classifier is not configured")
+	}
+
 	classification := r.classifier.Classify(ctx, input, history)
-	if !classification.TaskType.Valid() { return RouteDecision{}, fmt.Errorf("classifier returned invalid task type %q", classification.TaskType) }
+	if !classification.TaskType.Valid() {
+		return RouteDecision{}, fmt.Errorf("classifier returned invalid task type %q", classification.TaskType)
+	}
+
 	model := r.modelService.DefaultModelForTask(classification.TaskType)
-	if model == nil { return RouteDecision{}, fmt.Errorf("no enabled model for task type %s", classification.TaskType) }
+	if model == nil {
+		return RouteDecision{}, fmt.Errorf("no enabled model for task type %s", classification.TaskType)
+	}
+
 	apiModel := model.APIModel
-	if apiModel == "" { apiModel = model.ID }
+	if apiModel == "" {
+		apiModel = model.ID
+	}
+
 	return RouteDecision{
-		Classification: classification, TaskType: classification.TaskType,
-		ProviderID: model.ProviderID, ModelID: apiModel, ModelName: model.Name,
-		ThinkingEnabled: model.Thinking.Enabled, ReasoningEffort: model.Thinking.ReasoningEffort,
-		ThinkingType: model.Thinking.ThinkingType, ContextWindow: model.ContextWindow,
-		Vision: model.Vision,
+		Classification:  classification,
+		TaskType:        classification.TaskType,
+		ProviderID:      model.ProviderID,
+		ModelID:         apiModel,
+		ModelName:       model.Name,
+		ThinkingEnabled: model.Thinking.Enabled,
+		ReasoningEffort: model.Thinking.ReasoningEffort,
+		ThinkingType:    model.Thinking.ThinkingType,
+		ContextWindow:   model.ContextWindow,
+		Vision:          model.Vision,
 	}, nil
 }

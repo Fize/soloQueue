@@ -7,7 +7,6 @@ import "github.com/xiaobaitu/soloqueue/internal/tasktype"
 type ClassificationSource string
 
 const (
-	SourceManual           ClassificationSource = "manual"
 	SourceLocal            ClassificationSource = "local"
 	SourceLLM              ClassificationSource = "llm"
 	SourcePreviousFallback ClassificationSource = "previous_fallback"
