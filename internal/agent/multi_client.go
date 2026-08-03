@@ -14,9 +14,6 @@ type RoutingClient struct {
 	clients map[string]LLMClient
 }
 
-
-
-
 func NewRoutingClient(clients map[string]LLMClient) *RoutingClient {
 	return &RoutingClient{
 		clients: clients,
@@ -29,7 +26,6 @@ func (c *RoutingClient) UpdateClients(clients map[string]LLMClient) {
 	c.clients = clients
 }
 
-
 func (c *RoutingClient) Chat(ctx context.Context, req LLMRequest) (*LLMResponse, error) {
 	client, err := c.resolveClient(req.ProviderID)
 	if err != nil {
@@ -37,7 +33,6 @@ func (c *RoutingClient) Chat(ctx context.Context, req LLMRequest) (*LLMResponse,
 	}
 	return client.Chat(ctx, req)
 }
-
 
 func (c *RoutingClient) ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Event, error) {
 	client, err := c.resolveClient(req.ProviderID)

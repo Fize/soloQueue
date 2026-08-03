@@ -21,26 +21,23 @@ import (
 //     empty turn (nil / length 0) falls through to the Responses path
 //   - Responses is empty: content is empty; otherwise, returns in a circular order
 //
-// ChatStream behavior (P1 new):
-//   - Sliced by turn (turn idx independent of Chat's idx): The i-th ChatStream call consumes in
-//     order StreamDeltas / ReasoningDeltasByTurn / ToolCallDeltasByTurn's
-//     i-th item, finally sending EventDone (FinishReason from FinishByTurn[i] or default)
-//   - If all per-turn fields are empty, **falls back** to old behavior: treats the current Responses slot
-//     as one EventDelta + one EventDone (maintains backward compatibility)
-//   - Err not nil: Sends EventError then closes
-//   - Delay > 0: Waits before sending the first event
+// ChatStream behavior:
+//   - Per-turn scripting: The i-th ChatStream call consumes StreamDeltas[i], ReasoningDeltasByTurn[i],
+//     and ToolCallDeltasByTurn[i], emitting deltas interleaved in round-robin order before sending EventDone.
+//   - Fallback mode: If per-turn fields are unconfigured, uses Responses[i] as a single EventDelta + EventDone.
+//   - Err not nil: Sends EventError then closes.
+//   - Delay > 0: Waits before sending the first event.
 //
-// Concurrency safe: idx / toolIdx / streamIdx are protected by mu.
+// Concurrency safe: internal counters (idx / toolIdx / streamIdx) are protected by mu.
 type FakeLLM struct {
 	Responses []string
 	Delay     time.Duration
 	Err       error
 
-	// ToolCallsByTurn presets tool_calls in call order (used only by Chat path)
-	// Supports scripted multi-turn tool-use scenarios for testing; when nil, behavior is identical to old FakeLLM
+	// ToolCallsByTurn presets tool_calls in call order (used only by Chat path).
 	ToolCallsByTurn [][]llm.ToolCall
 
-	// --- ChatStream per-turn script (P1) ---------------------------------
+	// --- ChatStream per-turn script ---------------------------------
 	//
 	// Design principles:
 	//   - Each field is "[][]X": the outer index corresponds to "which ChatStream call",

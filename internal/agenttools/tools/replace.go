@@ -148,7 +148,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
 	var a replaceArgs
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return true, fmt.Sprintf("Replace in file (unable to parse args). Allow?")
+		return true, "Replace in file (unable to parse args). Allow?"
 	}
 
 	// Bypass confirmation for plan files

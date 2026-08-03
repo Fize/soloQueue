@@ -274,7 +274,7 @@ func rewriteCommand(ctx context.Context, runtime ToolRuntime, cmd string) string
 	}()
 	waitErr := process.Wait()
 	stdout := <-stdoutCh
-	_ = <-stderrCh
+	<-stderrCh
 	if waitErr != nil {
 		exitErr, ok := waitErr.(interface{ ExitCode() int })
 		if !ok || (exitErr.ExitCode() != 0 && exitErr.ExitCode() != 3) {

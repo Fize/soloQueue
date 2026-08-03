@@ -96,13 +96,7 @@ func (t *imageGenTool) Execute(ctx context.Context, raw string) (string, error) 
 			"prompt_len", len(a.Prompt))
 	}
 
-	sr := submitReq{
-		Prompt:     a.Prompt,
-		Resolution: a.Resolution,
-		Seed:       a.Seed,
-		Revise:     a.Revise,
-		Images:     a.Images,
-	}
+	sr := submitReq(a)
 	url, body, headers, err := prov.buildSubmitReq(*model, sr)
 	if err != nil {
 		return "", fmt.Errorf("build submit request: %w", err)

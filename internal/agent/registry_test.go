@@ -429,10 +429,8 @@ func TestRegistry_StopAll_SkipNotStarted(t *testing.T) {
 
 func TestRegistry_Shutdown_UnregistersAndStops(t *testing.T) {
 	r := NewRegistry(nil)
-	var agentIDs []string
 	for i := 0; i < 3; i++ {
 		a := newAgentForReg(fmt.Sprintf("a-%d", i))
-		agentIDs = append(agentIDs, a.InstanceID)
 		_ = r.Register(a)
 	}
 	_ = r.StartAll(context.Background())

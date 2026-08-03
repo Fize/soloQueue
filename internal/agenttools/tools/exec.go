@@ -29,30 +29,30 @@ type RunCommandResult = sandbox.RunCommandResult
 
 // ─── ReadFile ───────────────────────────────────────────────────────────────
 
-// ReadFileOptions contains file read options.
+// ReadFileOptions configures file reading limits.
 type ReadFileOptions struct {
-	// MaxSize is the maximum file size. 0 means no limit.
+	// 0 means no limit.
 	MaxSize int64
 }
 
-// ReadFileResult contains the file read result.
+// ReadFileResult holds raw file bytes.
 type ReadFileResult struct {
 	Data []byte
 }
 
 // ─── WriteFile ──────────────────────────────────────────────────────────────
 
-// WriteFileOptions contains file write options.
+// WriteFileOptions configures file writing permissions and limits.
 type WriteFileOptions struct {
-	// Overwrite controls whether an existing file is overwritten. If false and the file exists, an error is returned.
+	// If false and the file exists, an error is returned.
 	Overwrite bool
-	// MaxSize is the maximum single write size. 0 means no limit.
+	// 0 means no limit.
 	MaxSize int64
 }
 
-// WriteFileResult contains the result of a file write.
+// WriteFileResult holds the file write operation metadata.
 type WriteFileResult struct {
-	// Created indicates that the target path did not previously exist (it was created).
+	// Created is true if the target path did not previously exist.
 	Created bool
 }
 

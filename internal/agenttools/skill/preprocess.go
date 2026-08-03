@@ -34,7 +34,7 @@ var (
 	shellExpandRegex = regexp.MustCompile("!`([^`]+)`")
 	// fileRefRegex matches @filepath pattern
 	// Does not match @@ (escaped) or @ in code blocks
-	fileRefRegex = regexp.MustCompile("(?:^|[^@])@([\\w./\\-]+)")
+	fileRefRegex = regexp.MustCompile(`(?:^|[^@])@([\w./\-]+)`)
 )
 
 // PreprocessContent executes preprocessing pipeline on skill content
