@@ -7,23 +7,19 @@ import (
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
-// GlobalService is the global configuration service, embedding Loader[Settings]
-// Automatically inherits all Loader methods: Load / Save / Get / Set.
-// Provides business-related convenience query interfaces on top of that
+// GlobalService manages application configuration persisted in settings.yaml.
+// It embeds Loader[Settings] for thread-safe hot-reload and atomic updates.
 type GlobalService struct {
 	*Loader[Settings]
 	workDir string
-	db      *db.DB
-	dbMu    sync.RWMutex
+	mu      sync.RWMutex
 	log     *logger.Logger
 }
 
-// New creates a GlobalService
-// workDir is typically ~/.soloqueue
+// New initializes GlobalService targeting settings.yaml within workDir.
 func New(workDir string) (*GlobalService, error) {
 	path := filepath.Join(workDir, "settings.yaml")
 
@@ -35,18 +31,16 @@ func New(workDir string) (*GlobalService, error) {
 	return &GlobalService{Loader: loader, workDir: workDir}, nil
 }
 
-// Get returns the current config snapshot from the YAML file.
+// Get returns an atomic read-only snapshot of current settings.
 func (s *GlobalService) Get() Settings {
 	return s.Loader.Get()
 }
 
-// SetLogger stores a logger for config-related diagnostics.
-// Kept for backward compatibility with callers that wired a logger before
-// the YAML-only refactor.
+// SetLogger attaches a logger for config diagnostics and hot-reload error reporting.
 func (s *GlobalService) SetLogger(log *logger.Logger) {
-	s.dbMu.Lock()
+	s.mu.Lock()
 	s.log = log
-	s.dbMu.Unlock()
+	s.mu.Unlock()
 	if log == nil {
 		s.Loader.SetOnError(nil)
 		return
@@ -54,22 +48,6 @@ func (s *GlobalService) SetLogger(log *logger.Logger) {
 	s.Loader.SetOnError(func(err error) {
 		log.Error(logger.CatConfig, "config hot-reload failed", "err", err.Error())
 	})
-}
-
-// SetDB sets the SQLite connection. Configuration is no longer read from the
-// database; the database is used only for runtime data such as memory and timelines.
-func (s *GlobalService) SetDB(db *db.DB) error {
-	s.dbMu.Lock()
-	s.db = db
-	s.dbMu.Unlock()
-	return nil
-}
-
-// GetDB returns the database connection of the config service.
-func (s *GlobalService) GetDB() *db.DB {
-	s.dbMu.RLock()
-	defer s.dbMu.RUnlock()
-	return s.db
 }
 
 // LoadFromDisk reads settings from disk without modifying the loader cache.

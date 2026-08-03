@@ -68,16 +68,11 @@ func Build(
 		embeddedFS:    embeddedFS,
 	}
 
-	// Phase 1: Shared DB + TeamStore (must happen first so config layer is DB-backed)
+	// Phase 1: Shared DB + TeamStore
 	if err := bc.initSharedDB(); err != nil {
 		return nil, err
 	}
 	bc.teamstore = store.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"), bc.sharedDB)
-
-	// Wire DB to Config and load DB-backed settings
-	if err := bc.cfg.SetDB(bc.sharedDB); err != nil {
-		return nil, fmt.Errorf("failed to wire DB to config: %w", err)
-	}
 
 	bc.settings = bc.cfg.Get() // refresh with file-backed configuration
 
