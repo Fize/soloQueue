@@ -4,9 +4,8 @@
 //   - All tools are "configuration-driven value objects": main.go creates a Config
 //     at startup and calls Build(cfg), returning a []Tool that can be passed directly
 //     to agent.WithTools.
-//   - The tools use a flat layout (one .go file per tool plus a *_test.go file); no subpackages.
-//     If the tool count exceeds ~30 or a domain-based split becomes more meaningful,
-//     a refactor can be done then.
+//   - Business tools use a flat layout (one .go file per tool plus a *_test.go file);
+//     sandbox execution backend resides in subpackage tools/sandbox.
 //   - Shared configuration and helpers (sandbox checks, atomic write) are centralized in
 //     exec.go and helpers.go.
 //   - Tool Execute always returns a JSON string (easy for the LLM to parse) or a structured error;

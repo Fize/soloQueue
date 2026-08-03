@@ -11,14 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // AgentTemplate describes an agent configuration parsed from YAML frontmatter + markdown body.
@@ -108,7 +108,7 @@ type DefaultFactory struct {
 	bypassConfirm  bool                        // global --bypass: skip all confirmations
 	mcpManager     *mcp.Manager                // MCP server manager (nil = MCP disabled)
 	exploreDir     string                      // exploration artifact directory (platform-appropriate)
-	teamstore      *store.Store            // DB-backed team/agent store (nil = disabled)
+	teamstore      *store.Store                // DB-backed team/agent store (nil = disabled)
 }
 
 // NewDefaultFactory creates a DefaultFactory
