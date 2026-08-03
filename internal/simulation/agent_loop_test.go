@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -150,7 +151,7 @@ func TestSafePersonaName(t *testing.T) {
 // create engine → create simulation from seed → start → drain events.
 // Uses FakeLLM so no real LLM calls are made.
 func TestGAAgentLoop_Integration(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{
 			// Seed extraction Phase 1 (basic)
 			`{"entities":[{"name":"AI","type":"technology","confidence":0.9}],"world_state":{},"key_topics":["AI safety"],"conflict_areas":["regulation"]}`,
@@ -198,7 +199,7 @@ func TestGAAgentLoop_Integration(t *testing.T) {
 	}
 }
 
-func createTestAgentLoop(t *testing.T, persona *Persona, env *Environment, bus *MessageBus, clock *SimClock, fakeLLM *agent.FakeLLM, allPersonas []Persona, ws *WorldState) (*GAAgentLoop, *agent.Agent) {
+func createTestAgentLoop(t *testing.T, persona *Persona, env *Environment, bus *MessageBus, clock *SimClock, fakeLLM *agenttest.FakeLLM, allPersonas []Persona, ws *WorldState) (*GAAgentLoop, *agent.Agent) {
 	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
 	cw.Push(ctxwin.RoleSystem, "test prompt")
 
@@ -224,7 +225,7 @@ func createTestAgentLoop(t *testing.T, persona *Persona, env *Environment, bus *
 
 	dialogueMgr := NewDialogueManager(bus)
 	relationshipMgr := NewRelationshipManager()
-	
+
 	nameByID := make(map[string]string)
 	for _, p := range allPersonas {
 		nameByID[p.ID] = p.Name
@@ -279,7 +280,7 @@ func TestGAAgentLoop_PerceptionCheck(t *testing.T) {
 		},
 	}
 
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"[WAIT]"},
 	}
 
@@ -341,7 +342,7 @@ func TestGAAgentLoop_SneakAttack(t *testing.T) {
 		},
 	}
 
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"[WAIT]"},
 	}
 
@@ -424,7 +425,7 @@ func TestGAAgentLoop_GroupConflict(t *testing.T) {
 		},
 	}
 
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"[WAIT]"},
 	}
 
@@ -493,7 +494,7 @@ func TestGAAgentLoop_SpawnConstraints(t *testing.T) {
 		Name: "David",
 	}
 
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"[WAIT]"},
 	}
 

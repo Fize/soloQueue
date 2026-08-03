@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 )
 
 func TestReflectionEngine_ShouldReflect(t *testing.T) {
@@ -37,7 +37,7 @@ func TestReflectionEngine_DefaultInterval(t *testing.T) {
 }
 
 func TestReflectionEngine_ReflectEmptyMemory(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{Responses: []string{"I've been thinking..."}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"I've been thinking..."}}
 	re := NewReflectionEngine(fakeLLM, "model", "provider", 50)
 
 	cfg := DefaultClockConfig()
@@ -56,7 +56,7 @@ func TestReflectionEngine_ReflectEmptyMemory(t *testing.T) {
 }
 
 func TestReflectionEngine_Reflect(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{
 			"I notice patterns of collaboration emerging.\nMy relationship with Bob is improving.\nI should focus on my goals.",
 		},
@@ -104,7 +104,7 @@ func TestReflectionEngine_Reflect(t *testing.T) {
 }
 
 func TestReflectionEngine_ReflectLLMError(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{Responses: []string{}, Err: fmt.Errorf("LLM unavailable")}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{}, Err: fmt.Errorf("LLM unavailable")}
 	re := NewReflectionEngine(fakeLLM, "model", "provider", 50)
 
 	cfg := DefaultClockConfig()

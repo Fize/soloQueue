@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
@@ -68,23 +69,12 @@ func lastEvent(evs []AgentEvent) AgentEvent {
 	return evs[len(evs)-1]
 }
 
-// findEvent returns the first event matching type T; ok=false if none.
-func findEvent[T AgentEvent](evs []AgentEvent) (T, bool) {
-	var zero T
-	for _, ev := range evs {
-		if t, ok := ev.(T); ok {
-			return t, true
-		}
-	}
-	return zero, false
-}
-
 // ─── Basic streaming (no tools) ──────────────────────────────────────────────
 
 // TestAskStream_NoTools_SingleDelta: one ContentDelta emitted, then Done.
 // Checks content_delta → iteration_done → done ordering.
 func TestAskStream_NoTools_SingleDelta(t *testing.T) {
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"hello"}},
 	}
 	a := startedAgent(t, fake)
@@ -116,7 +106,7 @@ func TestAskStream_NoTools_SingleDelta(t *testing.T) {
 
 // TestAskStream_NoTools_MultipleDeltas: multiple content deltas, assembled in order.
 func TestAskStream_NoTools_MultipleDeltas(t *testing.T) {
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"he", "ll", "o"}},
 	}
 	a := startedAgent(t, fake)
@@ -148,7 +138,7 @@ func TestAskStream_NoTools_MultipleDeltas(t *testing.T) {
 
 // TestAskStream_EmitsDoneOnce: exactly one DoneEvent per stream.
 func TestAskStream_EmitsDoneOnce(t *testing.T) {
-	fake := &FakeLLM{StreamDeltas: [][]string{{"x"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"x"}}}
 	a := startedAgent(t, fake)
 
 	ch, err := a.AskStream(context.Background(), "hi")
@@ -170,7 +160,7 @@ func TestAskStream_EmitsDoneOnce(t *testing.T) {
 
 // TestAsk_WrapsStreamCorrectly: Ask built on AskStream returns final content.
 func TestAsk_WrapsStreamCorrectly(t *testing.T) {
-	fake := &FakeLLM{StreamDeltas: [][]string{{"foo", "bar"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"foo", "bar"}}}
 	a := startedAgent(t, fake)
 
 	reply, err := a.Ask(context.Background(), "hi")
@@ -213,7 +203,7 @@ func TestProcessStreamEvents_EmitsReasoningBeforeContentWithinSameDelta(t *testi
 
 // TestAskStream_EmitsReasoningDeltas: reasoning_content_delta → ReasoningDeltaEvent.
 func TestAskStream_EmitsReasoningDeltas(t *testing.T) {
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		StreamDeltas:          [][]string{{"answer"}},
 		ReasoningDeltasByTurn: [][]string{{"think1", "think2"}},
 	}
@@ -249,7 +239,7 @@ func TestAskStream_OneToolCall_EmitsStartDoneIterDone(t *testing.T) {
 	echo := newFakeTool("echo")
 	echo.result = `{"ok":true}`
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "c1",
 			Type:     "function",
@@ -335,7 +325,7 @@ func TestAskStream_ToolResultFedBackToLLM(t *testing.T) {
 
 	var capturedMsgs []LLMMessage
 	var mu sync.Mutex
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "c1",
 			Function: llm.FunctionCall{Name: "echo", Arguments: `{}`},
@@ -377,7 +367,7 @@ func TestAskStream_MaxIterations(t *testing.T) {
 			Function: llm.FunctionCall{Name: "loop", Arguments: `{}`},
 		}}
 	}
-	fake := &FakeLLM{ToolCallsByTurn: turns}
+	fake := &agenttest.FakeLLM{ToolCallsByTurn: turns}
 
 	a := NewAgent(Definition{ID: "a1", MaxIterations: 3}, fake, nil, WithTools(tool))
 	if err := a.Start(context.Background()); err != nil {
@@ -462,7 +452,7 @@ func TestAskStream_ParallelTools_PreserveOrder(t *testing.T) {
 	t3 := mkTool("t3")
 
 	var capturedMsgs []LLMMessage
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "c1", Function: llm.FunctionCall{Name: "t1", Arguments: `{}`}},
 			{ID: "c2", Function: llm.FunctionCall{Name: "t2", Arguments: `{}`}},
@@ -524,7 +514,7 @@ func TestAskStream_ParallelTools_OneFailsOthersSucceed(t *testing.T) {
 	good2.result = "r2"
 
 	var capturedMsgs []LLMMessage
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "c1", Function: llm.FunctionCall{Name: "good1", Arguments: `{}`}},
 			{ID: "c2", Function: llm.FunctionCall{Name: "bad", Arguments: `{}`}},
@@ -585,7 +575,7 @@ func TestAskStream_ParallelTools_CtxCancelAborts(t *testing.T) {
 	t1 := slow("t1")
 	t2 := slow("t2")
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "c1", Function: llm.FunctionCall{Name: "t1", Arguments: `{}`}},
 			{ID: "c2", Function: llm.FunctionCall{Name: "t2", Arguments: `{}`}},
@@ -636,7 +626,7 @@ func TestAskStream_ParallelTools_NotEnabledFallsBackSerial(t *testing.T) {
 	t2 := mk("t2")
 	t3 := mk("t3")
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "c1", Function: llm.FunctionCall{Name: "t1", Arguments: `{}`}},
 			{ID: "c2", Function: llm.FunctionCall{Name: "t2", Arguments: `{}`}},
@@ -684,7 +674,7 @@ func TestAskStream_ToolTimeout_EmitsErrorFedBack(t *testing.T) {
 	slow := &slowTool{name: "slow", delay: 5 * time.Second}
 
 	var capturedContent string
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "c1",
 			Function: llm.FunctionCall{Name: "slow", Arguments: `{}`},
@@ -730,7 +720,7 @@ func TestAskStream_ToolTimeout_OtherToolsUnaffected(t *testing.T) {
 	quick.result = "done"
 
 	var capturedMsgs []LLMMessage
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "c1", Function: llm.FunctionCall{Name: "slow", Arguments: `{}`}},
 			{ID: "c2", Function: llm.FunctionCall{Name: "quick", Arguments: `{}`}},
@@ -771,7 +761,7 @@ func TestAskStream_ToolTimeout_OtherToolsUnaffected(t *testing.T) {
 
 // TestWithToolTimeout_ZeroDeletes: WithToolTimeout(name, 0) removes the entry.
 func TestWithToolTimeout_ZeroDeletes(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil,
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil,
 		WithToolTimeout("foo", 5*time.Second),
 		WithToolTimeout("foo", 0), // delete
 	)
@@ -779,7 +769,7 @@ func TestWithToolTimeout_ZeroDeletes(t *testing.T) {
 		t.Error("WithToolTimeout(name, 0) should delete entry")
 	}
 	// negative also deletes
-	a2 := NewAgent(Definition{ID: "a2"}, &FakeLLM{}, nil,
+	a2 := NewAgent(Definition{ID: "a2"}, &agenttest.FakeLLM{}, nil,
 		WithToolTimeout("foo", 5*time.Second),
 		WithToolTimeout("foo", -1),
 	)
@@ -791,14 +781,14 @@ func TestWithToolTimeout_ZeroDeletes(t *testing.T) {
 // slowPreferredTool implements PreferredTimeout so execToolStream uses its
 // self-declared timeout instead of DefaultToolTimeout.
 type slowPreferredTool struct {
-	name            string
-	preferredDelay  time.Duration // returned by PreferredTimeout
-	executeDelay    time.Duration // how long Execute blocks
+	name           string
+	preferredDelay time.Duration // returned by PreferredTimeout
+	executeDelay   time.Duration // how long Execute blocks
 }
 
-func (s *slowPreferredTool) Name() string                { return s.name }
-func (s *slowPreferredTool) Description() string         { return "slow preferred tool " + s.name }
-func (s *slowPreferredTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (s *slowPreferredTool) Name() string                    { return s.name }
+func (s *slowPreferredTool) Description() string             { return "slow preferred tool " + s.name }
+func (s *slowPreferredTool) Parameters() json.RawMessage     { return json.RawMessage(`{"type":"object"}`) }
 func (s *slowPreferredTool) PreferredTimeout() time.Duration { return s.preferredDelay }
 func (s *slowPreferredTool) Execute(ctx context.Context, _ string) (string, error) {
 	select {
@@ -822,7 +812,7 @@ func TestAskStream_PreferredTimeout_UsedInsteadOfDefault(t *testing.T) {
 	}
 
 	var capturedContent string
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "c1",
 			Function: llm.FunctionCall{Name: "slowP", Arguments: `{}`},
@@ -870,7 +860,7 @@ func TestAskStream_PreferredTimeout_OverriddenByWithToolTimeout(t *testing.T) {
 	}
 
 	var capturedContent string
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "c1",
 			Function: llm.FunctionCall{Name: "slowP", Arguments: `{}`},
@@ -914,7 +904,7 @@ func TestAskStream_PreferredTimeout_OverriddenByWithToolTimeout(t *testing.T) {
 // TestAskStream_LLMReturnsErrorEvent_AbortsStream: llm.EventError → ErrorEvent + close.
 func TestAskStream_LLMReturnsErrorEvent_AbortsStream(t *testing.T) {
 	myErr := errors.New("llm stream died")
-	fake := &FakeLLM{Err: myErr}
+	fake := &agenttest.FakeLLM{Err: myErr}
 	a := startedAgent(t, fake)
 
 	ch, err := a.AskStream(context.Background(), "")
@@ -934,7 +924,7 @@ func TestAskStream_LLMReturnsErrorEvent_AbortsStream(t *testing.T) {
 
 // TestAskStream_CtxCancelMidStream: caller cancels, ErrorEvent(ctx.Canceled) emitted.
 func TestAskStream_CtxCancelMidStream(t *testing.T) {
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"x"}},
 		Delay:        500 * time.Millisecond,
 	}
@@ -963,7 +953,7 @@ func TestAskStream_CtxCancelMidStream(t *testing.T) {
 // TestAskStream_NotStarted_ReturnsErr: AskStream before Start returns
 // (nil, ErrNotStarted).
 func TestAskStream_NotStarted_ReturnsErr(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	ch, err := a.AskStream(context.Background(), "hi")
 	if !errors.Is(err, ErrNotStarted) {
 		t.Errorf("err = %v, want ErrNotStarted", err)
@@ -975,7 +965,7 @@ func TestAskStream_NotStarted_ReturnsErr(t *testing.T) {
 
 // TestAskStream_AfterStop_ReturnsErr: AskStream after Stop returns ErrStopped.
 func TestAskStream_AfterStop_ReturnsErr(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -992,7 +982,7 @@ func TestAskStream_AfterStop_ReturnsErr(t *testing.T) {
 
 // TestAskStream_NilCtxHandled: nil ctx defaults to Background.
 func TestAskStream_NilCtxHandled(t *testing.T) {
-	a := startedAgent(t, &FakeLLM{StreamDeltas: [][]string{{"ok"}}})
+	a := startedAgent(t, &agenttest.FakeLLM{StreamDeltas: [][]string{{"ok"}}})
 	//nolint:staticcheck // intentionally testing nil ctx
 	ch, err := a.AskStream(nil, "hi")
 	if err != nil {
@@ -1009,7 +999,7 @@ func TestAskStream_NilCtxHandled(t *testing.T) {
 // TestAskStream_ChannelClosedAfterDoneOrError: receiving from channel after
 // Done/Error returns (zero, false).
 func TestAskStream_ChannelClosedAfterDoneOrError(t *testing.T) {
-	fake := &FakeLLM{StreamDeltas: [][]string{{"x"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"x"}}}
 	a := startedAgent(t, fake)
 
 	ch, err := a.AskStream(context.Background(), "hi")
@@ -1031,7 +1021,7 @@ func TestAskStream_ChannelClosedAfterDoneOrError(t *testing.T) {
 
 // TestAskStream_NoEventsAfterError: no events emitted after ErrorEvent.
 func TestAskStream_NoEventsAfterError(t *testing.T) {
-	fake := &FakeLLM{Err: errors.New("boom")}
+	fake := &agenttest.FakeLLM{Err: errors.New("boom")}
 	a := startedAgent(t, fake)
 
 	ch, err := a.AskStream(context.Background(), "")
@@ -1066,7 +1056,7 @@ func TestAskStream_SlowConsumerBlocksProducer_ButCancelWorks(t *testing.T) {
 	for i := range deltas {
 		deltas[i] = "x"
 	}
-	fake := &FakeLLM{StreamDeltas: [][]string{deltas}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{deltas}}
 
 	a := startedAgent(t, fake)
 
@@ -1098,7 +1088,7 @@ func TestAskStream_ToolCallDelta_AccumulatedToFullArgs(t *testing.T) {
 	// wrap echo to record args
 	echoWrap := &wrapTool{base: echo, onArgs: func(a string) { mu.Lock(); gotArgs = a; mu.Unlock() }}
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		// Turn 0: emit tool_call via streaming deltas (3 args fragments)
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{
 			{Index: 0, ID: "c1", Name: "echo", Arguments: `{"m":`},
@@ -1153,7 +1143,7 @@ func TestAskStream_MultipleToolCallSlotsStream(t *testing.T) {
 	w1 := &wrapTool{base: t1, onArgs: func(a string) { mu.Lock(); a1 = a; mu.Unlock() }}
 	w2 := &wrapTool{base: t2, onArgs: func(a string) { mu.Lock(); a2 = a; mu.Unlock() }}
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{
 			// interleaved slot 0 and slot 1 deltas
 			{Index: 0, ID: "c1", Name: "t1", Arguments: `{"a":`},
@@ -1221,7 +1211,7 @@ func TestAskStream_LLMPanic_EmitsErrorEvent(t *testing.T) {
 
 // TestFakeLLM_StreamCallCount_Increments: each ChatStream increments counter.
 func TestFakeLLM_StreamCallCount_Increments(t *testing.T) {
-	fake := &FakeLLM{StreamDeltas: [][]string{{"a"}, {"b"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"a"}, {"b"}}}
 	a := startedAgent(t, fake)
 
 	_, _ = a.Ask(context.Background(), "1")

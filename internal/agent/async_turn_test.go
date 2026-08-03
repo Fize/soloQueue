@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -59,7 +60,7 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 	}
 
 	// Create Agent with PriorityMailbox
-	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t),
 		WithTools(asyncTool),
 		WithPriorityMailbox(),
 	)
@@ -159,7 +160,7 @@ func TestExecToolsWithAsync_MultipleAsyncTools(t *testing.T) {
 		},
 	}
 
-	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t),
 		WithTools(asyncTool1, asyncTool2),
 		WithPriorityMailbox(),
 	)
@@ -217,7 +218,7 @@ func TestExecToolsWithAsync_MixedSyncAndAsync(t *testing.T) {
 
 	syncTool := &mockSyncTool{name: "echo", result: "sync-result"}
 
-	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t),
 		WithTools(asyncTool, syncTool),
 		WithPriorityMailbox(),
 	)
@@ -269,7 +270,7 @@ func TestExecToolsWithAsync_AsyncToolError(t *testing.T) {
 		actionErr: tools.ErrToolNotFound,
 	}
 
-	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t),
 		WithTools(asyncTool),
 		WithPriorityMailbox(),
 	)
@@ -323,7 +324,7 @@ func TestExecToolsWithAsync_PendingCount(t *testing.T) {
 		},
 	}
 
-	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t),
 		WithTools(asyncTool),
 		WithPriorityMailbox(),
 	)
@@ -366,7 +367,7 @@ func TestExecToolsWithAsync_PendingCount(t *testing.T) {
 func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 	// Verify that when caller context is cancelled, watchDelegatedTask fills error result and triggers resumeTurn
 	// (New behavior: instead of simply deleting asyncTurns, use submitHighPriority to let resumeTurn handle cleanup and close(out))
-	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t),
 		WithPriorityMailbox(),
 	)
 	if err := a.Start(context.Background()); err != nil {
@@ -403,12 +404,10 @@ func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 
 	// Create task
 	task := &delegatedTask{
-		correlationID: "test-1",
-		targetAgentID: "l2",
-		replyCh:       replyCh,
-		callID:        "call_1",
-		callIndex:     0,
-		turn:          turnState,
+		replyCh:   replyCh,
+		callID:    "call_1",
+		callIndex: 0,
+		turn:      turnState,
 	}
 
 	// Start watchDelegatedTask
@@ -438,7 +437,7 @@ func TestWatchDelegatedTask_ContextCancel(t *testing.T) {
 
 func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 	// Create FakeLLM that returns a final answer after resume
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"final answer"}},
 	}
 
@@ -505,7 +504,7 @@ func TestResumeTurn_CleansUpAndContinues(t *testing.T) {
 
 func TestContinueToolLoop_ResumesFromIter(t *testing.T) {
 	callCount := 0
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Hook: func(_ LLMRequest) {
 			callCount++
 		},
@@ -564,7 +563,7 @@ func TestEndToEnd_AsyncDelegation(t *testing.T) {
 	}
 
 	// L1's FakeLLM: first round returns tool call (via ToolCallDeltasByTurn), second round returns final answer
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
 				{Index: 0, ID: "call_1", Name: "delegate", Arguments: `{"task":"test"}`},
@@ -773,7 +772,7 @@ func TestEndToEnd_AsyncDelegation_L2Failure(t *testing.T) {
 	}
 
 	// L1 FakeLLM: turn 0 = tool call, turn 1 = final answer
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
 				{Index: 0, ID: "call_1", Name: "delegate", Arguments: `{"task":"test"}`},
@@ -849,7 +848,7 @@ func TestResumeTurn_TruncatedToolCalls(t *testing.T) {
 	// Causing L3 to return an incomplete result, but resumeTurn() still pushes all tool results
 	// This should be detected and handled correctly
 
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"final answer"}},
 	}
 
@@ -934,7 +933,7 @@ func TestResumeTurn_MismatchedToolCallsAndResults(t *testing.T) {
 	// Simulated scenario: toolCalls and results length mismatch
 	// This should be detected and handled correctly
 
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"final answer"}},
 	}
 
@@ -1092,7 +1091,7 @@ func TestEndToEnd_TruncatedDelegateResponse(t *testing.T) {
 	// L2's FakeLLM:
 	// First round: return tool call (delegate to L3)
 	// Second round: return final answer (or error)
-	l2LLM := &FakeLLM{
+	l2LLM := &agenttest.FakeLLM{
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
 				{Index: 0, ID: "call_1", Name: "delegate", Arguments: `{"task":"test"}`},
@@ -1168,7 +1167,7 @@ func TestEndToEnd_TruncatedDelegateResponse(t *testing.T) {
 func TestWatchDelegatedTask_GracePeriodCatchesInFlightResult(t *testing.T) {
 	// Verify that when callerCtx is cancelled but the result arrives within
 	// the 100ms grace period, the result is NOT lost.
-	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t),
 		WithPriorityMailbox(),
 	)
 	if err := a.Start(context.Background()); err != nil {
@@ -1197,12 +1196,10 @@ func TestWatchDelegatedTask_GracePeriodCatchesInFlightResult(t *testing.T) {
 	a.turnMu.Unlock()
 
 	task := &delegatedTask{
-		correlationID: "test-grace",
-		targetAgentID: "l2",
-		replyCh:       replyCh,
-		callID:        "call_1",
-		callIndex:     0,
-		turn:          turnState,
+		replyCh:   replyCh,
+		callID:    "call_1",
+		callIndex: 0,
+		turn:      turnState,
 	}
 
 	// Send result to replyCh BEFORE watchDelegatedTask runs.
@@ -1425,7 +1422,7 @@ func TestResumeTurn_PushesUserMessage(t *testing.T) {
 		callerCtx: ctx,
 	}
 
-	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{StreamDeltas: [][]string{{"continuing"}}}, newTestLogger(t))
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{StreamDeltas: [][]string{{"continuing"}}}, newTestLogger(t))
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1475,7 +1472,7 @@ func TestAsyncTurn_FallbackSync(t *testing.T) {
 		name: "sync_fallback",
 	}
 
-	a := NewAgent(Definition{ID: "l1"}, &FakeLLM{}, newTestLogger(t),
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t),
 		WithTools(tool),
 		WithPriorityMailbox(),
 	)
@@ -1595,7 +1592,7 @@ func TestFactoryCronToolScopes(t *testing.T) {
 	cfg := tools.Config{CronStore: store, CronScheduler: cron.NewScheduler(store, nil, nil)}
 
 	reg := NewRegistry(newTestLogger(t))
-	f := NewDefaultFactory(reg, &FakeLLM{}, cfg, newTestLogger(t))
+	f := NewDefaultFactory(reg, &agenttest.FakeLLM{}, cfg, newTestLogger(t))
 
 	cronToolNames := []string{"create_cron_job", "list_cron_jobs", "update_cron_job", "delete_cron_job"}
 
@@ -1681,7 +1678,7 @@ This is the analyzer system prompt.`
 
 	// 2. Test spawning the dynamic agent using f.Create under L2 supervisor
 	reg := NewRegistry(newTestLogger(t))
-	f := NewDefaultFactory(reg, &FakeLLM{}, tools.Config{}, newTestLogger(t))
+	f := NewDefaultFactory(reg, &agenttest.FakeLLM{}, tools.Config{}, newTestLogger(t))
 
 	// Simulate delegating to "analyzer" with a custom skill ID
 	// Let's create an L2 leader and wire the dynamic delegate_agent tool
@@ -1715,7 +1712,7 @@ This is the analyzer system prompt.`
 	}
 
 	// Mock target LLM responses for the spawned agent
-	targetLLM := &FakeLLM{Responses: []string{"Delegation result"}}
+	targetLLM := &agenttest.FakeLLM{Responses: []string{"Delegation result"}}
 	f.llm = targetLLM
 
 	// Invoke delegate_agent synchronously
@@ -1764,14 +1761,14 @@ This is the analyzer system prompt.`
 // writing a custom system prompt, and calling the generic delegate_agent tool.
 func TestL1DynamicDelegationEndToEnd(t *testing.T) {
 	// Target child agent responses
-	childLLM := &FakeLLM{
+	childLLM := &agenttest.FakeLLM{
 		Responses: []string{"The result of 1+1 is 2."},
 	}
 
 	// Host agent responses:
 	// Turn 1: Call delegate_agent
 	// Turn 2: Give final response to user using the result of delegation
-	hostLLM := &FakeLLM{
+	hostLLM := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{
 			{
 				{

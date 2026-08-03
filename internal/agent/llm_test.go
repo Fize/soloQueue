@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
 func TestFakeLLM_RoundRobin(t *testing.T) {
-	f := &FakeLLM{Responses: []string{"a", "b", "c"}}
+	f := &agenttest.FakeLLM{Responses: []string{"a", "b", "c"}}
 	ctx := context.Background()
 
 	got := []string{}
@@ -35,7 +36,7 @@ func TestFakeLLM_RoundRobin(t *testing.T) {
 }
 
 func TestFakeLLM_EmptyResponses(t *testing.T) {
-	f := &FakeLLM{}
+	f := &agenttest.FakeLLM{}
 	resp, err := f.Chat(context.Background(), LLMRequest{})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
@@ -46,7 +47,7 @@ func TestFakeLLM_EmptyResponses(t *testing.T) {
 }
 
 func TestFakeLLM_Delay(t *testing.T) {
-	f := &FakeLLM{Responses: []string{"x"}, Delay: 80 * time.Millisecond}
+	f := &agenttest.FakeLLM{Responses: []string{"x"}, Delay: 80 * time.Millisecond}
 	start := time.Now()
 	_, err := f.Chat(context.Background(), LLMRequest{})
 	if err != nil {
@@ -58,7 +59,7 @@ func TestFakeLLM_Delay(t *testing.T) {
 }
 
 func TestFakeLLM_Delay_CancelledCtx(t *testing.T) {
-	f := &FakeLLM{Responses: []string{"x"}, Delay: 5 * time.Second}
+	f := &agenttest.FakeLLM{Responses: []string{"x"}, Delay: 5 * time.Second}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
@@ -78,7 +79,7 @@ func TestFakeLLM_Delay_CancelledCtx(t *testing.T) {
 }
 
 func TestFakeLLM_AlreadyCancelledCtx(t *testing.T) {
-	f := &FakeLLM{Responses: []string{"x"}} // No Delay
+	f := &agenttest.FakeLLM{Responses: []string{"x"}} // No Delay
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -93,7 +94,7 @@ func TestFakeLLM_AlreadyCancelledCtx(t *testing.T) {
 
 func TestFakeLLM_Err(t *testing.T) {
 	myErr := errors.New("simulated llm failure")
-	f := &FakeLLM{Err: myErr}
+	f := &agenttest.FakeLLM{Err: myErr}
 
 	_, err := f.Chat(context.Background(), LLMRequest{})
 	if !errors.Is(err, myErr) {
@@ -104,7 +105,7 @@ func TestFakeLLM_Err(t *testing.T) {
 func TestFakeLLM_Err_OverridesCtx(t *testing.T) {
 	// Error condition still honors context cancellation
 	myErr := errors.New("boom")
-	f := &FakeLLM{Err: myErr}
+	f := &agenttest.FakeLLM{Err: myErr}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -121,7 +122,7 @@ func TestFakeLLM_Err_OverridesCtx(t *testing.T) {
 func TestFakeLLM_Hook(t *testing.T) {
 	var seen LLMRequest
 	var once sync.Once
-	f := &FakeLLM{
+	f := &agenttest.FakeLLM{
 		Responses: []string{"hi"},
 		Hook: func(req LLMRequest) {
 			once.Do(func() { seen = req })
@@ -154,7 +155,7 @@ func TestFakeLLM_Hook(t *testing.T) {
 }
 
 func TestFakeLLM_Concurrent(t *testing.T) {
-	f := &FakeLLM{Responses: []string{"a", "b", "c"}}
+	f := &agenttest.FakeLLM{Responses: []string{"a", "b", "c"}}
 	const N = 200
 
 	var wg sync.WaitGroup
@@ -184,7 +185,7 @@ func TestFakeLLM_Concurrent(t *testing.T) {
 // ─── FakeLLM.ChatStream ──────────────────────────────────────────────────────
 
 func TestFakeLLM_ChatStream_DeltaThenDone(t *testing.T) {
-	f := &FakeLLM{Responses: []string{"hello"}}
+	f := &agenttest.FakeLLM{Responses: []string{"hello"}}
 	ch, err := f.ChatStream(context.Background(), LLMRequest{})
 	if err != nil {
 		t.Fatalf("ChatStream: %v", err)
@@ -207,7 +208,7 @@ func TestFakeLLM_ChatStream_DeltaThenDone(t *testing.T) {
 
 func TestFakeLLM_ChatStream_EmptyResponses_OnlyDone(t *testing.T) {
 	// Empty Responses should not send Delta events, only Done events.
-	f := &FakeLLM{}
+	f := &agenttest.FakeLLM{}
 	ch, _ := f.ChatStream(context.Background(), LLMRequest{})
 	var got []llm.Event
 	for ev := range ch {
@@ -223,7 +224,7 @@ func TestFakeLLM_ChatStream_EmptyResponses_OnlyDone(t *testing.T) {
 
 func TestFakeLLM_ChatStream_Err_BecomesEventError(t *testing.T) {
 	myErr := errors.New("boom")
-	f := &FakeLLM{Err: myErr}
+	f := &agenttest.FakeLLM{Err: myErr}
 	ch, err := f.ChatStream(context.Background(), LLMRequest{})
 	if err != nil {
 		t.Fatalf("ChatStream: %v", err)
@@ -244,7 +245,7 @@ func TestFakeLLM_ChatStream_Err_BecomesEventError(t *testing.T) {
 }
 
 func TestFakeLLM_ChatStream_CtxCancel_DuringDelay(t *testing.T) {
-	f := &FakeLLM{Responses: []string{"x"}, Delay: 5 * time.Second}
+	f := &agenttest.FakeLLM{Responses: []string{"x"}, Delay: 5 * time.Second}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
@@ -269,7 +270,7 @@ func TestFakeLLM_ChatStream_CtxCancel_DuringDelay(t *testing.T) {
 
 func TestFakeLLM_ChatStream_CtxAlreadyCancelled(t *testing.T) {
 	// Context already cancelled: when Delay is 0, the 'else if err := ctx.Err()' branch should be taken.
-	f := &FakeLLM{Responses: []string{"x"}}
+	f := &agenttest.FakeLLM{Responses: []string{"x"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -285,7 +286,7 @@ func TestFakeLLM_ChatStream_CtxAlreadyCancelled(t *testing.T) {
 
 func TestFakeLLM_ChatStream_Hook(t *testing.T) {
 	var seen LLMRequest
-	f := &FakeLLM{
+	f := &agenttest.FakeLLM{
 		Responses: []string{"ok"},
 		Hook:      func(req LLMRequest) { seen = req },
 	}
@@ -306,7 +307,7 @@ func TestFakeLLM_ToolCallsByTurn_Happy(t *testing.T) {
 		ID: "call_1", Type: "function",
 		Function: llm.FunctionCall{Name: "echo", Arguments: `{"x":1}`},
 	}}
-	f := &FakeLLM{
+	f := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{tcs},
 		Responses:       []string{"final"},
 	}
@@ -346,7 +347,7 @@ func TestFakeLLM_ToolCallsByTurn_Happy(t *testing.T) {
 
 func TestFakeLLM_ToolCallsByTurn_EmptyTurn_FallsThrough(t *testing.T) {
 	// If the first turn's tool_calls is nil, it falls through to Responses.
-	f := &FakeLLM{
+	f := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{nil},
 		Responses:       []string{"hello"},
 	}
@@ -367,7 +368,7 @@ func TestFakeLLM_ToolCallsByTurn_EmptyTurn_FallsThrough(t *testing.T) {
 
 func TestFakeLLM_ToolCallsByTurn_MultiTurn(t *testing.T) {
 	// Two consecutive turns of tool_calls + final reply
-	f := &FakeLLM{
+	f := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{
 			{{ID: "c1", Function: llm.FunctionCall{Name: "t1"}}},
 			{{ID: "c2", Function: llm.FunctionCall{Name: "t2"}}},
@@ -393,7 +394,7 @@ func TestFakeLLM_ToolCallsByTurn_MultiTurn(t *testing.T) {
 
 func TestFakeLLM_ToolCallsByTurn_Concurrent(t *testing.T) {
 	// Concurrent Chat (-race) without data race
-	f := &FakeLLM{
+	f := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{
 			{{ID: "c1"}},
 			{{ID: "c2"}},

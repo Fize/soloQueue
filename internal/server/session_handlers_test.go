@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -27,7 +28,7 @@ func TestHTTP_UploadFile(t *testing.T) {
 	def := agent.Definition{
 		Name: "test-agent",
 	}
-	fakeLLM := &agent.FakeLLM{}
+	fakeLLM := &agenttest.FakeLLM{}
 	a := agent.NewAgent(def, fakeLLM, log, agent.WithAgentWorkDir(workDir))
 
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())

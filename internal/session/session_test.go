@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/conversationlog"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -23,7 +24,7 @@ import (
 
 // startAgent builds + starts an agent with the given FakeLLM and returns it.
 // t.Cleanup stops the agent.
-func startAgent(t *testing.T, fake *agent.FakeLLM) *agent.Agent {
+func startAgent(t *testing.T, fake *agenttest.FakeLLM) *agent.Agent {
 	t.Helper()
 	a := agent.NewAgent(
 		agent.Definition{ID: "test-agent"},
@@ -39,7 +40,7 @@ func startAgent(t *testing.T, fake *agent.FakeLLM) *agent.Agent {
 
 // factoryFromFake returns a factory that produces fresh started agents each
 // time from the given FakeLLM (sharing the same LLM across sessions).
-func factoryFromFake(t *testing.T, fake *agent.FakeLLM) AgentFactory {
+func factoryFromFake(t *testing.T, fake *agenttest.FakeLLM) AgentFactory {
 	return func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 		a := agent.NewAgent(
 			agent.Definition{ID: "agent-" + teamID},
@@ -57,7 +58,7 @@ func factoryFromFake(t *testing.T, fake *agent.FakeLLM) AgentFactory {
 // ─── Session.Ask ──────────────────────────────────────────────────────
 
 func TestSession_Ask_UpdatesHistory(t *testing.T) {
-	fake := &agent.FakeLLM{Responses: []string{"hi there"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"hi there"}}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
@@ -82,7 +83,7 @@ func TestSession_Ask_UpdatesHistory(t *testing.T) {
 
 func TestSession_Ask_ErrorDoesNotAppendHistory(t *testing.T) {
 	myErr := errors.New("kaboom")
-	fake := &agent.FakeLLM{Err: myErr}
+	fake := &agenttest.FakeLLM{Err: myErr}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
@@ -96,7 +97,7 @@ func TestSession_Ask_ErrorDoesNotAppendHistory(t *testing.T) {
 }
 
 func TestSession_Ask_BusyReturnsErr(t *testing.T) {
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Responses: []string{"slow"},
 		Delay:     300 * time.Millisecond,
 	}
@@ -126,7 +127,7 @@ func TestSession_Ask_BusyReturnsErr(t *testing.T) {
 }
 
 func TestSession_Ask_ClosedReturnsErr(t *testing.T) {
-	fake := &agent.FakeLLM{Responses: []string{"r"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"r"}}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 	s.Close()
@@ -139,7 +140,7 @@ func TestSession_Ask_ClosedReturnsErr(t *testing.T) {
 // ─── Session.AskStream ─────────────────────────────────────────────────
 
 func TestSession_AskStream_AppendsHistoryOnDone(t *testing.T) {
-	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"hel", "lo"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"hel", "lo"}}}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
@@ -168,7 +169,7 @@ func TestSession_AskStream_AppendsHistoryOnDone(t *testing.T) {
 
 func TestSession_AskStream_PreservesLongPrompt(t *testing.T) {
 	prompt := "this self-contained prompt must remain unchanged"
-	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"done"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"done"}}}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
@@ -192,7 +193,7 @@ func TestSession_AskStream_PreservesLongPrompt(t *testing.T) {
 }
 
 func TestSession_AskStream_ErrorNoHistoryAppend(t *testing.T) {
-	fake := &agent.FakeLLM{Err: errors.New("bad")}
+	fake := &agenttest.FakeLLM{Err: errors.New("bad")}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 	ch, err := s.AskStream(context.Background(), "hi")
@@ -207,7 +208,7 @@ func TestSession_AskStream_ErrorNoHistoryAppend(t *testing.T) {
 }
 
 func TestSession_AskStream_ResizesContextWindow_WithRouter(t *testing.T) {
-	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
 	a := startAgent(t, fake)
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	s := NewSession("s1", "t1", a, cw, nil, nil)
@@ -243,7 +244,7 @@ func TestSession_AskStream_ResizesContextWindow_WithRouter(t *testing.T) {
 }
 
 func TestSession_AskStream_ResizesContextWindow_DefaultWithoutRouter(t *testing.T) {
-	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
 	a := startAgent(t, fake)
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	s := NewSession("s1", "t1", a, cw, nil, nil)
@@ -265,7 +266,7 @@ func TestSession_AskStream_ResizesContextWindow_DefaultWithoutRouter(t *testing.
 }
 
 func TestSession_AskStream_ResizesAndEvicts_WhenSmallerWindow(t *testing.T) {
-	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
 	a := startAgent(t, fake)
 	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
 	s := NewSession("s1", "t1", a, cw, nil, nil)
@@ -316,7 +317,7 @@ func TestSession_AskStream_ResizesAndEvicts_WhenSmallerWindow(t *testing.T) {
 }
 
 func TestSession_AskStream_ConcurrentRejected(t *testing.T) {
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"x"}, {"y"}},
 		Delay:        200 * time.Millisecond,
 	}
@@ -337,7 +338,7 @@ func TestSession_AskStream_ConcurrentRejected(t *testing.T) {
 }
 
 func TestSession_AskStream_RejectBusyDoesNotQueue(t *testing.T) {
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"x"}},
 		Delay:        200 * time.Millisecond,
 	}
@@ -362,7 +363,7 @@ func TestSession_AskStream_RejectBusyDoesNotQueue(t *testing.T) {
 func TestSession_CancelCurrent_KeepsSessionReusable(t *testing.T) {
 	started := make(chan struct{})
 	var startedOnce sync.Once
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Responses: []string{"cancelled response", "response after cancel"},
 		Delay:     200 * time.Millisecond,
 		Hook: func(agent.LLMRequest) {
@@ -412,7 +413,7 @@ func TestSession_CancelCurrent_KeepsSessionReusable(t *testing.T) {
 }
 
 func TestSession_CancelCurrent_CancelsRouterRequest(t *testing.T) {
-	fake := &agent.FakeLLM{Responses: []string{"response after router cancel"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"response after router cancel"}}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 	routerStarted := make(chan struct{})
@@ -469,7 +470,7 @@ func TestSession_CancelCurrent_CancelsRouterRequest(t *testing.T) {
 // ─── SessionManager ────────────────────────────────────────────────────
 
 func TestSessionManager_Init(t *testing.T) {
-	fake := &agent.FakeLLM{Responses: []string{"r"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"r"}}
 	mgr := NewSessionManager(factoryFromFake(t, fake), nil)
 	t.Cleanup(func() { mgr.Shutdown(time.Second) })
 
@@ -507,7 +508,7 @@ func TestSessionManager_FactoryError(t *testing.T) {
 }
 
 func TestSessionManager_Shutdown(t *testing.T) {
-	fake := &agent.FakeLLM{Responses: []string{"r"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"r"}}
 	mgr := NewSessionManager(factoryFromFake(t, fake), nil)
 
 	s, err := mgr.Init(context.Background(), "t")
@@ -537,7 +538,7 @@ func TestSessionManager_Shutdown(t *testing.T) {
 // ─── Delegation-aware inFlight ─────────────────────────────────────────
 
 func TestSession_AskStream_DelegationReleasesInFlight(t *testing.T) {
-	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"hello"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"hello"}}}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
@@ -578,7 +579,7 @@ func TestSession_AskStream_DelegationReleasesInFlight(t *testing.T) {
 }
 
 func TestSession_AskStream_DelegationPendingDoesNotBlock(t *testing.T) {
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"first"}, {"second"}},
 		Delay:        500 * time.Millisecond, // slow LLM so forwarder doesn't finish first
 	}
@@ -640,7 +641,7 @@ func TestSession_AskStream_CloseTurnDoneIdempotent(t *testing.T) {
 // startTimelineSession builds a session whose CW push hook writes to a real
 // timeline (mirroring the production builder wiring), returning the session
 // plus a function to read back the persisted assistant rows.
-func startTimelineSession(t *testing.T, fake *agent.FakeLLM, tools ...tools.Tool) (*Session, func() []string) {
+func startTimelineSession(t *testing.T, fake *agenttest.FakeLLM, tools ...tools.Tool) (*Session, func() []string) {
 	t.Helper()
 	dir := t.TempDir()
 	tl, err := timeline.NewWriter(dir, "timeline", 0, 0)
@@ -736,7 +737,7 @@ func TestSession_AskStream_CancelAfterToolCall_NoDuplicateTimeline(t *testing.T)
 	// Turn 1: delayed content — cancellation lands here, after content was
 	// already persisted, reproducing the production duplicate-row bug.
 	var llmCalls int
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"first", ""}, {"second"}},
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
@@ -827,7 +828,7 @@ func TestSession_AskStream_CancelNoDuplicate_AfterSamePrevTurn(t *testing.T) {
 	// the partial flush with pending="same". If assistantDump wrongly
 	// included the previous turn's "same" (rows before cwLenBeforeTurn),
 	// the prefix check would fail and a duplicate row would be written.
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"same", ""}},
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
@@ -963,7 +964,7 @@ func TestIsLevelLockCommand(t *testing.T) {
 }
 
 func TestLevelLocked_BlocksRouting(t *testing.T) {
-	fake := &agent.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
@@ -1010,7 +1011,7 @@ func TestLevelLocked_BlocksRouting(t *testing.T) {
 // ─── Session.FlushMemory ──────────────────────────────────────────────
 
 func TestSession_FlushMemory_PersistsUnrecordedMessages(t *testing.T) {
-	fake := &agent.FakeLLM{Responses: []string{"# 2026-01-01\n\n## 2026-01-01 10:00\n- merged\n"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"# 2026-01-01\n\n## 2026-01-01 10:00\n- merged\n"}}
 	a := startAgent(t, fake)
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	s := NewSession("s1", "t1", a, cw, nil, nil)
@@ -1044,7 +1045,7 @@ func TestSession_FlushMemory_PersistsUnrecordedMessages(t *testing.T) {
 }
 
 func TestSession_FlushMemory_SkipsWhenNoNewMessages(t *testing.T) {
-	fake := &agent.FakeLLM{}
+	fake := &agenttest.FakeLLM{}
 	a := startAgent(t, fake)
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	s := NewSession("s1", "t1", a, cw, nil, nil)
@@ -1068,7 +1069,7 @@ func TestSession_FlushMemory_SkipsWhenNoNewMessages(t *testing.T) {
 }
 
 func TestSession_FlushMemory_SkipsWhenNoHook(t *testing.T) {
-	fake := &agent.FakeLLM{}
+	fake := &agenttest.FakeLLM{}
 	a := startAgent(t, fake)
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	s := NewSession("s1", "t1", a, cw, nil, nil)
@@ -1093,7 +1094,7 @@ func TestTimeUntilNextMidnight(t *testing.T) {
 // ─── DailyMemoryFlusher construction ──────────────────────────────────
 
 func TestNewDailyMemoryFlusher(t *testing.T) {
-	fake := &agent.FakeLLM{}
+	fake := &agenttest.FakeLLM{}
 	factory := factoryFromFake(t, fake)
 	mgr := NewSessionManager(factory, nil)
 	flusher := NewDailyMemoryFlusher(mgr, nil, nil)
@@ -1110,7 +1111,7 @@ func TestNewDailyMemoryFlusher(t *testing.T) {
 
 func TestSessionAskStreamDoesNotInterceptCronSlashText(t *testing.T) {
 	var sawPrompt bool
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Responses: []string{"handled by agent"},
 		Hook: func(req agent.LLMRequest) {
 			for _, msg := range req.Messages {
@@ -1135,7 +1136,7 @@ func TestSessionAskStreamDoesNotInterceptCronSlashText(t *testing.T) {
 
 func TestSessionAskIsolatedWithModelUsesAndClearsOverride(t *testing.T) {
 	var gotModel, gotProvider string
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Responses: []string{"done"},
 		Hook: func(req agent.LLMRequest) {
 			gotModel = req.Model
@@ -1164,7 +1165,7 @@ func TestSessionAskIsolatedWithModelUsesAndClearsOverride(t *testing.T) {
 
 func TestSessionAskStreamWithModelUsesAndClearsOverride(t *testing.T) {
 	var gotModel, gotProvider string
-	fake := &agent.FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Responses: []string{"done"},
 		Hook: func(req agent.LLMRequest) {
 			gotModel = req.Model
@@ -1192,7 +1193,7 @@ func TestSessionAskStreamWithModelUsesAndClearsOverride(t *testing.T) {
 }
 
 func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
-	fake := &agent.FakeLLM{}
+	fake := &agenttest.FakeLLM{}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 	Version = "0.2.0-test"

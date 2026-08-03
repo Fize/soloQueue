@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
@@ -90,7 +91,7 @@ func TestBusySessionRejection(t *testing.T) {
 		Name: "test-agent",
 	}
 	// Delay keeps the first request in-flight so the second one queues.
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"first"}},
 		Delay:        300 * time.Millisecond,
 	}

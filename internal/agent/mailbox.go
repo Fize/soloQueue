@@ -2,18 +2,9 @@ package agent
 
 // ─── PriorityMailbox ───────────────────────────────────────────────────────
 
-// Priority distinguishes job priorities in the mailbox
-type Priority int
-
-const (
-	PriorityNormal Priority = iota // Normal user Ask / Submit
-	PriorityHigh                   // Delegation callback / Timeout events / Cancel commands
-)
-
 // prioritizedJob a job with Priority
 type prioritizedJob struct {
-	priority Priority
-	job      job
+	job job
 }
 
 // PriorityMailbox a mailbox that supports priorities
@@ -41,12 +32,12 @@ func NewPriorityMailbox() *PriorityMailbox {
 
 // SubmitHigh submits a high-priority job
 func (pm *PriorityMailbox) SubmitHigh(jb job) {
-	pm.highCh <- prioritizedJob{priority: PriorityHigh, job: jb}
+	pm.highCh <- prioritizedJob{job: jb}
 }
 
 // SubmitNormal submits a normal-priority job
 func (pm *PriorityMailbox) SubmitNormal(jb job) {
-	pm.normalCh <- prioritizedJob{priority: PriorityNormal, job: jb}
+	pm.normalCh <- prioritizedJob{job: jb}
 }
 
 // HighCh returns the high-priority channel (for consumption by the run goroutine)

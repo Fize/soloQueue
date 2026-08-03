@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
@@ -13,12 +14,12 @@ func TestCronSessionCleanupStopsAndUnregistersAgents(t *testing.T) {
 	registry := agent.NewRegistry(nil)
 	leader := agent.NewAgent(
 		agent.Definition{ID: "cron-leader", Name: "Cron Leader"},
-		&agent.FakeLLM{},
+		&agenttest.FakeLLM{},
 		nil,
 	)
 	child := agent.NewAgent(
 		agent.Definition{ID: "cron-worker", Name: "Cron Worker"},
-		&agent.FakeLLM{},
+		&agenttest.FakeLLM{},
 		nil,
 	)
 	for _, a := range []*agent.Agent{leader, child} {
@@ -72,4 +73,12 @@ func (f *cronCleanupTestFactory) CreateWithOptions(
 
 func (f *cronCleanupTestFactory) Registry() *agent.Registry {
 	return f.registry
+}
+
+func (f *cronCleanupTestFactory) RebuildLeaderPrompt(tmpl agent.AgentTemplate, _ string) (string, error) {
+	return tmpl.SystemPrompt, nil
+}
+
+func (f *cronCleanupTestFactory) ResolveTemplate(_ context.Context, _ string) (agent.AgentTemplate, bool) {
+	return agent.AgentTemplate{}, false
 }

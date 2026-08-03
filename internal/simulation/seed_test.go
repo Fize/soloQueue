@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 )
 
 func TestSeedExtractor_BasicExtraction(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{`{
 			"entities": [
 				{"name": "Rust", "type": "technology", "confidence": 0.9, "relations": [{"target_name": "Go", "rel_type": "rebuttal", "weight": 0.8}]},
@@ -48,7 +49,7 @@ func TestSeedExtractor_BasicExtraction(t *testing.T) {
 }
 
 func TestSeedExtractor_EmptyText(t *testing.T) {
-	extractor := NewSeedExtractor(&agent.FakeLLM{}, "", "", nil)
+	extractor := NewSeedExtractor(&agenttest.FakeLLM{}, "", "", nil)
 	_, err := extractor.Extract(context.Background(), "  ", 48)
 	if err == nil {
 		t.Fatal("expected error for empty text")
@@ -56,7 +57,7 @@ func TestSeedExtractor_EmptyText(t *testing.T) {
 }
 
 func TestSeedExtractor_MalformedJSON(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{`{invalid json`},
 	}
 
@@ -68,7 +69,7 @@ func TestSeedExtractor_MalformedJSON(t *testing.T) {
 }
 
 func TestSeedExtractor_MarkdownCodeFence(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"```json\n{\"entities\": [{\"name\": \"Test\", \"type\": \"concept\", \"confidence\": 1.0}], \"world_state\": {}, \"key_topics\": [\"test\"], \"conflict_areas\": []}\n```"},
 	}
 
@@ -90,7 +91,7 @@ func TestSeedExtractor_Chunking(t *testing.T) {
 	longText := b.String()
 
 	callCount := 0
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{
 			`{"entities":[{"name":"Go","type":"technology","confidence":0.9}],"world_state":{},"key_topics":["programming"],"conflict_areas":[]}`,
 			`{"entities":[{"name":"Rust","type":"technology","confidence":0.9}],"world_state":{},"key_topics":["programming"],"conflict_areas":[]}`,
@@ -116,7 +117,7 @@ func TestSeedExtractor_Chunking(t *testing.T) {
 func TestSeedExtractor_WithMemoryEngine(t *testing.T) {
 	t.Skip("requires real DB; tested via integration test")
 
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{`{
 			"entities": [{"name": "Rust", "type": "technology", "confidence": 0.9}],
 			"world_state": {},
@@ -345,17 +346,17 @@ func TestParseExtraction_InitialRelationshipsOmitted(t *testing.T) {
 
 func TestMergeExtractions_InitialRelationships(t *testing.T) {
 	a := &SeedExtraction{
-		Entities:    []memoryengine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
-		WorldState:  map[string]any{"version": "1.22"},
-		KeyTopics:   []string{"Go"},
+		Entities:   []memoryengine.EntityExtraction{{Name: "Go", Type: "technology", Confidence: 0.9}},
+		WorldState: map[string]any{"version": "1.22"},
+		KeyTopics:  []string{"Go"},
 		InitialRelationships: []InitialRelationship{
 			{SubjectName: "Alice", TargetName: "Bob", Kind: RelationFriend, Familiarity: 0.9},
 		},
 	}
 	b := &SeedExtraction{
-		Entities:    []memoryengine.EntityExtraction{{Name: "Rust", Type: "technology", Confidence: 0.9}},
-		WorldState:  map[string]any{"rust_version": "2024"},
-		KeyTopics:   []string{"Rust"},
+		Entities:   []memoryengine.EntityExtraction{{Name: "Rust", Type: "technology", Confidence: 0.9}},
+		WorldState: map[string]any{"rust_version": "2024"},
+		KeyTopics:  []string{"Rust"},
 		InitialRelationships: []InitialRelationship{
 			{SubjectName: "Charlie", TargetName: "Dave", Kind: RelationColleague, Familiarity: 0.7},
 		},

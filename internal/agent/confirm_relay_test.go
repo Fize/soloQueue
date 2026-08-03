@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -18,16 +19,16 @@ type confirmBubbleFixture struct {
 	L2Agent  *Agent
 	L3Agent  *Agent
 	registry *Registry
-	l1LLM    *FakeLLM
-	l2LLM    *FakeLLM
-	l3LLM    *FakeLLM
+	l1LLM    *agenttest.FakeLLM
+	l2LLM    *agenttest.FakeLLM
+	l3LLM    *agenttest.FakeLLM
 }
 
 func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 	reg := NewRegistry(nil)
 
 	// L3 agent: has a confirmable tool
-	l3LLM := &FakeLLM{
+	l3LLM := &agenttest.FakeLLM{
 		Responses: []string{"task completed"},
 		// L3 needs to first call dangerous_op (confirmable), then return the result
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
@@ -56,7 +57,7 @@ func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 	}
 
 	// L2 agent: has a delegate tool, which calls L3
-	l2LLM := &FakeLLM{
+	l2LLM := &agenttest.FakeLLM{
 		Responses: []string{"delegated result"},
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
@@ -88,7 +89,7 @@ func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 	}
 
 	// L1 agent: top-level caller, will delegate to L2
-	l1LLM := &FakeLLM{
+	l1LLM := &agenttest.FakeLLM{
 		Responses: []string{"final result"},
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{
@@ -140,7 +141,7 @@ func TestConfirmEventBubble_L3DirectConfirm(t *testing.T) {
 	reg := NewRegistry(nil)
 
 	// Create L3 agent to directly use the confirmable tool
-	l3LLM := &FakeLLM{
+	l3LLM := &agenttest.FakeLLM{
 		Responses: []string{"completed"},
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
 			{

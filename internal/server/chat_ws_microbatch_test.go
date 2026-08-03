@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
@@ -16,7 +17,7 @@ func TestBuildChatRouteMessageUsesEffectivePerAskRoute(t *testing.T) {
 		ID:         "leader",
 		ModelID:    "fallback-model",
 		ProviderID: "fallback-provider",
-	}, &agent.FakeLLM{}, nil)
+	}, &agenttest.FakeLLM{}, nil)
 	a.SetModelOverride(&agent.ModelParams{
 		TaskType:   "engineering",
 		ModelID:    "routed-model",
@@ -40,7 +41,7 @@ func TestBuildChatRouteMessageFallsBackToDefinitionModel(t *testing.T) {
 		ID:         "leader",
 		ModelID:    "fallback-model",
 		ProviderID: "fallback-provider",
-	}, &agent.FakeLLM{}, nil)
+	}, &agenttest.FakeLLM{}, nil)
 
 	msg := buildChatRouteMessage(&session.Session{Agent: a}, "req-1", "l1")
 	if msg.ModelID != "fallback-model" || msg.ProviderID != "fallback-provider" {

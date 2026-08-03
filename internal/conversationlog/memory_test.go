@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 )
 
 func newTestManager(t *testing.T) (*Manager, string) {
@@ -17,7 +18,7 @@ func newTestManager(t *testing.T) (*Manager, string) {
 	memoryDir := filepath.Join(dir, "memory")
 	today := time.Now().Format("2006-01-02")
 	now := time.Now().Format("2006-01-02 15:04")
-	llm := &agent.FakeLLM{Responses: []string{
+	llm := &agenttest.FakeLLM{Responses: []string{
 		"# " + today + "\n\n## " + now + "\n- User asked about task routing\n- Implemented fix\n",
 		"# " + today + "\n\n## " + now + "\n- User asked about task routing\n- Implemented fix\n\n## " + now + "\n- User asked about second topic\n- Discussed more things\n",
 	}}

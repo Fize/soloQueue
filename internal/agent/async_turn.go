@@ -23,12 +23,10 @@ import (
 // Each asynchronous tool_call corresponds to one delegatedTask, created by the framework in execTools.
 // It does not directly manage aggregation – aggregation is handled by asyncTurnState.
 type delegatedTask struct {
-	correlationID string
-	targetAgentID string
-	replyCh       chan delegateResult
-	callID        string          // which tool_call it belongs to
-	callIndex     int             // position in toolCalls
-	turn          *asyncTurnState // reverse reference to the owning turn
+	replyCh   chan delegateResult
+	callID    string          // which tool_call it belongs to
+	callIndex int             // position in toolCalls
+	turn      *asyncTurnState // reverse reference to the owning turn
 }
 
 type delegateResult struct {
@@ -213,12 +211,10 @@ func (a *Agent) execToolsWithAsync(
 
 		// Assemble delegatedTask (turnState is 100% ready at this point)
 		task := &delegatedTask{
-			correlationID: generateCorrID(),
-			targetAgentID: "",
-			replyCh:       replyCh,
-			callID:        tc.ID,
-			callIndex:     i,
-			turn:          turnState,
+			replyCh:   replyCh,
+			callID:    tc.ID,
+			callIndex: i,
+			turn:      turnState,
 		}
 		tasks = append(tasks, task)
 
@@ -233,7 +229,6 @@ func (a *Agent) execToolsWithAsync(
 			defer cancel()
 
 			a.logInfo(delCtx, logger.CatTool, "async-goroutine: starting, about to call AskStream",
-				"target_agent_id", task.targetAgentID,
 				"timeout", timeout,
 			)
 
@@ -260,7 +255,6 @@ func (a *Agent) execToolsWithAsync(
 					}
 				}
 				a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream failed",
-					"target_agent_id", task.targetAgentID,
 					"err", err.Error(),
 				)
 				close(relayCh)
@@ -275,7 +269,6 @@ func (a *Agent) execToolsWithAsync(
 				return
 			}
 			a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream succeeded, consuming events",
-				"target_agent_id", task.targetAgentID,
 			)
 
 			var content string
@@ -304,7 +297,6 @@ func (a *Agent) execToolsWithAsync(
 					if a.Log != nil {
 						a.Log.InfoContext(delCtx, logger.CatTool, "async-goroutine: confirm request detected, firing forwarder",
 							"call_id", callID,
-							"target_agent_id", task.targetAgentID,
 						)
 					}
 					go func(fc context.Context, cid string, target iface.Locatable) {
@@ -554,11 +546,6 @@ func (a *Agent) continueToolLoop(
 ) bool {
 	// Reuse the loop body of runOnceStreamWithHistory
 	return a.runOnceStreamWithHistoryFromIter(ctx, cw, out, startIter)
-}
-
-// generateCorrID generates a unique correlation ID
-func generateCorrID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
 // saveAsyncCancel stores the cancel function into the asyncTurnState whose

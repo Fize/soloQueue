@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/teamstore"
 )
@@ -46,7 +47,7 @@ func TestHTTP_Health(t *testing.T) {
 
 func TestBuildAgentList_OmitsStoppedUnregisteredSupervisor(t *testing.T) {
 	reg := agent.NewRegistry(nil)
-	child := agent.NewAgent(agent.Definition{ID: "temporary"}, &agent.FakeLLM{Responses: []string{"ok"}}, nil)
+	child := agent.NewAgent(agent.Definition{ID: "temporary"}, &agenttest.FakeLLM{Responses: []string{"ok"}}, nil)
 	if err := child.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}

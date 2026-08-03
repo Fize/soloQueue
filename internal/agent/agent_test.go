@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
@@ -48,7 +49,7 @@ func startedAgent(t *testing.T, llm LLMClient, opts ...Option) *Agent {
 }
 
 func TestAgent_StartStop(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{Responses: []string{"x"}}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{Responses: []string{"x"}}, nil)
 	if got := a.State(); got != StateStopped {
 		t.Errorf("before Start state = %s, want stopped", got)
 	}
@@ -77,7 +78,7 @@ func TestAgent_StartStop(t *testing.T) {
 }
 
 func TestAgent_StartTwice_ErrAlreadyStarted(t *testing.T) {
-	a := startedAgent(t, &FakeLLM{Responses: []string{"x"}})
+	a := startedAgent(t, &agenttest.FakeLLM{Responses: []string{"x"}})
 	err := a.Start(context.Background())
 	if !errors.Is(err, ErrAlreadyStarted) {
 		t.Errorf("second Start err = %v, want ErrAlreadyStarted", err)
@@ -85,7 +86,7 @@ func TestAgent_StartTwice_ErrAlreadyStarted(t *testing.T) {
 }
 
 func TestAgent_StopWithoutStart(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	err := a.Stop(time.Second)
 	if !errors.Is(err, ErrNotStarted) {
 		t.Errorf("Stop without Start err = %v, want ErrNotStarted", err)
@@ -93,7 +94,7 @@ func TestAgent_StopWithoutStart(t *testing.T) {
 }
 
 func TestAgent_AskWithoutStart_ErrNotStarted(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{Responses: []string{"x"}}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{Responses: []string{"x"}}, nil)
 	_, err := a.Ask(context.Background(), "hi")
 	if !errors.Is(err, ErrNotStarted) {
 		t.Errorf("Ask before Start err = %v, want ErrNotStarted", err)
@@ -101,7 +102,7 @@ func TestAgent_AskWithoutStart_ErrNotStarted(t *testing.T) {
 }
 
 func TestAgent_SubmitWithoutStart_ErrNotStarted(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	err := a.Submit(context.Background(), func(ctx context.Context) error { return nil })
 	if !errors.Is(err, ErrNotStarted) {
 		t.Errorf("Submit before Start err = %v, want ErrNotStarted", err)
@@ -109,7 +110,7 @@ func TestAgent_SubmitWithoutStart_ErrNotStarted(t *testing.T) {
 }
 
 func TestAgent_SubmitNilFn(t *testing.T) {
-	a := startedAgent(t, &FakeLLM{})
+	a := startedAgent(t, &agenttest.FakeLLM{})
 	err := a.Submit(context.Background(), nil)
 	if err == nil {
 		t.Error("Submit nil fn should error")
@@ -118,7 +119,7 @@ func TestAgent_SubmitNilFn(t *testing.T) {
 
 func TestAgent_StopTimeout(t *testing.T) {
 	// A job that doesn't respond to ctx: intentionally uses time.Sleep, not select on ctx
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -145,7 +146,7 @@ func TestAgent_StopTimeout(t *testing.T) {
 }
 
 func TestAgent_Restart(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{Responses: []string{"a", "b"}}, newTestLogger(t))
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{Responses: []string{"a", "b"}}, newTestLogger(t))
 
 	// First Start
 	if err := a.Start(context.Background()); err != nil {
@@ -179,7 +180,7 @@ func TestAgent_Restart(t *testing.T) {
 }
 
 func TestAgent_ParentCtxCancel_StopsAgent(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{Responses: []string{"x"}}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{Responses: []string{"x"}}, nil)
 	parent, cancel := context.WithCancel(context.Background())
 	if err := a.Start(parent); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -200,7 +201,7 @@ func TestAgent_ParentCtxCancel_StopsAgent(t *testing.T) {
 
 func TestEffectiveContextWindow(t *testing.T) {
 	// Does not require a started agent — SetModelOverride is atomic-pointer only
-	a := NewAgent(Definition{ID: "test", ContextWindow: 1048576}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test", ContextWindow: 1048576}, &agenttest.FakeLLM{}, nil)
 
 	// Default: falls back to Definition.ContextWindow
 	if got := a.EffectiveContextWindow(); got != 1048576 {
@@ -229,7 +230,7 @@ func TestEffectiveContextWindow(t *testing.T) {
 
 func TestEffectiveContextWindow_ExplicitModel(t *testing.T) {
 	// ExplicitModel makes SetModelOverride a no-op
-	a := NewAgent(Definition{ID: "test", ContextWindow: 1048576, ExplicitModel: true}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test", ContextWindow: 1048576, ExplicitModel: true}, &agenttest.FakeLLM{}, nil)
 
 	a.SetModelOverride(&ModelParams{ContextWindow: 131072})
 	if got := a.EffectiveContextWindow(); got != 1048576 {
@@ -255,7 +256,7 @@ func TestEffectiveContextWindow_ExplicitModel(t *testing.T) {
 // agents — that fallback would leak template config into the per-ask
 // model display and contradict the level/model coupling on the UI.
 func TestEffectiveModelID(t *testing.T) {
-	a := NewAgent(Definition{ID: "test", ModelID: "deepseek-v4-flash", ProviderID: "deepseek"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test", ModelID: "deepseek-v4-flash", ProviderID: "deepseek"}, &agenttest.FakeLLM{}, nil)
 
 	// Default: no override, not explicit → "" (NOT the template default).
 	if got := a.EffectiveModelID(); got != "" {
@@ -306,7 +307,7 @@ func TestEffectiveModelID_ExplicitModel(t *testing.T) {
 		ModelID:       "deepseek-v4-flash",
 		ProviderID:    "deepseek",
 		ExplicitModel: true,
-	}, &FakeLLM{}, nil)
+	}, &agenttest.FakeLLM{}, nil)
 
 	// Even with an override, ExplicitModel means the override is not
 	// consumed. The template's pinned model is the routed model.
@@ -328,7 +329,7 @@ func TestEffectiveModelID_ExplicitModel(t *testing.T) {
 // ─── Ask happy path ──────────────────────────────────────────────────────────
 
 func TestAgent_Ask_Happy(t *testing.T) {
-	a := startedAgent(t, &FakeLLM{Responses: []string{"hello"}})
+	a := startedAgent(t, &agenttest.FakeLLM{Responses: []string{"hello"}})
 	reply, err := a.Ask(context.Background(), "hi")
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
@@ -340,7 +341,7 @@ func TestAgent_Ask_Happy(t *testing.T) {
 
 func TestAgent_Ask_LLMError(t *testing.T) {
 	myErr := errors.New("boom")
-	a := startedAgent(t, &FakeLLM{Err: myErr})
+	a := startedAgent(t, &agenttest.FakeLLM{Err: myErr})
 	_, err := a.Ask(context.Background(), "hi")
 	if !errors.Is(err, myErr) {
 		t.Errorf("err = %v, want %v", err, myErr)
@@ -358,7 +359,7 @@ func TestAgent_SerializesAsks(t *testing.T) {
 	type interval struct{ start, end time.Time }
 	intervals := []interval{}
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Responses: []string{"r"},
 		Delay:     20 * time.Millisecond,
 		Hook: func(_ LLMRequest) {
@@ -401,7 +402,7 @@ func TestAgent_SerializesAsks(t *testing.T) {
 // the receive order of replies is not guaranteed — we verify using Responses length == call count + content uniqueness.
 func TestAgent_Ask_CallsExactlyOncePerAsk(t *testing.T) {
 	const N = 20
-	fake := &FakeLLM{Responses: []string{"only"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"only"}}
 	a := startedAgent(t, fake)
 
 	var wg sync.WaitGroup
@@ -428,7 +429,7 @@ func TestAgent_Ask_CallsExactlyOncePerAsk(t *testing.T) {
 // Use ctx.Deadline to make it return ctx.DeadlineExceeded.
 func TestAgent_Ask_MailboxBackpressure(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"},
-		&FakeLLM{Responses: []string{"r"}, Delay: 500 * time.Millisecond},
+		&agenttest.FakeLLM{Responses: []string{"r"}, Delay: 500 * time.Millisecond},
 		nil, WithMailboxCap(1))
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -459,7 +460,7 @@ func TestAgent_Ask_MailboxBackpressure(t *testing.T) {
 // ─── Interrupt ──────────────────────────────────────────────────────────────
 
 func TestAgent_Ask_CancelledByCaller(t *testing.T) {
-	a := startedAgent(t, &FakeLLM{Responses: []string{"r"}, Delay: 5 * time.Second})
+	a := startedAgent(t, &agenttest.FakeLLM{Responses: []string{"r"}, Delay: 5 * time.Second})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -484,7 +485,7 @@ func TestAgent_Ask_CancelledByCaller(t *testing.T) {
 
 func TestAgent_Ask_CancelledByStop(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"},
-		&FakeLLM{Responses: []string{"r"}, Delay: 5 * time.Second},
+		&agenttest.FakeLLM{Responses: []string{"r"}, Delay: 5 * time.Second},
 		nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -517,7 +518,7 @@ func TestAgent_Ask_CancelledByStop(t *testing.T) {
 // Will never get stuck on the reply channel
 func TestAgent_PendingJobsDrained(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"},
-		&FakeLLM{Responses: []string{"r"}, Delay: 2 * time.Second},
+		&agenttest.FakeLLM{Responses: []string{"r"}, Delay: 2 * time.Second},
 		nil, WithMailboxCap(5))
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -561,7 +562,7 @@ func TestAgent_PendingJobsDrained(t *testing.T) {
 // ─── Observation ─────────────────────────────────────────────────────────────
 
 func TestAgent_State_IdleProcessingTransition(t *testing.T) {
-	a := startedAgent(t, &FakeLLM{Responses: []string{"r"}, Delay: 100 * time.Millisecond})
+	a := startedAgent(t, &agenttest.FakeLLM{Responses: []string{"r"}, Delay: 100 * time.Millisecond})
 
 	// Idle
 	if s := a.State(); s != StateIdle {
@@ -630,7 +631,7 @@ func (p *panickyLLM) ChatStream(_ context.Context, _ LLMRequest) (<-chan llm.Eve
 // ─── Submit ──────────────────────────────────────────────────────────────────
 
 func TestAgent_Submit_CustomJob(t *testing.T) {
-	a := startedAgent(t, &FakeLLM{})
+	a := startedAgent(t, &agenttest.FakeLLM{})
 
 	done := make(chan struct{})
 	var gotCtx context.Context
@@ -658,7 +659,7 @@ func TestAgent_Submit_CustomJob(t *testing.T) {
 
 func TestAgent_Submit_ReturnsAfterEnqueue(t *testing.T) {
 	// Submit only waits for enqueue, not for fn to finish executing
-	a := startedAgent(t, &FakeLLM{})
+	a := startedAgent(t, &agenttest.FakeLLM{})
 
 	block := make(chan struct{})
 	defer close(block)
@@ -687,7 +688,7 @@ func TestAgent_Submit_FnErrorLogged(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = log.Close() })
 
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{Responses: []string{"x"}}, log.Child())
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{Responses: []string{"x"}}, log.Child())
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -723,7 +724,7 @@ func TestAgent_Submit_FnErrorLogged(t *testing.T) {
 // ─── Done on not-started ─────────────────────────────────────────────────────
 
 func TestAgent_Done_BeforeStart_ClosedImmediately(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	select {
 	case <-a.Done():
 		// ok
@@ -756,7 +757,7 @@ func TestState_String(t *testing.T) {
 // (blocked when mailbox is full)
 func TestAgent_Submit_CallerCtxCancel(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"},
-		&FakeLLM{Responses: []string{"r"}, Delay: 2 * time.Second},
+		&agenttest.FakeLLM{Responses: []string{"r"}, Delay: 2 * time.Second},
 		nil, WithMailboxCap(1))
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -784,7 +785,7 @@ func TestAgent_Submit_CallerCtxCancel(t *testing.T) {
 // TestAgent_Submit_FastPathErrStopped covers the fast-path of Submit
 // (returns ErrStopped immediately when agentDone is already closed)
 func TestAgent_Submit_FastPathErrStopped(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -838,7 +839,7 @@ func TestMergeCtx_BCancelFirst(t *testing.T) {
 
 // TestAgent_NilCtx_DefaultsToBackground covers Ask / Submit handling of nil context
 func TestAgent_Ask_NilCtxHandled(t *testing.T) {
-	a := startedAgent(t, &FakeLLM{Responses: []string{"ok"}})
+	a := startedAgent(t, &agenttest.FakeLLM{Responses: []string{"ok"}})
 	//nolint:staticcheck // intentionally testing nil ctx
 	reply, err := a.Ask(nil, "hi")
 	if err != nil {
@@ -850,7 +851,7 @@ func TestAgent_Ask_NilCtxHandled(t *testing.T) {
 }
 
 func TestAgent_Submit_NilCtxHandled(t *testing.T) {
-	a := startedAgent(t, &FakeLLM{})
+	a := startedAgent(t, &agenttest.FakeLLM{})
 	done := make(chan struct{})
 	//nolint:staticcheck // intentionally testing nil ctx
 	err := a.Submit(nil, func(ctx context.Context) error {
@@ -865,7 +866,7 @@ func TestAgent_Submit_NilCtxHandled(t *testing.T) {
 
 // TestAgent_Start_NilParent covers Start(nil) defaulting to Background
 func TestAgent_Start_NilParent(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{Responses: []string{"x"}}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{Responses: []string{"x"}}, nil)
 	//nolint:staticcheck // intentionally testing nil parent
 	if err := a.Start(nil); err != nil {
 		t.Fatalf("Start(nil): %v", err)
@@ -878,13 +879,13 @@ func TestAgent_Start_NilParent(t *testing.T) {
 
 // TestWithMailboxCap_IgnoresNonPositive covers WithMailboxCap ignoring non-positive values
 func TestWithMailboxCap_IgnoresNonPositive(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil,
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil,
 		WithMailboxCap(0), WithMailboxCap(-5))
 	if a.mailboxCap != DefaultMailboxCap {
 		t.Errorf("mailboxCap = %d, want default %d", a.mailboxCap, DefaultMailboxCap)
 	}
 
-	a2 := NewAgent(Definition{ID: "a2"}, &FakeLLM{}, nil, WithMailboxCap(42))
+	a2 := NewAgent(Definition{ID: "a2"}, &agenttest.FakeLLM{}, nil, WithMailboxCap(42))
 	if a2.mailboxCap != 42 {
 		t.Errorf("mailboxCap = %d, want 42", a2.mailboxCap)
 	}
@@ -892,7 +893,7 @@ func TestWithMailboxCap_IgnoresNonPositive(t *testing.T) {
 
 // TestAgent_Stop_ZeroTimeout covers the timeout==0 branch of Stop (infinite wait)
 func TestAgent_Stop_ZeroTimeout(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -927,7 +928,7 @@ func checkFileHasCategory(path, cat string) (bool, error) {
 // --- Agent Options ---
 
 func TestWithPriorityMailbox(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil, WithPriorityMailbox())
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil, WithPriorityMailbox())
 	if a.priorityMailbox == nil {
 		t.Fatal("priorityMailbox is nil")
 	}
@@ -936,14 +937,14 @@ func TestWithPriorityMailbox(t *testing.T) {
 // --- Agent.PendingDelegations ---
 
 func TestAgent_PendingDelegations_Initial(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
 	if got := a.PendingDelegations(); got != 0 {
 		t.Errorf("PendingDelegations() = %d, want 0", got)
 	}
 }
 
 func TestAgent_PendingDelegations_WithAsyncTurns(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
 
 	a.turnMu.Lock()
 	a.asyncTurns[1] = &asyncTurnState{iter: 1}
@@ -966,7 +967,7 @@ func TestAgent_PendingDelegations_WithAsyncTurns(t *testing.T) {
 // --- Agent.MailboxDepth ---
 
 func TestAgent_MailboxDepth_NotStarted(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
 	high, normal := a.MailboxDepth()
 	if high != 0 || normal != 0 {
 		t.Errorf("MailboxDepth() = (%d, %d), want (0, 0)", high, normal)
@@ -974,7 +975,7 @@ func TestAgent_MailboxDepth_NotStarted(t *testing.T) {
 }
 
 func TestAgent_MailboxDepth_WithPriorityMailbox(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil, WithPriorityMailbox())
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil, WithPriorityMailbox())
 	high, normal := a.MailboxDepth()
 	if high != 0 || normal != 0 {
 		t.Errorf("MailboxDepth() = (%d, %d), want (0, 0)", high, normal)
@@ -994,7 +995,7 @@ func TestAgent_MailboxDepth_WithPriorityMailbox(t *testing.T) {
 }
 
 func TestAgent_MailboxDepth_WithRegularMailbox(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}, Delay: time.Second}, nil,
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{Responses: []string{"r"}, Delay: time.Second}, nil,
 		WithMailboxCap(4))
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -1023,7 +1024,7 @@ func TestAgent_MailboxDepth_WithRegularMailbox(t *testing.T) {
 // ─── Work tracking (CurrentWork) ───────────────────────────────────────
 
 func TestAgent_CurrentWork_NewAgent_IsStopped(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
 	w := a.CurrentWork()
 	if w.State != StateStopped {
 		t.Errorf("State = %s, want stopped", w.State)
@@ -1034,7 +1035,7 @@ func TestAgent_CurrentWork_NewAgent_IsStopped(t *testing.T) {
 }
 
 func TestAgent_CurrentWork_IdleAfterStart(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{Responses: []string{"r"}}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1051,7 +1052,7 @@ func TestAgent_CurrentWork_TracksPromptAndIteration(t *testing.T) {
 	blockedTool := newBlockingTool()
 	defer close(blockedTool.ch)
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "c1",
 			Function: llm.FunctionCall{Name: "block", Arguments: `{}`},
@@ -1083,7 +1084,7 @@ func TestAgent_CurrentWork_TracksToolExecution(t *testing.T) {
 	blockedTool := newBlockingTool()
 	defer close(blockedTool.ch)
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "block1",
 			Function: llm.FunctionCall{Name: "block", Arguments: `{"arg":"val"}`},
@@ -1111,7 +1112,7 @@ func TestAgent_CurrentWork_TracksToolExecution(t *testing.T) {
 }
 
 func TestAgent_CurrentWork_ErrorTracking(t *testing.T) {
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Err: errors.New("llm service unavailable"),
 	}
 	a := NewAgent(Definition{ID: "test", ModelID: "m"}, fake, nil)
@@ -1133,7 +1134,7 @@ func TestAgent_CurrentWork_ErrorTracking(t *testing.T) {
 }
 
 func TestAgent_CurrentWork_ErrorAndCountConsistency(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
 	a.RecordError(errors.New("err1"))
 	a.RecordError(errors.New("err2"))
 
@@ -1157,7 +1158,7 @@ func TestAgent_CurrentWork_ErrorAndCountConsistency(t *testing.T) {
 }
 
 func TestAgent_ConsecutiveFailures_CircuitBreaker(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
 
 	for i := int32(1); i <= 5; i++ {
 		if got := a.IncrementConsecutiveFailures(); got != i {
@@ -1175,7 +1176,7 @@ func TestAgent_ConsecutiveFailures_CircuitBreaker(t *testing.T) {
 }
 
 func TestAgent_CircuitBreakerRecoversAfterCooldown(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
 	for range DefaultMaxConsecutiveFailures {
 		a.IncrementConsecutiveFailures()
 	}
@@ -1196,7 +1197,7 @@ func TestAgent_CircuitBreakerRecoversAfterCooldown(t *testing.T) {
 }
 
 func TestAgent_State_LifecycleTransitions(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{Responses: []string{"r"}}, nil)
 	if s := a.State(); s != StateStopped {
 		t.Errorf("State before Start = %s, want stopped", s)
 	}
@@ -1221,7 +1222,7 @@ func TestAgent_State_LifecycleTransitions(t *testing.T) {
 }
 
 func TestAgent_Err_ReturnsPanicError(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
 	if err := a.Err(); err != nil {
 		t.Errorf("Err on new agent should be nil, got %v", err)
 	}
@@ -1235,7 +1236,7 @@ func TestAgent_Err_ReturnsPanicError(t *testing.T) {
 // ─── Watch() ────────────────────────────────────────────────────────────
 
 func TestAgent_Watch_ReceivesEvents(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"hello"}}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{Responses: []string{"hello"}}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1269,7 +1270,7 @@ func TestAgent_Watch_ReceivesEvents(t *testing.T) {
 }
 
 func TestAgent_Watch_CancelRemovesWatcher(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"r"}}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{Responses: []string{"r"}}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1287,7 +1288,7 @@ func TestAgent_Watch_CancelRemovesWatcher(t *testing.T) {
 }
 
 func TestAgent_Watch_MultipleWatchers(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{Responses: []string{"hello"}}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{Responses: []string{"hello"}}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1324,7 +1325,7 @@ func TestAgent_Watch_MultipleWatchers(t *testing.T) {
 }
 
 func TestAgent_Watch_IdleAgentProducesNoEvents(t *testing.T) {
-	a := NewAgent(Definition{ID: "test"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1344,7 +1345,7 @@ func TestAgent_Watch_IdleAgentProducesNoEvents(t *testing.T) {
 }
 
 func TestAgent_SetSystemPrompt(t *testing.T) {
-	a := NewAgent(Definition{ID: "test", SystemPrompt: "original"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "test", SystemPrompt: "original"}, &agenttest.FakeLLM{}, nil)
 	if a.Def.SystemPrompt != "original" {
 		t.Fatalf("initial prompt = %q, want %q", a.Def.SystemPrompt, "original")
 	}

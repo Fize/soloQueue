@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
@@ -63,9 +64,9 @@ func TestSimulationConfigValidate(t *testing.T) {
 					t.Errorf("expected MaxActions default, got %d", tt.config.MaxWallClockMs)
 				}
 				if tt.config.MaxWallClockMs <= 0 {
-				t.Errorf("expected MaxWallClockMs default, got %d", tt.config.MaxWallClockMs)
-			}
-			return
+					t.Errorf("expected MaxWallClockMs default, got %d", tt.config.MaxWallClockMs)
+				}
+				return
 			}
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
@@ -346,13 +347,12 @@ func TestSimulationStore(t *testing.T) {
 	}
 }
 
-
 func TestBuildSimulationSystemPrompt(t *testing.T) {
 	persona := Persona{
-		ID:    "alice",
-		Name:  "Alice",
-		Role:  "Engineer",
-		Goals: []string{"Advocate for Rust"},
+		ID:     "alice",
+		Name:   "Alice",
+		Role:   "Engineer",
+		Goals:  []string{"Advocate for Rust"},
 		Traits: map[string]string{"openness": "high"},
 	}
 	allPersonas := []Persona{
@@ -417,7 +417,7 @@ func TestBuildOutlinePrompt(t *testing.T) {
 // ─── Phase 2: GA Integration Tests ────────────────────────────────────────────
 
 func TestCreateFromSeed(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{
 			// First call: seed extraction (Phase 1 - basic)
 			`{
@@ -487,7 +487,7 @@ func TestCreateFromSeed(t *testing.T) {
 }
 
 func TestCreateFromSeedWithSuggestedAgents(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{
 			// First call: seed extraction Phase 1 (basic — no suggested_agents)
 			`{
@@ -675,10 +675,8 @@ func TestAgentMemoryPersistence_Empty(t *testing.T) {
 	}
 }
 
-
-
 func TestReplayAsk_InvalidPersona(t *testing.T) {
-	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
+	engine := NewSimulationEngine(nil, nil, &agenttest.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
 
 	id, err := engine.Create(SimulationConfig{
 		Topic:    "test",
@@ -695,7 +693,7 @@ func TestReplayAsk_InvalidPersona(t *testing.T) {
 }
 
 func TestReplayAsk_NotCompleted(t *testing.T) {
-	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
+	engine := NewSimulationEngine(nil, nil, &agenttest.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
 
 	_, err := engine.ReplayAsk(context.Background(), "nonexistent", "alice", "question")
 	if err == nil {
@@ -870,16 +868,12 @@ func TestMessageBusBroadcastNotify(t *testing.T) {
 	}
 }
 
-
-
-
-
 func createTestFactory(registry *agent.Registry, llm agent.LLMClient) *agent.DefaultFactory {
 	return agent.NewDefaultFactory(registry, llm, tools.Config{WorkDir: "/tmp"}, nil)
 }
 
 func TestFork_Basic(t *testing.T) {
-	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
+	engine := NewSimulationEngine(nil, nil, &agenttest.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
 
 	srcID, err := engine.Create(SimulationConfig{
 		Topic:    "Rust vs Go",
@@ -899,9 +893,9 @@ func TestFork_Basic(t *testing.T) {
 	state.Unlock()
 
 	newID, err := engine.Fork(context.Background(), srcID, ForkRequest{
-		NewTopic:      "Rust vs Go v2",
+		NewTopic:          "Rust vs Go v2",
 		NewMaxWallClockMs: 20,
-		NewWorldState: map[string]any{"era": "2026"},
+		NewWorldState:     map[string]any{"era": "2026"},
 	})
 	if err != nil {
 		t.Fatalf("Fork: %v", err)
@@ -929,7 +923,7 @@ func TestFork_Basic(t *testing.T) {
 }
 
 func TestFork_WithExtraPersonas(t *testing.T) {
-	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
+	engine := NewSimulationEngine(nil, nil, &agenttest.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
 
 	srcID, err := engine.Create(SimulationConfig{
 		Topic:    "Rust vs Go",
@@ -964,7 +958,7 @@ func TestFork_WithExtraPersonas(t *testing.T) {
 }
 
 func TestFork_DuplicatePersonaID(t *testing.T) {
-	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
+	engine := NewSimulationEngine(nil, nil, &agenttest.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
 
 	srcID, err := engine.Create(SimulationConfig{
 		Topic:    "test",
@@ -987,7 +981,7 @@ func TestFork_DuplicatePersonaID(t *testing.T) {
 }
 
 func TestFork_NotFinished(t *testing.T) {
-	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
+	engine := NewSimulationEngine(nil, nil, &agenttest.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
 
 	srcID, err := engine.Create(SimulationConfig{
 		Topic:    "test",
@@ -1004,7 +998,7 @@ func TestFork_NotFinished(t *testing.T) {
 }
 
 func TestFork_Nonexistent(t *testing.T) {
-	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
+	engine := NewSimulationEngine(nil, nil, &agenttest.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
 	_, err := engine.Fork(context.Background(), "nonexistent", ForkRequest{})
 	if err == nil {
 		t.Fatal("expected error for nonexistent sim")
@@ -1012,7 +1006,7 @@ func TestFork_Nonexistent(t *testing.T) {
 }
 
 func TestFork_NotFound(t *testing.T) {
-	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
+	engine := NewSimulationEngine(nil, nil, &agenttest.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
 	_, err := engine.Fork(context.Background(), "nonexistent", ForkRequest{})
 	if err == nil {
 		t.Fatal("expected error for nonexistent sim")
@@ -1020,7 +1014,7 @@ func TestFork_NotFound(t *testing.T) {
 }
 
 func TestFork_InheritsOriginalTopic(t *testing.T) {
-	engine := NewSimulationEngine(nil, nil, &agent.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
+	engine := NewSimulationEngine(nil, nil, &agenttest.FakeLLM{}, tools.Config{}, config.SimulationConfig{}, nil)
 
 	srcID, err := engine.Create(SimulationConfig{
 		Topic:    "original topic",
@@ -1050,7 +1044,7 @@ func TestFork_InheritsOriginalTopic(t *testing.T) {
 
 func TestReplayAsk_ReportAgent(t *testing.T) {
 	var capturedPrompt string
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{
 			"The analyst response regarding the report.",
 		},

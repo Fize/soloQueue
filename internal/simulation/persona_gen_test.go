@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/memoryengine"
 )
 
 func TestPersonaGenerator_Basic(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{`{
 			"personas": [
 				{
@@ -68,7 +69,7 @@ func TestPersonaGenerator_Basic(t *testing.T) {
 }
 
 func TestPersonaGenerator_ContrarianConstraint(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{`{
 			"personas": [
 				{"id": "p1", "name": "Alice", "role": "contrarian skeptic", "goals": ["Challenge assumptions"], "traits": {}, "stance_per_entity": {"X": "con"}},
@@ -111,7 +112,7 @@ func TestPersonaGenerator_ContrarianConstraint(t *testing.T) {
 }
 
 func TestPersonaGenerator_CountBounds(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{`{
 			"personas": [
 				{"id": "a", "name": "A", "role": "advocate", "goals": [], "traits": {}, "stance_per_entity": {}},
@@ -144,7 +145,7 @@ func TestPersonaGenerator_CountBounds(t *testing.T) {
 }
 
 func TestPersonaGenerator_NilExtraction(t *testing.T) {
-	gen := NewPersonaGenerator(&agent.FakeLLM{}, "", "", nil)
+	gen := NewPersonaGenerator(&agenttest.FakeLLM{}, "", "", nil)
 	_, err := gen.Generate(context.Background(), nil, "test", 2, "zh")
 	if err == nil {
 		t.Fatal("expected error for nil extraction")
@@ -152,7 +153,7 @@ func TestPersonaGenerator_NilExtraction(t *testing.T) {
 }
 
 func TestPersonaGenerator_MalformedJSON(t *testing.T) {
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{`{invalid`},
 	}
 
@@ -219,7 +220,7 @@ func TestPersonaGenerator_BatchedGeneration(t *testing.T) {
 		responses = append(responses, `{"personas":[`+strings.Join(entries, ",")+`]}`)
 	}
 
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: responses,
 		Hook: func(req agent.LLMRequest) {
 			llmPrompts = append(llmPrompts, req.Messages[0].Content)
@@ -292,7 +293,7 @@ func TestPersonaGenerator_BatchSplitsCorrectly(t *testing.T) {
 		`{"personas":[{"id":"p1","name":"P1","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p2","name":"P2","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p3","name":"P3","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p4","name":"P4","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p5","name":"P5","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}}]}`,
 		`{"personas":[{"id":"p6","name":"P6","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}},{"id":"p7","name":"P7","role":"neutral","goals":[],"traits":{},"stance_per_entity":{}}]}`,
 	}
-	fakeLLM := &agent.FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: responses,
 		Hook: func(req agent.LLMRequest) {
 			llmCalls++

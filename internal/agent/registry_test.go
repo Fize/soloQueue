@@ -10,15 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 )
 
 func newBareAgent(id string) *Agent {
-	return NewAgent(Definition{ID: id}, &FakeLLM{}, nil)
+	return NewAgent(Definition{ID: id}, &agenttest.FakeLLM{}, nil)
 }
 
 func newBareAgentWithInstance(tmplID, instanceID string) *Agent {
-	a := NewAgent(Definition{ID: tmplID}, &FakeLLM{}, nil, WithInstanceID(instanceID))
+	a := NewAgent(Definition{ID: tmplID}, &agenttest.FakeLLM{}, nil, WithInstanceID(instanceID))
 	return a
 }
 
@@ -77,7 +78,7 @@ func TestRegistry_Register_Nil(t *testing.T) {
 
 func TestRegistry_Register_EmptyInstanceID(t *testing.T) {
 	r := NewRegistry(nil)
-	a := NewAgent(Definition{ID: "tmpl"}, &FakeLLM{}, nil, WithInstanceID(""))
+	a := NewAgent(Definition{ID: "tmpl"}, &agenttest.FakeLLM{}, nil, WithInstanceID(""))
 	err := r.Register(a)
 	if !errors.Is(err, ErrEmptyID) {
 		t.Errorf("err = %v, want ErrEmptyID", err)
@@ -321,7 +322,7 @@ func TestRegistry_LocateIdle(t *testing.T) {
 
 func TestRegistry_LocateIdleInWorkDir(t *testing.T) {
 	r := NewRegistry(nil)
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "dev"}, fakeLLM, nil, WithAgentWorkDir("/project/a"))
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -362,7 +363,7 @@ func TestRegistry_LocateSkipsStoppedInstance(t *testing.T) {
 
 // newAgentForReg creates an Agent with FakeLLM, not yet started.
 func newAgentForReg(id string) *Agent {
-	return NewAgent(Definition{ID: id}, &FakeLLM{Responses: []string{"r"}}, nil)
+	return NewAgent(Definition{ID: id}, &agenttest.FakeLLM{Responses: []string{"r"}}, nil)
 }
 
 func TestRegistry_StartAll_StopAll(t *testing.T) {
@@ -447,7 +448,7 @@ func TestRegistry_Shutdown_UnregistersAndStops(t *testing.T) {
 func TestRegistry_Shutdown_ReturnsJoinedErrors(t *testing.T) {
 	// An agent that doesn't respond to ctx: Stop will time out
 	r := NewRegistry(nil)
-	a := NewAgent(Definition{ID: "blocked"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "blocked"}, &agenttest.FakeLLM{}, nil)
 	_ = r.Register(a)
 	_ = a.Start(context.Background())
 

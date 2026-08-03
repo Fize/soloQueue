@@ -5,11 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
 
 func TestSupervisor_New(t *testing.T) {
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "l2"}, fakeLLM, nil)
 	sv := NewSupervisor(a, nil, nil)
 
@@ -25,7 +26,7 @@ func TestSupervisor_New(t *testing.T) {
 }
 
 func TestSupervisor_SpawnChild_NilFactory(t *testing.T) {
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "l2"}, fakeLLM, nil)
 	sv := NewSupervisor(a, nil, nil)
 
@@ -36,7 +37,7 @@ func TestSupervisor_SpawnChild_NilFactory(t *testing.T) {
 }
 
 func TestSupervisor_ReapChild_NotFound(t *testing.T) {
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "l2"}, fakeLLM, nil)
 	sv := NewSupervisor(a, nil, nil)
 
@@ -47,7 +48,7 @@ func TestSupervisor_ReapChild_NotFound(t *testing.T) {
 }
 
 func TestSupervisor_ReapAll_Empty(t *testing.T) {
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "l2"}, fakeLLM, nil)
 	sv := NewSupervisor(a, nil, nil)
 
@@ -58,7 +59,7 @@ func TestSupervisor_ReapAll_Empty(t *testing.T) {
 }
 
 func TestSupervisor_SpawnFnFor(t *testing.T) {
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "l2"}, fakeLLM, nil)
 	sv := NewSupervisor(a, nil, nil)
 
@@ -79,7 +80,7 @@ func TestSupervisor_SpawnFnFor(t *testing.T) {
 func TestSupervisor_SpawnFnForForcesParentWorkDir(t *testing.T) {
 	parentDir := t.TempDir()
 	wrongDir := t.TempDir()
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	registry := NewRegistry(nil)
 	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, nil, WithWorkDir(t.TempDir()))
 	parent := NewAgent(Definition{ID: "l2"}, fakeLLM, nil, WithAgentWorkDir(parentDir))
@@ -97,7 +98,7 @@ func TestSupervisor_SpawnFnForForcesParentWorkDir(t *testing.T) {
 }
 
 func TestSupervisor_SpawnFnForID_NotFound(t *testing.T) {
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "l2"}, fakeLLM, nil)
 	sv := NewSupervisor(a, nil, nil)
 
@@ -124,7 +125,7 @@ func TestSupervisor_SpawnFnForID_NotFound(t *testing.T) {
 }
 
 func TestSupervisor_Agent(t *testing.T) {
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "l2-agent", Name: "DevLead"}, fakeLLM, nil)
 	sv := NewSupervisor(a, nil, nil)
 
@@ -138,7 +139,7 @@ func TestSupervisor_Agent(t *testing.T) {
 }
 
 func TestSelfReapableAdapter_CleanupRunsOnce(t *testing.T) {
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "temporary-leader"}, fakeLLM, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -162,7 +163,7 @@ func TestSelfReapableAdapter_CleanupRunsOnce(t *testing.T) {
 }
 
 func TestSupervisor_UpdateLeaderPrompt(t *testing.T) {
-	fakeLLM := &FakeLLM{Responses: []string{"ok"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	// Agent needs a tool registry (even empty) for WireSpawnFns not to panic
 	a := NewAgent(Definition{ID: "l2", SystemPrompt: "old prompt"}, fakeLLM, nil,
 		WithTools())

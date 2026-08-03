@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
 	"github.com/xiaobaitu/soloqueue/internal/telemetry"
@@ -33,7 +34,7 @@ func TestTelemetryFromContext_Empty(t *testing.T) {
 }
 
 func TestNewTelemetryClient(t *testing.T) {
-	inner := &agent.FakeLLM{}
+	inner := &agenttest.FakeLLM{}
 	tc := telemetry.NewTelemetryClient(inner, nil)
 	if tc == nil {
 		t.Fatal("NewTelemetryClient returned nil")
@@ -41,7 +42,7 @@ func TestNewTelemetryClient(t *testing.T) {
 }
 
 func TestTelemetryClient_Chat_PassThrough(t *testing.T) {
-	inner := &agent.FakeLLM{Responses: []string{"hello"}}
+	inner := &agenttest.FakeLLM{Responses: []string{"hello"}}
 	tc := telemetry.NewTelemetryClient(inner, nil)
 	ctx := telemetry.WithTelemetryContext(context.Background(), "team-a", telemetry.UsageChat)
 
@@ -59,7 +60,7 @@ func TestTelemetryClient_Chat_PassThrough(t *testing.T) {
 }
 
 func TestTelemetryClient_Chat_ErrorPropagation(t *testing.T) {
-	inner := &agent.FakeLLM{Err: &llm.APIError{StatusCode: 500, Message: "server error"}}
+	inner := &agenttest.FakeLLM{Err: &llm.APIError{StatusCode: 500, Message: "server error"}}
 	tc := telemetry.NewTelemetryClient(inner, nil)
 	_, err := tc.Chat(context.Background(), agent.LLMRequest{Model: "m"})
 	if err == nil {
@@ -68,7 +69,7 @@ func TestTelemetryClient_Chat_ErrorPropagation(t *testing.T) {
 }
 
 func TestTelemetryClient_ChatStream_PassThrough(t *testing.T) {
-	inner := &agent.FakeLLM{StreamDeltas: [][]string{{"hello", " world"}}}
+	inner := &agenttest.FakeLLM{StreamDeltas: [][]string{{"hello", " world"}}}
 	tc := telemetry.NewTelemetryClient(inner, nil)
 	ctx := telemetry.WithTelemetryContext(context.Background(), "team-a", telemetry.UsageChat)
 
@@ -95,7 +96,7 @@ func TestTelemetryClient_ChatStream_PassThrough(t *testing.T) {
 }
 
 func TestTelemetryClient_ChatStream_ErrorPropagation(t *testing.T) {
-	inner := &agent.FakeLLM{Err: &llm.APIError{StatusCode: 429, Message: "rate limit"}}
+	inner := &agenttest.FakeLLM{Err: &llm.APIError{StatusCode: 429, Message: "rate limit"}}
 	tc := telemetry.NewTelemetryClient(inner, nil)
 	ch, err := tc.ChatStream(context.Background(), agent.LLMRequest{Model: "m"})
 	if err != nil {
@@ -114,7 +115,7 @@ func TestTelemetryClient_ChatStream_ErrorPropagation(t *testing.T) {
 
 func TestTelemetryClient_UsageTrackingHook(t *testing.T) {
 	var hookCount atomic.Int32
-	inner := &agent.FakeLLM{
+	inner := &agenttest.FakeLLM{
 		Responses: []string{"ok"},
 		Hook: func(req agent.LLMRequest) {
 			hookCount.Add(1)
@@ -128,7 +129,7 @@ func TestTelemetryClient_UsageTrackingHook(t *testing.T) {
 }
 
 func TestTelemetryClient_logUsageAsync_NilDB(t *testing.T) {
-	tc := telemetry.NewTelemetryClient(&agent.FakeLLM{}, nil)
+	tc := telemetry.NewTelemetryClient(&agenttest.FakeLLM{}, nil)
 	// Call Chat which triggers logUsageAsync with nil db — should not panic.
 	_, _ = tc.Chat(context.Background(), agent.LLMRequest{Model: "m"})
 }
@@ -140,7 +141,7 @@ func TestTelemetryClient_logUsageAsync_WithDB(t *testing.T) {
 	}
 	defer db.Close()
 
-	tc := telemetry.NewTelemetryClient(&agent.FakeLLM{Responses: []string{"ok"}}, db)
+	tc := telemetry.NewTelemetryClient(&agenttest.FakeLLM{Responses: []string{"ok"}}, db)
 	ctx := telemetry.WithTelemetryContext(context.Background(), "team-a", telemetry.UsageChat)
 	resp, err := tc.Chat(ctx, agent.LLMRequest{Model: "test-model"})
 	if err != nil {
@@ -156,7 +157,7 @@ func TestTelemetryClient_logUsageAsync_EmptyUsageType(t *testing.T) {
 	}
 	defer db.Close()
 
-	tc := telemetry.NewTelemetryClient(&agent.FakeLLM{Responses: []string{"ok"}}, db)
+	tc := telemetry.NewTelemetryClient(&agenttest.FakeLLM{Responses: []string{"ok"}}, db)
 	// No telemetry context set — should default to "unknown", not panic.
 	_, err = tc.Chat(context.Background(), agent.LLMRequest{Model: "test-model"})
 	if err != nil {

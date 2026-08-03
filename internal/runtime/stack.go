@@ -354,7 +354,7 @@ func (s *Stack) OnConfigChange() error {
 	if rc, ok := s.LLMClient.(*agent.RoutingClient); ok {
 		rc.UpdateClients(clients)
 	} else {
-		// Fallback (e.g. if LLMClient was a FakeLLM or other mock in tests)
+		// Fallback (e.g. if LLMClient was a FakeLLM (agenttest) or other mock in tests)
 		s.LLMClient = agent.NewRoutingClient(clients)
 	}
 

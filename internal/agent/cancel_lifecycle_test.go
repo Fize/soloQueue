@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 )
 
 // ─── Section 2.1: Cancel context propagation ──────────────────────────────
@@ -11,7 +13,7 @@ import (
 // TestCancel_CtxPropagation verifies that context cancellation propagates
 // through LLM.ChatStream and streamLoop returns an ErrorEvent.
 func TestCancel_CtxPropagation(t *testing.T) {
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Responses: []string{"hello"},
 		Delay:     500 * time.Millisecond,
 	}
@@ -41,7 +43,7 @@ func TestCancel_CtxPropagation(t *testing.T) {
 // TestCancel_AgentStateReturnsToIdle verifies the agent returns to Idle
 // after normal completion (non-yield path).
 func TestCancel_AgentStateReturnsToIdle(t *testing.T) {
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Responses: []string{"done"},
 	}
 	a := startedAgent(t, fake)
@@ -75,7 +77,7 @@ func (r *onDoneRecorder) OnDelegationDone() {
 // triggered when the delegation stream closes normally.
 func TestOnDelegationDone_CalledAfterStreamClose(t *testing.T) {
 	called := make(chan struct{})
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		Responses: []string{"all done"},
 	}
 	target := startedAgent(t, fake)
@@ -108,11 +110,11 @@ func TestOnDelegationDone_CalledAfterStreamClose(t *testing.T) {
 // TestSubmitHighPriority_AgentStopped verifies submitHighPriority returns
 // ErrStopped when the agent has already exited.
 func TestSubmitHighPriority_AgentStopped(t *testing.T) {
-	_ = &FakeLLM{Responses: []string{"ok"}}
+	_ = &agenttest.FakeLLM{Responses: []string{"ok"}}
 
 	a := NewAgent(
 		Definition{ID: "test-priority-stop"},
-		&FakeLLM{Responses: []string{"ok"}},
+		&agenttest.FakeLLM{Responses: []string{"ok"}},
 		nil,
 		WithPriorityMailbox(),
 	)
@@ -137,7 +139,7 @@ func TestSubmitHighPriority_AgentStopped(t *testing.T) {
 // TestSubmitHighPriority_NormalPath verifies that high-priority jobs are
 // correctly enqueued and processed when the agent is running.
 func TestSubmitHighPriority_NormalPath(t *testing.T) {
-	fake := &FakeLLM{Responses: []string{"ok"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := startedAgent(t, fake, WithPriorityMailbox())
 
 	executed := make(chan struct{}, 1)
@@ -161,7 +163,7 @@ func TestSubmitHighPriority_NormalPath(t *testing.T) {
 // TestCleanupAsyncTurns_RemovesAllEntries verifies cleanupAsyncTurns removes
 // all pending turns without panicking.
 func TestCleanupAsyncTurns_RemovesAllEntries(t *testing.T) {
-	fake := &FakeLLM{Responses: []string{"ok"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "test-cleanup"}, fake, nil)
 	a.asyncTurns[0] = &asyncTurnState{}
 	a.asyncTurns[1] = &asyncTurnState{}
@@ -176,7 +178,7 @@ func TestCleanupAsyncTurns_RemovesAllEntries(t *testing.T) {
 
 // TestCleanupAsyncTurns_EmptyIsNoop verifies cleanup on empty map is safe.
 func TestCleanupAsyncTurns_EmptyIsNoop(t *testing.T) {
-	fake := &FakeLLM{Responses: []string{"ok"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"ok"}}
 	a := NewAgent(Definition{ID: "test-cleanup-empty"}, fake, nil)
 
 	// Should not panic.

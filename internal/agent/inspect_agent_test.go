@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
@@ -24,7 +25,7 @@ func newStartedTestAgent(t *testing.T, def Definition, llm LLMClient) *Agent {
 
 func TestRegistryInspectQuery_InspectByID(t *testing.T) {
 	reg := NewRegistry(nil)
-	a := newStartedTestAgent(t, Definition{ID: "dev", Name: "Dev"}, &FakeLLM{})
+	a := newStartedTestAgent(t, Definition{ID: "dev", Name: "Dev"}, &agenttest.FakeLLM{})
 	_ = reg.Register(a)
 
 	fn := RegistryInspectQuery(reg)
@@ -60,8 +61,8 @@ func TestRegistryInspectQuery_InspectByID_NotFound(t *testing.T) {
 
 func TestRegistryInspectQuery_InspectAll(t *testing.T) {
 	reg := NewRegistry(nil)
-	a1 := newStartedTestAgent(t, Definition{ID: "dev", Name: "Dev"}, &FakeLLM{})
-	a2 := newStartedTestAgent(t, Definition{ID: "ops", Name: "Ops"}, &FakeLLM{})
+	a1 := newStartedTestAgent(t, Definition{ID: "dev", Name: "Dev"}, &agenttest.FakeLLM{})
+	a2 := newStartedTestAgent(t, Definition{ID: "ops", Name: "Ops"}, &agenttest.FakeLLM{})
 	_ = reg.Register(a1)
 	_ = reg.Register(a2)
 
@@ -83,7 +84,7 @@ func TestRegistryInspectQuery_InspectAll(t *testing.T) {
 
 func TestRegistryInspectQuery_InspectByTemplate_Exact(t *testing.T) {
 	reg := NewRegistry(nil)
-	a := newStartedTestAgent(t, Definition{ID: "dev", Name: "Dev"}, &FakeLLM{})
+	a := newStartedTestAgent(t, Definition{ID: "dev", Name: "Dev"}, &agenttest.FakeLLM{})
 	_ = reg.Register(a)
 
 	fn := RegistryInspectQuery(reg)
@@ -101,7 +102,7 @@ func TestRegistryInspectQuery_InspectByTemplate_Exact(t *testing.T) {
 
 func TestRegistryInspectQuery_InspectByTemplate_Fuzzy(t *testing.T) {
 	reg := NewRegistry(nil)
-	a := newStartedTestAgent(t, Definition{ID: "dev-leader", Name: "Development Leader"}, &FakeLLM{})
+	a := newStartedTestAgent(t, Definition{ID: "dev-leader", Name: "Development Leader"}, &agenttest.FakeLLM{})
 	_ = reg.Register(a)
 
 	fn := RegistryInspectQuery(reg)
@@ -134,7 +135,7 @@ func TestRegistryInspectQuery_RunningCount(t *testing.T) {
 	blockedTool := newBlockingTool()
 	defer close(blockedTool.ch)
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "b1",
 			Function: llm.FunctionCall{Name: "block", Arguments: `{}`},
@@ -179,7 +180,7 @@ func TestSupervisorInspectQuery_NoChildren(t *testing.T) {
 // ─── Conversion helpers ─────────────────────────────────────────────────
 
 func TestAgentToStatus(t *testing.T) {
-	a := newStartedTestAgent(t, Definition{ID: "dev", Name: "Developer"}, &FakeLLM{})
+	a := newStartedTestAgent(t, Definition{ID: "dev", Name: "Developer"}, &agenttest.FakeLLM{})
 	a.RecordError(errors.New("test error"))
 
 	s := agentToStatus(a)
@@ -198,7 +199,7 @@ func TestAgentToStatus(t *testing.T) {
 }
 
 func TestMatchAgentTemplate(t *testing.T) {
-	a := NewAgent(Definition{ID: "dev-leader", Name: "Development Leader"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "dev-leader", Name: "Development Leader"}, &agenttest.FakeLLM{}, nil)
 	if !matchAgentTemplate(a, "dev") {
 		t.Error("matchAgentTemplate should match fuzzy 'dev'")
 	}

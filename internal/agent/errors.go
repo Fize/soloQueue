@@ -9,8 +9,6 @@
 //   - Tool / ToolRegistry: Tool abstraction for LLM calls; an agent's runOnce automatically
 //     loops and dispatches upon receiving tool_calls — execute → feed back → Chat again,
 //     until the LLM no longer requests tools (capped at MaxIterations).
-//   - FakeLLM: An LLMClient implementation for testing / demos (supports ToolCallsByTurn
-//     for scripting multi-turn tool-use scenarios).
 //   - RunOnce: A one-off call that does not launch a goroutine (for scripting / simple CLI scenarios).
 //
 // This phase does not include: parallel tool execution, per-tool timeouts, ChatStream tool looping,

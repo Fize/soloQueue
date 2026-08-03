@@ -74,7 +74,7 @@ type Agent struct {
 	// userDenied is set when user denies a tool confirmation
 	userDenied atomic.Bool
 
-	// confirmStore is a session-level tool permission store; defaults to in-memory implementation, can be replaced via WithConfirmStore.
+	// confirmStore is a session-level tool permission store; defaults to in-memory implementation, can be replaced via SetConfirmStore.
 	confirmStore SessionConfirmStore
 
 	// WorkDir is the working directory for this agent's tool execution.
@@ -271,15 +271,6 @@ func WithAgentWorkDir(dir string) Option {
 	}
 }
 
-// WithConfirmStore overrides the default memory confirm store with a shared store.
-func WithConfirmStore(store SessionConfirmStore) Option {
-	return func(a *Agent) {
-		if store != nil {
-			a.confirmStore = store
-		}
-	}
-}
-
 // ConfirmStore returns the agent's session confirm store.
 func (a *Agent) ConfirmStore() SessionConfirmStore {
 	return a.confirmStore
@@ -366,12 +357,6 @@ func (a *Agent) MailboxDepth() (high, normal int) {
 // SetModelOverride sets per-ask model parameters that take precedence over
 // Definition defaults. Called by the router BEFORE AskStream/Ask.
 // The override is automatically cleared when the ask completes.
-//
-// SetModelOverride sets per-ask model parameters that take precedence over
-// Definition defaults (such as those configured in an agent template).
-// If the agent has an explicitly configured model (from template), the model override
-// fields (like ModelID, ProviderID, ContextWindow) are ignored by the getters and streamLoop,
-// but the task level (Level) is still applied.
 //
 // Thread-safe (atomic pointer store). Calling with nil clears the override.
 func (a *Agent) SetModelOverride(params *ModelParams) {

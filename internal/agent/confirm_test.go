@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
 )
@@ -64,7 +65,7 @@ func TestAgent_Confirmable_Approved(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
 	confirmTool.result = `{"ok":true}`
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"rm -rf /"}`}},
 		}},
@@ -120,7 +121,7 @@ func TestAgent_Confirmable_Denied(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
 	confirmTool.result = `{"ok":true}`
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"rm -rf /"}`}},
 		}},
@@ -174,7 +175,7 @@ func TestAgent_NonConfirmable_NoEvent(t *testing.T) {
 	regularTool := newFakeTool("echo")
 	regularTool.result = `{"ok":true}`
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "echo", Arguments: `{"msg":"hi"}`}},
 		}},
@@ -219,7 +220,7 @@ func TestAgent_Confirm_Duplicate(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
 	confirmTool.result = `{"ok":true}`
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"rm -rf /"}`}},
 		}},
@@ -260,7 +261,7 @@ func TestAgent_Confirm_Duplicate(t *testing.T) {
 // ─── Confirm returns error for a non-existent callID ───────────────────────
 
 func TestAgent_Confirm_UnknownCallID(t *testing.T) {
-	fake := &FakeLLM{Responses: []string{"hello"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"hello"}}
 	a := startedAgent(t, fake)
 
 	if err := a.Confirm("nonexistent", "yes"); err == nil {
@@ -273,7 +274,7 @@ func TestAgent_Confirm_UnknownCallID(t *testing.T) {
 func TestAgent_Confirmable_StopCancelsPending(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"rm -rf /"}`}},
 		}},
@@ -315,7 +316,7 @@ func TestAgent_Confirmable_AllowInSession(t *testing.T) {
 	confirmTool.result = `{"ok":true}`
 
 	// LLM calls the danger tool in both rounds; first round requires confirmation, second round skips due to whitelist
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{
 			{{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"rm -rf /"}`}}},
 			{{ID: "call_2", Type: "function", Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"rm -rf /tmp"}`}}},
@@ -370,7 +371,7 @@ func TestAgent_Confirmable_WhitelistClearedOnStart(t *testing.T) {
 	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
 	confirmTool.result = `{"ok":true}`
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"rm -rf /"}`}},
 		}},
@@ -407,9 +408,7 @@ func TestAgent_Confirmable_WhitelistClearedOnStart(t *testing.T) {
 	_ = a.Stop(time.Second)
 
 	// Reset FakeLLM internal counter, otherwise the second Ask won't go through the tool_calls path
-	fake.toolIdx = 0
-	fake.streamIdx = 0
-	fake.idx = 0
+	fake.Reset()
 
 	// Start again after Stop (simulating a new session): whitelist should be cleared
 	if err := a.Start(context.Background()); err != nil {
@@ -450,7 +449,7 @@ func TestAgent_Confirmable_ParallelPartialConfirm(t *testing.T) {
 	echoTool := newFakeTool("echo")
 	echoTool.result = `{"echo_ok":true}`
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "call_1", Type: "function", Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"rm -rf /"}`}},
 			{ID: "call_2", Type: "function", Function: llm.FunctionCall{Name: "echo", Arguments: `{"msg":"hi"}`}},
@@ -524,12 +523,13 @@ func TestMemoryConfirmStore(t *testing.T) {
 
 // ─── Task-level tool filtering and interception unit tests ─────────────────
 
-
 func TestAgent_SharedConfirmStore(t *testing.T) {
 	store := NewMemoryConfirmStore()
 
-	a1 := NewAgent(Definition{ID: "agent-1"}, nil, nil, WithConfirmStore(store))
-	a2 := NewAgent(Definition{ID: "agent-2"}, nil, nil, WithConfirmStore(store))
+	a1 := NewAgent(Definition{ID: "agent-1"}, nil, nil)
+	a2 := NewAgent(Definition{ID: "agent-2"}, nil, nil)
+	a1.SetConfirmStore(store)
+	a2.SetConfirmStore(store)
 
 	if a1.ConfirmStore() != store || a2.ConfirmStore() != store {
 		t.Error("expected both agents to share the provided confirm store")
@@ -547,5 +547,3 @@ func TestAgent_SharedConfirmStore(t *testing.T) {
 		t.Error("expected Bash to be confirmed on a2 after confirming on a1")
 	}
 }
-
-

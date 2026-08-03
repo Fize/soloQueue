@@ -19,9 +19,6 @@ func TestPriorityMailbox_BasicOperations(t *testing.T) {
 	// High priority should be available first
 	select {
 	case pj := <-pm.HighCh():
-		if pj.priority != PriorityHigh {
-			t.Errorf("priority = %d, want High", pj.priority)
-		}
 		pj.job(context.Background())
 		if !highCalled {
 			t.Error("high job was not called")
@@ -33,9 +30,6 @@ func TestPriorityMailbox_BasicOperations(t *testing.T) {
 	// Normal priority should be available next
 	select {
 	case pj := <-pm.NormalCh():
-		if pj.priority != PriorityNormal {
-			t.Errorf("priority = %d, want Normal", pj.priority)
-		}
 		pj.job(context.Background())
 		if !normalCalled {
 			t.Error("normal job was not called")

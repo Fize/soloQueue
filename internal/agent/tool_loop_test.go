@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/tools"
@@ -21,7 +22,7 @@ import (
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
 // startedAgentWithTools starts an agent with tools, automatically stopping it.
-func startedAgentWithTools(t *testing.T, fake *FakeLLM, ts ...tools.Tool) *Agent {
+func startedAgentWithTools(t *testing.T, fake *agenttest.FakeLLM, ts ...tools.Tool) *Agent {
 	t.Helper()
 	a := NewAgent(Definition{ID: "a1"}, fake, nil, WithTools(ts...))
 	if err := a.Start(context.Background()); err != nil {
@@ -35,7 +36,7 @@ func startedAgentWithTools(t *testing.T, fake *FakeLLM, ts ...tools.Tool) *Agent
 
 func TestAgent_Ask_NoTools_SingleChat(t *testing.T) {
 	// No WithTools; FakeLLM returns a single Response; Ask behaves exactly like the old version
-	fake := &FakeLLM{Responses: []string{"final"}}
+	fake := &agenttest.FakeLLM{Responses: []string{"final"}}
 	a := startedAgent(t, fake)
 
 	reply, err := a.Ask(context.Background(), "hi")
@@ -51,7 +52,7 @@ func TestAgent_Ask_NoTools_SingleChat(t *testing.T) {
 }
 
 func TestAgent_ToolSpecs_NilSafe(t *testing.T) {
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil)
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	if specs := a.ToolSpecs(); specs != nil {
 		t.Errorf("ToolSpecs without WithTools should be nil, got %v", specs)
 	}
@@ -60,7 +61,7 @@ func TestAgent_ToolSpecs_NilSafe(t *testing.T) {
 func TestAgent_ToolSpecsMatchesRegistry(t *testing.T) {
 	zeta := newFakeTool("zeta")
 	alpha := newFakeTool("alpha")
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil, WithTools(zeta, alpha))
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil, WithTools(zeta, alpha))
 
 	specs := a.ToolSpecs()
 	if len(specs) != 2 {
@@ -78,7 +79,7 @@ func TestAgent_Ask_SingleToolCall_ThenFinal(t *testing.T) {
 	echo := newFakeTool("echo")
 	echo.result = `{"ok":true}`
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID: "call_1", Type: "function",
 			Function: llm.FunctionCall{Name: "echo", Arguments: `{"msg":"hello"}`},
@@ -112,7 +113,7 @@ func TestAgent_Ask_MultipleToolCalls_PerTurn(t *testing.T) {
 	a2.result = "r2"
 
 	var capturedMsgs []LLMMessage
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{
 			{ID: "c1", Function: llm.FunctionCall{Name: "t1", Arguments: `{}`}},
 			{ID: "c2", Function: llm.FunctionCall{Name: "t2", Arguments: `{}`}},
@@ -155,7 +156,7 @@ func TestAgent_Ask_MultipleToolCalls_PerTurn(t *testing.T) {
 
 func TestAgent_Ask_ToolNotFound_FedBackAsError(t *testing.T) {
 	var capturedContent string
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "call_1",
 			Function: llm.FunctionCall{Name: "ghost", Arguments: `{}`},
@@ -192,7 +193,7 @@ func TestAgent_Ask_ToolExecError_FedBack(t *testing.T) {
 	boom.err = errors.New("kaboom")
 
 	var capturedContent string
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID: "c1", Function: llm.FunctionCall{Name: "boom", Arguments: `{}`},
 		}}},
@@ -232,7 +233,7 @@ func TestAgent_Ask_MaxIterations(t *testing.T) {
 			Function: llm.FunctionCall{Name: "loop", Arguments: `{}`},
 		}}
 	}
-	fake := &FakeLLM{ToolCallsByTurn: turns}
+	fake := &agenttest.FakeLLM{ToolCallsByTurn: turns}
 
 	a := NewAgent(Definition{ID: "a1", MaxIterations: 3}, fake, nil, WithTools(tool))
 	if err := a.Start(context.Background()); err != nil {
@@ -265,7 +266,7 @@ func TestAgent_Ask_DefaultMaxIterations(t *testing.T) {
 			Function: llm.FunctionCall{Name: "loop", Arguments: `{}`},
 		}}
 	}
-	fake := &FakeLLM{ToolCallsByTurn: turns}
+	fake := &agenttest.FakeLLM{ToolCallsByTurn: turns}
 
 	a := NewAgent(Definition{
 		ID:            "maxiter-agent",
@@ -293,7 +294,7 @@ func TestAgent_Ask_CtxCancel_BeforeTool(t *testing.T) {
 	blockedTool := newBlockingTool()
 	defer close(blockedTool.ch)
 
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "c1",
 			Function: llm.FunctionCall{Name: "block", Arguments: `{}`},
@@ -322,7 +323,7 @@ func TestAgent_Ask_CtxCancel_BeforeTool(t *testing.T) {
 
 func TestAgent_Ask_LLMError_Propagates(t *testing.T) {
 	want := errors.New("llm down")
-	fake := &FakeLLM{Err: want}
+	fake := &agenttest.FakeLLM{Err: want}
 	a := startedAgent(t, fake)
 
 	_, err := a.Ask(context.Background(), "")
@@ -341,12 +342,12 @@ func TestAgent_WithTools_DuplicatePanic(t *testing.T) {
 	}()
 	t1 := newFakeTool("same")
 	t2 := newFakeTool("same")
-	_ = NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil, WithTools(t1, t2))
+	_ = NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil, WithTools(t1, t2))
 }
 
 func TestAgent_WithTools_EmptyIsNoop(t *testing.T) {
 	// WithTools() with no arguments should not allocate registry
-	a := NewAgent(Definition{ID: "a1"}, &FakeLLM{}, nil, WithTools())
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil, WithTools())
 	if a.tools != nil {
 		t.Error("empty WithTools should not allocate registry")
 	}
@@ -364,7 +365,7 @@ func TestAgent_Ask_ToolLog_HasTraceAndActorID(t *testing.T) {
 
 	echo := newFakeTool("echo")
 	echo.result = "ok"
-	fake := &FakeLLM{
+	fake := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{{{
 			ID:       "call_1",
 			Function: llm.FunctionCall{Name: "echo", Arguments: `{"m":"hi"}`},

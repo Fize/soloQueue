@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/skill"
@@ -141,7 +142,7 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 	registry := NewRegistry(log)
 
 	// Create FakeLLM
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"hello"},
 	}
 
@@ -197,7 +198,7 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 	defer log.Close()
 
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"hello"},
 	}
 
@@ -243,7 +244,6 @@ func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
 	t.Log("main agent created")
 }
 
-
 func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 	dir := t.TempDir()
 	log, err := logger.System(dir, logger.WithConsole(false))
@@ -254,7 +254,7 @@ func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 
 	registry := NewRegistry(nil)
 
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"hello"},
 	}
 
@@ -293,11 +293,10 @@ func TestDefaultFactory_Create_SameTemplateMultipleInstances(t *testing.T) {
 	}
 }
 
-
 // ─── Helper functions for tests ──────────────────────────────────────
 
 // setupTestFactory creates test factory and dependencies
-func setupTestFactory(t *testing.T) (*DefaultFactory, *Registry, *FakeLLM) {
+func setupTestFactory(t *testing.T) (*DefaultFactory, *Registry, *agenttest.FakeLLM) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -308,7 +307,7 @@ func setupTestFactory(t *testing.T) (*DefaultFactory, *Registry, *FakeLLM) {
 	t.Cleanup(func() { _ = log.Close() })
 
 	registry := NewRegistry(log)
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"test-response"},
 	}
 
@@ -395,7 +394,7 @@ This is a test skill.
 	}
 
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"hello"},
 	}
 
@@ -423,7 +422,7 @@ This is a test skill.
 
 func TestNewDefaultFactory_NilLogger(t *testing.T) {
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{
+	fakeLLM := &agenttest.FakeLLM{
 		Responses: []string{"hello"},
 	}
 
@@ -464,7 +463,7 @@ func TestDefaultFactory_Create_InvalidModel(t *testing.T) {
 	defer log.Close()
 
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"hello"}}
 
 	// Model resolver that only knows "gpt-4" and "gpt-3.5"
 	resolver := func(modelID string) (ModelInfo, error) {
@@ -520,7 +519,7 @@ func TestDefaultFactory_Create_EmptyModel(t *testing.T) {
 	defer log.Close()
 
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"hello"}}
 
 	resolver := func(modelID string) (ModelInfo, error) {
 		return ModelInfo{}, fmt.Errorf("model %q not found", modelID)
@@ -555,7 +554,7 @@ func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
 	defer log.Close()
 
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"hello"}}
 
 	resolver := func(modelID string) (ModelInfo, error) {
 		if modelID == "deepseek-v4-flash-thinking" {
@@ -616,7 +615,7 @@ func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 	defer log.Close()
 
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"hello"}}
 
 	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log)
 	// No WithModelResolver — should skip validation
@@ -642,14 +641,14 @@ func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 // ─── L2 System Prompt Clarification Rule tests ────────────────────────
 
 func TestL2EnforcedDirectives_ContainsClarificationRule(t *testing.T) {
-	if !strings.Contains(l2EnforcedDirectivesPart2, "Clarification Before Delegation") {
-		t.Error("l2EnforcedDirectivesPart2 should contain 'Clarification Before Delegation'")
+	if !strings.Contains(prompt.L2EnforcedDirectivesPart2, "Clarification Before Delegation") {
+		t.Error("prompt.L2EnforcedDirectivesPart2 should contain 'Clarification Before Delegation'")
 	}
-	if !strings.Contains(l2EnforcedDirectivesPart2, "need_clarification") {
-		t.Error("l2EnforcedDirectivesPart2 should contain 'need_clarification' JSON status")
+	if !strings.Contains(prompt.L2EnforcedDirectivesPart2, "need_clarification") {
+		t.Error("prompt.L2EnforcedDirectivesPart2 should contain 'need_clarification' JSON status")
 	}
-	if !strings.Contains(l2EnforcedDirectivesPart2, "questions") {
-		t.Error("l2EnforcedDirectivesPart2 should contain 'questions' field")
+	if !strings.Contains(prompt.L2EnforcedDirectivesPart2, "questions") {
+		t.Error("prompt.L2EnforcedDirectivesPart2 should contain 'questions' field")
 	}
 }
 
@@ -733,7 +732,7 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 // ─── L2/L3 Enforced Directives: "Plan Before Action" rule tests ───────────
 
 func TestL2EnforcedDirectives_ContainsPlanBeforeExecutionRule(t *testing.T) {
-	combined := l2EnforcedDirectivesPart1 + l2EnforcedPlanSection + l2EnforcedDirectivesPart2 + l2EnforcedPostPlan
+	combined := prompt.L2EnforcedDirectivesPart1 + prompt.L2EnforcedPlanSection + prompt.L2EnforcedDirectivesPart2 + prompt.L2EnforcedPostPlan
 	if !strings.Contains(combined, "MANDATORY Plan Before Execution") {
 		t.Error("L2 enforced directives should contain 'MANDATORY Plan Before Execution' rule")
 	}
@@ -746,14 +745,14 @@ func TestL2EnforcedDirectives_ContainsExploreDirPlaceholder(t *testing.T) {
 }
 
 func TestL2EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
-	combined := l2EnforcedDirectivesPart1 + l2EnforcedPlanSection + l2EnforcedDirectivesPart2 + l2EnforcedPostPlan
+	combined := prompt.L2EnforcedDirectivesPart1 + prompt.L2EnforcedPlanSection + prompt.L2EnforcedDirectivesPart2 + prompt.L2EnforcedPostPlan
 	if !strings.Contains(combined, "Tasks") {
 		t.Error("L2 enforced directives should contain 'Tasks' in checklist structure")
 	}
 }
 
 func TestL3EnforcedDirectives_ContainsFollowThePlanRule(t *testing.T) {
-	combined := l3EnforcedDirectives + l3EnforcedPostPlan
+	combined := prompt.L3EnforcedDirectives + prompt.L3EnforcedPostPlan
 	if !strings.Contains(combined, "Follow the Plan") {
 		t.Error("L3 enforced directives should contain 'Follow the Plan' rule")
 	}
@@ -766,7 +765,7 @@ func TestL3EnforcedDirectives_ContainsExploreDirPlaceholder(t *testing.T) {
 }
 
 func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
-	combined := l3EnforcedDirectives + l3EnforcedPostPlan
+	combined := prompt.L3EnforcedDirectives + prompt.L3EnforcedPostPlan
 	if !strings.Contains(combined, "Tasks") {
 		t.Error("L3 enforced directives should contain 'Tasks' in checklist structure")
 	}
@@ -1087,16 +1086,16 @@ func TestBuildL3SystemPrompt_PermanentMemory(t *testing.T) {
 
 func TestBuildSystemPrompt_LSPToolAwareness(t *testing.T) {
 	devWithLSP := AgentTemplate{
-		ID:           "dev",
-		Name:         "Dev",
-		IsLeader:     true,
-		MCPServers:   []string{"builtin-lsp"},
+		ID:         "dev",
+		Name:       "Dev",
+		IsLeader:   true,
+		MCPServers: []string{"builtin-lsp"},
 	}
 	devWithoutLSP := AgentTemplate{
-		ID:           "dev",
-		Name:         "Dev",
-		IsLeader:     true,
-		MCPServers:   []string{"other-mcp"},
+		ID:         "dev",
+		Name:       "Dev",
+		IsLeader:   true,
+		MCPServers: []string{"other-mcp"},
 	}
 
 	templates := map[string]AgentTemplate{"dev": devWithLSP}
@@ -1409,7 +1408,7 @@ func TestVisibleWorkers_SameGroupOnly(t *testing.T) {
 	}
 
 	leader := f.templates["leader"]
-	workers := f.visibleWorkers(leader, nil)
+	workers := visibleWorkers(f.templates, leader, nil)
 
 	if len(workers) != 2 {
 		t.Fatalf("expected 2 workers, got %d", len(workers))
@@ -1430,14 +1429,14 @@ func TestVisibleWorkers_SameGroupOnly(t *testing.T) {
 func TestVisibleWorkers_ExcludesSelfAndLeaders(t *testing.T) {
 	f := &DefaultFactory{
 		templates: map[string]AgentTemplate{
-			"leader":    {ID: "leader", Group: "DevOps", IsLeader: true},
-			"leader2":   {ID: "leader2", Group: "DevOps", IsLeader: true},
-			"worker":    {ID: "worker", Group: "DevOps", IsLeader: false},
+			"leader":  {ID: "leader", Group: "DevOps", IsLeader: true},
+			"leader2": {ID: "leader2", Group: "DevOps", IsLeader: true},
+			"worker":  {ID: "worker", Group: "DevOps", IsLeader: false},
 		},
 	}
 
 	leader := f.templates["leader"]
-	workers := f.visibleWorkers(leader, nil)
+	workers := visibleWorkers(f.templates, leader, nil)
 
 	if len(workers) != 1 {
 		t.Fatalf("expected 1 worker, got %d", len(workers))
@@ -1462,7 +1461,7 @@ func TestVisibleWorkers_ProjectAgentsOverrideGlobal(t *testing.T) {
 	}
 
 	leader := f.templates["leader"]
-	workers := f.visibleWorkers(leader, projectAgents)
+	workers := visibleWorkers(f.templates, leader, projectAgents)
 
 	if len(workers) != 3 {
 		t.Fatalf("expected 3 workers, got %d", len(workers))
@@ -1498,7 +1497,7 @@ func TestVisibleWorkers_ProjectAgentExcludesSelfAndLeaders(t *testing.T) {
 	}
 
 	leader := f.templates["leader"]
-	workers := f.visibleWorkers(leader, projectAgents)
+	workers := visibleWorkers(f.templates, leader, projectAgents)
 
 	if len(workers) != 1 {
 		t.Fatalf("expected 1 worker, got %d", len(workers))
@@ -1516,7 +1515,7 @@ func TestVisibleWorkers_EmptyGroup(t *testing.T) {
 	}
 
 	lone := f.templates["lone"]
-	workers := f.visibleWorkers(lone, nil)
+	workers := visibleWorkers(f.templates, lone, nil)
 
 	if len(workers) != 0 {
 		t.Errorf("expected 0 workers for empty group, got %d", len(workers))
@@ -1572,7 +1571,7 @@ description: Project deploy skill
 	defer log.Close()
 
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"hello"}}
 
 	workDir := t.TempDir()
 	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
@@ -1608,7 +1607,7 @@ func TestDefaultFactory_Create_WorkDirFallbackGroupWorkspace(t *testing.T) {
 	defer log.Close()
 
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"hello"}}
 
 	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
 		WithWorkDir(globalWorkDir),
@@ -1664,7 +1663,6 @@ func TestDefaultFactory_Create_WorkDirFallbackGroupWorkspace(t *testing.T) {
 	}
 }
 
-
 // ─── buildL2SystemPrompt project agents tests ──────────────────────────────
 
 func TestBuildL2SystemPrompt_ProjectAgentsListed(t *testing.T) {
@@ -1698,8 +1696,6 @@ func TestBuildL2SystemPrompt_ProjectAgentsListed(t *testing.T) {
 		t.Error("L2 prompt should contain project agent description")
 	}
 }
-
-
 
 func TestBuildL2SystemPrompt_ProjectAgentOverridesGlobal(t *testing.T) {
 	devTmpl := AgentTemplate{
@@ -1891,7 +1887,7 @@ func TestDefaultFactory_Create_SimulationAgentNoTools(t *testing.T) {
 	defer log.Close()
 
 	registry := NewRegistry(nil)
-	fakeLLM := &FakeLLM{Responses: []string{"hello"}}
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"hello"}}
 
 	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
 		WithWorkDir(globalWorkDir),

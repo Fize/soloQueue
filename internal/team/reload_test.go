@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/ctxwin"
 )
 
@@ -20,7 +21,7 @@ func (f *reloadTestFactory) Create(ctx context.Context, tmpl agent.AgentTemplate
 	a := agent.NewAgent(agent.Definition{
 		ID:   tmpl.ID,
 		Name: tmpl.Name,
-	}, &agent.FakeLLM{}, nil)
+	}, &agenttest.FakeLLM{}, nil)
 	if err := f.registry.Register(a); err != nil {
 		return nil, nil, err
 	}
@@ -43,6 +44,14 @@ func (f *reloadTestFactory) CreateWithOptions(
 
 func (f *reloadTestFactory) Registry() *agent.Registry {
 	return f.registry
+}
+
+func (f *reloadTestFactory) RebuildLeaderPrompt(tmpl agent.AgentTemplate, _ string) (string, error) {
+	return tmpl.SystemPrompt, nil
+}
+
+func (f *reloadTestFactory) ResolveTemplate(_ context.Context, _ string) (agent.AgentTemplate, bool) {
+	return agent.AgentTemplate{}, false
 }
 
 func TestReloadAgentOutlivesToolContext(t *testing.T) {

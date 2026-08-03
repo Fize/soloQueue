@@ -5,12 +5,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
 func TestRoutingClient_Chat(t *testing.T) {
-	fake1 := &FakeLLM{Responses: []string{"response from provider 1"}}
-	fake2 := &FakeLLM{Responses: []string{"response from provider 2"}}
+	fake1 := &agenttest.FakeLLM{Responses: []string{"response from provider 1"}}
+	fake2 := &agenttest.FakeLLM{Responses: []string{"response from provider 2"}}
 
 	clients := map[string]LLMClient{
 		"p1": fake1,
@@ -71,7 +72,7 @@ func TestRoutingClient_Chat(t *testing.T) {
 }
 
 func TestRoutingClient_ChatStream(t *testing.T) {
-	fake1 := &FakeLLM{Responses: []string{"stream delta 1"}}
+	fake1 := &agenttest.FakeLLM{Responses: []string{"stream delta 1"}}
 	clients := map[string]LLMClient{
 		"p1": fake1,
 	}
@@ -101,8 +102,8 @@ func TestRoutingClient_ChatStream(t *testing.T) {
 }
 
 func TestRoutingClient_UpdateClients(t *testing.T) {
-	fake1 := &FakeLLM{Responses: []string{"p1 response"}}
-	fake2 := &FakeLLM{Responses: []string{"p2 response"}}
+	fake1 := &agenttest.FakeLLM{Responses: []string{"p1 response"}}
+	fake2 := &agenttest.FakeLLM{Responses: []string{"p2 response"}}
 
 	rc := NewRoutingClient(map[string]LLMClient{
 		"p1": fake1,
