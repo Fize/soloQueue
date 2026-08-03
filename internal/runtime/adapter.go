@@ -1,4 +1,4 @@
-package compactor
+package runtime
 
 import (
 	"context"

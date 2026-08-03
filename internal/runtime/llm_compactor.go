@@ -1,10 +1,10 @@
-// Package compactor provides the generic LLM-based context compression
-// implementation for SoloQueue's context window system.
+// Package runtime provides the shared runtime dependency container and the
+// generic LLM-based context compression implementation.
 //
 // It defines a minimal ChatClient interface to avoid circular dependencies
 // with the agent package. The upstream (cmd/soloqueue) provides an adapter
 // that wraps agent.LLMClient into ChatClient.
-package compactor
+package runtime
 
 import (
 	"context"
