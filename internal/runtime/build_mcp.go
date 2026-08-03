@@ -7,8 +7,8 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	lsp "github.com/xiaobaitu/soloqueue/internal/lsp"
-	"github.com/xiaobaitu/soloqueue/internal/mcp"
+	lsp "github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 )
 
 // gatherMCPServerNames collects enabled MCP server names, applying the optional

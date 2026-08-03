@@ -13,7 +13,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // delegatedTask represents a single async tool_call delegation task.

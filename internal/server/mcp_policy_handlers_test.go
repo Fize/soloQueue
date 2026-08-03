@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 func TestMCPPolicyHandlersRequireExplicitHostApprovalAndInvalidateChanges(t *testing.T) {

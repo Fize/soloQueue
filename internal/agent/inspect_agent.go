@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // ─── Registry-scoped query ──────────────────────────────────────────────

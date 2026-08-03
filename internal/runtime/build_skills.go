@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 )
 
 // buildSkills initializes the global skill registry and registers built-in and user-defined skills.

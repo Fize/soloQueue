@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // --- Test fixtures -----------------------------------------------------------

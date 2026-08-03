@@ -3,7 +3,7 @@ package config
 import (
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // ToToolsConfig converts config.ToolsConfig to tools.Config.

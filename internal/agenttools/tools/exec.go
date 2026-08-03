@@ -16,7 +16,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/tools/sandbox"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools/sandbox"
 )
 
 // ─── RunCommand ─────────────────────────────────────────────────────────────

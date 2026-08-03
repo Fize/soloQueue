@@ -12,8 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
-	"github.com/xiaobaitu/soloqueue/internal/skill"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // ─── Tools Response Types ──────────────────────────────────────────────────

@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 func TestSandboxConfigRuntimeMigration(t *testing.T) {

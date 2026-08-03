@@ -125,6 +125,10 @@ Agents at each level use different system prompts and tool sets. The router outp
 ```
 cmd/soloqueue/          cobra entrypoint (main.go + cli/)
 internal/agent/         actor-model agent (LLM + tool loop + mailbox)
+internal/agenttools/    agent tools subsystem (native tools, mcp, lsp, skill)
+internal/agenttools/mcp MCP server manager + config (includes lsp subpackage)
+internal/agenttools/skill Claude Code-compatible skill system
+internal/agenttools/tools native tool implementations + sandbox execution backend
 internal/channel/       shared channel contracts plus QQ and WeChat implementations
 internal/compactor/     LLM-based context compression
 internal/config/        hot-reload config (YAML schema + settings)
@@ -134,8 +138,6 @@ internal/ctxwin/        context window (tiktoken, dual-waterline compaction)
 internal/iface/         shared interfaces (breaks agent↔tools cycle)
 internal/llm/           provider-agnostic LLM protocol + DeepSeek transport
 internal/logger/        structured logging (file + console)
-internal/lsp/           LSP client (gopls, typescript-language-server, ruff)
-internal/mcp/           MCP server manager + config
 internal/memoryengine/  long-term memory: BM25 (FTS5) + KG + optional vector
 internal/prompt/        prompt assembly, templates, team management
 internal/rotating/      size-based rotating file writer (shared by logger & timeline)
@@ -145,13 +147,11 @@ internal/sandbox/       Docker-based tool execution sandbox
 internal/server/        REST + WebSocket HTTP router (chi/v5)
 internal/session/       session manager (single active, inFlight atomic CAS)
 internal/simulation/    Generative Agents simulation engine
-internal/skill/         Claude Code-compatible skill system
 internal/sqlitedb/      shared SQLite wrapper + schema migrations
 internal/team/          auto-reload for LLM-written agent/group files
 internal/teamstore/     filesystem-backed team & agent persistence
 internal/telemetry/     LLM token usage tracking (wraps LLMClient)
 internal/timeline/      append-only JSONL event sourcing
-internal/tools/         tool implementations + sandbox execution backend
 internal/workflow/      YAML DAG workflow engine (v1) with outcome routing + bounded loops
 desktop/                Electron app (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
 portal/                 Lightweight web portal (React 19 + Vite + TailwindCSS v4, embedded in Go binary)

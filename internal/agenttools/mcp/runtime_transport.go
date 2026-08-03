@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/mark3labs/mcp-go/client/transport"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // runtimeTransport keeps the MCP wire protocol unchanged while delegating the

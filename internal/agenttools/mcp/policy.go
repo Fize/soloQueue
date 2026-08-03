@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/sqlitedb"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 const (

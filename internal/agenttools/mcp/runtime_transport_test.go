@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 func TestRuntimeTransportPreservesMCPStdioProtocol(t *testing.T) {

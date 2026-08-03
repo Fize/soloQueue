@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaobaitu/soloqueue/internal/skill"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 )
 
 func TestHTTP_SkillManagementFlow(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 func TestSqliteStoreDeleteCascade(t *testing.T) {

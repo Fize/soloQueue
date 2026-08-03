@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/logger"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // LSPTool implements tools.Tool for an LSP capability.

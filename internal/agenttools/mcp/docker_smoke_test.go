@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 func TestSandboxMCPProtocolSmoke(t *testing.T) {

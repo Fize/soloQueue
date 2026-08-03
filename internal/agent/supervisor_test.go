@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 func TestSupervisor_New(t *testing.T) {

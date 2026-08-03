@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/xiaobaitu/soloqueue/internal/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/tools"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // handleGetMCPConfig returns the current mcp.json contents.
