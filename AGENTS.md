@@ -41,7 +41,9 @@ The Go binary embeds `internal/server/dist/` via `//go:embed`. `go run ./cmd/sol
 ./scripts/build.ps1 clean        # Remove all build artifacts
 ```
 
-## Go tests
+## Testing
+
+### Go tests
 
 ```bash
 go test ./...                          # all packages
@@ -51,12 +53,19 @@ go test -run TestReplayInto ./internal/timeline/...  # single test
 
 Use `rtk go test ./...` for compact output (hides pass lines, shows only failures).
 
-## Frontend lint & tests
+Workflow tests require explicit cache control:
+```bash
+GOCACHE=/tmp/soloqueue-go-cache go test ./internal/workflow/... -count=1
+GOCACHE=/tmp/soloqueue-go-cache go test -race ./internal/workflow/... -count=1
+```
+
+### Frontend lint & tests
 
 ```bash
 cd desktop && pnpm lint            # ESLint
 cd desktop && pnpm test            # Vitest
 cd desktop && pnpm test:watch      # Vitest watch mode
+cd desktop && pnpm format          # Prettier
 ```
 
 The portal has no lint or test scripts configured.
@@ -75,6 +84,8 @@ cd portal && pnpm install && pnpm dev
 ```
 
 Open `http://localhost:5173`. The desktop Vite dev server proxies `/api` → `http://localhost:8765` and `/ws` → `ws://localhost:8765`.
+
+**Test setup**: Vitest uses `@` alias → `src/`, jsdom environment, setup file at `src/test-setup.ts`, test files match `src/**/*.test.{ts,tsx}` and `electron/**/*.test.mjs`.
 
 ## Go module & binary
 
@@ -100,6 +111,16 @@ Other subcommands: `version`.
 ## Architecture
 
 > **See also**: [docs/architecture.md](docs/architecture.md) for the full system architecture overview.
+
+### CodeGraph (code intelligence)
+
+This repo is indexed by CodeGraph (`.codegraph/` exists). Use before grep/read:
+
+```bash
+codegraph explore "<symbol names or question>"
+```
+
+Returns verbatim source of relevant symbols plus call paths in one call. Covers dynamic dispatch (callbacks, React re-render, JSX children) that grep can't follow.
 
 ### L0–L3 hierarchical routing (`internal/router/`)
 
@@ -217,17 +238,9 @@ LLM-driven conversation summaries triggered on context window compaction. `Manag
 - **Frontend**: State management via Zustand stores (`desktop/src/stores/`). Real-time updates via WebSocket. `@/` path alias maps to `src/`.
 - **TelemetryClient** (`internal/telemetry/`): wraps `agent.LLMClient` to log token usage to SQLite on every Chat/ChatStream call.
 
-## /init command
+## Known discrepancies
 
-The `/init` slash command (L2 sessions only) triggers the agent to explore the project directory and create or update `AGENTS.md`. The prompt instructs the agent to read the existing file, explore for changes, and write an updated version.
-
-## No CI
-
-There are no GitHub Actions workflows or pre-commit hooks configured in this repo.
-
-## README stale note
-
-`README.md` references `cd web` — there is no `web/` directory. Use `portal/` (lightweight, embedded in Go) or `desktop/` (Electron).
+- `README.md` mentions `cd web` — this directory does not exist. Use `portal/` or `desktop/`.
 
 ## Cron notification limitations
 
