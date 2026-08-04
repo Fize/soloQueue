@@ -432,12 +432,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Delete("/{accountID}", m.handleDeleteWechatBotConfig)
 		})
 
-		// Deprecated compatibility alias for one release.
-		r.Route("/weixin-bots", func(r chi.Router) {
-			r.Get("/", m.handleGetWechatBotsConfig)
-			r.Put("/", m.handleUpdateWechatBotsConfig)
-		})
-
 		r.Route("/lspmcp", func(r chi.Router) {
 			r.Get("/", m.handleGetLSPMCPConfig)
 			r.Put("/", m.handleUpdateLSPMCPConfig)

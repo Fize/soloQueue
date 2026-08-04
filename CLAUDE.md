@@ -60,7 +60,7 @@ Open `http://localhost:5173`. The desktop Vite dev server proxies `/api` → `ht
 
 `soloqueue serve` is the primary mode. Default port 57647; dev convention uses `--port 8765` to match Vite proxy. Binds `127.0.0.1`.
 
-Subcommands: `serve`, `version`, `wechat`, `weixin`, `memory`.
+Subcommands: `serve`, `version`, `wechat`, `memory`.
 
 `serve` flags: `--bypass` (skip tool confirmations), `--verbose` / `-v` (logs to stderr).
 

@@ -152,7 +152,7 @@ func (m *LoginManager) Start(ctx context.Context, req LoginRequest) (LoginSnapsh
 			Status:    LoginAwaitingScan,
 			QRPayload: payload,
 			ExpiresAt: time.Now().Add(m.ttl),
-			Message:   "请使用手机微信扫描二维码",
+			Message:   "Please scan the QR code using your mobile WeChat app",
 		},
 	}
 	m.mu.Lock()
@@ -193,7 +193,7 @@ func (m *LoginManager) SubmitVerification(sessionID, code string) error {
 	}
 	session.verifyCode = code
 	session.snapshot.Status = LoginScanned
-	session.snapshot.Message = "正在验证"
+	session.snapshot.Message = "Verifying..."
 	return nil
 }
 
@@ -206,7 +206,7 @@ func (m *LoginManager) Cancel(sessionID string) error {
 	}
 	if !terminalLoginStatus(session.snapshot.Status) {
 		session.snapshot.Status = LoginCancelled
-		session.snapshot.Message = "登录已取消"
+		session.snapshot.Message = "Login cancelled"
 		session.snapshot.QRPayload = ""
 		session.cancel()
 	}
@@ -274,13 +274,13 @@ func (m *LoginManager) applyStatus(ctx context.Context, sessionID string, status
 	switch status.Status {
 	case "wait":
 		session.snapshot.Status = LoginAwaitingScan
-		session.snapshot.Message = "请使用手机微信扫描二维码"
+		session.snapshot.Message = "Please scan the QR code using your mobile WeChat app"
 	case "scaned":
 		session.snapshot.Status = LoginAwaitingConfirmation
-		session.snapshot.Message = "已扫码，请在手机微信中确认"
+		session.snapshot.Message = "QR code scanned, please confirm on your mobile WeChat app"
 	case "need_verifycode":
 		session.snapshot.Status = LoginAwaitingVerification
-		session.snapshot.Message = "请输入手机微信显示的验证码"
+		session.snapshot.Message = "Please enter the verification code displayed on your WeChat app"
 	case "scaned_but_redirect":
 		if status.RedirectHost != "" {
 			session.baseURL = "https://" + status.RedirectHost
@@ -290,27 +290,27 @@ func (m *LoginManager) applyStatus(ctx context.Context, sessionID string, status
 		req := session.request
 		m.mu.Unlock()
 		if status.BotToken == "" || status.BotID == "" {
-			m.setTerminal(sessionID, LoginFailed, "微信返回的登录凭据不完整")
+			m.setTerminal(sessionID, LoginFailed, "Incomplete login credentials returned by WeChat")
 			return true
 		}
 		if m.store != nil {
 			if err := m.store.SaveWechatCredential(ctx, req, status); err != nil {
-				m.setTerminal(sessionID, LoginFailed, "保存微信凭据失败")
+				m.setTerminal(sessionID, LoginFailed, "Failed to save WeChat credentials")
 				return true
 			}
 		}
-		m.setTerminal(sessionID, LoginConnected, "微信账号已连接")
+		m.setTerminal(sessionID, LoginConnected, "WeChat account connected")
 		return true
 	case "binded_redirect":
 		session.snapshot.Status = LoginAlreadyConnected
-		session.snapshot.Message = "该微信账号已连接"
+		session.snapshot.Message = "This WeChat account is already connected"
 		session.snapshot.QRPayload = ""
 		session.cancel()
 		m.mu.Unlock()
 		return true
 	case "expired", "verify_code_blocked":
 		session.snapshot.Status = LoginExpired
-		session.snapshot.Message = "二维码已过期，请重新连接"
+		session.snapshot.Message = "QR code expired, please try connecting again"
 		session.snapshot.QRPayload = ""
 		session.cancel()
 		m.mu.Unlock()
@@ -326,7 +326,7 @@ func (m *LoginManager) finishTimedOut(sessionID string) {
 	session := m.sessions[sessionID]
 	if session != nil && !terminalLoginStatus(session.snapshot.Status) {
 		session.snapshot.Status = LoginExpired
-		session.snapshot.Message = "登录已超时"
+		session.snapshot.Message = "Login timed out"
 		session.snapshot.QRPayload = ""
 	}
 }

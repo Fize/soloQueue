@@ -990,7 +990,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	}
 
 	// Restore last task level from meta.json so follow-up questions after
-	// restart don't lose their task context (e.g., "这个功能做完了吗" staying
+	// restart don't lose their task context (e.g., "is this feature completed?" staying
 	// at L0).
 	if persisted, lerr := LoadMeta(b.WorkDir, id); lerr == nil && persisted.Level != "" {
 		s.SetLastLevel(persisted.Level)

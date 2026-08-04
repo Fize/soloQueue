@@ -16,7 +16,7 @@ import (
 const (
 	busyReply      = "Thinking, please try again later~"
 	errorReply     = "Sorry, an error occurred while processing your message: "
-	mediaOnlyReply = "暂时无法识别这条媒体消息，请发送文字或语音转写后重试。"
+	mediaOnlyReply = "Media-only messages are currently not supported. Please send text or voice messages."
 )
 
 // TextBridge connects a text-capable channel to a SoloQueue session. Rich
@@ -113,28 +113,28 @@ func channelUserRef(userID string) string {
 func (b *TextBridge) handleCommand(ctx context.Context, msg Message) bool {
 	switch strings.ToLower(strings.TrimSpace(msg.Text)) {
 	case "/myid", "/openid":
-		b.send(ctx, msg, fmt.Sprintf("您的用户 ID 是：\n%s", msg.UserID))
+		b.send(ctx, msg, fmt.Sprintf("Your User ID is:\n%s", msg.UserID))
 	case "/help":
-		b.send(ctx, msg, "可用命令：/help /cancel /clear /compact /version /myid")
+		b.send(ctx, msg, "Available commands: /help /cancel /clear /compact /version /myid")
 	case "/version":
 		b.send(ctx, msg, "SoloQueue "+b.version)
 	case "/cancel":
 		if err := b.sess.CancelCurrent("user requested cancellation"); err != nil {
 			b.send(ctx, msg, errorReply+err.Error())
 		} else {
-			b.send(ctx, msg, "已取消当前任务。")
+			b.send(ctx, msg, "Current task cancelled.")
 		}
 	case "/clear":
 		if err := b.sess.Clear(ctx); err != nil {
 			b.send(ctx, msg, errorReply+err.Error())
 		} else {
-			b.send(ctx, msg, "上下文已清除。")
+			b.send(ctx, msg, "Context cleared.")
 		}
 	case "/compact":
 		if err := b.sess.Compact(ctx); err != nil {
 			b.send(ctx, msg, errorReply+err.Error())
 		} else {
-			b.send(ctx, msg, "上下文已压缩。")
+			b.send(ctx, msg, "Context compressed.")
 		}
 	default:
 		return false

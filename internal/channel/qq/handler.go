@@ -123,7 +123,7 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	// 1. Intercept /myid or /openid query commands locally
 	trimmed := strings.ToLower(strings.TrimSpace(msg.Content))
 	if trimmed == "/myid" || trimmed == "/openid" {
-		b.sendReply(ctx, msg, MsgTypeText, fmt.Sprintf("您的 OpenID 是：\n%s", msg.OpenID))
+		b.sendReply(ctx, msg, MsgTypeText, fmt.Sprintf("Your OpenID is:\n%s", msg.OpenID))
 		return
 	}
 
@@ -399,7 +399,7 @@ func (b *SessionBridge) processAudioMessage(ctx context.Context, msg *QQMessage)
 	if err != nil {
 		b.log.WarnContext(ctx, logger.CatApp, "qqbot failed to download audio",
 			"url", msg.AudioURL, "err", err.Error())
-		b.sendReply(ctx, *msg, MsgTypeText, "无法下载语音消息，请重试。")
+		b.sendReply(ctx, *msg, MsgTypeText, "Failed to download audio message, please try again.")
 		return false
 	}
 	b.log.InfoContext(ctx, logger.CatApp, "qqbot audio downloaded",
@@ -410,7 +410,7 @@ func (b *SessionBridge) processAudioMessage(ctx context.Context, msg *QQMessage)
 
 func (b *SessionBridge) processAudioData(ctx context.Context, msg *QQMessage, audioData []byte) bool {
 	if b.transcriber == nil || !b.transcriber.Available() {
-		b.sendReply(ctx, *msg, MsgTypeText, "语音转写未配置，请发送文字消息。")
+		b.sendReply(ctx, *msg, MsgTypeText, "Speech transcription is not configured. Please send text messages.")
 		return false
 	}
 
@@ -418,7 +418,7 @@ func (b *SessionBridge) processAudioData(ctx context.Context, msg *QQMessage, au
 	if err != nil {
 		b.log.WarnContext(ctx, logger.CatApp, "qqbot audio transcription failed",
 			"err", err.Error())
-		b.sendReply(ctx, *msg, MsgTypeText, "语音识别失败，请发送文字消息。")
+		b.sendReply(ctx, *msg, MsgTypeText, "Speech transcription failed. Please send text messages.")
 		return false
 	}
 

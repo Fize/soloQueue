@@ -30,9 +30,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
-// MCPLoaderFromRT extracts the MCP loader from the runtime stack.
-// Returns nil if MCP is not configured.
-func MCPLoaderFromRT(rt *runtime.Stack) *mcp.Loader {
+func mcpLoaderFromRT(rt *runtime.Stack) *mcp.Loader {
 	if rt.MCPManager == nil {
 		return nil
 	}
@@ -240,10 +238,10 @@ func ServeCmd(version string) *cobra.Command {
 				server.WithAgentsDir(filepath.Join(workDir, "agents")),
 				server.WithPromptRebuild(rebuildPrompt),
 				server.WithTeamCatalogReload(reloadTeamCatalog),
-				server.WithMCPLoader(MCPLoaderFromRT(rt)),
+				server.WithMCPLoader(mcpLoaderFromRT(rt)),
 				server.WithMCPManager(rt.MCPManager),
 				server.WithTeamStore(rt.TeamStore),
-				server.WithAuthConfig(cfg.Get().Auth),
+				server.WithAuthConfig(settings.Auth),
 				server.WithOnConfigChange(func() error {
 					if err := rt.OnConfigChange(); err != nil {
 						return err
@@ -264,7 +262,7 @@ func ServeCmd(version string) *cobra.Command {
 
 			// Wire cron task start/complete notifications to WebSocket.
 			cronScheduler.OnTaskStart = func(taskID, taskTitle string) {
-				wsHub.SendNotification("cron", "info", taskTitle, "开始执行...")
+				wsHub.SendNotification("cron", "info", taskTitle, "Starting execution...")
 			}
 			cronScheduler.OnTaskComplete = func(taskID, taskTitle string, success bool, summary string) {
 				lv := "error"
@@ -289,7 +287,7 @@ func ServeCmd(version string) *cobra.Command {
 				a.SetOnStateChange(func(s agent.State) { wsHub.Notify() })
 			}
 
-			// Background goroutine: sync context window metrics every 3s
+			// Periodically sync context window metrics to the WebSocket hub (10s).
 			go func() {
 				ticker := time.NewTicker(10 * time.Second)
 				defer ticker.Stop()
@@ -308,7 +306,8 @@ func ServeCmd(version string) *cobra.Command {
 					}
 				}
 			}()
-			// Background goroutine: monitor parent process death
+			// Detect parent process death so the server exits when the IDE
+			// (or launcher) that spawned it is terminated.
 			initialPPID := os.Getppid()
 			if initialPPID > 1 {
 				go func() {
@@ -369,43 +368,8 @@ func VersionCmd(version string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			workDir, err := config.DefaultWorkDir()
-			if err != nil {
-				return err
-			}
-
-			cfg, err := config.Init(workDir)
-			if err != nil {
-				return fmt.Errorf("init config: %w", err)
-			}
-
-			log, err := runtime.InitLogger(workDir, cfg, false)
-			if err != nil {
-				return fmt.Errorf("init logger: %w", err)
-			}
-			defer log.Close()
-
-			cfg.SetLogger(log)
-
-			settings := cfg.Get()
-
-			log.Info(logger.CatApp, "soloqueue version info",
-				"version", version,
-				"work_dir", workDir,
-				"log_level", settings.Log.Level,
-			)
-
-			p := cfg.DefaultProvider()
-			if p != nil {
-				log.Info(logger.CatApp, "default provider", "name", p.Name, "id", p.ID)
-			}
-
-			m := cfg.DefaultClassifierModel()
-			if m != nil {
-				log.Info(logger.CatApp, "default model", "name", m.Name, "id", m.ID)
-			}
-			return nil
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println(version)
 		},
 	}
 }

@@ -177,7 +177,7 @@ Each list entry configures one official iLink bot account:
 - `bind_type` (string): `l1` or `l2`; `bind_agent` is required for `l2`.
 - `whitelist_enabled` / `whitelist`: Optional allowed WeChat user IDs.
 
-The legacy `weixin_bots` key is read for one compatibility release and rewritten as `wechat_bots` on save. See [wechat.md](wechat.md) for login, limitations, and security guidance.
+See [wechat.md](wechat.md) for login, limitations, and security guidance.
 
 ### `[[lspmcp.servers]]` — Built-in LSP Server Configurations
 

@@ -844,7 +844,7 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 		if err := os.MkdirAll(modelDir, 0o755); err != nil {
 			resp.Error = fmt.Sprintf("create model dir: %v", err)
 			resp.Detail = fmt.Sprintf(
-				"无法创建模型目录 %s。\n请检查目录权限后重试。",
+				"Cannot create model directory %s.\nPlease check directory permissions and try again.",
 				modelDir,
 			)
 			m.writeJSON(w, http.StatusInternalServerError, resp)
@@ -871,11 +871,11 @@ const silkDecoderRepo = "https://github.com/kn007/silk-v3-decoder.git"
 func installSilkDecoder() (binaryPath, message, detail string, err error) {
 	workDir, err := config.DefaultWorkDir()
 	if err != nil {
-		return "", "", "无法确定 SoloQueue 工作目录。", err
+		return "", "", "Cannot determine SoloQueue working directory.", err
 	}
 	binDir := filepath.Join(workDir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return "", "", fmt.Sprintf("无法创建工具目录 %s。", binDir), err
+		return "", "", fmt.Sprintf("Cannot create tool directory %s.", binDir), err
 	}
 	name := "silk-decoder"
 	if runtime.GOOS == "windows" {
@@ -884,16 +884,16 @@ func installSilkDecoder() (binaryPath, message, detail string, err error) {
 	destPath := filepath.Join(binDir, name)
 
 	if _, err := exec.LookPath("git"); err != nil {
-		return "", "", "未找到 git，无法下载安装 SILK decoder。请安装 git 后重试。", err
+		return "", "", "git not found. Cannot download SILK decoder. Please install git and try again.", err
 	}
 	tmpDir, err := os.MkdirTemp("", "soloqueue-silk-*")
 	if err != nil {
-		return "", "", "无法创建临时安装目录。", err
+		return "", "", "Cannot create temporary installation directory.", err
 	}
 	defer os.RemoveAll(tmpDir)
 	repoDir := filepath.Join(tmpDir, "silk-v3-decoder")
 	if out, err := exec.Command("git", "clone", "--depth", "1", silkDecoderRepo, repoDir).CombinedOutput(); err != nil {
-		return "", "", fmt.Sprintf("无法下载 SILK decoder：%s", strings.TrimSpace(string(out))), err
+		return "", "", fmt.Sprintf("Failed to download SILK decoder: %s", strings.TrimSpace(string(out))), err
 	}
 
 	var sourcePath string
@@ -901,23 +901,23 @@ func installSilkDecoder() (binaryPath, message, detail string, err error) {
 		sourcePath = filepath.Join(repoDir, "windows", "silk_v3_decoder.exe")
 	} else {
 		if out, err := exec.Command("make", "-C", filepath.Join(repoDir, "silk")).CombinedOutput(); err != nil {
-			return "", "", fmt.Sprintf("无法编译 SILK decoder。请安装 C 编译器和 make 后重试：%s", strings.TrimSpace(string(out))), err
+			return "", "", fmt.Sprintf("Failed to compile SILK decoder. Please install C compiler and make: %s", strings.TrimSpace(string(out))), err
 		}
 		sourcePath = filepath.Join(repoDir, "silk", "decoder")
 	}
 	source, err := os.Open(sourcePath)
 	if err != nil {
-		return "", "", "SILK decoder 安装文件缺失。", err
+		return "", "", "SILK decoder binary missing after build.", err
 	}
 	defer source.Close()
 	dest, err := os.OpenFile(destPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
-		return "", "", fmt.Sprintf("无法写入 %s。", destPath), err
+		return "", "", fmt.Sprintf("Cannot write to %s.", destPath), err
 	}
 	_, copyErr := io.Copy(dest, source)
 	closeErr := dest.Close()
 	if copyErr != nil || closeErr != nil {
-		return "", "", "无法写入 SILK decoder。", firstError(copyErr, closeErr)
+		return "", "", "Failed to write SILK decoder binary.", firstError(copyErr, closeErr)
 	}
 	return destPath, "installed to SoloQueue tools directory", "", nil
 }
@@ -947,15 +947,15 @@ func installWhisperBinary() (binaryPath, message, detail string, err error) {
 			cmd.Stdout = io.Discard
 			cmd.Stderr = io.Discard
 			if runErr := cmd.Run(); runErr != nil {
-				detail := `brew install 失败，请手动安装:
+				detail := `brew install failed, please install manually:
 
-1. 打开终端，运行:
+1. Open terminal and run:
    brew install whisper-cpp
 
-2. 如果 brew 报错，尝试更新:
+2. If brew errors, try updating:
    brew update && brew install whisper-cpp
 
-3. 如果仍然失败，从源码编译:
+3. If it still fails, compile from source:
    git clone https://github.com/ggerganov/whisper.cpp
    cd whisper.cpp && make
    sudo cp build/bin/whisper-cli /usr/local/bin/`
@@ -964,62 +964,62 @@ func installWhisperBinary() (binaryPath, message, detail string, err error) {
 			path, lookErr := exec.LookPath(binaryName)
 			if lookErr != nil {
 				detail := fmt.Sprintf(
-					"brew install 成功，但 %s 未加入 PATH。\n请运行: brew link whisper-cpp",
+					"brew install succeeded, but %s is not in PATH.\nPlease run: brew link whisper-cpp",
 					binaryName,
 				)
 				return "", "", detail, fmt.Errorf("brew install succeeded but %s not found in PATH", binaryName)
 			}
 			return path, "installed via brew", "", nil
 		}
-		detail := `未找到 Homebrew，无法自动安装 whisper-cli。
+		detail := `Homebrew not found. Unable to auto-install whisper-cli.
 
-请选择以下方式之一安装:
+Please select one of the following options to install:
 
-方式 1 — 安装 Homebrew 后自动安装:
+Option 1 — Install Homebrew then install whisper-cpp:
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   brew install whisper-cpp
 
-方式 2 — 下载预编译二进制:
-  访问 https://github.com/ggerganov/whisper.cpp/releases/latest
-  下载适用于 macOS 的 whisper-cli 文件
-  将其放入 /usr/local/bin/ 并添加执行权限:
+Option 2 — Download prebuilt binary:
+  Visit https://github.com/ggerganov/whisper.cpp/releases/latest
+  Download the whisper-cli binary for macOS
+  Place it in /usr/local/bin/ and make it executable:
     chmod +x /usr/local/bin/whisper-cli`
 		return "", "", detail, fmt.Errorf("Homebrew not found")
 
 	case "linux":
 		if _, lookErr := exec.LookPath("apt-get"); lookErr == nil {
-			detail := `请在终端中运行以下命令安装 whisper-cpp:
+			detail := `Please run the following commands in terminal to install whisper-cpp:
 
   sudo apt-get update
   sudo apt-get install -y whisper-cpp
 
-如果软件源中没有 whisper-cpp，请从源码编译:
+If whisper-cpp is not available in repositories, compile from source:
   git clone https://github.com/ggerganov/whisper.cpp
   cd whisper.cpp && make
   sudo cp build/bin/whisper-cli /usr/local/bin/`
-			return "", "", detail, fmt.Errorf("需要手动安装 whisper-cpp")
+			return "", "", detail, fmt.Errorf("manual installation required for whisper-cpp")
 		}
-		detail := `请从源码编译安装 whisper-cpp:
+		detail := `Please compile and install whisper-cpp from source:
 
   git clone https://github.com/ggerganov/whisper.cpp
   cd whisper.cpp && make
   sudo cp build/bin/whisper-cli /usr/local/bin/
 
-或下载预编译二进制:
-  访问 https://github.com/ggerganov/whisper.cpp/releases/latest
-  下载适用于 Linux 的二进制文件`
-		return "", "", detail, fmt.Errorf("需要手动安装 whisper-cpp")
+Or download a prebuilt binary:
+  Visit https://github.com/ggerganov/whisper.cpp/releases/latest
+  Download the Linux binary`
+		return "", "", detail, fmt.Errorf("manual installation required for whisper-cpp")
 
 	default: // windows
-		detail := `请手动安装 whisper-cpp:
+		detail := `Please install whisper-cpp manually:
 
-1. 访问 https://github.com/ggerganov/whisper.cpp/releases/latest
-2. 下载 Windows 版本的 whisper-cli.exe
-3. 将其放入 PATH 中的任意目录（如 C:\Windows\System32）
+1. Visit https://github.com/ggerganov/whisper.cpp/releases/latest
+2. Download whisper-cli.exe for Windows
+3. Place it in any directory in your PATH (e.g. C:\Windows\System32)
 
-或使用 vcpkg:
+Or using vcpkg:
   vcpkg install whisper-cpp`
-		return "", "", detail, fmt.Errorf("需要手动安装 whisper-cpp")
+		return "", "", detail, fmt.Errorf("manual installation required for whisper-cpp")
 	}
 }
 
@@ -1030,53 +1030,53 @@ func downloadSpeechModel(model, destPath string) (string, error) {
 
 	resp, err := http.Get(url)
 	if err != nil {
-		detail := fmt.Sprintf(`无法连接到 HuggingFace，请手动下载模型文件。
+		detail := fmt.Sprintf(`Cannot connect to HuggingFace. Please download the model file manually.
 
-1. 浏览器打开:
+1. Open in browser:
    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin
 
-2. 下载后移动到:
+2. After downloading, move to:
    %s
 
-3. 或使用镜像站下载:
+3. Or download via mirror site:
    https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin
 
-网络错误: %v`, model, destPath, model, err)
+Network error: %v`, model, destPath, model, err)
 		return detail, fmt.Errorf("network error: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusNotFound {
-			detail := fmt.Sprintf(`模型 "ggml-%s.bin" 不存在。
+			detail := fmt.Sprintf(`Model "ggml-%s.bin" does not exist.
 
-可用模型: tiny, base, small, medium（注意: large 模型需要下载 large-v3）。
+Available models: tiny, base, small, medium (note: large model requires downloading large-v3).
 
-确认模型名称后重试，或手动下载:
+Confirm model name and retry, or download manually:
   curl -L -o %s https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin`, model, destPath, model)
 			return detail, fmt.Errorf("model %q not found (HTTP 404)", model)
 		}
-		detail := fmt.Sprintf(`下载模型失败 (HTTP %d)。
+		detail := fmt.Sprintf(`Failed to download model (HTTP %d).
 
-请手动下载:
+Please download manually:
   curl -L -o %s https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin
 
-如果网络受限，可使用国内镜像:
+If network is restricted, use a mirror site:
   curl -L -o %s https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin`, resp.StatusCode, destPath, model, destPath, model)
 		return detail, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	f, err := os.Create(destPath)
 	if err != nil {
-		return fmt.Sprintf("无法写入文件 %s。\n请检查目录权限。", destPath), err
+		return fmt.Sprintf("Cannot write file %s.\nPlease check directory permissions.", destPath), err
 	}
 	defer f.Close()
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		os.Remove(destPath)
-		detail := fmt.Sprintf(`下载中断，文件不完整已删除。
+		detail := fmt.Sprintf(`Download interrupted. Incomplete file deleted.
 
-请重试一键安装，或手动下载:
+Please retry installation or download manually:
   curl -L -o %s https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin`, destPath, model)
 		return detail, fmt.Errorf("download interrupted: %w", err)
 	}

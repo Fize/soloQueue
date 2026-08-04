@@ -1,3 +1,6 @@
+// channel.go routes messaging channels (QQ, WeChat) to session providers.
+// L1 channels share the global session; L2 channels get an isolated session
+// with a dedicated agent and per-channel memory context.
 package cli
 
 import (
@@ -28,7 +31,7 @@ func newChannelSessionProvider(binding channelBinding, mgr *session.SessionManag
 	}
 	if binding.bindAgent == "" {
 		log.Error(logger.CatApp, "channel configured as L2 but missing bind_agent", "channel", binding.channelID, "account_id", binding.accountID)
-		return session.NewErrorChannelAdapter("配置错误：该渠道被绑定到 L2，但尚未指定目标 Agent。")
+		return session.NewErrorChannelAdapter("Configuration error: channel is bound to L2 but missing target agent.")
 	}
 
 	var mm *conversation.Manager

@@ -370,9 +370,9 @@ func (s *Scheduler) notifyTaskComplete(t Task, success bool, summary string) {
 	}
 	if summary == "" {
 		if success {
-			summary = "执行完成"
+			summary = "Execution completed"
 		} else {
-			summary = "执行失败"
+			summary = "Execution failed"
 		}
 	}
 	s.OnTaskComplete(t.ID, t.Title, success, summary)
@@ -469,7 +469,7 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	}
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
 	if status != "success" {
-		s.notifyTaskComplete(t, false, "执行失败: "+errMsg)
+		s.notifyTaskComplete(t, false, "Execution failed: "+errMsg)
 	} else {
 		s.notifyTaskComplete(t, true, firstLineSummary(result.replyText))
 	}
@@ -611,7 +611,7 @@ func (s *Scheduler) executeL2Task(t Task) {
 	}
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
 	if status != "success" {
-		s.notifyTaskComplete(t, false, "执行失败: "+errMsg)
+		s.notifyTaskComplete(t, false, "Execution failed: "+errMsg)
 	} else {
 		s.notifyTaskComplete(t, true, firstLineSummary(replyText))
 	}

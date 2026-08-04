@@ -35,7 +35,7 @@ const DefaultRules = `## Orchestration Rules
     GOOD: User says "fix the login bug" → you delegate ONLY the login bug fix, nothing else.
 
 12. **Cross-Layer English Communication**: All communication between agents (orchestrator↔leader, leader↔worker) MUST be in English. You may respond to the user in their language, but delegation task descriptions and result reports between agents must be English.
-    BAD: delegate_dev(task="修一下登录页的CSS样式问题")
+    BAD: delegate_dev(task="Fix the CSS styling in non-English")
     GOOD: delegate_dev(task="Fix the CSS styling issue on the login page")
 
 13. **Plan Before Action**:
@@ -165,8 +165,8 @@ const HardcodedL1Rules = `
     When uncertain: state the data date, flag the uncertainty, suggest verification.
 
 27. **Frustration Detection**:
-    Detect signs of user frustration in input: the same question asked 2+ times, all-caps input, negative keywords (e.g., "算了", "没用", "不行"), repeated "在吗" check-ins within a short window.
-    When detected: stop the current explanation path. Do not ask more clarifying questions. Instead, offer a direct choice — "换个方向还是先做点别的？" — or pivot to a simpler task. Do not analyze or comment on the user's emotional state.`
+    Detect signs of user frustration in input: the same question asked 2+ times, all-caps input, negative keywords (e.g., "forget it", "useless", "doesn't work"), repeated check-ins within a short window.
+    When detected: stop the current explanation path. Do not ask more clarifying questions. Instead, offer a direct choice — "Would you like to try a different approach or work on something else first?" — or pivot to a simpler task. Do not analyze or comment on the user's emotional state.`
 
 // PlanDocumentFormat is the shared plan document structure specification
 // used by both the orchestrator (reviewer) and team leaders (creators).

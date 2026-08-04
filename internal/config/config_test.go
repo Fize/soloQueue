@@ -192,16 +192,6 @@ func TestLoader_Save_WritesWechatBots(t *testing.T) {
 	}
 }
 
-func TestSettingsLoadsLegacyWeixinBots(t *testing.T) {
-	var settings Settings
-	if err := yaml.Unmarshal([]byte("weixin_bots:\n  - id: legacy\n    bot_token: secret\n"), &settings); err != nil {
-		t.Fatal(err)
-	}
-	if len(settings.WechatBots) != 1 || settings.WechatBots[0].ID != "legacy" || settings.WechatBots[0].BotToken != "secret" {
-		t.Fatalf("legacy WeChat config = %#v", settings.WechatBots)
-	}
-}
-
 func TestWechatCredentialsAreNotSerializedToJSON(t *testing.T) {
 	data, err := json.Marshal(Settings{WechatBots: []WechatBotConfig{{ID: "personal", BotToken: "secret-token", BotID: "secret-id"}}})
 	if err != nil {

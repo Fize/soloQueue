@@ -148,13 +148,6 @@ func WechatCmd(version string) *cobra.Command {
 	return cmd
 }
 
-// WeixinCmd is a hidden compatibility alias for one release.
-func WeixinCmd(version string) *cobra.Command {
-	cmd := &cobra.Command{Use: "weixin", Short: "Deprecated alias for wechat", Hidden: true}
-	cmd.AddCommand(wechatLoginCmd(version))
-	return cmd
-}
-
 func wechatLoginCmd(version string) *cobra.Command {
 	var id, name, bindType, bindAgent string
 	cmd := &cobra.Command{
@@ -186,7 +179,7 @@ func wechatLoginCmd(version string) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("start WeChat login: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "请用微信扫描二维码（若终端无法显示，请打开链接）：\n%s\n", qr.QRCodeImageURL)
+			fmt.Fprintf(cmd.OutOrStdout(), "Please scan the QR code using WeChat (open link if terminal cannot render image):\n%s\n", qr.QRCodeImageURL)
 
 			pollBaseURL := wechat.DefaultBaseURL
 			verifyCode := ""
@@ -208,7 +201,7 @@ func wechatLoginCmd(version string) *cobra.Command {
 						pollBaseURL = "https://" + status.RedirectHost
 					}
 				case "need_verifycode":
-					fmt.Fprint(cmd.OutOrStdout(), "请输入手机微信显示的数字：")
+					fmt.Fprint(cmd.OutOrStdout(), "Enter the verification code displayed on your WeChat app: ")
 					line, readErr := reader.ReadString('\n')
 					if readErr != nil {
 						return readErr
@@ -234,7 +227,7 @@ func wechatLoginCmd(version string) *cobra.Command {
 					if err := cfg.UpdateWechatBots(bots); err != nil {
 						return err
 					}
-					fmt.Fprintf(cmd.OutOrStdout(), "微信账号已连接并保存为 %s。\n", id)
+					fmt.Fprintf(cmd.OutOrStdout(), "WeChat account connected and saved as %s.\n", id)
 					return nil
 				case "expired", "verify_code_blocked":
 					return fmt.Errorf("WeChat QR code expired or verification was blocked; run login again")

@@ -96,33 +96,6 @@ type Settings struct {
 	Speech      SpeechConfig      `json:"speech" yaml:"speech,omitempty"`
 }
 
-// UnmarshalYAML accepts the former weixin_bots key for one compatibility
-// release while keeping a single canonical slice in memory.
-func (s *Settings) UnmarshalYAML(value *yaml.Node) error {
-	type plain Settings
-	decoded := plain(*s)
-	if err := value.Decode(&decoded); err != nil {
-		return err
-	}
-	canonicalPresent := false
-	var legacy []WechatBotConfig
-	for i := 0; i+1 < len(value.Content); i += 2 {
-		switch value.Content[i].Value {
-		case "wechat_bots":
-			canonicalPresent = true
-		case "weixin_bots":
-			if err := value.Content[i+1].Decode(&legacy); err != nil {
-				return err
-			}
-		}
-	}
-	if !canonicalPresent && len(legacy) > 0 {
-		decoded.WechatBots = legacy
-	}
-	*s = Settings(decoded)
-	return nil
-}
-
 // ─── WeChat Bot ─────────────────────────────────────────────────────────────
 
 // WechatBotConfig configures an official WeChat iLink bot account.

@@ -23,11 +23,9 @@ const msgQueueCap = 100
 // QQ Bot rate limit is ~1.667s per message (3 per 5s); 1.7s provides a safe margin.
 const msgQueueInterval = 1700 * time.Millisecond
 
-// StartQQBots initializes and starts the QQ Bot gateways if configured.
-// It creates a dedicated logger under logs/qqbot/, sets up rate-limiting
-// MessageQueues, and returns both the gateways and the queues for shutdown
-// coordination. Returns empty slices if no QQ bot is enabled or configured.
-func StartQQBots(cfg *config.GlobalService, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) ([]*qqbot.Gateway, []*qqbot.MessageQueue, []*qqbot.SessionBridge) {
+// startQQBots creates QQ Bot gateways with dedicated loggers and rate-limiting
+// queues. Returns empty slices when no QQ bot is enabled.
+func startQQBots(cfg *config.GlobalService, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) ([]*qqbot.Gateway, []*qqbot.MessageQueue, []*qqbot.SessionBridge) {
 	settings := cfg.Get()
 	var gateways []*qqbot.Gateway
 	var queues []*qqbot.MessageQueue
@@ -156,14 +154,13 @@ func NewQQBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2S
 	}
 }
 
-// Reload reloads the QQBots. It stops all currently running gateways and queues, and then starts new ones based on the latest configuration.
+// Reload stops all running gateways and starts fresh ones from current config.
 func (m *QQBotManager) Reload() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.mainLog.Info(logger.CatApp, "hot-reloading QQBots...")
 
-	// Stop existing gateways and queues
 	for _, gw := range m.gateways {
 		if gw != nil {
 			gw.Close()
@@ -175,8 +172,7 @@ func (m *QQBotManager) Reload() {
 		}
 	}
 
-	// Start new gateways and queues
-	gateways, queues, bridges := StartQQBots(m.cfg, m.mgr, m.l2Store, m.rt, m.workDir, m.version, m.mainLog, m.supervisorsFn, m.registry)
+	gateways, queues, bridges := startQQBots(m.cfg, m.mgr, m.l2Store, m.rt, m.workDir, m.version, m.mainLog, m.supervisorsFn, m.registry)
 	m.gateways = gateways
 	m.queues = queues
 	m.bridges = bridges

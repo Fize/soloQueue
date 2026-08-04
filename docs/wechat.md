@@ -28,7 +28,7 @@ Stop the running server before changing the same account from another process, t
 soloqueue wechat login --id personal --name "Personal WeChat"
 ```
 
-The same flow is available in Desktop → Settings → Channels. Credentials are written by the backend to `~/.soloqueue/settings.yaml` and are never returned to the renderer. The legacy `soloqueue weixin login` command remains a hidden compatibility alias for one release.
+The same flow is available in Desktop → Settings → Channels. Credentials are written by the backend to `~/.soloqueue/settings.yaml` and are never returned to the renderer.
 
 To bind the account directly to an L2 agent:
 
@@ -57,7 +57,7 @@ wechat_bots:
     whitelist: []
 ```
 
-Sanitized account views are available through `GET/PUT /api/config/wechat-bots/`; the legacy `/api/config/weixin-bots/` route is a temporary alias. Tokens are never returned by either route.
+Sanitized account views are available through `GET/PUT /api/config/wechat-bots/`. Tokens are never returned by the API.
 
 ## Channel architecture
 
