@@ -62,6 +62,21 @@ describe('ChatInput workspace selector', () => {
     expect(onProjectChange).toHaveBeenCalledWith('')
   })
 
+  it('keeps a restored absolute path associated with its tilde-configured project', () => {
+    const onProjectChange = vi.fn()
+    const tildeProject = { ...project, path: '~/projects/one/' }
+
+    renderInput({
+      projects: [tildeProject],
+      teamProjectsMap: { dev: [tildeProject] },
+      selectedProjectPath: '/Users/developer/projects/one',
+      onProjectChange,
+    })
+
+    expect(screen.getByRole('button', { name: 'Project One' })).toBeInTheDocument()
+    expect(onProjectChange).not.toHaveBeenCalled()
+  })
+
   it('sends no project path when local is selected', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()

@@ -16,21 +16,13 @@ import { useAgentStore } from '@/stores/agentStore'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { listL2Groups, listProjects, getTeams } from '@/lib/api'
 import type { ChatSession, Project } from '@/types'
-import { cn } from '@/lib/utils'
+import { cn, pathsMatch } from '@/lib/utils'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
 
 interface GroupInfo {
   name: string
   projects: Project[]
-}
-
-// pathsMatch compares two paths, handling both ~/ and expanded home directory forms.
-function pathsMatch(a: string, b: string): boolean {
-  if (a === b) return true
-  // Normalize: strip leading ~ or /Users/xxx prefix, and trailing slash
-  const norm = (p: string) => p.replace(/^~/, '').replace(/^\/Users\/[^/]+/, '').replace(/\/$/, '')
-  return norm(a) === norm(b)
 }
 
 export function SessionTree() {

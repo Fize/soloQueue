@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
-import { cn } from '@/lib/utils'
+import { cn, pathsMatch } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { ChatInputAutocomplete, BUILTIN_SLASH_COMMANDS, type ChatInputAutocompleteHandle } from './ChatInputAutocomplete'
 import { ChatInputAttachments, type Attachment } from './ChatInputAttachments'
@@ -251,7 +251,7 @@ export function ChatInput({
   // Fetch branches dynamically based on the selected project path
   useEffect(() => {
     if (selectedProjectPath && projects.length > 0) {
-      const proj = projects.find((p) => p.path === selectedProjectPath)
+      const proj = projects.find((p) => pathsMatch(p.path, selectedProjectPath))
       if (proj) {
         getProjectBranches(proj.id)
           .then((list) => {
@@ -278,7 +278,7 @@ export function ChatInput({
   // instead of forcing every new session onto the first configured project.
   useEffect(() => {
     if (showL2Selectors && selectedGroup && onProjectChange) {
-      const activeProj = filteredProjects.find(p => p.path === selectedProjectPath)
+      const activeProj = filteredProjects.find(p => pathsMatch(p.path, selectedProjectPath))
       if (selectedProjectPath && !activeProj) {
         onProjectChange('')
       }
@@ -698,7 +698,7 @@ export function ChatInput({
                           >
                             <Laptop className="h-2.5 w-2.5 text-muted-foreground/60" />
                             <span className="text-foreground/80 truncate max-w-[120px]">
-                              {projects.find((p) => p.path === selectedProjectPath)?.name || t('chat.local')}
+                              {projects.find((p) => pathsMatch(p.path, selectedProjectPath))?.name || t('chat.local')}
                             </span>
                             {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
                           </button>
@@ -731,7 +731,7 @@ export function ChatInput({
                                   className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
                                 >
                                   <span className="truncate">{p.name}</span>
-                                  {selectedProjectPath === p.path && <Check className="h-3 w-3 text-primary" />}
+                                  {pathsMatch(selectedProjectPath, p.path) && <Check className="h-3 w-3 text-primary" />}
                                 </button>
                               ))}
                             </div>,

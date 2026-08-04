@@ -21,7 +21,7 @@ import { useAgentStore } from "@/stores/agentStore";
 import { useRuntimeStore } from "@/stores/runtimeStore";
 import { useConnectionStore } from "@/stores/connectionStore";
 
-import { cn } from "@/lib/utils";
+import { cn, pathsMatch } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment } from "@/types";
 import { useResizablePanes } from "@/hooks/useResizablePanes";
@@ -264,12 +264,12 @@ export function ChatPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedProjectPath((prevPath) => {
         if (!prevPath) return "";
-        return groupProjs.some((p) => p.path === prevPath) ? prevPath : "";
+        return groupProjs.some((p) => pathsMatch(p.path, prevPath)) ? prevPath : "";
       });
     }
   }, [selectedGroup, teamProjectsMap]);
 
-  const selectedProject = projects.find((p) => p.path === selectedProjectPath);
+  const selectedProject = projects.find((p) => pathsMatch(p.path, selectedProjectPath));
 
   const groupAgents = useMemo(() => {
     if (isL1Session) {
@@ -440,7 +440,7 @@ export function ChatPage() {
         const currentProjPath = activeSession.project_path || "";
         const currentGroup = activeSession.group || "";
 
-        if (group !== currentGroup || projectPath !== currentProjPath) {
+        if (group !== currentGroup || !pathsMatch(projectPath || "", currentProjPath)) {
           const newId = await createL2Session(group, projectPath || "");
           if (newId) {
             if (activeSessionId !== newId) {

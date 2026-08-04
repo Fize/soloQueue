@@ -5,6 +5,25 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Project paths cross the Desktop/backend boundary in two equivalent forms:
+// configured projects may keep a leading "~/", while the backend persists an
+// expanded absolute work directory. Compare their home-relative forms so a
+// restored session remains associated with its configured project.
+export function pathsMatch(a: string, b: string): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+
+  const normalize = (path: string) =>
+    path
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '')
+      .replace(/^~(?=\/|$)/, '')
+      .replace(/^\/Users\/[^/]+(?=\/|$)/, '')
+      .replace(/^\/home\/[^/]+(?=\/|$)/, '')
+
+  return normalize(a) === normalize(b)
+}
+
 function extractPropertyFromPartialJson(jsonStr: string, propName: string): string | null {
   const regex = new RegExp(`"${propName}"\\s*:\\s*"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"`)
   const match = jsonStr.match(regex)
