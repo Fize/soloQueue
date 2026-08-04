@@ -515,7 +515,7 @@ function createWindow() {
     icon: fs.existsSync(path.join(__dirname, 'dist/logo.png'))
       ? path.join(__dirname, 'dist/logo.png')
       : path.join(__dirname, 'public/logo.png'),
-    backgroundColor: '#5a2800',
+    backgroundColor: '#0F1117',
     vibrancy: 'under-window',
     webPreferences: {
       nodeIntegration: false,
