@@ -34,11 +34,11 @@ build-desktop: ## Build rich web UI (for Electron desktop client)
 	cd desktop && pnpm build
 
 build: build-web ## Build Go binary with web portal embedded (Default binary build)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o soloqueue ./cmd/soloqueue
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-s -w" -o soloqueue ./cmd/soloqueue
 	@if [ "$(GOOS)" = "windows" ]; then mv soloqueue.exe soloqueue; fi
 
 build-win: build-web ## Build Go binary for Windows with web portal embedded
-	GOOS=windows GOARCH=amd64 go build -o soloqueue.exe ./cmd/soloqueue
+	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o soloqueue.exe ./cmd/soloqueue
 
 build-all: build build-desktop ## Full build: Go binary (with portal) AND desktop web UI
 
@@ -53,10 +53,10 @@ build-all-win: build-win build-desktop ## Build all source artifacts for Windows
 	cd desktop && npx electron-builder build --config electron-builder.json --win
 
 build-go: ## Build Go binary only (assumes portal dist is already built)
-	go build -o soloqueue ./cmd/soloqueue
+	go build -ldflags="-s -w" -o soloqueue ./cmd/soloqueue
 
 build-go-win: ## Build Go binary for Windows only (assumes portal dist is already built)
-	GOOS=windows GOARCH=amd64 go build -o soloqueue.exe ./cmd/soloqueue
+	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o soloqueue.exe ./cmd/soloqueue
 
 package-desktop: build-all ## Package Electron desktop client binaries (specify platform via PLATFORM=mac|win|linux, defaults to current OS)
 	cd desktop && npx electron-builder build --config electron-builder.json $(PLATFORM_FLAGS)

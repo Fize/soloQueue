@@ -34,21 +34,21 @@ function Build-Desktop {
 
 function Build-Go {
     Write-Host "=== Building Go binary ==="
-    go build -o soloqueue.exe ./cmd/soloqueue
+    go build -ldflags="-s -w" -o soloqueue.exe ./cmd/soloqueue
 }
 
 function Build-Go-Linux {
     Write-Host "=== Building Go binary for Linux ==="
     $env:GOOS = "linux"
     $env:GOARCH = "amd64"
-    go build -o soloqueue ./cmd/soloqueue
+    go build -ldflags="-s -w" -o soloqueue ./cmd/soloqueue
 }
 
 function Build-Go-Mac {
     Write-Host "=== Building Go binary for macOS ==="
     $env:GOOS = "darwin"
     $env:GOARCH = "amd64"
-    go build -o soloqueue ./cmd/soloqueue
+    go build -ldflags="-s -w" -o soloqueue ./cmd/soloqueue
 }
 
 function Package-Desktop {
