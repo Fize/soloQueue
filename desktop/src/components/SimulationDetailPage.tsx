@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useLayoutEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { wsManager } from '@/lib/websocket'
 import { cn } from '@/lib/utils'
@@ -66,6 +66,7 @@ import {
   listProviders,
   updateSimulation,
 } from '@/lib/api'
+import { useStickToBottom } from '@/hooks/useStickToBottom'
 
 const MAX_MESSAGES = 500
 const MAX_CHAT_HISTORY = 20
@@ -214,7 +215,13 @@ export function SimulationDetailPage() {
   const pulseNodesRef = useRef<Set<string>>(new Set())
   const [pulseVersion, setPulseVersion] = useState(0)
 
-  const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const messageScrollRef = useRef<HTMLDivElement>(null)
+  const {
+    contentRef: messageContentRef,
+    followOutput,
+    detachFollow,
+    syncFollowState,
+  } = useStickToBottom({ scrollRef: messageScrollRef })
   const pulseTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const completionPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -587,10 +594,10 @@ export function SimulationDetailPage() {
     }
   }, [id, fetchState, fetchEnvironment])
 
-  // Scroll to bottom of message list on new messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [state?.messages])
+  useLayoutEffect(() => {
+    if (!state?.messages.length) return
+    followOutput()
+  }, [followOutput, state?.messages])
 
   const handlePause = async () => {
     if (!id) return
@@ -1753,8 +1760,15 @@ export function SimulationDetailPage() {
                     })}
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-4 space-y-1.5 min-h-0 scroll-container">
-                    {renderGroupedMessages()}
+                  <div
+                    ref={messageScrollRef}
+                    data-testid="simulation-message-viewport"
+                    className="flex-1 overflow-y-auto p-4 space-y-1.5 min-h-0 scroll-container"
+                    onScroll={syncFollowState}
+                    onWheel={detachFollow}
+                    onTouchStart={detachFollow}
+                  >
+                    <div ref={messageContentRef}>{renderGroupedMessages()}</div>
                   </div>
                 </TabsContent>
 

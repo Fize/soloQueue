@@ -150,6 +150,7 @@ export function SubagentCard({
 }) {
   const { t } = useTranslation()
   const [modalOpen, setModalOpen] = useState(false)
+  const streamScrollRef = useRef<HTMLDivElement>(null)
   const running = segment.status === 'running'
   const failed = segment.status === 'failed'
   const cancelled = segment.status === 'cancelled'
@@ -288,15 +289,15 @@ export function SubagentCard({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 bg-card/20">
+            <div ref={streamScrollRef} className="flex-1 overflow-y-auto p-6 bg-card/20">
               {running && agentStream ? (
-                <AgentStreamView state={agentStream} />
+                <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} />
               ) : hasResult ? (
                 <div className="text-xs leading-relaxed text-foreground/80">
                   <MarkdownPreview content={segment.resultContent || ''} />
                 </div>
               ) : agentStream ? (
-                <AgentStreamView state={agentStream} />
+                <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
                   <Bot className="h-8 w-8" />

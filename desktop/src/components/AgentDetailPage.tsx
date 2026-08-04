@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAgentStore } from '@/stores/agentStore'
 import { useAgentStream } from '@/hooks/useAgentStream'
@@ -60,6 +60,7 @@ export function AgentDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
   const status = useRuntimeStore((s) => s.status)
+  const outputScrollRef = useRef<HTMLDivElement>(null)
 
   // Find agent in websocket stream or team list
   const data = useAgentStore((state) => state.agents)
@@ -336,10 +337,13 @@ export function AgentDetailPage() {
           {isL1 && (
             <>
               <TabsContent value="output" className="h-full mt-0 focus-visible:outline-none">
-                <ScrollArea className="h-full p-4 md:p-6 bg-card/20">
+                <ScrollArea
+                  viewportRef={outputScrollRef}
+                  className="h-full p-4 md:p-6 bg-card/20"
+                >
                   {stream ? (
                     <div className="max-w-3xl mx-auto">
-                      <AgentStreamView state={stream} />
+                      <AgentStreamView state={stream} scrollContainerRef={outputScrollRef} />
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground py-8 text-center italic">
@@ -383,10 +387,13 @@ export function AgentDetailPage() {
           {!isL1 && (
             <>
               <TabsContent value="output" className="h-full mt-0 focus-visible:outline-none">
-                <ScrollArea className="h-full p-4 md:p-6 bg-card/20">
+                <ScrollArea
+                  viewportRef={outputScrollRef}
+                  className="h-full p-4 md:p-6 bg-card/20"
+                >
                   {stream ? (
                     <div className="max-w-3xl mx-auto">
-                      <AgentStreamView state={stream} />
+                      <AgentStreamView state={stream} scrollContainerRef={outputScrollRef} />
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground py-8 text-center italic">

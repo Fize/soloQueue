@@ -1,11 +1,13 @@
 import { useTranslation } from '@/lib/i18n'
 import { useState, useEffect, useRef } from 'react'
+import type { RefObject } from 'react'
 import type { AgentStreamState, Segment } from '@/types'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { Badge } from '@/components/ui/badge'
 import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { formatToolCallHeader, cn } from '@/lib/utils'
 import { DelegationCard } from '@/components/DelegationCard'
+import { useStickToBottom } from '@/hooks/useStickToBottom'
 
 function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
   const { t } = useTranslation()
@@ -215,20 +217,25 @@ function StreamDelegationGroup({ group }: { group: { segment: Segment; index: nu
 
 interface AgentStreamViewProps {
   state: AgentStreamState
+  /**
+   * The scrollable element that owns this stream. Modal callers must provide
+   * this explicitly so the stream cannot scroll an ancestor ChatPage.
+   */
+  scrollContainerRef: RefObject<HTMLDivElement | null>
 }
 
-export function AgentStreamView({ state }: AgentStreamViewProps) {
-  const bottomRef = useRef<HTMLDivElement>(null)
+export function AgentStreamView({ state, scrollContainerRef }: AgentStreamViewProps) {
+  const { contentRef, followOutput } = useStickToBottom({ scrollRef: scrollContainerRef })
   const hasError = !!state.error
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [state.segments.length, state.processing, state.error])
+    followOutput()
+  }, [followOutput, state.segments.length, state.processing, state.error])
 
   const grouped = groupStreamSegments(state.segments)
 
   return (
-    <div className="space-y-3">
+    <div ref={contentRef} className="space-y-3">
       {/* Status indicator */}
       {state.processing && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -266,8 +273,6 @@ export function AgentStreamView({ state }: AgentStreamViewProps) {
       {state.segments.length === 0 && !state.processing && !hasError && (
         <p className="py-8 text-center text-sm text-muted-foreground">Agent idle, no output</p>
       )}
-
-      <div ref={bottomRef} />
     </div>
   )
 }

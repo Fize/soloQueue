@@ -1,5 +1,5 @@
 import { useTranslation } from '@/lib/i18n'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Bot, Loader2, CheckCircle2, XCircle, X, ExternalLink } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
 import { useAgentStream } from '@/hooks/useAgentStream'
@@ -27,6 +27,7 @@ export function DelegationCard({
   agentInstanceId?: string
 }) {
   const [modalOpen, setModalOpen] = useState(false)
+  const streamScrollRef = useRef<HTMLDivElement>(null)
   const agentsData = useAgentStore((state) => state.agents)
 
   const { t } = useTranslation()
@@ -193,7 +194,7 @@ export function DelegationCard({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 bg-card/20">
+            <div ref={streamScrollRef} className="flex-1 overflow-y-auto p-6 bg-card/20">
               {done && (result || error) ? (
                 <div className="space-y-4">
                   <div>
@@ -224,7 +225,7 @@ export function DelegationCard({
                   )}
                 </div>
               ) : agentStream ? (
-                <AgentStreamView state={agentStream} />
+                <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} />
               ) : running ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
                   <Bot className="h-8 w-8" />
