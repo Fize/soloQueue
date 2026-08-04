@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { wsManager } from './websocket'
 import { useRuntimeStore } from '@/stores/runtimeStore'
+import { useConnectionStore } from '@/stores/connectionStore'
 
 // Track the last mock WebSocket instance so tests can simulate events
 let mockWSServer: WSInstance | null = null
@@ -16,6 +17,7 @@ interface WSInstance {
 
 beforeEach(() => {
   useRuntimeStore.setState({ status: null, connectionStatus: 'disconnected' })
+  useConnectionStore.setState({ mode: 'local', remoteUrl: '', username: '', password: '' })
   wsManager.disconnect()
   mockWSServer = null
 
@@ -77,6 +79,20 @@ describe('websocket', () => {
     await vi.waitFor(() => {
       expect(useRuntimeStore.getState().connectionStatus).toBe('connected')
     })
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('/api/auth/token'))).toBe(false)
+  })
+
+  it('fetches a one-time token only for remote connections', async () => {
+    useConnectionStore.setState({
+      mode: 'remote',
+      remoteUrl: 'https://remote.example',
+      username: 'alice',
+    })
+
+    await wsManager.connect()
+
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('/api/auth/token'))).toBe(true)
+    expect(mockWSServer?.url).toBe('wss://remote.example/ws?token=test-token')
   })
 
   it('subscribe to runtime handler and receive updates via store', async () => {

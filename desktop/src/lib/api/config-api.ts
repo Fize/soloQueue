@@ -26,8 +26,7 @@ import type {
   MCPPolicyListResponse,
   MCPRuntimeType,
 } from "@/types";
-import { request, API_BASE } from "./core";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { request, requestText } from "./core";
 
 // ─── Config APIs ──────────────────────────────────────────────────────────────
 
@@ -36,22 +35,13 @@ export async function getConfig(): Promise<AppConfig> {
 }
 
 export async function getConfigToml(): Promise<string> {
-  const base = useConnectionStore.getState().getEffectiveBaseUrl();
-  const url = base ? `${base}${API_BASE}/config/toml` : `${API_BASE}/config/toml`;
-  const res = await fetch(url, {
-    headers: useConnectionStore.getState().getAuthHeaders(),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `HTTP ${res.status}`);
-  }
-  return res.text();
+  return requestText('/config/toml');
 }
 
 // ─── DB-backed Config APIs ──────────────────────────────────────────────────
 
-export async function listProviders(): Promise<LLMProvider[]> {
-  return request<LLMProvider[]>("/config/providers");
+export async function listProviders(options?: RequestInit): Promise<LLMProvider[]> {
+  return request<LLMProvider[]>("/config/providers", options);
 }
 
 export async function createProvider(data: LLMProvider): Promise<LLMProvider> {
@@ -79,8 +69,8 @@ export async function listProviderRemoteModels(id: string): Promise<string[]> {
   return request<string[]>(`/config/providers/${id}/remote-models`);
 }
 
-export async function listModels(): Promise<LLMModel[]> {
-  return request<LLMModel[]>("/config/models");
+export async function listModels(options?: RequestInit): Promise<LLMModel[]> {
+  return request<LLMModel[]>("/config/models", options);
 }
 
 export async function createModel(data: LLMModel): Promise<LLMModel> {

@@ -7,6 +7,7 @@
   "files": [
     "main.js",
     "preload.js",
+    "electron/remote-auth-policy.mjs",
     "package.json",
     "dist/**/*"
   ],

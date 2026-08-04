@@ -1,6 +1,6 @@
 import { Streamdown } from 'streamdown'
 import { code } from '@streamdown/code'
-import { useRef, memo } from 'react'
+import { memo } from 'react'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
 import remarkGfm from 'remark-gfm'
@@ -11,6 +11,8 @@ interface MarkdownPreviewProps {
   content?: string
   children?: string
   className?: string
+  /** Enables Streamdown's incomplete-markdown mode for live output. */
+  isAnimating?: boolean
   onToggleCheckbox?: (index: number) => void
   /** Absolute path to the .md file on disk, used to resolve relative image paths. */
   basePath?: string
@@ -23,22 +25,23 @@ function MarkdownPreviewInner({
   content,
   children,
   className,
+  isAnimating = false,
   onToggleCheckbox,
   basePath,
 }: MarkdownPreviewProps) {
   const contentVal = content ?? children ?? ''
   if (!contentVal) return null
 
-  // Use a ref so checkboxIndex resets each render — Streamdown calls
-  // the input renderer once per checkbox in source order on each parse.
-  const checkboxIndexRef = useRef(0)
-  checkboxIndexRef.current = 0
+  // Streamdown calls the input renderer in source order during this render.
+  // A render-local counter gives each checkbox a stable source-order index
+  // without mutating a ref during render.
+  let checkboxIndex = 0
 
   return (
     <div className={cn('markdown-preview', className)}>
       <Streamdown
-        parseIncompleteMarkdown={false}
-        isAnimating={false}
+        parseIncompleteMarkdown={isAnimating}
+        isAnimating={isAnimating}
         shikiTheme={['github-light', 'github-dark']}
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
@@ -84,7 +87,7 @@ function MarkdownPreviewInner({
           },
           input({ type, checked, ...props }: any) {
             if (type === 'checkbox') {
-              const currentIndex = checkboxIndexRef.current++
+              const currentIndex = checkboxIndex++
               return (
                 <input
                   type="checkbox"
@@ -119,9 +122,14 @@ export const MarkdownPreview = memo(
   (prev, next) =>
     (prev.content ?? prev.children) === (next.content ?? next.children) &&
     prev.className === next.className &&
+    prev.isAnimating === next.isAnimating &&
     prev.basePath === next.basePath &&
     prev.onToggleCheckbox === next.onToggleCheckbox,
 )
+
+// Both static documents and live chat output use the same Streamdown
+// renderer. The only difference is whether incomplete Markdown is tolerated.
+export const StreamdownPreview = MarkdownPreview
 
 /**
  * Resolve a relative path (e.g. `./images/foo.png` or `../other.md`) against an

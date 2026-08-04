@@ -31,6 +31,7 @@ export function applyTheme(mode: ThemeMode): void {
   const isDark =
     mode === 'dark' ||
     (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  document.documentElement.classList.toggle('dark', isDark)
   document.documentElement.classList.toggle('light', !isDark)
 }
 
@@ -39,6 +40,7 @@ export function listenSystemTheme(): () => void {
   const mq = window.matchMedia('(prefers-color-scheme: dark)')
   const handler = () => {
     if (getStoredTheme() === 'system') {
+      document.documentElement.classList.toggle('dark', mq.matches)
       document.documentElement.classList.toggle('light', !mq.matches)
     }
   }
@@ -54,4 +56,3 @@ export const CODE_PREVIEW_CONFIG = {
   padding: '0.75rem 1rem',
   borderRadius: '0.5rem',
 }
-

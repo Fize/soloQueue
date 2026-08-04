@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
+import { wsManager } from '@/lib/websocket'
 import {
   Wifi,
   WifiOff,
@@ -321,12 +322,22 @@ export function ConnectionTab() {
     }
     try {
       await saveConfig()
-      // When switching to remote mode, stop the local Go backend
-      if (mode === 'remote' && isElectron) {
-        try {
-          const ea = (window as any).electronAPI
-          await ea.stopBackend()
-        } catch { /* backend may not be running, ignore */ }
+      if (isElectron) {
+        const ea = (window as any).electronAPI
+        if (mode === 'remote') {
+          // Remote mode must never keep the bundled local backend alive.
+          try {
+            await ea.stopBackend()
+          } catch { /* backend may not be running, ignore */ }
+        } else {
+          const result = await ea.startBackend()
+          if (!result.success) throw new Error(result.error || t('connection.startFailed'))
+        }
+
+        // The active socket was created for the previous mode/origin. Force a
+        // clean reconnect so a mode change cannot silently keep using it.
+        wsManager.disconnect()
+        await wsManager.connect()
       }
       toast.success(t('connection.saveSuccess'))
     } catch {

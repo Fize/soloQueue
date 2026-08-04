@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { wsManager } from '@/lib/websocket'
@@ -22,12 +22,13 @@ function isSystemSlashCommand(prompt: string): boolean {
 }
 
 export function useChatStream() {
-  const activeRequestsRef = useRef<Record<string, string>>({})
-
   const {
     activeSessionId,
-    titleGenerated,
     addMessage,
+    registerRequest,
+    updateRequestStatus,
+    updateRequestRoute,
+    removeRequest,
     appendAssistantContent,
     appendAssistantThinking,
     appendAssistantCompact,
@@ -57,11 +58,18 @@ export function useChatStream() {
       const sid = sessionIdOverride || state.activeSessionId
       if (!sid || !prompt.trim()) return
 
-      // The session may already be streaming (busy). Instead of dropping the
-      // message, we still send it: the server queues it and replies with
-      // chat_queued. We must NOT touch the shared streaming/route state in
-      // that case — it belongs to the in-flight request.
-      const isBusy = !!state.streamingSessions[sid]
+      const activeForSession = Object.values(state.activeRequests).filter(
+        (request) => request.sessionId === sid
+      )
+      // The backend permits L1 parallel requests but keeps L2/L3 single-flight.
+      // A legacy streaming flag is retained as a compatibility fallback for
+      // requests created before the request registry was introduced.
+      const isBusy = sid !== 'l1' && (activeForSession.length > 0 || !!state.streamingSessions[sid])
+      const ownsSessionState = activeForSession.length === 0 && !state.streamingSessions[sid]
+      // Older restored sessions may only have the legacy streaming flag and
+      // no request entry yet. Keep that state alive when this newer request
+      // is acknowledged as queued.
+      const inheritedSessionState = activeForSession.length === 0 && !!state.streamingSessions[sid]
 
       const trimmedPrompt = prompt.trim().toLowerCase()
       const isClear = trimmedPrompt === '/clear'
@@ -90,14 +98,16 @@ export function useChatStream() {
       const isDesignMode = useRuntimeStore.getState().isDesignMode
 
       const requestId = generateRequestId()
-      if (!isBusy) {
-        activeRequestsRef.current[sid] = requestId
-        setRoute({
-          requestId,
-          sessionId: sid,
-          taskLevel: '',
-          modelId: '',
-        })
+      const initialRoute = {
+        requestId,
+        sessionId: sid,
+        taskLevel: '',
+        modelId: '',
+      }
+      const ownsRoute = !isBusy || sid === 'l1'
+      registerRequest(requestId, sid, ownsRoute ? initialRoute : undefined)
+      if (ownsRoute) {
+        setRoute(initialRoute)
       }
 
       // Add empty assistant message placeholder.
@@ -109,7 +119,7 @@ export function useChatStream() {
         timestamp: new Date().toISOString(),
       })
 
-      if (!isBusy) {
+      if (ownsSessionState) {
         setStreaming(true, sid)
         if (isSystemCommand) {
           setSystemCommandRunning(true, sid)
@@ -124,28 +134,36 @@ export function useChatStream() {
       const finishRequest = () => {
         if (finished) return
         finished = true
-        // A queued request never owned the streaming/route state — leave it
-        // untouched so the in-flight request keeps working.
-        if (!isBusy) {
+        removeRequest(requestId)
+        const remaining = Object.values(useChatStore.getState().activeRequests).filter(
+          (request) => request.sessionId === sid
+        )
+        if (remaining.length === 0 && !inheritedSessionState) {
           setStreaming(false, sid)
           setSystemCommandRunning(false, sid)
           setDelegating(false, sid)
           clearRoute(sid, requestId)
-          delete activeRequestsRef.current[sid]
+        } else if (useChatStore.getState().routeSessions[sid]?.requestId === requestId) {
+          const fallbackRoute = [...remaining].reverse().find((request) => request.route)?.route
+          if (fallbackRoute) setRoute(fallbackRoute)
+          else if (!inheritedSessionState) clearRoute(sid, requestId)
         }
         wsManager.unregisterChat(requestId)
       }
 
       const handler: ChatHandler = {
         onRoute: (data) => {
-          setRoute({
+          updateRequestStatus(requestId, 'streaming')
+          const route = {
             requestId: data.request_id,
             sessionId: data.session_id,
-			taskLevel: data.task_type,
+            taskLevel: data.task_type,
             modelId: data.model_id,
             providerId: data.provider_id,
             agentInstanceId: data.agent_instance_id,
-          })
+          }
+          updateRequestRoute(requestId, route)
+          setRoute(route)
         },
         onChunk: (delta) => {
           if (isCompact) {
@@ -178,6 +196,7 @@ export function useChatStream() {
           )
         },
         onToolConfirm: (data) => {
+          updateRequestStatus(requestId, 'waiting-confirm')
           updateAssistantSegment(sid, asstId, {
             type: 'tool_confirm',
             callId: data.call_id,
@@ -217,6 +236,7 @@ export function useChatStream() {
               data.error ||
               '⏳ Message queued — it will be processed in the current task turn.',
           })
+          updateRequestStatus(requestId, 'queued')
           finishRequest()
         },
         onError: (error) => {
@@ -225,6 +245,7 @@ export function useChatStream() {
           useChatStore.getState().loadHistory(sid)
         },
         onDelegationStart: () => {
+          updateRequestStatus(requestId, 'streaming')
           setDelegating(true, sid)
         },
         onDelegationDone: (data) => {
@@ -252,8 +273,6 @@ export function useChatStream() {
       })
     },
     [
-      activeSessionId,
-      titleGenerated,
       addMessage,
       appendAssistantContent,
       appendAssistantThinking,
@@ -269,6 +288,10 @@ export function useChatStream() {
       setDelegating,
       setRoute,
       clearRoute,
+      registerRequest,
+      updateRequestStatus,
+      updateRequestRoute,
+      removeRequest,
     ]
   )
 
@@ -277,17 +300,29 @@ export function useChatStream() {
     if (!sid) return
 
     const store = useChatStore.getState()
-    const requestId = activeRequestsRef.current[sid] || store.routeSessions[sid]?.requestId
+    const requestId = Object.values(store.activeRequests)
+      .filter((request) => request.sessionId === sid)
+      .at(-1)?.requestId || store.routeSessions[sid]?.requestId
     if (!requestId) return
 
-    // Immediately update local state so the stop button reverts to the send
-    // button without waiting for the server chat_done round-trip.
-    store.setStreaming(false, sid)
-    store.setDelegating(false, sid)
-    store.setSystemCommandRunning(false, sid)
-    store.clearRoute(sid, requestId)
     store.cancelRunningDelegations(sid)
-    delete activeRequestsRef.current[sid]
+    store.updateRequestStatus(requestId, 'cancelling')
+    store.removeRequest(requestId)
+    const remaining = Object.values(useChatStore.getState().activeRequests).filter(
+      (request) => request.sessionId === sid
+    )
+    // Only clear session-level indicators when this was the last request.
+    // L1 is allowed to have multiple in-flight requests concurrently.
+    if (remaining.length === 0) {
+      store.setStreaming(false, sid)
+      store.setDelegating(false, sid)
+      store.setSystemCommandRunning(false, sid)
+      store.clearRoute(sid, requestId)
+    } else if (store.routeSessions[sid]?.requestId === requestId) {
+      const fallbackRoute = [...remaining].reverse().find((request) => request.route)?.route
+      if (fallbackRoute) store.setRoute(fallbackRoute)
+      else store.clearRoute(sid, requestId)
+    }
     // Unregister the chat handler to prevent buffered WS chunks from
     // appending to messages after the cancel has been initiated.
     wsManager.unregisterChat(requestId)

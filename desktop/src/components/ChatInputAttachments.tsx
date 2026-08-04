@@ -68,9 +68,8 @@ export function ChatInputAttachments({
                 onClick={() => {
                   if (att.path) {
                     // Electron: open file with system default app
-                    const api = (window as any).electronAPI
-                    if (api?.openPath) {
-                      api.openPath(att.path)
+                    if (window.electronAPI?.openPath) {
+                      void window.electronAPI.openPath(att.path)
                     } else {
                       window.open(att.previewUrl, '_blank')
                     }

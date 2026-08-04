@@ -3,7 +3,7 @@
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/code/dist/*.js";
 
-@custom-variant dark (&:is(.light *));
+@custom-variant dark (&:where(.dark, .dark *));
 @custom-variant data-horizontal (&[data-orientation="horizontal"]);
 @custom-variant data-vertical (&[data-orientation="vertical"]);
 
@@ -244,32 +244,6 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* Custom Utilities for Native Mac Visuals */
-.mac-vibrancy-light {
-  backdrop-filter: blur(20px) saturate(190%);
-  background-color: rgba(255, 255, 255, 0.72);
-}
-
-.mac-vibrancy-dark {
-  backdrop-filter: blur(20px) saturate(140%);
-  background-color: rgba(9, 9, 11, 0.75);
-}
-
-.mac-vibrancy {
-  backdrop-filter: blur(20px) saturate(190%);
-  background-color: rgba(255, 255, 255, 0.72);
-}
-
-.light .mac-vibrancy {
-  backdrop-filter: blur(20px) saturate(140%);
-  background-color: rgba(9, 9, 11, 0.75);
-}
-
-/* Native List Separators */
-.mac-list-divider {
-  border-bottom: 0.5px solid var(--border);
-}
-
 /* ─── Markdown Preview ───────────────────────────────────────────── */
 .markdown-preview {
   overflow-wrap: break-word;
@@ -414,59 +388,6 @@ body {
   padding: 0 !important;
 }
 
-/* Table action buttons */
-.markdown-table-actions {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-.markdown-table-actions > button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 0.375rem;
-  color: var(--muted-foreground);
-  background: var(--sidebar);
-  border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
-  cursor: pointer;
-  transition: color 150ms ease, background-color 150ms ease;
-}
-.markdown-table-actions > button:hover {
-  color: var(--foreground);
-  background: color-mix(in srgb, var(--muted) 60%, transparent);
-}
-.markdown-table-actions .dropdown {
-  position: absolute;
-  top: calc(100% + 0.25rem);
-  right: 0;
-  min-width: 7.5rem;
-  border-radius: 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
-  background: var(--background);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-}
-.markdown-table-actions .dropdown button {
-  width: 100%;
-  padding: 0.45rem 0.75rem;
-  text-align: left;
-  font-size: 0.8125rem;
-  color: var(--foreground);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: background-color 150ms ease;
-}
-.markdown-table-actions .dropdown button:hover {
-  background: color-mix(in srgb, var(--muted) 50%, transparent);
-}
-
 /* Streamdown table controls: push controls down so they don't overlap header */
 .markdown-preview [data-streamdown="table-wrapper"] > div:first-child:has(button) {
   padding: 0.25rem 0.25rem 0;
@@ -570,20 +491,6 @@ html.light .markdown-preview pre code span {
  * (.animate-led-breathing). The outer pill keeps a static gradient
  * with a soft horizontal shimmer so the chip reads as "alive" without
  * scaling/oscillating the level + model text inside it. */
-@keyframes agent-working-breathe {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.92;
-    box-shadow: 0 0 0 0 transparent;
-  }
-  50% {
-    transform: scale(1.02);
-    opacity: 1;
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-signal) 8%, transparent),
-                0 0 20px 0 color-mix(in srgb, var(--color-signal) 16%, transparent);
-  }
-}
-
 /* Custom smooth breathing glowing LED light keyframes */
 @keyframes led-breathing {
   0%, 100% {

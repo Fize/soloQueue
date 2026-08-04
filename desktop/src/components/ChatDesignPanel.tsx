@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import type { FileInfo } from "@/types";
 import type { PreviewCommentSnapshot } from "@/types/annotation";
 import {
-  listFiles, getFileUrl, getHealthInfo, saveFile
+  listFiles, readFile, getHealthInfo, saveFile
 } from "@/lib/api";
 import { DesignPreview } from "@/components/DesignPreview";
 import type { ColoredStroke } from "@/components/ui/DrawOverlay";
@@ -195,9 +195,7 @@ export function ChatDesignPanel({
         if (activeTab.endsWith('.sketch')) {
           await saveFile(activeTab, JSON.stringify(newStrokes));
         } else {
-          const res = await fetch(getFileUrl(activeTab), { cache: 'no-store' });
-          if (!res.ok) return;
-          const text = await res.text();
+          const text = await readFile(activeTab);
           const updatedHtml = updateStrokesInHtml(text, newStrokes);
           await saveFile(activeTab, updatedHtml);
         }
@@ -350,20 +348,14 @@ export function ChatDesignPanel({
     async function fetchHtml() {
       try {
         if (activeTab.endsWith('.sketch')) {
-          const res = await fetch(getFileUrl(activeTab), { cache: 'no-store' });
-          if (cancelled) return;
-          if (!res.ok) throw new Error('Failed to load sketch content.');
-          const text = await res.text();
+          const text = await readFile(activeTab);
           if (cancelled) return;
           try { setStrokes(JSON.parse(text)); } catch { setStrokes([]); }
           const BLANK_HTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body { margin:0; background:#fafafa; background-image: radial-gradient(circle, #e5e7eb 1.5px, transparent 1.5px); background-size: 24px 24px; height:100vh; width:100vw; overflow:hidden; }</style></head><body></body></html>`;
           setDesignHtmlContent(BLANK_HTML);
           setDesignError(null);
         } else {
-          const res = await fetch(getFileUrl(activeTab), { cache: 'no-store' });
-          if (cancelled) return;
-          if (!res.ok) throw new Error('Failed to load HTML content.');
-          const text = await res.text();
+          const text = await readFile(activeTab);
           if (cancelled) return;
           setDesignHtmlContent(text);
           setStrokes(extractStrokesFromHtml(text));

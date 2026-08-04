@@ -7,8 +7,7 @@ import type {
   SessionHistoryResponse,
   ChangesResponse,
 } from "@/types";
-import { request, API_BASE } from "./core";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { request, requestBlob, requestForm, requestRootJson, requestText } from "./core";
 
 // ─── File APIs ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +30,15 @@ export async function saveFile(path: string, content: string): Promise<void> {
     method: "POST",
     body: JSON.stringify({ path, content }),
   });
+}
+
+export async function readFile(path: string): Promise<string> {
+  return requestText(`/files/content?path=${encodeURIComponent(path)}`)
+}
+
+export async function readFileBytes(path: string): Promise<ArrayBuffer> {
+  const blob = await requestBlob(`/files/content?path=${encodeURIComponent(path)}`)
+  return blob.arrayBuffer()
 }
 
 // ─── Dependency APIs ───────────────────────────────────────────────────────────
@@ -125,24 +133,9 @@ export async function uploadFile(
     formData.append("session_id", sessionId);
   }
 
-  const base = useConnectionStore.getState().getEffectiveBaseUrl();
-  const url = base ? `${base}${API_BASE}/session/upload` : `${API_BASE}/session/upload`;
-  const headers = {
-    ...useConnectionStore.getState().getAuthHeaders(),
-  };
-
-  const res = await fetch(url, {
+  return requestForm<{ name: string; path: string; size: number }>("/session/upload", formData, {
     method: "POST",
-    headers,
-    body: formData,
   });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Upload failed: ${res.statusText}`);
-  }
-
-  return res.json();
 }
 
 export async function getSessionChanges(
@@ -157,11 +150,7 @@ export async function getSessionChanges(
 // ─── Misc ────────────────────────────────────────────────────────────────────
 
 export async function getHealthInfo(): Promise<{ status: string; work_dir?: string }> {
-  const base = useConnectionStore.getState().getEffectiveBaseUrl();
-  const url = base ? `${base}/healthz` : "/healthz";
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch health info");
-  return res.json();
+  return requestRootJson<{ status: string; work_dir?: string }>("/healthz");
 }
 
 // ─── Stats APIs ───────────────────────────────────────────────────────────────

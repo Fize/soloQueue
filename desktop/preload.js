@@ -22,10 +22,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Native directory picker
   selectDirectory: () => ipcRenderer.invoke('dialog:select-directory'),
+  openPath: (filePath) => ipcRenderer.invoke('shell:open-path', filePath),
 
-  // Notify main process when remote connection config changes
-  // so it can update webRequest auth header injection.
-  notifyRemoteConfigChanged: () => ipcRenderer.send('remote:config-changed'),
+  // Persist remote connection settings in the Electron main process. The
+  // password is accepted only for this call and is never written by Renderer
+  // code to localStorage.
+  saveRemoteConfig: (config) => ipcRenderer.invoke('remote:save-config', config),
+  getRemoteConfig: () => ipcRenderer.invoke('remote:get-config'),
 
   // Push the current connection state to the macOS menu bar Tray.
   // See main.js: `tray:update-status` handler. Safe to call before the

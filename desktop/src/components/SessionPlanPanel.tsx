@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Loader2, FileText } from "lucide-react";
-import { getFileUrl, toggleFileCheckbox } from "@/lib/api";
+import { readFile, toggleFileCheckbox } from "@/lib/api";
 import { MarkdownPreview } from "@/components/ui/markdown-preview";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
@@ -27,12 +27,7 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
     if (showSpinner) setLoading(true);
     setError("");
     try {
-      const url = getFileUrl(path);
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) {
-        throw new Error(`Failed to load plan file: ${res.statusText}`);
-      }
-      const text = await res.text();
+      const text = await readFile(path);
       setContent(text);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));

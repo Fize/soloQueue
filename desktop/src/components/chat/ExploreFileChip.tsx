@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { Search, X, Loader2, AlertCircle } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
-import { getFileUrl } from '@/lib/api'
+import { readFile } from '@/lib/api'
 
 interface ExploreFileChipProps {
   /** Absolute path to the explore .md file, e.g. /Users/x/.soloqueue/explore/foo_agent.md */
@@ -29,9 +29,7 @@ export function ExploreFileChip({ path, label }: ExploreFileChipProps) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(getFileUrl(path), { cache: 'no-store' })
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-      setContent(await res.text())
+      setContent(await readFile(path))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load file')
     } finally {
@@ -168,4 +166,3 @@ export function preprocessExplorePaths(content: string): string {
     return `[${filename}](${path})`
   })
 }
-

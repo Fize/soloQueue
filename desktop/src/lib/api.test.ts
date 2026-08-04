@@ -13,6 +13,8 @@ import {
   updateMCPConfig,
   getFileUrl,
   listFiles,
+  createSimulationFromSeed,
+  controlSimulation,
 } from './api'
 
 beforeEach(() => {
@@ -128,6 +130,32 @@ describe('api', () => {
       const files = await listFiles('/dir')
       expect(fetch).toHaveBeenCalledWith('/api/files/list?dir=%2Fdir', expect.any(Object))
       expect(files).toHaveLength(1)
+    })
+  })
+
+  describe('simulations', () => {
+    it('preserves the seed creation contract', async () => {
+      mockResponse({ simulation_id: 'sim-1' })
+      const result = await createSimulationFromSeed({ seed_text: 'seed', topic: 'topic' })
+
+      expect(result.simulation_id).toBe('sim-1')
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/simulations/from-seed',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ seed_text: 'seed', topic: 'topic' }),
+        })
+      )
+    })
+
+    it('keeps simulation controls as POST actions', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }))
+      await controlSimulation('sim-1', 'pause')
+
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/simulations/sim-1/pause',
+        expect.objectContaining({ method: 'POST' })
+      )
     })
   })
 })

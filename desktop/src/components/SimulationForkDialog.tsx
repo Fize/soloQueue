@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useTranslation } from '@/lib/i18n'
+import { forkSimulation } from '@/lib/api'
 
 interface SimulationForkDialogProps {
   open: boolean
@@ -44,22 +45,10 @@ export function SimulationForkDialog({
   const handleFork = async () => {
     setForking(true)
     try {
-      const res = await fetch(`/api/simulations/${simulationId}/fork`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('soloqueue_token')}`,
-        },
-        body: JSON.stringify({
+      const data = await forkSimulation(simulationId, {
           new_topic: forkTopic,
           new_max_wall_clock_ms: forkMaxWallClockMin * 60 * 1000,
-        }),
       })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || t('simulation.forkFailed'))
-      }
-      const data = await res.json()
       toast.success(t('simulation.forkSuccess'))
       onOpenChange(false)
       navigate(`/simulations/${data.new_simulation_id}`)

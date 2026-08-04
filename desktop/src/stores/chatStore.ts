@@ -3,10 +3,20 @@ import type { ChatSession, ChatMessage, ChatSegment, ChatRouteInfo } from '@/typ
 import { listSessions, createL2Session, deleteL2Session, fetchSessionHistory, rewindSession as apiRewindSession, deleteSessionMessages as apiDeleteSessionMessages } from '@/lib/api'
 import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
 
+export type ChatRequestStatus = 'starting' | 'streaming' | 'waiting-confirm' | 'queued' | 'cancelling'
+
+export interface ActiveChatRequest {
+  requestId: string
+  sessionId: string
+  status: ChatRequestStatus
+  route?: ChatRouteInfo
+}
+
 interface ChatState {
   sessions: ChatSession[]
   activeSessionId: string | null
   messages: Record<string, ChatMessage[]> // keyed by session id
+  activeRequests: Record<string, ActiveChatRequest>
   streamingSessions: Record<string, boolean>
   systemCommandSessions: Record<string, boolean> // keyed by session id, true while a built-in system slash command (/clear, /compact, /cancel, /help, /version) is being executed. Used to suppress the L0–L3 / model chips in the working indicator, since those commands don't run a routed task.
   delegatingSessions: Record<string, boolean> // keyed by session id, true when async delegation is in progress (L1 waiting for L2)
@@ -28,6 +38,10 @@ interface ChatState {
   markTitleGenerated: (id: string) => void
 
   addMessage: (sessionId: string, message: ChatMessage) => void
+  registerRequest: (requestId: string, sessionId: string, route?: ChatRouteInfo) => void
+  updateRequestStatus: (requestId: string, status: ChatRequestStatus) => void
+  updateRequestRoute: (requestId: string, route: ChatRouteInfo) => void
+  removeRequest: (requestId: string) => void
   updateAssistantSegment: (sessionId: string, messageId: string, segment: ChatSegment) => void
   appendAssistantContent: (sessionId: string, messageId: string, text: string) => void
   appendAssistantThinking: (sessionId: string, messageId: string, text: string) => void
@@ -66,6 +80,7 @@ export const useChatStore = create<ChatState>((set) => ({
   sessions: [],
   activeSessionId: null,
   messages: {},
+  activeRequests: {},
   streamingSessions: {},
   systemCommandSessions: {},
   delegatingSessions: {},
@@ -155,6 +170,9 @@ export const useChatStore = create<ChatState>((set) => ({
         const { [id]: _streaming, ...restStreaming } = s.streamingSessions
         const { [id]: _system, ...restSystem } = s.systemCommandSessions
         const { [id]: _delegating, ...restDelegating } = s.delegatingSessions
+        const activeRequests = Object.fromEntries(
+          Object.entries(s.activeRequests).filter(([, request]) => request.sessionId !== id)
+        )
         return {
           sessions: s.sessions.filter((sess) => sess.id !== id),
           activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
@@ -167,6 +185,7 @@ export const useChatStore = create<ChatState>((set) => ({
           streamingSessions: restStreaming,
           systemCommandSessions: restSystem,
           delegatingSessions: restDelegating,
+          activeRequests,
         }
       })
     } catch {
@@ -321,6 +340,42 @@ export const useChatStore = create<ChatState>((set) => ({
       }
     })
   },
+
+  registerRequest: (requestId: string, sessionId: string, route?: ChatRouteInfo) =>
+    set((s) => ({
+      activeRequests: {
+        ...s.activeRequests,
+        [requestId]: { requestId, sessionId, status: 'starting', route },
+      },
+    })),
+  updateRequestStatus: (requestId: string, status: ChatRequestStatus) =>
+    set((s) => {
+      const request = s.activeRequests[requestId]
+      if (!request) return s
+      return {
+        activeRequests: {
+          ...s.activeRequests,
+          [requestId]: { ...request, status },
+        },
+      }
+    }),
+  updateRequestRoute: (requestId: string, route: ChatRouteInfo) =>
+    set((s) => {
+      const request = s.activeRequests[requestId]
+      if (!request) return s
+      return {
+        activeRequests: {
+          ...s.activeRequests,
+          [requestId]: { ...request, route },
+        },
+      }
+    }),
+  removeRequest: (requestId: string) =>
+    set((s) => {
+      if (!s.activeRequests[requestId]) return s
+      const { [requestId]: _removed, ...activeRequests } = s.activeRequests
+      return { activeRequests }
+    }),
 
   updateAssistantSegment: (sessionId: string, messageId: string, segment: ChatSegment) => {
     set((s) => {

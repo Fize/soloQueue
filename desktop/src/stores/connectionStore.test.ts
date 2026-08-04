@@ -1,48 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useConnectionStore } from './connectionStore'
 
 describe('connectionStore', () => {
   beforeEach(() => {
+    delete (window as any).electronAPI
     useConnectionStore.setState({
       mode: 'local',
       remoteUrl: '',
       username: '',
       password: '',
-    })
-  })
-
-  describe('getAuthHeaders', () => {
-    it('returns empty object in local mode', () => {
-      useConnectionStore.setState({ mode: 'local' })
-      const headers = useConnectionStore.getState().getAuthHeaders()
-      expect(headers).toEqual({})
-    })
-
-    it('returns empty object in remote mode without credentials', () => {
-      useConnectionStore.setState({ mode: 'remote', remoteUrl: 'http://example.com' })
-      const headers = useConnectionStore.getState().getAuthHeaders()
-      expect(headers).toEqual({})
-    })
-
-    it('returns empty object in remote mode with username only', () => {
-      useConnectionStore.setState({
-        mode: 'remote',
-        remoteUrl: 'http://example.com',
-        username: 'user',
-      })
-      const headers = useConnectionStore.getState().getAuthHeaders()
-      expect(headers).toEqual({})
-    })
-
-    it('returns Basic auth header in remote mode with credentials', () => {
-      useConnectionStore.setState({
-        mode: 'remote',
-        remoteUrl: 'http://example.com',
-        username: 'admin',
-        password: 'secret123',
-      })
-      const headers = useConnectionStore.getState().getAuthHeaders()
-      expect(headers.Authorization).toBe('Basic ' + btoa('admin:secret123'))
     })
   })
 
@@ -58,6 +24,29 @@ describe('connectionStore', () => {
       const url = useConnectionStore.getState().getEffectiveBaseUrl()
       expect(url).toBe('http://example.com')
     })
+  })
+
+  it('hydrates public connection settings from Electron Main without a password', async () => {
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        getRemoteConfig: vi.fn().mockResolvedValue({
+          mode: 'remote',
+          remoteUrl: 'https://remote.example',
+          username: 'alice',
+        }),
+      },
+    })
+
+    await useConnectionStore.getState().loadConfig()
+
+    expect(useConnectionStore.getState()).toMatchObject({
+      mode: 'remote',
+      remoteUrl: 'https://remote.example',
+      username: 'alice',
+      password: '',
+    })
+    expect(localStorage.getItem('soloqueue_remote_password')).toBeNull()
   })
 
   describe('getEffectiveWsUrl', () => {

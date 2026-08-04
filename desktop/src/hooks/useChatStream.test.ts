@@ -20,6 +20,7 @@ beforeEach(() => {
     ],
     activeSessionId: 'l2:session-A',
     messages: {},
+    activeRequests: {},
     streamingSessions: {},
     delegatingSessions: {},
     routeSessions: {},
@@ -70,8 +71,8 @@ describe('useChatStream', () => {
     expect(cancelCall).toBeDefined()
     const cancelMsg = cancelCall![0] as any
 
-    // With session-keyed activeRequestsRef, cancelling session-A sends reqA (its own active request),
-    // NOT reqB from session-B.
+    // Request ownership is keyed by request id and session id, so cancelling
+    // session A sends reqA, not reqB from session B.
     expect(cancelMsg.session_id).toBe('l2:session-A')
     expect(cancelMsg.request_id).toBe(reqA)
   })
@@ -144,5 +145,34 @@ describe('useChatStream', () => {
       { type: 'content', text: 'owned response' },
     ])
     expect(messagesAfter.find((message) => message.id === 'newer-assistant')?.segments).toEqual([])
+  })
+
+  it('keeps L1 requests independent when one completes or is cancelled', async () => {
+    useChatStore.setState({ activeSessionId: 'l1', messages: {}, streamingSessions: {} })
+    const { result } = renderHook(() => useChatStream())
+
+    await act(async () => {
+      await result.current.send('first L1 request', undefined, 'l1')
+      await result.current.send('second L1 request', undefined, 'l1')
+    })
+
+    const handlers = vi.mocked(wsManager.registerChat).mock.calls.map((call) => call[1])
+    expect(handlers).toHaveLength(2)
+    expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(2)
+    expect(useChatStore.getState().streamingSessions.l1).toBe(true)
+
+    act(() => {
+      handlers[0].onDone?.({ content: '', reasoning_content: '' })
+    })
+
+    expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(1)
+    expect(useChatStore.getState().streamingSessions.l1).toBe(true)
+
+    act(() => {
+      result.current.cancel()
+    })
+
+    expect(useChatStore.getState().activeRequests).toEqual({})
+    expect(useChatStore.getState().streamingSessions.l1).toBe(false)
   })
 })

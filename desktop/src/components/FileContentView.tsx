@@ -2,7 +2,7 @@ import { useTranslation } from '@/lib/i18n'
 import { useState, useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
-import { getFileUrl, toggleFileCheckbox } from '@/lib/api'
+import { getFileUrl, readFileBytes, toggleFileCheckbox } from '@/lib/api'
 import { Loader2, FileIcon, Copy, Check, MousePointer2, Edit3, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CODE_PREVIEW_CONFIG } from '@/lib/theme'
@@ -78,11 +78,7 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
 
     setLoading(true)
     setError(null)
-    fetch(getFileUrl(path), { cache: 'no-store' })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.arrayBuffer()
-      })
+    readFileBytes(path)
       .then((buf) => {
         // Content-based binary detection: if the file contains NUL bytes it
         // is binary regardless of extension. Prevents freezing the renderer.

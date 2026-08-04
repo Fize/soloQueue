@@ -56,6 +56,16 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
+import {
+  askSimulationAgent,
+  controlSimulation,
+  deleteSimulation,
+  getSimulation,
+  getSimulationEnvironment,
+  listModels,
+  listProviders,
+  updateSimulation,
+} from '@/lib/api'
 
 const MAX_MESSAGES = 500
 const MAX_CHAT_HISTORY = 20
@@ -130,11 +140,8 @@ export function SimulationDetailPage() {
   const fetchEnvironment = useCallback(async () => {
     if (!id) return
     try {
-      const res = await fetch(`/api/simulations/${id}/environment`)
-      if (res.ok) {
-        const data = await res.json()
-        setWorldState(data.world_state || null)
-      }
+      const data = await getSimulationEnvironment(id)
+      setWorldState(data.world_state || null)
     } catch (err) {
       console.error('Failed to fetch environment state', err)
     }
@@ -229,16 +236,12 @@ export function SimulationDetailPage() {
     const abortController = new AbortController()
     const fetchConfigOptions = async () => {
       try {
-        const provRes = await fetch('/api/config/providers', { signal: abortController.signal })
-        if (provRes.ok) {
-          const provData = await provRes.json()
-          setProviders(provData || [])
-        }
-        const modelRes = await fetch('/api/config/models', { signal: abortController.signal })
-        if (modelRes.ok) {
-          const modelData = await modelRes.json()
-          setModels(modelData || [])
-        }
+        const [provData, modelData] = await Promise.all([
+          listProviders({ signal: abortController.signal }),
+          listModels({ signal: abortController.signal }),
+        ])
+        setProviders(provData || [])
+        setModels(modelData || [])
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           console.error(t('simulation.loadLLMConfigFailed'), err)
@@ -270,10 +273,7 @@ export function SimulationDetailPage() {
     if (!id || !state) return
     try {
       setSavingConfig(true)
-      const res = await fetch(`/api/simulations/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const data = await updateSimulation(id, {
           ...state.config,
           topic: editTopic,
           max_wall_clock_ms: editMaxWallClockMin * 60 * 1000,
@@ -282,15 +282,7 @@ export function SimulationDetailPage() {
           enable_reflection: editEnableReflection,
           personas: editPersonas,
           language: editLanguage,
-        }),
       })
-
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || t('simulation.updateConfigFailed'))
-      }
-
-      const data = await res.json()
       const mappedState: SimulationState = {
         ...data,
         id: data.config?.id || data.run_id || id,
@@ -320,13 +312,10 @@ export function SimulationDetailPage() {
   }
 
   const fetchState = useCallback(async () => {
+    if (!id) return
     try {
       setLoading(true)
-      const res = await fetch(`/api/simulations/${id}`)
-      if (!res.ok) {
-        throw new Error('Simulation not found')
-      }
-      const data = await res.json()
+      const data = await getSimulation(id)
       const mappedState: SimulationState = {
         ...data,
         id: data.config?.id || data.run_id || id,
@@ -512,9 +501,7 @@ export function SimulationDetailPage() {
           completionPollRef.current = setInterval(async () => {
             if (!id) return
             try {
-              const res = await fetch(`/api/simulations/${id}`)
-              if (!res.ok) return
-              const data = await res.json()
+              const data = await getSimulation(id)
               if (data.status === 'completed' || data.status === 'failed') {
                 setState((prev) =>
                   prev ? { ...prev, status: data.status, report: data.report || prev.report } : null
@@ -609,11 +596,7 @@ export function SimulationDetailPage() {
     if (!id) return
     try {
       setControlLoading(true)
-      const res = await fetch(`/api/simulations/${id}/pause`, { method: 'POST' })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || t('simulation.pauseSimFailed'))
-      }
+      await controlSimulation(id, 'pause')
       setState((prev) => (prev ? { ...prev, status: 'paused' } : null))
       toast.success(t('simulation.simPaused'))
     } catch (err: any) {
@@ -627,11 +610,7 @@ export function SimulationDetailPage() {
     if (!id) return
     try {
       setControlLoading(true)
-      const res = await fetch(`/api/simulations/${id}/resume`, { method: 'POST' })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || t('simulation.resumeSimFailed'))
-      }
+      await controlSimulation(id, 'resume')
       setState((prev) => (prev ? { ...prev, status: 'running' } : null))
       toast.success(t('simulation.simResumed'))
     } catch (err: any) {
@@ -645,11 +624,7 @@ export function SimulationDetailPage() {
     if (!id) return
     try {
       setControlLoading(true)
-      const res = await fetch(`/api/simulations/${id}/step`, { method: 'POST' })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || t('simulation.stepFailed'))
-      }
+      await controlSimulation(id, 'step')
       toast.success(t('simulation.stepSuccess'))
     } catch (err: any) {
       toast.error(err.message)
@@ -662,11 +637,7 @@ export function SimulationDetailPage() {
     if (!id) return
     try {
       setControlLoading(true)
-      const res = await fetch(`/api/simulations/${id}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || t('simulation.deleteSimFailed'))
-      }
+      await deleteSimulation(id)
       toast.success(t('simulation.simDeleted'))
       navigate('/simulations')
     } catch (err: any) {
@@ -680,11 +651,7 @@ export function SimulationDetailPage() {
     if (!id) return
     try {
       setControlLoading(true)
-      const res = await fetch(`/api/simulations/${id}/start`, { method: 'POST' })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || t('simulation.startSimFailed'))
-      }
+      await controlSimulation(id, 'start')
       // Instantly update local status
       setState((prev) => (prev ? { ...prev, status: 'running' } : null))
     } catch (err: any) {
@@ -703,11 +670,7 @@ export function SimulationDetailPage() {
     setControlLoading(true)
     setStopConfirmOpen(false)
     try {
-      const res = await fetch(`/api/simulations/${id}/stop`, { method: 'POST' })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || t('simulation.stopSimFailed'))
-      }
+      await controlSimulation(id, 'stop')
       setState((prev) => (prev ? { ...prev, status: 'completed' } : null))
       toast.success(t('simulation.simStopped'))
     } catch (err: any) {
@@ -727,13 +690,7 @@ export function SimulationDetailPage() {
     }))
 
     try {
-      const res = await fetch(`/api/simulations/${id}/agents/report/ask`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
-      })
-      if (!res.ok) throw new Error('Failed to query report expert')
-      const data = await res.json()
+      const data = await askSimulationAgent(id, 'report', question)
       setChatHistory((prev) => {
         const history = [...(prev['report'] || [])]
         const idx = history.findIndex((h) => h.q === question && h.loading)
@@ -769,16 +726,7 @@ export function SimulationDetailPage() {
     }))
 
     try {
-      const res = await fetch(`/api/simulations/${id}/agents/${chatAgentId}/ask`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
-      })
-
-      if (!res.ok) {
-        throw new Error('Failed to query agent')
-      }
-      const data = await res.json()
+      const data = await askSimulationAgent(id, chatAgentId, question)
 
       setChatHistory((prev) => {
         const history = [...(prev[chatAgentId] || [])]
@@ -805,16 +753,7 @@ export function SimulationDetailPage() {
 
   const handleAgentInterview = async (agentId: string, question: string): Promise<string> => {
     if (!id) return 'Error: no simulation ID'
-    const res = await fetch(`/api/simulations/${id}/agents/${agentId}/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
-    })
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}))
-      throw new Error(errData.error || 'Failed to query agent')
-    }
-    const data = await res.json()
+    const data = await askSimulationAgent(id, agentId, question)
     return data.answer || 'No answer received.'
   }
 

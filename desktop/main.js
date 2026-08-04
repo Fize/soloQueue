@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, Tray, nativeImage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, session, shell, Tray, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
@@ -6,6 +6,12 @@ import net from 'net'
 import { spawn, execSync } from 'child_process'
 import { fileURLToPath } from 'url'
 import os from 'os'
+import {
+  buildBasicAuthHeader,
+  hasAuthorizationHeader,
+  normalizeRemoteOrigin,
+  shouldInjectRemoteAuth,
+} from './electron/remote-auth-policy.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -624,6 +630,20 @@ ipcMain.handle('dialog:select-directory', async () => {
   return result.filePaths[0]
 })
 
+ipcMain.handle('shell:open-path', async (_event, filePath) => {
+  if (
+    typeof filePath !== 'string' ||
+    !path.isAbsolute(filePath) ||
+    filePath.includes('\0') ||
+    path.normalize(filePath) !== filePath
+  ) {
+    return { success: false, error: 'invalid file path' }
+  }
+
+  const error = await shell.openPath(filePath)
+  return error ? { success: false, error: 'failed to open file' } : { success: true }
+})
+
 function createMenu() {
   const isMac = process.platform === 'darwin'
   const template = [
@@ -691,40 +711,178 @@ function createMenu() {
 
 // ── Remote Auth Header Injection ──────────────────────────
 // Chromium strips the Authorization header from fetch requests originating
-// from file:// (null origin). As a workaround, we register a permanent
-// webRequest.onBeforeSendHeaders filter that conditionally injects the
-// Basic Auth header based on the current remote config state.
+// from file:// (null origin). The main process supplies the header, but only
+// for the configured remote backend's API and health paths.
 
+const CONNECTION_CONFIG_VERSION = 1
 let remoteAuthHeader = null // "Basic <base64>" or null
+let remoteAuthOrigin = null
 
-async function refreshRemoteAuthConfig() {
+function getConnectionConfigPath() {
+  return path.join(app.getPath('userData'), 'connection.json')
+}
+
+function readStoredConnectionConfig() {
   try {
-    const [remoteUrl, username, password] = await Promise.all([
-      mainWindow.webContents.executeJavaScript('localStorage.getItem("soloqueue_remote_url")'),
-      mainWindow.webContents.executeJavaScript('localStorage.getItem("soloqueue_remote_username")'),
-      mainWindow.webContents.executeJavaScript('localStorage.getItem("soloqueue_remote_password")'),
-    ])
-
-    if (remoteUrl && username && password) {
-      remoteAuthHeader = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
-      console.log('[Electron] Remote auth header configured for', remoteUrl)
-    } else {
-      remoteAuthHeader = null
-      console.log('[Electron] Remote auth header cleared')
+    const raw = fs.readFileSync(getConnectionConfigPath(), 'utf8')
+    const stored = JSON.parse(raw)
+    const mode = stored.mode === 'remote' ? 'remote' : 'local'
+    let password = ''
+    if (mode === 'remote' && stored.encryptedPassword && safeStorage.isEncryptionAvailable()) {
+      password = safeStorage.decryptString(Buffer.from(stored.encryptedPassword, 'base64'))
     }
-  } catch (err) {
-    console.error('[Electron] Failed to refresh remote auth config:', err)
+    return {
+      version: stored.version,
+      mode,
+      remoteUrl: typeof stored.remoteUrl === 'string' ? stored.remoteUrl : '',
+      username: typeof stored.username === 'string' ? stored.username : '',
+      password,
+      encryptedPassword: typeof stored.encryptedPassword === 'string' ? stored.encryptedPassword : '',
+    }
+  } catch {
+    return null
   }
 }
 
+function validateConnectionConfig(input) {
+  if (!input || (input.mode !== 'local' && input.mode !== 'remote')) {
+    throw new Error('invalid connection mode')
+  }
+
+  const remoteUrl = typeof input.remoteUrl === 'string' ? input.remoteUrl.trim() : ''
+  const username = typeof input.username === 'string' ? input.username.trim() : ''
+  const password = typeof input.password === 'string' ? input.password : ''
+  const origin = remoteUrl ? normalizeRemoteOrigin(remoteUrl) : null
+
+  if (input.mode === 'remote' && !origin) {
+    throw new Error('remote URL must be an HTTP(S) origin without a path')
+  }
+
+  return { mode: input.mode, remoteUrl: origin || '', username, password }
+}
+
+function persistConnectionConfig(input, { preservePassword = true } = {}) {
+  const next = validateConnectionConfig(input)
+  const previous = readStoredConnectionConfig()
+  let encryptedPassword =
+    next.mode === 'remote' && preservePassword ? previous?.encryptedPassword || '' : ''
+
+  if (next.password) {
+    if (safeStorage.isEncryptionAvailable()) {
+      encryptedPassword = safeStorage.encryptString(next.password).toString('base64')
+    }
+  }
+
+  if (next.mode === 'remote' && (!next.username || !next.password) && !encryptedPassword) {
+    throw new Error('remote mode requires a username and password')
+  }
+
+  const config = {
+    version: CONNECTION_CONFIG_VERSION,
+    mode: next.mode,
+    remoteUrl: next.remoteUrl,
+    username: next.username,
+    encryptedPassword,
+  }
+  const configPath = getConnectionConfigPath()
+  const tempPath = `${configPath}.tmp`
+  fs.mkdirSync(path.dirname(configPath), { recursive: true })
+  fs.writeFileSync(tempPath, JSON.stringify(config, null, 2), { mode: 0o600 })
+  fs.renameSync(tempPath, configPath)
+  return { ...next, encryptedPassword }
+}
+
+function applyRemoteAuthConfig(config) {
+  remoteAuthHeader = null
+  remoteAuthOrigin = null
+  if (!config || config.mode !== 'remote') return
+
+  const origin = normalizeRemoteOrigin(config.remoteUrl)
+  const header = buildBasicAuthHeader(config.username, config.password)
+  if (origin && header) {
+    remoteAuthOrigin = origin
+    remoteAuthHeader = header
+    console.log('[Electron] Remote auth policy configured')
+  }
+}
+
+async function readLegacyConnectionConfig() {
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+  return mainWindow.webContents.executeJavaScript(`({
+    mode: localStorage.getItem('soloqueue_connection_mode') === 'remote' ? 'remote' : 'local',
+    remoteUrl: localStorage.getItem('soloqueue_remote_url') || '',
+    username: localStorage.getItem('soloqueue_remote_username') || '',
+    password: localStorage.getItem('soloqueue_remote_password') || ''
+  })`)
+}
+
+async function clearLegacyConnectionConfig() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  await mainWindow.webContents.executeJavaScript(`(() => {
+    localStorage.removeItem('soloqueue_remote_password')
+  })()`)
+}
+
+async function refreshRemoteAuthConfig() {
+  try {
+    let stored = readStoredConnectionConfig()
+    if (!stored) {
+      const legacy = await readLegacyConnectionConfig()
+      if (legacy?.mode === 'remote' && legacy.remoteUrl && legacy.username && legacy.password) {
+        stored = persistConnectionConfig(legacy)
+      } else if (legacy) {
+        const normalizedLegacy = validateConnectionConfig({ ...legacy, password: '' })
+        stored = { ...normalizedLegacy, encryptedPassword: '' }
+      }
+    }
+
+    // Keep the legacy public fields only as a migration fallback. The
+    // Renderer receives the authoritative non-secret values through IPC;
+    // only the legacy plaintext password is removed here.
+    await clearLegacyConnectionConfig()
+
+    applyRemoteAuthConfig(stored)
+    return stored || { mode: 'local', remoteUrl: '', username: '', password: '' }
+  } catch (err) {
+    remoteAuthHeader = null
+    remoteAuthOrigin = null
+    console.error('[Electron] Failed to refresh remote auth config:', err.message)
+    return { mode: 'local', remoteUrl: '', username: '', password: '' }
+  }
+}
+
+ipcMain.handle('remote:save-config', async (_event, input) => {
+  try {
+    const current = readStoredConnectionConfig()
+    const candidate = validateConnectionConfig({ ...input, password: input?.password || '' })
+    const canReusePassword =
+      current?.mode === 'remote' &&
+      current.remoteUrl === candidate.remoteUrl &&
+      current.username === candidate.username
+    const next = persistConnectionConfig({
+      ...candidate,
+      // An empty password means keep the existing encrypted credential.
+      password: candidate.password || (canReusePassword ? current.password : ''),
+    }, { preservePassword: canReusePassword })
+    applyRemoteAuthConfig(next)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message || 'failed to save connection config' }
+  }
+})
+
+ipcMain.handle('remote:get-config', async () => {
+  const stored = readStoredConnectionConfig() || (await refreshRemoteAuthConfig())
+  applyRemoteAuthConfig(stored)
+  return {
+    mode: stored.mode === 'remote' ? 'remote' : 'local',
+    remoteUrl: stored.remoteUrl || '',
+    username: stored.username || '',
+  }
+})
+
 // The webRequest filter is registered inside app.whenReady()
 // because session is only available after the app is ready.
-
-// Listen for connection config changes from the renderer to update auth headers
-ipcMain.on('remote:config-changed', async () => {
-  console.log('[Electron] Remote config changed, refreshing auth header...')
-  await refreshRemoteAuthConfig()
-})
 
 app.whenReady().then(async () => {
   // Register the webRequest filter for remote auth header injection.
@@ -732,7 +890,11 @@ app.whenReady().then(async () => {
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: ['https://*/*', 'http://*/*'] },
     (details, callback) => {
-      if (remoteAuthHeader) {
+      if (
+        remoteAuthHeader &&
+        shouldInjectRemoteAuth(details.url, remoteAuthOrigin) &&
+        !hasAuthorizationHeader(details.requestHeaders)
+      ) {
         details.requestHeaders['Authorization'] = remoteAuthHeader
       }
       callback({ requestHeaders: details.requestHeaders })
@@ -744,23 +906,13 @@ app.whenReady().then(async () => {
   loadWindowContent()
   createTray()
 
-  // Check remote mode in localStorage before spawning local backend.
-  // localStorage lives in the renderer process, so we must wait for the
-  // page to finish loading before we can read it.
   mainWindow.webContents.on('did-finish-load', async () => {
     try {
-      const mode = await mainWindow.webContents.executeJavaScript(
-        'localStorage.getItem("soloqueue_connection_mode")'
-      )
-      if (mode !== 'remote') {
+      const connection = await refreshRemoteAuthConfig()
+      if (connection.mode !== 'remote') {
         await spawnGoBackend()
       } else {
         console.log('[Electron] Remote mode detected. Skipping local backend startup.')
-        // Chromium strips the Authorization header from fetch requests
-        // originating from file:// (null origin). As a workaround, we inject
-        // the Authorization header via webRequest.onBeforeSendHeaders in the
-        // main process, which bypasses the renderer's CORS restrictions.
-        await refreshRemoteAuthConfig()
       }
     } catch (err) {
       console.error('[Electron] Failed to read connection mode, starting backend anyway:', err)

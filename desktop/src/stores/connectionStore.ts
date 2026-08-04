@@ -5,7 +5,6 @@ export type ConnectionMode = 'local' | 'remote'
 const MODE_KEY = 'soloqueue_connection_mode'
 const REMOTE_URL_KEY = 'soloqueue_remote_url'
 const USERNAME_KEY = 'soloqueue_remote_username'
-const PASSWORD_KEY = 'soloqueue_remote_password'
 
 function getStoredMode(): ConnectionMode {
   try {
@@ -25,13 +24,6 @@ function getStoredRemoteUrl(): string {
 function getStoredUsername(): string {
   try {
     return localStorage.getItem(USERNAME_KEY) || ''
-  } catch { /* ignore */ }
-  return ''
-}
-
-function getStoredPassword(): string {
-  try {
-    return localStorage.getItem(PASSWORD_KEY) || ''
   } catch { /* ignore */ }
   return ''
 }
@@ -61,41 +53,38 @@ interface ConnectionState {
   setIsChecking: (checking: boolean) => void
   setConnectionError: (error: string | null) => void
 
-  saveConfig: () => void
-  loadConfig: () => void
+  saveConfig: () => Promise<void>
+  loadConfig: () => Promise<void>
 
   getEffectiveBaseUrl: () => string
   getEffectiveWsUrl: () => string
-  getAuthHeaders: () => Record<string, string>
 }
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
   mode: getStoredMode(),
   remoteUrl: getStoredRemoteUrl(),
   username: getStoredUsername(),
-  password: getStoredPassword(),
+  // Password is intentionally session-only in the Renderer. Electron Main
+  // stores the persisted remote credential and injects auth for remote calls.
+  password: '',
   backendStatus: { running: false, pid: null, uptime: null },
   saving: false,
   isChecking: false,
   connectionError: null,
 
   setMode: (mode) => {
-    localStorage.setItem(MODE_KEY, mode)
-    set({ mode })
+    set({ mode, ...(mode === 'local' ? { password: '' } : {}) })
   },
 
   setRemoteUrl: (url) => {
-    localStorage.setItem(REMOTE_URL_KEY, url)
     set({ remoteUrl: url })
   },
 
   setUsername: (username) => {
-    localStorage.setItem(USERNAME_KEY, username)
     set({ username })
   },
 
   setPassword: (password) => {
-    localStorage.setItem(PASSWORD_KEY, password)
     set({ password })
   },
 
@@ -104,30 +93,40 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   setIsChecking: (checking) => set({ isChecking: checking }),
   setConnectionError: (error) => set({ connectionError: error }),
 
-  saveConfig: () => {
+  saveConfig: async () => {
     const { mode, remoteUrl, username, password } = get()
     set({ saving: true })
-    localStorage.setItem(MODE_KEY, mode)
-    localStorage.setItem(REMOTE_URL_KEY, remoteUrl)
-    localStorage.setItem(USERNAME_KEY, username)
-    localStorage.setItem(PASSWORD_KEY, password)
-    set({ saving: false })
-    // Notify Electron main process to update webRequest auth header injection
     try {
-      const ea = (window as any).electronAPI
-      if (ea?.notifyRemoteConfigChanged) {
-        ea.notifyRemoteConfigChanged()
+      const electronAPI = typeof window !== 'undefined' ? window.electronAPI : undefined
+      if (electronAPI?.saveRemoteConfig) {
+        const result = await electronAPI.saveRemoteConfig({ mode, remoteUrl, username, password })
+        if (!result.success) throw new Error(result.error || 'failed to save connection config')
       }
-    } catch { /* not in Electron */ }
+      localStorage.setItem(MODE_KEY, mode)
+      localStorage.setItem(REMOTE_URL_KEY, remoteUrl)
+      localStorage.setItem(USERNAME_KEY, username)
+      localStorage.removeItem('soloqueue_remote_password')
+    } finally {
+      set({ saving: false })
+    }
   },
 
-  loadConfig: () => {
-    set({
-      mode: getStoredMode(),
-      remoteUrl: getStoredRemoteUrl(),
-      username: getStoredUsername(),
-      password: getStoredPassword(),
-    })
+  loadConfig: async () => {
+    const electronAPI = typeof window !== 'undefined' ? window.electronAPI : undefined
+    if (electronAPI?.getRemoteConfig) {
+      try {
+        const config = await electronAPI.getRemoteConfig()
+        set({ ...config, password: '' })
+        localStorage.setItem(MODE_KEY, config.mode)
+        localStorage.setItem(REMOTE_URL_KEY, config.remoteUrl)
+        localStorage.setItem(USERNAME_KEY, config.username)
+        return
+      } catch {
+        // Fall back to legacy public fields for development or an older
+        // preload script. No password is read on this path.
+      }
+    }
+    set({ mode: getStoredMode(), remoteUrl: getStoredRemoteUrl(), username: getStoredUsername(), password: '' })
   },
 
   getEffectiveBaseUrl: () => {
@@ -166,11 +165,4 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     return `${proto}//${window.location.host}/ws`
   },
 
-  getAuthHeaders: () => {
-    const { mode, username, password } = get()
-    if (mode === 'remote' && username && password) {
-      return { Authorization: 'Basic ' + btoa(`${username}:${password}`) }
-    }
-    return {} as Record<string, string>
-  },
 }))

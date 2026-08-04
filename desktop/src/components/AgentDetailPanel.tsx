@@ -26,6 +26,11 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/comp
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AgentPlanTab } from '@/components/AgentPlanTab'
 import { AgentMemoriesTab, AgentReflectionsTab } from '@/components/AgentMemoriesTab'
+import {
+  getSimulationAgentMemories,
+  getSimulationAgentPlan,
+  getSimulationAgentReflections,
+} from '@/lib/api'
 
 interface AgentDetailPanelProps {
   persona: SimulationPersona
@@ -96,13 +101,8 @@ export function AgentDetailPanel({
     const loadPlan = async () => {
       setPlanLoading(true)
       try {
-        const res = await fetch(`/api/simulations/${simId}/agents/${persona.id}/plan`)
-        if (res.ok) {
-          const data = await res.json()
-          setPlan(data.plan || null)
-        } else {
-          setPlanError('Failed to load daily plan')
-        }
+        const data = await getSimulationAgentPlan(simId, persona.id)
+        setPlan(data.plan || null)
       } catch {
         setPlanError('Network error')
       } finally {
@@ -113,13 +113,8 @@ export function AgentDetailPanel({
     const loadMemories = async () => {
       setMemoriesLoading(true)
       try {
-        const res = await fetch(`/api/simulations/${simId}/agents/${persona.id}/memory`)
-        if (res.ok) {
-          const data = await res.json()
-          setMemories(data.memories || [])
-        } else {
-          setMemoriesError('Failed to load memories')
-        }
+        const data = await getSimulationAgentMemories(simId, persona.id)
+        setMemories(data.memories || [])
       } catch {
         setMemoriesError('Network error')
       } finally {
@@ -130,13 +125,8 @@ export function AgentDetailPanel({
     const loadReflections = async () => {
       setReflectionsLoading(true)
       try {
-        const res = await fetch(`/api/simulations/${simId}/agents/${persona.id}/reflections`)
-        if (res.ok) {
-          const data = await res.json()
-          setReflections(data.reflections || [])
-        } else {
-          setReflectionsError('Failed to load higher-order reflections')
-        }
+        const data = await getSimulationAgentReflections(simId, persona.id)
+        setReflections(data.reflections || [])
       } catch {
         setReflectionsError('Network error')
       } finally {

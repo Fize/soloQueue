@@ -23,6 +23,14 @@ import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/lib/i18n'
 import type { SimulationState } from '@/types'
+import {
+  createSimulationFromSeed,
+  deleteSimulation,
+  getSimulationConfig,
+  listModels,
+  listProviders,
+  listSimulations,
+} from '@/lib/api'
 
 // ─── Status helpers ────────────────────────────────────────────────────────
 function getStatusDot(status: string) {
@@ -106,24 +114,22 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
     if (!open) return
     const fetchOptions = async () => {
       try {
-        const [provRes, modelRes, simRes] = await Promise.all([
-          fetch('/api/config/providers'),
-          fetch('/api/config/models'),
-          fetch('/api/config/simulation'),
+        const [providersData, modelsData, simulationConfig] = await Promise.all([
+          listProviders(),
+          listModels(),
+          getSimulationConfig(),
         ])
-        if (provRes.ok) setProviders(await provRes.json() || [])
-        if (modelRes.ok) setModels(await modelRes.json() || [])
-        if (simRes.ok) {
-          const d = await simRes.json()
-          if (d.enableReflection !== undefined) setEnableReflection(d.enableReflection)
-          if (d.simulatedHours !== undefined) setSimHours(d.simulatedHours)
-          if (d.defaultModelId !== undefined) setSelectedModel(d.defaultModelId)
-          if (d.defaultProviderId !== undefined) setSelectedProvider(d.defaultProviderId)
-          if (d.timeScale !== undefined) setTimeScale(d.timeScale)
-          if (d.tickIntervalMs !== undefined) setTickIntervalMs(d.tickIntervalMs)
-          if (d.language !== undefined) setLanguage(d.language)
-          if (d.defaultMaxWallClockMs !== undefined) setMaxWallClockMs(d.defaultMaxWallClockMs)
-        }
+        setProviders(providersData || [])
+        setModels(modelsData || [])
+        const d = simulationConfig as any
+        if (d.enableReflection !== undefined) setEnableReflection(d.enableReflection)
+        if (d.simulatedHours !== undefined) setSimHours(d.simulatedHours)
+        if (d.defaultModelId !== undefined) setSelectedModel(d.defaultModelId)
+        if (d.defaultProviderId !== undefined) setSelectedProvider(d.defaultProviderId)
+        if (d.timeScale !== undefined) setTimeScale(d.timeScale)
+        if (d.tickIntervalMs !== undefined) setTickIntervalMs(d.tickIntervalMs)
+        if (d.language !== undefined) setLanguage(d.language)
+        if (d.defaultMaxWallClockMs !== undefined) setMaxWallClockMs(d.defaultMaxWallClockMs)
       } catch (err) {
         console.error('Failed to load LLM configs', err)
       }
@@ -160,10 +166,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
     try {
       setCreating(true)
       setCreateError(null)
-      const res = await fetch('/api/simulations/from-seed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const data = await createSimulationFromSeed({
           seed_text: seedText,
           topic: topic.trim() || undefined,
           persona_count: 0,
@@ -175,13 +178,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
           tick_interval_ms: tickIntervalMs,
           enable_reflection: enableReflection || undefined,
           language,
-        }),
       })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || t('simulation.failedToGenerate'))
-      }
-      const data = await res.json()
       onCreated(data.simulation_id)
     } catch (err: any) {
       setCreateError(err.message || t('simulation.failedToCreate'))
@@ -547,9 +544,7 @@ export function SimulationListPage() {
   const fetchSimulations = async () => {
     try {
       setLoading(true)
-      const res = await fetch('/api/simulations')
-      if (!res.ok) throw new Error('Failed to fetch simulations')
-      const data = await res.json()
+      const data = await listSimulations()
       const mapped = (data || []).map((sim: any) => ({
         ...sim,
         id: sim.config?.id || sim.run_id || sim.id,
@@ -581,8 +576,7 @@ export function SimulationListPage() {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      const res = await fetch(`/api/simulations/${deleteTarget}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Failed to delete simulation')
+      await deleteSimulation(deleteTarget)
       setSimulations((prev) => prev.filter((s) => s.id !== deleteTarget))
       toast.success(t('simulation.simulationDeleted'))
     } catch (err: any) {

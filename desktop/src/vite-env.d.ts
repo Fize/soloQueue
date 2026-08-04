@@ -23,6 +23,18 @@ interface ElectronAPI {
     callback: (status: { running: boolean; pid: string | number | null; uptime: number | null }) => void
   ) => () => void
   selectDirectory: () => Promise<string | null>
+  openPath: (filePath: string) => Promise<{ success: boolean; error?: string }>
+  saveRemoteConfig: (config: {
+    mode: 'local' | 'remote'
+    remoteUrl: string
+    username: string
+    password: string
+  }) => Promise<{ success: boolean; error?: string }>
+  getRemoteConfig: () => Promise<{
+    mode: 'local' | 'remote'
+    remoteUrl: string
+    username: string
+  }>
 }
 
 declare global {

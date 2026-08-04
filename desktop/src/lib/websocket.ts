@@ -20,7 +20,7 @@ export interface ChatHandler {
   onRoute?: (data: {
     request_id: string
     session_id: string
-		task_type: string
+    task_type: string
     model_id: string
     provider_id?: string
     agent_instance_id?: string
@@ -96,15 +96,18 @@ class WebSocketManager {
 
     this.intentionalClose = false
 
+    const connection = useConnectionStore.getState()
     let token = ''
-    try {
-      const data = await request<{ token: string }>('/auth/token')
-      token = data.token
-    } catch (err) {
-      console.warn('Failed to fetch WS auth token, attempting direct connection:', err)
+    if (connection.mode === 'remote') {
+      try {
+        const data = await request<{ token: string }>('/auth/token')
+        token = data.token
+      } catch (err) {
+        console.warn('Failed to fetch WS auth token, attempting direct connection:', err)
+      }
     }
 
-    let url = useConnectionStore.getState().getEffectiveWsUrl()
+    let url = connection.getEffectiveWsUrl()
     if (token) {
       url += `?token=${encodeURIComponent(token)}`
     }
@@ -348,21 +351,26 @@ class WebSocketManager {
           for (const [sessionId, runtime] of Object.entries(accepted)) {
             const active = runtime.state !== 'idle' && runtime.state !== 'error'
             const wasActive = !!chat.streamingSessions[sessionId]
+            const hasActiveRequests = Object.values(chat.activeRequests).some(
+              (request) => request.sessionId === sessionId
+            )
             if (active) {
               chat.setStreaming(true, sessionId)
               chat.setDelegating(runtime.delegating, sessionId)
               if (runtime.request_id) {
                 const existing = chat.routeSessions[sessionId]
-                chat.setRoute({
+                const route = {
                   requestId: runtime.request_id,
                   sessionId,
                   taskLevel: existing?.taskLevel || '',
                   modelId: existing?.modelId || '',
                   providerId: existing?.providerId,
                   agentInstanceId: existing?.agentInstanceId,
-                })
+                }
+                chat.updateRequestRoute(runtime.request_id, route)
+                chat.setRoute(route)
               }
-            } else if (wasActive) {
+            } else if (wasActive && !hasActiveRequests) {
               chat.setStreaming(false, sessionId)
               chat.setDelegating(false, sessionId)
               const requestId = chat.routeSessions[sessionId]?.requestId
