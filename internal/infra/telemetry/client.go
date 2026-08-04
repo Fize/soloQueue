@@ -2,10 +2,11 @@ package telemetry
 
 import (
 	"context"
+	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
 // TelemetryClient wraps an underlying agent.LLMClient to automatically capture
@@ -27,7 +28,7 @@ func NewTelemetryClient(inner agent.LLMClient, db *db.DB) *TelemetryClient {
 func (c *TelemetryClient) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResponse, error) {
 	resp, err := c.inner.Chat(ctx, req)
 	if err == nil && resp != nil {
-		c.logUsageAsync(ctx, req.Model, resp.Usage)
+		c.logUsageAsync(ctx, req, resp.Usage)
 	}
 	return resp, err
 }
@@ -47,7 +48,7 @@ func (c *TelemetryClient) ChatStream(ctx context.Context, req agent.LLMRequest) 
 		for event := range innerChan {
 			outChan <- event
 			if event.Type == llm.EventDone && event.Usage != nil {
-				c.logUsageAsync(ctx, req.Model, *event.Usage)
+				c.logUsageAsync(ctx, req, *event.Usage)
 			}
 		}
 	}()
@@ -55,7 +56,7 @@ func (c *TelemetryClient) ChatStream(ctx context.Context, req agent.LLMRequest) 
 	return outChan, nil
 }
 
-func (c *TelemetryClient) logUsageAsync(ctx context.Context, modelName string, usage llm.Usage) {
+func (c *TelemetryClient) logUsageAsync(ctx context.Context, req agent.LLMRequest, usage llm.Usage) {
 	if c.db == nil {
 		return
 	}
@@ -63,6 +64,11 @@ func (c *TelemetryClient) logUsageAsync(ctx context.Context, modelName string, u
 	teamID, usageType := TelemetryFromContext(ctx)
 	if usageType == "" {
 		usageType = "unknown"
+	}
+
+	modelName := req.Model
+	if req.ProviderID != "" && !strings.HasPrefix(req.Model, req.ProviderID+"/") {
+		modelName = req.ProviderID + "/" + req.Model
 	}
 
 	bgCtx := context.Background()

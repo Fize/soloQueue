@@ -21,7 +21,7 @@ interface AgentInfo {
 
 interface AgentTableProps {
   agents: AgentInfo[]
-  runtime: { agents?: { supervisors?: Record<string, string[]> } } | null
+  supervisors: Record<string, string[]> | null
   isConnected: boolean
   onSelectAgent: (instanceId: string) => void
   t: (key: string, v?: Record<string, string | number>) => string
@@ -46,9 +46,8 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
   )
 }
 
-export function AgentTable({ agents, runtime, isConnected, onSelectAgent, t }: AgentTableProps) {
+export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t }: AgentTableProps) {
   // Group agents by supervisor if available
-  const supervisors = runtime?.agents?.supervisors
   const groupedAgents: { supervisor: string; members: AgentInfo[] }[] = []
 
   if (supervisors) {
@@ -117,11 +116,11 @@ export function AgentTable({ agents, runtime, isConnected, onSelectAgent, t }: A
         {agent.group || 'Global'}
       </td>
       <td
-        className="px-4 sm:px-6 py-3 text-xs font-mono max-w-[120px] truncate whitespace-nowrap"
-        style={{ color: 'var(--color-muted-foreground)' }}
-        title={agent.model_id}
+        className="px-4 sm:px-6 py-3 text-xs font-mono max-w-[160px] truncate whitespace-nowrap"
+        title={`${agent.provider_id}/${agent.model_id}`}
       >
-        {agent.model_id}
+        <span style={{ color: 'var(--color-muted-foreground)' }}>{agent.provider_id}/</span>
+        <span style={{ color: 'var(--color-foreground)' }}>{agent.model_id}</span>
       </td>
       <td className="px-4 sm:px-6 py-3 whitespace-nowrap">
         <span
