@@ -12,6 +12,7 @@ import {
   normalizeRemoteOrigin,
   shouldInjectRemoteAuth,
 } from './electron/remote-auth-policy.mjs'
+import { isBackendReady } from './electron/backend-status.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -495,11 +496,15 @@ function sendBackendStatus(running) {
 }
 
 function getBackendStatus() {
+  const running = isBackendReady({
+    externalGoInstance,
+    backendStartTime,
+  })
   return {
-    running: externalGoInstance || goProcess !== null,
-    pid: externalGoInstance ? 'EXTERNAL' : goProcess?.pid || null,
+    running,
+    pid: running ? (externalGoInstance ? 'EXTERNAL' : goProcess?.pid || null) : null,
     uptime:
-      (externalGoInstance || goProcess) && backendStartTime ? Date.now() - backendStartTime : null,
+      running && backendStartTime ? Date.now() - backendStartTime : null,
   }
 }
 

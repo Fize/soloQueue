@@ -8,6 +8,7 @@
     "main.js",
     "preload.js",
     "electron/remote-auth-policy.mjs",
+    "electron/backend-status.mjs",
     "package.json",
     "dist/**/*"
   ],
