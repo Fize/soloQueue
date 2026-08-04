@@ -247,7 +247,7 @@ export function TokenStats() {
       </div>
 
       {/* Summary row — always visible */}
-      <div className="px-4 sm:px-6 py-4 grid grid-cols-5 gap-3 border-b" style={{ borderColor: 'var(--color-border)' }}>
+      <div className="px-4 sm:px-6 py-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 border-b" style={{ borderColor: 'var(--color-border)' }}>
         <div className="flex flex-col items-center gap-1">
           <span className="text-xs font-medium" style={{ color: 'var(--color-muted-foreground)' }}>
             {t('tokenStats.summaryInput')}

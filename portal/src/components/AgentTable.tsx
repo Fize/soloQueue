@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { Bot, Database, ShieldAlert, CheckCircle2, Loader2 } from 'lucide-react'
 import { AgentStateBadge } from './AgentStateBadge'
 
@@ -110,17 +111,23 @@ export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t 
         <AgentStateBadge state={agent.state} />
       </td>
       <td
-        className="px-4 sm:px-6 py-3 text-xs font-mono whitespace-nowrap"
+        className="px-4 sm:px-6 py-3 text-xs font-mono whitespace-nowrap hidden sm:table-cell"
         style={{ color: 'var(--color-muted-foreground)' }}
       >
         {agent.group || 'Global'}
       </td>
       <td
         className="px-4 sm:px-6 py-3 text-xs font-mono max-w-[160px] truncate whitespace-nowrap"
-        title={`${agent.provider_id}/${agent.model_id}`}
+        title={agent.provider_id ? `${agent.provider_id}/${agent.model_id}` : agent.model_id}
       >
-        <span style={{ color: 'var(--color-muted-foreground)' }}>{agent.provider_id}/</span>
-        <span style={{ color: 'var(--color-foreground)' }}>{agent.model_id}</span>
+        {agent.provider_id ? (
+          <>
+            <span style={{ color: 'var(--color-muted-foreground)' }}>{agent.provider_id}/</span>
+            <span style={{ color: 'var(--color-foreground)' }}>{agent.model_id}</span>
+          </>
+        ) : (
+          <span style={{ color: 'var(--color-foreground)' }}>{agent.model_id}</span>
+        )}
       </td>
       <td className="px-4 sm:px-6 py-3 whitespace-nowrap">
         <span
@@ -139,7 +146,7 @@ export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t 
           )}
         </span>
       </td>
-      <td className="px-4 sm:px-6 py-3 whitespace-nowrap">
+      <td className="px-4 sm:px-6 py-3 whitespace-nowrap hidden md:table-cell">
         <span className="text-xs font-mono" style={{ color: 'var(--color-muted-foreground)' }}>
           {agent.iteration ?? 0}
         </span>
@@ -218,7 +225,7 @@ export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t 
                   {t('table.cols.status')}
                 </th>
                 <th
-                  className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                  className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap hidden sm:table-cell"
                   style={{ color: 'var(--color-muted-foreground)' }}
                 >
                   {t('table.cols.group')}
@@ -236,7 +243,7 @@ export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t 
                   {t('table.cols.taskType')}
                 </th>
                 <th
-                  className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                  className="px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap hidden md:table-cell"
                   style={{ color: 'var(--color-muted-foreground)' }}
                 >
                   {t('table.cols.iteration')}
@@ -251,7 +258,7 @@ export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t 
             </thead>
             <tbody>
               {groupedAgents.map((group) => (
-                <>
+                <Fragment key={group.supervisor}>
                   {/* Group header */}
                   {groupedAgents.length > 1 && (
                     <tr>
@@ -268,7 +275,7 @@ export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t 
                     </tr>
                   )}
                   {group.members.map((agent, idx) => renderRow(agent, idx))}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

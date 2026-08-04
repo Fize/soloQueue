@@ -267,12 +267,14 @@ body.modal-open {
   position: fixed;
   top: 1rem;
   right: 1rem;
+  left: 1rem;
   z-index: 200;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   max-width: 360px;
-  width: 100%;
+  width: auto;
+  margin-left: auto;
   pointer-events: none;
 }
 

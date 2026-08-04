@@ -13,11 +13,12 @@ export function ConnectionBadge({ status }: ConnectionBadgeProps) {
   if (status === 'connected') {
     return (
       <span
-        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
+        className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--color-success) 12%, transparent)',
           color: 'var(--color-success)',
         }}
+        title={t('connection.connected')}
       >
         <span className="relative flex h-2 w-2">
           <span
@@ -30,7 +31,7 @@ export function ConnectionBadge({ status }: ConnectionBadgeProps) {
           />
         </span>
         <Wifi className="h-3.5 w-3.5" />
-        {t('connection.connected')}
+        <span className="hidden sm:inline">{t('connection.connected')}</span>
       </span>
     )
   }
@@ -38,28 +39,30 @@ export function ConnectionBadge({ status }: ConnectionBadgeProps) {
   if (status === 'reconnecting') {
     return (
       <span
-        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
+        className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--color-warning) 12%, transparent)',
           color: 'var(--color-warning)',
         }}
+        title={t('connection.reconnecting')}
       >
         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-        {t('connection.reconnecting')}
+        <span className="hidden sm:inline">{t('connection.reconnecting')}</span>
       </span>
     )
   }
 
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
+      className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold"
       style={{
         backgroundColor: 'color-mix(in srgb, var(--color-muted-foreground) 12%, transparent)',
         color: 'var(--color-muted-foreground)',
       }}
+      title={t('connection.disconnected')}
     >
       <WifiOff className="h-3.5 w-3.5" />
-      {t('connection.disconnected')}
+      <span className="hidden sm:inline">{t('connection.disconnected')}</span>
     </span>
   )
 }
