@@ -19,7 +19,8 @@ function Build-Web {
     Pop-Location
     if (Test-Path internal/server/dist) { Remove-Item -Recurse -Force internal/server/dist }
     Copy-Item -Recurse portal/dist internal/server/dist
-    Copy-Item -Recurse skills internal/server/dist/skills
+    robocopy skills internal/server/dist/skills /E /XD .venv __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP
+    if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
 }
 
 function Build-Desktop {

@@ -26,6 +26,7 @@ frontend/dist-ssr
 *.sln
 *.sw?
 __pycache__
+.venv/
 .codebuddy/
 .soloqueue/
 .soloqueue-dev/
