@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
+import { CronHistoryModal } from './CronHistoryModal'
 
 interface CronTaskStatus {
   id: string
@@ -38,7 +40,10 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
 }
 
 export function CronSection({ tasks, t }: CronSectionProps) {
+  const [historyTaskId, setHistoryTaskId] = useState<string | null>(null)
+
   return (
+    <>
     <section
       className="rounded-xl overflow-hidden animate-slide-up shadow-sm"
       style={{ backgroundColor: 'var(--color-card)' }}
@@ -125,6 +130,15 @@ export function CronSection({ tasks, t }: CronSectionProps) {
                     <span className="text-[10px] font-mono" style={{ color: 'var(--color-muted-foreground)' }}>
                       {t('cron.nextRun', { time: task.next_run_at || '--' })}
                     </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setHistoryTaskId(task.id) }}
+                      className="text-[10px] font-medium cursor-pointer px-1.5 py-0.5 rounded transition-colors"
+                      style={{ color: 'var(--color-accent)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--color-accent) 10%, transparent)' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
+                    >
+                      {t('cron.history')}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -133,5 +147,15 @@ export function CronSection({ tasks, t }: CronSectionProps) {
         </div>
       )}
     </section>
+
+      {historyTaskId && (
+        <CronHistoryModal
+          taskId={historyTaskId}
+          taskTitle={tasks.find(t => t.id === historyTaskId)?.title || ''}
+          onClose={() => setHistoryTaskId(null)}
+          t={t}
+        />
+      )}
+    </>
   )
 }
