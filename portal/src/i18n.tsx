@@ -53,7 +53,10 @@ const translations = {
         status: 'Status',
         group: 'Group',
         model: 'Model',
+        taskType: 'Task Type',
         level: 'Task Level',
+        lastLevel: 'Last level: {{level}}',
+        iteration: 'Iteration',
         errors: 'Errors',
       },
       badges: {
@@ -61,15 +64,24 @@ const translations = {
         processing: 'Processing',
         idle: 'Idle',
         stopped: 'Stopped',
+        stopping: 'Stopping',
       },
       emptyTitle: 'No registered agents yet',
       emptyDesc: 'Registered agents will automatically appear here after the SoloQueue server starts.',
+      groups: {
+        all: 'All Agents',
+        ungrouped: 'Ungrouped',
+        supervisor: 'Supervisor: {{name}}',
+      },
     },
     cron: {
       title: 'Scheduled Tasks',
       tasksCount: '{{count}} task',
       tasksCountPlural: '{{count}} tasks',
       nextRun: 'Next: {{time}}',
+      statusLabel: 'Status: {{status}}',
+      emptyTitle: 'No scheduled tasks',
+      emptyDesc: 'Configured cron tasks will appear here.',
     },
     footerInfo: {
       phase: 'Phase: {{phase}}',
@@ -115,7 +127,14 @@ const translations = {
       idle: 'Agent is currently idle',
       noStream: 'No stream data available',
       lastError: 'Last Error',
+      lastLevel: 'Last level: {{level}}',
       close: 'Close',
+    },
+    notification: {
+      info: 'Info',
+      success: 'Success',
+      warning: 'Warning',
+      error: 'Error',
     },
   },
   zh: {
@@ -168,7 +187,10 @@ const translations = {
         status: '运行状态',
         group: '工作组',
         model: '使用模型',
+        taskType: '任务类型',
         level: '任务级别',
+        lastLevel: '上次级别: {{level}}',
+        iteration: '迭代次数',
         errors: '异常统计',
       },
       badges: {
@@ -176,15 +198,24 @@ const translations = {
         processing: '处理中',
         idle: '空闲',
         stopped: '已停止',
+        stopping: '停止中',
       },
       emptyTitle: '暂无注册智能体',
       emptyDesc: '在 SoloQueue 服务启动后，已注册的智能体将会自动展示在此处。',
+      groups: {
+        all: '全部智能体',
+        ungrouped: '未分组',
+        supervisor: '管理者: {{name}}',
+      },
     },
     cron: {
       title: '定时触发任务',
       tasksCount: '{{count}} 个任务',
       tasksCountPlural: '{{count}} 个任务',
       nextRun: '下次触发: {{time}}',
+      statusLabel: '状态: {{status}}',
+      emptyTitle: '暂无定时任务',
+      emptyDesc: '配置的定时任务将会显示在此处。',
     },
     footerInfo: {
       phase: '当前阶段: {{phase}}',
@@ -230,7 +261,14 @@ const translations = {
       idle: '智能体当前处于空闲状态',
       noStream: '暂无流数据',
       lastError: '最近错误',
+      lastLevel: '上次级别: {{level}}',
       close: '关闭',
+    },
+    notification: {
+      info: '信息',
+      success: '成功',
+      warning: '警告',
+      error: '错误',
     },
   },
 }
@@ -251,7 +289,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLangState] = useState<Language>(() => {
     const stored = localStorage.getItem('soloqueue-language')
     if (stored === 'zh' || stored === 'en') return stored
-    return 'en'
+    return 'zh'
   })
 
   const setLanguage = (lang: Language) => {
