@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/channel"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -424,6 +424,15 @@ func (b *SessionBridge) processAudioData(ctx context.Context, msg *QQMessage, au
 
 	b.log.InfoContext(ctx, logger.CatApp, "qqbot audio transcribed",
 		"text", transcript)
+	transcript = strings.TrimSpace(transcript)
+	if transcript == "" {
+		b.log.WarnContext(ctx, logger.CatApp,
+			"qqbot audio transcription returned empty text")
+		b.sendReply(ctx, *msg, MsgTypeText,
+			"No speech was recognized. Please send the voice message again.")
+		return false
+	}
+
 	msg.Content = transcript
 	return true
 }

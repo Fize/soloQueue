@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +55,31 @@ func TestTranscribe_DecodesSilkBeforeWhisper(t *testing.T) {
 	}
 	if got != "transcript from whisper" {
 		t.Errorf("Transcribe() = %q, want transcript from whisper", got)
+	}
+}
+
+func TestTranscribe_RejectsEmptyPCM(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg is required for speech transcription")
+	}
+	dir := t.TempDir()
+	decoderPath := filepath.Join(dir, "silk-decoder")
+	if err := os.WriteFile(decoderPath, []byte("#!/bin/sh\n[ \"$1\" = -Fs_API ] && [ \"$2\" = 16000 ] || exit 1\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tr := &Transcriber{
+		binary:      filepath.Join(dir, "whisper-cli"),
+		silkDecoder: decoderPath,
+		modelDir:    dir,
+		model:       "small",
+	}
+	_, err := tr.Transcribe(context.Background(), append([]byte{0x02}, []byte("#!SILK_V3 test")...))
+	if err == nil {
+		t.Fatal("Transcribe() error = nil, want empty PCM error")
+	}
+	if !strings.Contains(err.Error(), "empty PCM") {
+		t.Fatalf("Transcribe() error = %q, want empty PCM error", err)
 	}
 }
 

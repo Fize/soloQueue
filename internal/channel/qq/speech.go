@@ -87,6 +87,11 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	if out, err := decode.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("silk decode: %w\n%s", err, string(out))
 	}
+	if info, err := os.Stat(pcmPath); err != nil {
+		return "", fmt.Errorf("silk decode output missing: %w", err)
+	} else if info.Size() == 0 {
+		return "", fmt.Errorf("silk decode produced empty PCM")
+	}
 
 	// Step 3: convert raw PCM → WAV for whisper-cli.
 	wavFile, err := os.CreateTemp(tmpDir, "soloqueue_audio_*.wav")
