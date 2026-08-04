@@ -75,10 +75,17 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
     if (e.target === overlayRef.current) handleClose()
   }
 
-  const thinkingSegments = stream?.segments?.filter(s => s.type === 'thinking') || []
-  const contentSegments = stream?.segments?.filter(s => s.type === 'content') || []
-  const toolSegments = stream?.segments?.filter(s => s.type === 'tool_call') || []
-  const hasStreamData = thinkingSegments.length > 0 || contentSegments.length > 0 || toolSegments.length > 0
+  const streamBodyRef = useRef<HTMLDivElement>(null)
+
+  // Architectural Decision: Preserve chronological segment order and auto-scroll on stream updates.
+  const segments = stream?.segments || []
+  const hasStreamData = segments.length > 0
+
+  useEffect(() => {
+    if (streamBodyRef.current) {
+      streamBodyRef.current.scrollTop = streamBodyRef.current.scrollHeight
+    }
+  }, [segments])
 
   return (
     <div
@@ -155,8 +162,9 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
             <span className="text-[11px] font-medium" style={{ color: 'var(--color-muted-foreground)' }}>
               {t('modal.model')}
             </span>
-            <span className="text-sm font-mono truncate" style={{ color: 'var(--color-foreground)' }} title={agent.model_id}>
-              {agent.model_id}
+            <span className="text-sm font-mono truncate" title={`${agent.provider_id}/${agent.model_id}`}>
+              <span style={{ color: 'var(--color-muted-foreground)' }}>{agent.provider_id}/</span>
+              <span style={{ color: 'var(--color-foreground)' }}>{agent.model_id}</span>
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
@@ -215,7 +223,7 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
         )}
 
         {/* Live stream */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div ref={streamBodyRef} className="flex-1 overflow-y-auto p-5">
           <div className="flex items-center gap-2 mb-3">
             <Terminal className="h-4 w-4" style={{ color: agent.state === 'processing' ? 'var(--color-signal)' : 'var(--color-muted-foreground)' }} />
             <span className="text-xs font-semibold" style={{ color: 'var(--color-muted-foreground)' }}>
@@ -239,108 +247,117 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
             </div>
           ) : (
             <div className="font-mono text-xs leading-relaxed space-y-3">
-              {thinkingSegments.map((seg, i) => (
-                <div
-                  key={`think-${i}`}
-                  className="border-l-2 pl-3"
-                  style={{ borderColor: 'color-mix(in srgb, var(--color-signal) 50%, transparent)' }}
-                >
-                  <span className="font-semibold block mb-1 text-xs" style={{ color: 'var(--color-signal)' }}>
-                    {t('stream.thinking')}
-                  </span>
-                  <span className="whitespace-pre-wrap" style={{ color: 'var(--color-muted-foreground)' }}>
-                    {seg.text}
-                  </span>
-                </div>
-              ))}
-              {contentSegments.map((seg, i) => (
-                <div
-                  key={`content-${i}`}
-                  className="border-l-2 pl-3"
-                  style={{ borderColor: 'color-mix(in srgb, var(--color-accent) 50%, transparent)' }}
-                >
-                  <span className="font-semibold block mb-1 text-xs" style={{ color: 'var(--color-accent)' }}>
-                    {t('stream.content')}
-                  </span>
-                  <span className="whitespace-pre-wrap" style={{ color: 'var(--color-foreground)' }}>
-                    {seg.text}
-                  </span>
-                </div>
-              ))}
-              {toolSegments.map((seg, i) => (
-                <div
-                  key={`tool-${i}`}
-                  className="border-l-2 pl-3"
-                  style={{ borderColor: seg.error ? 'var(--color-destructive)' : 'color-mix(in srgb, var(--color-primary) 50%, transparent)' }}
-                >
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span
-                      className="font-semibold text-xs"
-                      style={{ color: seg.error ? 'var(--color-destructive)' : 'var(--color-primary)' }}
+              {segments.map((seg, i) => {
+                if (seg.type === 'thinking') {
+                  return (
+                    <div
+                      key={`seg-${i}`}
+                      className="border-l-2 pl-3"
+                      style={{ borderColor: 'color-mix(in srgb, var(--color-signal) 50%, transparent)' }}
                     >
-                      {t('stream.toolCall')}: {seg.name}
-                    </span>
-                    {seg.done && !seg.error && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
-                        backgroundColor: 'color-mix(in srgb, var(--color-success) 12%, transparent)',
-                        color: 'var(--color-success)',
-                      }}>
-                        {t('stream.toolDone')}
+                      <span className="font-semibold block mb-1 text-xs" style={{ color: 'var(--color-signal)' }}>
+                        {t('stream.thinking')}
                       </span>
-                    )}
-                    {seg.error && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
-                        backgroundColor: 'color-mix(in srgb, var(--color-destructive) 12%, transparent)',
-                        color: 'var(--color-destructive)',
-                      }}>
-                        {t('stream.toolError')}
+                      <span className="whitespace-pre-wrap" style={{ color: 'var(--color-muted-foreground)' }}>
+                        {seg.text}
                       </span>
-                    )}
-                    {seg.duration_ms !== undefined && (
-                      <span className="text-[10px]" style={{ color: 'var(--color-muted-foreground)' }}>
-                        {t('stream.toolDuration', { ms: seg.duration_ms })}
+                    </div>
+                  )
+                }
+                if (seg.type === 'content') {
+                  return (
+                    <div
+                      key={`seg-${i}`}
+                      className="border-l-2 pl-3"
+                      style={{ borderColor: 'color-mix(in srgb, var(--color-accent) 50%, transparent)' }}
+                    >
+                      <span className="font-semibold block mb-1 text-xs" style={{ color: 'var(--color-accent)' }}>
+                        {t('stream.content')}
                       </span>
-                    )}
-                  </div>
-                  {seg.args && (
-                    <details className="mt-1">
-                      <summary className="text-[10px] cursor-pointer" style={{ color: 'var(--color-muted-foreground)' }}>
-                        Arguments
-                      </summary>
-                      <pre className="text-[10px] mt-1 p-2 rounded overflow-x-auto" style={{
-                        backgroundColor: 'var(--color-surface-secondary)',
-                        color: 'var(--color-muted-foreground)',
-                        maxHeight: '120px',
-                      }}>
-                        {seg.args}
-                      </pre>
-                    </details>
-                  )}
-                  {seg.result && !seg.error && (
-                    <details className="mt-1">
-                      <summary className="text-[10px] cursor-pointer" style={{ color: 'var(--color-muted-foreground)' }}>
-                        Result
-                      </summary>
-                      <pre className="text-[10px] mt-1 p-2 rounded overflow-x-auto" style={{
-                        backgroundColor: 'var(--color-surface-secondary)',
-                        color: 'var(--color-foreground)',
-                        maxHeight: '120px',
-                      }}>
-                        {seg.result}
-                      </pre>
-                    </details>
-                  )}
-                  {seg.error && (
-                    <pre className="text-[10px] mt-1 p-2 rounded overflow-x-auto" style={{
-                      backgroundColor: 'color-mix(in srgb, var(--color-destructive) 8%, transparent)',
-                      color: 'var(--color-destructive)',
-                      maxHeight: '120px',
-                    }}>
-                      {seg.error}
-                    </pre>
-                  )}
-                </div>
-              ))}
+                      <span className="whitespace-pre-wrap" style={{ color: 'var(--color-foreground)' }}>
+                        {seg.text}
+                      </span>
+                    </div>
+                  )
+                }
+                if (seg.type === 'tool_call') {
+                  return (
+                    <div
+                      key={`seg-${i}`}
+                      className="border-l-2 pl-3"
+                      style={{ borderColor: seg.error ? 'var(--color-destructive)' : 'color-mix(in srgb, var(--color-primary) 50%, transparent)' }}
+                    >
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span
+                          className="font-semibold text-xs"
+                          style={{ color: seg.error ? 'var(--color-destructive)' : 'var(--color-primary)' }}
+                        >
+                          {t('stream.toolCall')}: {seg.name}
+                        </span>
+                        {seg.done && !seg.error && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                            backgroundColor: 'color-mix(in srgb, var(--color-success) 12%, transparent)',
+                            color: 'var(--color-success)',
+                          }}>
+                            {t('stream.toolDone')}
+                          </span>
+                        )}
+                        {seg.error && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                            backgroundColor: 'color-mix(in srgb, var(--color-destructive) 12%, transparent)',
+                            color: 'var(--color-destructive)',
+                          }}>
+                            {t('stream.toolError')}
+                          </span>
+                        )}
+                        {seg.duration_ms !== undefined && (
+                          <span className="text-[10px]" style={{ color: 'var(--color-muted-foreground)' }}>
+                            {t('stream.toolDuration', { ms: seg.duration_ms })}
+                          </span>
+                        )}
+                      </div>
+                      {seg.args && (
+                        <details className="mt-1">
+                          <summary className="text-[10px] cursor-pointer" style={{ color: 'var(--color-muted-foreground)' }}>
+                            Arguments
+                          </summary>
+                          <pre className="text-[10px] mt-1 p-2 rounded overflow-x-auto" style={{
+                            backgroundColor: 'var(--color-surface-secondary)',
+                            color: 'var(--color-muted-foreground)',
+                            maxHeight: '120px',
+                          }}>
+                            {seg.args}
+                          </pre>
+                        </details>
+                      )}
+                      {seg.result && !seg.error && (
+                        <details className="mt-1">
+                          <summary className="text-[10px] cursor-pointer" style={{ color: 'var(--color-muted-foreground)' }}>
+                            Result
+                          </summary>
+                          <pre className="text-[10px] mt-1 p-2 rounded overflow-x-auto" style={{
+                            backgroundColor: 'var(--color-surface-secondary)',
+                            color: 'var(--color-foreground)',
+                            maxHeight: '120px',
+                          }}>
+                            {seg.result}
+                          </pre>
+                        </details>
+                      )}
+                      {seg.error && (
+                        <pre className="text-[10px] mt-1 p-2 rounded overflow-x-auto" style={{
+                          backgroundColor: 'color-mix(in srgb, var(--color-destructive) 8%, transparent)',
+                          color: 'var(--color-destructive)',
+                          maxHeight: '120px',
+                        }}>
+                          {seg.error}
+                        </pre>
+                      )}
+                    </div>
+                  )
+                }
+                return null
+              })}
             </div>
           )}
         </div>
