@@ -24,6 +24,7 @@ beforeEach(() => {
     historyHasMore: {},
     historyCursor: {},
     sessionsLoading: false,
+    sessionsLoaded: false,
   })
   vi.clearAllMocks()
 })
@@ -267,6 +268,33 @@ describe('chatStore', () => {
     expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
     expect(useChatStore.getState().sessions).toEqual([])
     expect(useChatStore.getState().sessionsLoading).toBe(false)
+  })
+
+  it('sessionsLoaded is false initially and becomes true after a successful loadSessions', async () => {
+    expect(useChatStore.getState().sessionsLoaded).toBe(false)
+
+    vi.mocked(listSessions).mockResolvedValueOnce({
+      sessions: [{ id: 'l2:abc', type: 'l2', name: 'x', createdAt: '' }],
+    } as any)
+
+    await useChatStore.getState().loadSessions()
+
+    expect(useChatStore.getState().sessionsLoaded).toBe(true)
+    expect(useChatStore.getState().sessionsLoading).toBe(false)
+    expect(useChatStore.getState().sessions[0].id).toBe('l2:abc')
+  })
+
+  it('sessionsLoaded stays false when both listSessions attempts fail', async () => {
+    vi.mocked(listSessions)
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+
+    await useChatStore.getState().loadSessions()
+
+    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
+    expect(useChatStore.getState().sessionsLoaded).toBe(false)
+    expect(useChatStore.getState().sessionsLoading).toBe(false)
+    expect(useChatStore.getState().sessions).toEqual([])
   })
 
   it('hydrates empty history while runtime reports the session is streaming', async () => {

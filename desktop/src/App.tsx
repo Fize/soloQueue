@@ -83,12 +83,13 @@ function RouteFallback() {
   )
 }
 
-const LAST_CHAT_ROUTE_KEY = 'soloqueue_last_chat_route'
+const LAST_ROUTE_KEY = 'soloqueue_last_route'
 
-function getLastChatRoute() {
+function getLastRoute() {
   try {
-    const route = localStorage.getItem(LAST_CHAT_ROUTE_KEY)
-    if (route?.startsWith('/chat/')) return route
+    const route = localStorage.getItem(LAST_ROUTE_KEY)
+    const knownPrefixes = ['/chat', '/assistant', '/agents/', '/cron', '/simulations', '/workflows', '/stats', '/settings']
+    if (route && knownPrefixes.some((p) => route.startsWith(p))) return route
   } catch {
     // localStorage may be unavailable (private mode, disabled storage).
     // Intentional silent fallback to '/chat'.
@@ -305,10 +306,12 @@ function App() {
   }, [sidebarCollapsed, setSidebarCollapsed])
 
   useEffect(() => {
-    if (!location.pathname.startsWith('/chat/')) return
+    // Transient redirect routes (launch root, /new-chat) must never clobber
+    // the stored route before the restore navigation lands.
+    if (location.pathname === '/' || location.pathname === '/new-chat') return
     try {
       localStorage.setItem(
-        LAST_CHAT_ROUTE_KEY,
+        LAST_ROUTE_KEY,
         `${location.pathname}${location.search}${location.hash}`
       )
     } catch {
@@ -449,7 +452,7 @@ function App() {
             <div className="flex-1 overflow-hidden h-full">
               <Suspense fallback={<RouteFallback />}>
                 <Routes>
-                  <Route path="/" element={<Navigate to={getLastChatRoute()} replace />} />
+                  <Route path="/" element={<Navigate to={getLastRoute()} replace />} />
                   <Route path="/new-chat" element={<Navigate to="/chat" replace />} />
                   <Route path="/assistant" element={<AssistantPage />} />
                   <Route path="/chat/:sessionId?" element={<ChatPage />} />

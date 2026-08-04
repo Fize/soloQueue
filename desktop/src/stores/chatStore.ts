@@ -26,6 +26,7 @@ interface ChatState {
   historyHasMore: Record<string, boolean> // track which sessions have more history to load
   historyCursor: Record<string, string | null> // cursor for next load-more page
   sessionsLoading: boolean // true while loadSessions() is in flight — drives the "Loading sessions…" UI
+  sessionsLoaded: boolean // true once a listSessions call has succeeded — stale-session guard may only trust absence after this
 
   loadSessions: () => Promise<void>
   createL2Session: (group: string, workDir?: string) => Promise<string | null>
@@ -90,6 +91,7 @@ export const useChatStore = create<ChatState>((set) => ({
   historyHasMore: {},
   historyCursor: {},
   sessionsLoading: false,
+  sessionsLoaded: false,
 
   loadSessions: async () => {
     if (inflightSessionsLoad) return inflightSessionsLoad
@@ -112,7 +114,7 @@ export const useChatStore = create<ChatState>((set) => ({
             }
           }
         }
-        return { sessions: mapped }
+        return { sessions: mapped, sessionsLoaded: true }
       })
     }
     inflightSessionsLoad = (async () => {

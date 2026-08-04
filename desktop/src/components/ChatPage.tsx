@@ -56,6 +56,8 @@ export function ChatPage() {
   const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false
   const isSystemCommandRunning = activeSessionId ? (systemCommandSessions[activeSessionId] ?? false) : false
   const sessions = useChatStore(useShallow((s) => s.sessions))
+  const sessionsLoading = useChatStore((s) => s.sessionsLoading)
+  const sessionsLoaded = useChatStore((s) => s.sessionsLoaded)
   const historyHasMore = useChatStore(useShallow((s) => s.historyHasMore))
   const historyLoading = useChatStore(useShallow((s) => s.historyLoading))
   const loadMoreHistory = useChatStore((s) => s.loadMoreHistory)
@@ -198,6 +200,15 @@ export function ChatPage() {
       }
     }
   }, [sessionId, activeSessionId, setActiveSession]);
+
+  // Redirect stale persisted /chat/<id> routes once the sessions list has
+  // settled — absence is authoritative only after a successful load, so a
+  // failed startup fetch (backend still booting) never redirects.
+  useEffect(() => {
+    if (!sessionId || sessionId === "l1" || sessionsLoading || !sessionsLoaded) return;
+    const known = sessions.some((s) => s.id === sessionId);
+    if (!known) navigate("/chat", { replace: true });
+  }, [sessionId, sessions, sessionsLoading, sessionsLoaded, navigate]);
 
   // currentMessages for the active session. The previous useChatStore()
   // subscription made this whole component re-render on every chat_chunk;
