@@ -34,6 +34,7 @@ import { ChatDesignPanel } from "@/components/ChatDesignPanel";
 import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
 import { StickyToolConfirmPanel } from "@/components/chat";
 import { recoverInFlightMessages } from "@/components/chat/recoverInFlightMessages";
+import { useStickToBottom } from "@/hooks/useStickToBottom";
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -65,8 +66,7 @@ export function ChatPage() {
 
   const { send, cancel } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const userScrolledUp = useRef(false);
+  const { contentRef, followOutput, resetFollow, detachFollow, syncFollowState } = useStickToBottom({ scrollRef });
   const loadingMore = useRef(false);
   const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   const connectionStatus = useRuntimeStore((s) => s.connectionStatus);
@@ -424,7 +424,7 @@ export function ChatPage() {
     projectPath?: string,
     selectedElement?: any,
   ) => {
-    userScrolledUp.current = false;
+    resetFollow();
     let targetSessionId = activeSessionId || undefined;
 
     if (!isL1Session && group) {
@@ -461,42 +461,23 @@ export function ChatPage() {
 
 
   const handleUserInteraction = useCallback(() => {
-    userScrolledUp.current = true;
-  }, []);
+    detachFollow();
+  }, [detachFollow]);
 
   // Reset scroll state on session change
   useEffect(() => {
-    userScrolledUp.current = false;
-  }, [activeSessionId]);
+    resetFollow();
+    followOutput();
+  }, [activeSessionId, followOutput, resetFollow]);
 
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    let prevScrollTop = el.scrollTop;
-    // Hysteresis state for "user scrolled up" detection. We keep a
-    // sticky userScrolledUp flag and only flip it back to "following"
-    // when the viewport is within ATTACH_PX of the bottom. This stops the
-    // rapid back-and-forth flipping that occurred during fast scrolling
-    // when the previous 100px threshold oscillated with the user's
-    // wheel velocity.
     let cooldownTimer: ReturnType<typeof setTimeout> | null = null;
-    const ATTACH_PX = 50;     // within this many px of the bottom, re-attach
-    const DETACH_PX = 200;    // beyond this many px, mark as scrolled up
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = el;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      // Hysteresis: don't flip state inside the [ATTACH_PX, DETACH_PX] band.
-      if (userScrolledUp.current) {
-        if (distanceFromBottom < ATTACH_PX) {
-          userScrolledUp.current = false;
-        }
-      } else {
-        if (distanceFromBottom > DETACH_PX && scrollTop < prevScrollTop) {
-          userScrolledUp.current = true;
-        }
-      }
-      prevScrollTop = scrollTop;
+      const { scrollTop, scrollHeight } = el;
+      syncFollowState();
 
       const hasMore = activeSessionId ? historyHasMore[activeSessionId] : false;
       const isLoading = activeSessionId
@@ -529,67 +510,18 @@ export function ChatPage() {
       el.removeEventListener("scroll", handleScroll);
       if (cooldownTimer !== null) clearTimeout(cooldownTimer);
     };
-  }, [activeSessionId, historyHasMore, historyLoading, loadMoreHistory]);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      if (!userScrolledUp.current) {
-        el.scrollTop = el.scrollHeight;
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Track the structural key of the last-rendered tail. The auto-scroll
-  // effect (below) uses this so it only fires when a NEW message or
-  // segment is added, not on every chat_chunk inside an existing segment.
-  // Without this, the effect ran once per token and called scrollIntoView
-  // in scenarios where userScrolledUp had briefly reset to false,
-  // dragging the viewport to the bottom on every chunk.
-  const lastAutoScrolledKey = useRef<string>("");
+  }, [
+    activeSessionId,
+    historyHasMore,
+    historyLoading,
+    loadMoreHistory,
+    syncFollowState,
+  ]);
 
   useLayoutEffect(() => {
-    if (userScrolledUp.current) return;
     if (finalMessages.length === 0) return;
-    const last = finalMessages[finalMessages.length - 1];
-    const lastSeg = last.segments[last.segments.length - 1];
-    // Use a fingerprint containing the last segment's text length so that
-    // appending characters to an existing text/thinking segment triggers scrolling
-    // (but only when following the bottom of the conversation stream).
-    const lastSegTextLength =
-      lastSeg &&
-      (lastSeg.type === "content" ||
-        lastSeg.type === "thinking" ||
-        lastSeg.type === "error" ||
-        lastSeg.type === "compact")
-        ? (lastSeg.text || "").length
-        : 0;
-    const key = `${finalMessages.length}:${last.segments.length}:${lastSeg?.type ?? ""}:${lastSegTextLength}`;
-    if (key === lastAutoScrolledKey.current) return;
-    lastAutoScrolledKey.current = key;
-
-    // rAF-anchored scroll: sample scrollHeight before AND after the
-    // browser has had a chance to lay out the new content, then add the
-    // delta to scrollTop. This keeps the user's current viewport
-    // position visually stable (the line they were reading stays put)
-    // even when a new segment is prepended via loadMoreHistory or the
-    // auto-scroll wants to follow a freshly-appended segment.
-    const el = scrollRef.current;
-    if (!el) return;
-    const before = el.scrollHeight;
-    el.scrollTop = el.scrollHeight;
-    requestAnimationFrame(() => {
-      if (!scrollRef.current) return;
-      const after = scrollRef.current.scrollHeight;
-      const delta = after - before;
-      if (delta > 0) {
-        scrollRef.current.scrollTop = before + delta;
-      }
-    });
-  }, [finalMessages]);
+    followOutput();
+  }, [finalMessages, followOutput]);
 
   const matchedRegAgent = useMemo(() => {
     if (!activeAgent || !registeredAgents) return null;
@@ -870,21 +802,12 @@ export function ChatPage() {
                 <div
                   ref={scrollRef}
                   className="flex-1 overflow-y-auto p-6"
-                  // Explicitly mark the user as "scrolled up" the moment they
-                  // engage the scroll wheel or touch the surface. Without
-                  // this, the auto-scroll effect (which depends on a
-                  // structural key in finalMessages) can run between the
-                  // user's wheel events if a new token arrives in the
-                  // stream, and re-attach to the bottom before the scroll
-                  // listener has had a chance to update userScrolledUp.
-                  onWheel={() => {
-                    userScrolledUp.current = true;
-                  }}
-                  onTouchStart={() => {
-                    userScrolledUp.current = true;
-                  }}
+                  onScroll={syncFollowState}
+                  onWheel={detachFollow}
+                  onTouchStart={detachFollow}
                 >
                   <div
+                    ref={contentRef}
                     className={`mx-auto w-full space-y-6 ${isDesignMode ? 'px-2' : 'px-4'}`}
                     style={{ maxWidth: messageMaxWidth }}
                   >
@@ -932,7 +855,7 @@ export function ChatPage() {
                       />
                     )}
 
-                    <div ref={bottomRef} className="h-2" />
+                    <div className="h-2" />
                   </div>
                 </div>
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { useEffect, useRef, useCallback, useMemo, useState, useLayoutEffect } from "react";
 import { ChatMessageView } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
 import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
@@ -14,6 +14,7 @@ import { wsManager } from "@/lib/websocket";
 import type { SkillInfo, ChatSegment } from "@/types";
 import { StickyToolConfirmPanel } from "@/components/chat";
 import { recoverInFlightMessages } from "@/components/chat/recoverInFlightMessages";
+import { useStickToBottom } from "@/hooks/useStickToBottom";
 
 export function AssistantPage() {
   const {
@@ -37,13 +38,12 @@ export function AssistantPage() {
 
   const { send, cancel } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const { contentRef, followOutput, resetFollow, detachFollow } = useStickToBottom({ scrollRef });
   const loadingMoreRef = useRef(false);
-  const userScrolledUpRef = useRef(false);
 
   const handleUserInteraction = useCallback(() => {
-    userScrolledUpRef.current = true;
-  }, []);
+    detachFollow();
+  }, [detachFollow]);
 
   const [skills, setSkills] = useState<SkillInfo[]>([]);
 
@@ -123,19 +123,8 @@ export function AssistantPage() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    let prevScrollTop = el.scrollTop;
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = el;
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-      if (isNearBottom) {
-        userScrolledUpRef.current = false;
-      } else {
-        // If scrollTop decreased, the user scrolled up.
-        if (scrollTop < prevScrollTop) {
-          userScrolledUpRef.current = true;
-        }
-      }
-      prevScrollTop = scrollTop;
+      const { scrollTop, scrollHeight } = el;
 
       if (
         scrollTop < 50 &&
@@ -158,68 +147,15 @@ export function AssistantPage() {
     return () => el.removeEventListener("scroll", handleScroll);
   }, [hasMore, isLoadingMore, loadMoreHistory]);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      if (!userScrolledUpRef.current) {
-        el.scrollTop = el.scrollHeight;
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Auto-scroll to bottom
   const currentMessages = messages["l1"] || [];
-  const contentSum = currentMessages.reduce((acc, msg) => {
-    let sum = 0;
-    for (const seg of msg.segments) {
-      if (
-        seg.type === "content" ||
-        seg.type === "thinking" ||
-        seg.type === "error" ||
-        seg.type === "compact"
-      ) {
-        sum += (seg.text || "").length;
-      } else if (seg.type === "tool_call") {
-        sum +=
-          (seg.name || "").length +
-          (seg.args || "").length +
-          (seg.result || "").length +
-          (seg.error || "").length +
-          (seg.done ? 1 : 0);
-      } else if (seg.type === "delegation") {
-        sum +=
-          (seg.agentName || "").length +
-          (seg.task || "").length +
-          (seg.status || "").length +
-          (seg.resultContent || "").length;
-      } else if (seg.type === "tool_confirm") {
-        sum +=
-          (seg.name || "").length +
-          (seg.prompt || "").length +
-          (seg.resolved ? 1 : 0) +
-          (seg.choice || "").length;
-      }
-    }
-    return acc + sum + msg.segments.length;
-  }, 0);
-
-  useEffect(() => {
-    if (userScrolledUpRef.current) return;
-    bottomRef.current?.scrollIntoView({
-      behavior: "auto",
-    });
-  }, [contentSum, streaming]);
 
   // ── Send & Cancel ─────────────────────────────────────────────────────────
   const handleSend = useCallback(
     (text: string, files?: { name: string; path: string }[]) => {
-      userScrolledUpRef.current = false;
+      resetFollow();
       send(text, files);
     },
-    [send],
+    [resetFollow, send],
   );
 
   const handleCancel = useCallback(() => {
@@ -264,6 +200,11 @@ export function AssistantPage() {
     routeSessions,
     streamChatSegments,
   ]);
+
+  useLayoutEffect(() => {
+    if (finalMessages.length === 0) return;
+    followOutput();
+  }, [finalMessages, followOutput]);
 
   const pendingConfirm = useMemo(() => {
     const lastMessage = finalMessages[finalMessages.length - 1];
@@ -329,7 +270,7 @@ export function AssistantPage() {
               </p>
             </div>
           ) : (
-            <div className="mx-auto max-w-3xl">
+            <div ref={contentRef} className="mx-auto max-w-3xl">
               {isLoadingMore && (
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -360,7 +301,7 @@ export function AssistantPage() {
               />
             </div>
           )}
-          <div ref={bottomRef} className="h-2" />
+          <div className="h-2" />
         </div>
 
         {pendingConfirm && (
