@@ -26,7 +26,7 @@ build-web: ## Build lightweight web portal (for Go embed)
 	cd portal && pnpm install
 	cd portal && pnpm build
 	rm -rf internal/server/dist && cp -r portal/dist internal/server/dist
-	cp -r skills internal/server/dist/skills
+	rsync -a --exclude='.venv' --exclude='__pycache__' --exclude='*.pyc' skills/ internal/server/dist/skills
 
 build-desktop: ## Build rich web UI (for Electron desktop client)
 	cd desktop && pnpm approve-builds
