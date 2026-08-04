@@ -177,48 +177,6 @@
 
 /* ════════════════════════════════════════════════
    Portal Theme Utility Classes
-   ════════════════════════════════════════════════ */
-@utility surface {
-  background-color: var(--color-card);
-}
-@utility surface-container-low {
-  background-color: var(--color-card);
-}
-@utility surface-container {
-  background-color: var(--color-card);
-}
-@utility surface-container-high {
-  background-color: var(--color-surface-secondary);
-}
-@utility surface-container-highest {
-  background-color: color-mix(in srgb, var(--color-surface-secondary) 80%, var(--color-background));
-}
-
-/* ─── Shimmer loading animation ─── */
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-@utility shimmer {
-  background: linear-gradient(
-    90deg,
-    var(--color-card) 25%,
-    var(--color-surface-secondary) 50%,
-    var(--color-card) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-}
-
-/* ─── Agent pulse dot ─── */
-@keyframes dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
-}
-@utility animate-dot-pulse {
-  animation: dot-pulse 1.5s ease-in-out infinite;
-}
-
 /* ─── Slide in from bottom ─── */
 @keyframes slide-up {
   from { opacity: 0; transform: translateY(12px); }
@@ -226,16 +184,6 @@
 }
 @utility animate-slide-up {
   animation: slide-up 0.3s ease-out both;
-}
-
-/* ─── Number counter flicker ─── */
-@keyframes count-flicker {
-  0% { opacity: 1; }
-  50% { opacity: 0.7; }
-  100% { opacity: 1; }
-}
-@utility animate-count-update {
-  animation: count-flicker 0.2s ease;
 }
 
 /* ─── Scrollable table wrapper ─── */

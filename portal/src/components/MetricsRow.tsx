@@ -1,12 +1,7 @@
 import { Bot, Cpu, FileText, AlertCircle } from 'lucide-react'
 import { MetricCard } from './MetricCard'
 import { useTranslation } from '../i18n'
-
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
-  return String(n)
-}
+import { formatTokenCount } from '../App'
 
 interface MetricsRowProps {
   isConnected: boolean

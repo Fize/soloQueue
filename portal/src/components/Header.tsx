@@ -7,13 +7,12 @@ type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
 type Language = 'en' | 'zh'
 
 interface HeaderProps {
-  isConnected: boolean
   connStatus: ConnectionStatus
   language: Language
   onToggleLanguage: () => void
 }
 
-export function Header({ isConnected: _isConnected, connStatus, language, onToggleLanguage }: HeaderProps) {
+export function Header({ connStatus, language, onToggleLanguage }: HeaderProps) {
   const { t } = useTranslation()
 
   return (
