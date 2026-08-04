@@ -2,6 +2,8 @@ import { createContext, useContext, useState, type ReactNode } from 'react'
 
 export type Language = 'en' | 'zh'
 
+// Architectural Decision: Custom lightweight i18n context.
+// Avoids external dependencies (e.g. i18next) to minimize embedded binary footprint in Go //go:embed dist.
 const translations = {
   en: {
     header: {
@@ -82,6 +84,7 @@ const translations = {
       statusLabel: 'Status: {{status}}',
       emptyTitle: 'No scheduled tasks',
       emptyDesc: 'Configured cron tasks will appear here.',
+      history: 'History',
     },
     footerInfo: {
       phase: 'Phase: {{phase}}',
@@ -104,9 +107,16 @@ const translations = {
       dbUnavailable: 'Database not available',
       summaryInput: 'Total Input',
       summaryOutput: 'Total Output',
+      summaryTotal: 'Total',
+      summaryCacheHitAbs: 'Cache Hit',
       summaryCacheHit: 'Cache Hit Rate',
-      chartTitleDaily: 'Daily Token Usage (Last 7 Days)',
+      chartTitleHourly: 'Hourly Token Usage',
+      chartTitleDaily: 'Daily Token Usage',
       chartTitleMonthly: 'Monthly Token Usage (Last 30 Days)',
+      preset24h: 'Last 24h',
+      presetToday: 'Today',
+      preset3d: 'Last 3d',
+      preset7d: 'Last 7d',
       chartInput: 'Input',
       chartOutput: 'Output',
       modelTitle: 'By Model',
@@ -135,6 +145,15 @@ const translations = {
       success: 'Success',
       warning: 'Warning',
       error: 'Error',
+    },
+    cronHistory: {
+      title: 'Execution History — {{name}}',
+      time: 'Time',
+      status: 'Status',
+      duration: 'Duration',
+      summary: 'Summary',
+      model: 'Model',
+      empty: 'No execution records yet',
     },
   },
   zh: {
@@ -216,6 +235,7 @@ const translations = {
       statusLabel: '状态: {{status}}',
       emptyTitle: '暂无定时任务',
       emptyDesc: '配置的定时任务将会显示在此处。',
+      history: '历史',
     },
     footerInfo: {
       phase: '当前阶段: {{phase}}',
@@ -238,9 +258,16 @@ const translations = {
       dbUnavailable: '数据库不可用',
       summaryInput: '累计输入',
       summaryOutput: '累计输出',
+      summaryTotal: '总计',
+      summaryCacheHitAbs: '缓存命中',
       summaryCacheHit: '缓存命中率',
-      chartTitleDaily: '每日 Token 使用量（近7天）',
+      chartTitleHourly: '每小时 Token 使用量',
+      chartTitleDaily: '每日 Token 使用量',
       chartTitleMonthly: '每月 Token 使用量（近30天）',
+      preset24h: '最近 24 小时',
+      presetToday: '今天',
+      preset3d: '最近 3 天',
+      preset7d: '最近 7 天',
       chartInput: '输入',
       chartOutput: '输出',
       modelTitle: '按模型统计',
@@ -269,6 +296,15 @@ const translations = {
       success: '成功',
       warning: '警告',
       error: '错误',
+    },
+    cronHistory: {
+      title: '执行历史 — {{name}}',
+      time: '时间',
+      status: '状态',
+      duration: '耗时',
+      summary: '摘要',
+      model: '模型',
+      empty: '暂无执行记录',
     },
   },
 }

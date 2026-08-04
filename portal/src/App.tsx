@@ -62,6 +62,19 @@ interface CronTaskStatus {
   is_one_time: boolean
 }
 
+// Architectural Decision: Websocket polling & reconnection strategy.
+// Reconnect interval fixed at 2s to maintain low latency without overwhelming local Go server.
+// Token fetch is graceful — if /api/auth/token fails (e.g., auth disabled in dev), fallback to unauthenticated WS.
+const RECONNECT_DELAY = 2000
+const MAX_NOTIFICATIONS = 3
+const NOTIFICATION_TTL = 5000
+
+export function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
 interface RuntimeStatus {
   phase: string
   prompt_tokens: number
@@ -73,23 +86,7 @@ interface RuntimeStatus {
   running_agents: number
   idle_agents: number
   total_errors: number
-  active_delegations?: number
-  current_tokens?: number
-  max_tokens?: number
-  agents?: { supervisors?: Record<string, string[]> }
   agent_streams: Record<string, AgentStreamState>
-}
-
-// ─── Constants ───
-const RECONNECT_DELAY = 2000
-const MAX_NOTIFICATIONS = 3
-const NOTIFICATION_TTL = 5000
-
-// ─── Helpers ───
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
-  return String(n)
 }
 
 // ════════════════════════════════════════════════════════════
@@ -100,6 +97,7 @@ export default function App() {
   const [connStatus, setConnStatus] = useState<ConnectionStatus>('disconnected')
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [supervisors, setSupervisors] = useState<Record<string, string[]> | null>(null)
   const [cronTasks, setCronTasks] = useState<CronTaskStatus[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<NotificationPayload[]>([])
@@ -160,6 +158,7 @@ export default function App() {
         if (msg.type === 'state') {
           if (msg.runtime) setRuntime(msg.runtime)
           if (msg.agents?.agents) setAgents(msg.agents.agents)
+          if (msg.agents?.supervisors) setSupervisors(msg.agents.supervisors)
           if (msg.cron_tasks) setCronTasks(msg.cron_tasks)
         } else if (msg.type === 'notification') {
           addNotification({
@@ -230,7 +229,6 @@ export default function App() {
     >
       {/* ═══ Header ═══ */}
       <Header
-        isConnected={isConnected}
         connStatus={connStatus}
         language={language}
         onToggleLanguage={() => setLanguage(language === 'en' ? 'zh' : 'en')}
@@ -255,7 +253,7 @@ export default function App() {
         {/* ─── Agent Status Table ─── */}
         <AgentTable
           agents={agents}
-          runtime={runtime}
+          supervisors={supervisors}
           isConnected={isConnected}
           onSelectAgent={(id) => setSelectedAgentId(id)}
           t={t}
