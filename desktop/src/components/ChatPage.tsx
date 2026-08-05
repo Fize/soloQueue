@@ -291,11 +291,11 @@ export function ChatPage() {
       const fallback: AgentInfo = {
         id: "main",
         instance_id: "",
-        name: "L1 Agent",
+        name: t('sidebar.assistant'),
         state: "stopped" as const,
         model_id: "Expert Model",
         provider_id: "",
-        group: "L1",
+        group: "",
         is_leader: true,
         task_level: "",
         error_count: 0,
@@ -345,16 +345,16 @@ export function ChatPage() {
       };
       return live || placeholder;
     });
-  }, [agentsData, teamsData, activeGroup, isL1Session, activeSession?.agent_instance_id]);
+  }, [agentsData, teamsData, activeGroup, isL1Session, activeSession, t]);
 
   const activeAgent = useMemo(() => {
     return groupAgents.find((a) => a.is_leader) || groupAgents[0] || null;
   }, [groupAgents]);
 
   const agentDisplayName = useMemo(() => {
-    if (isL1Session) return "L1 Agent";
-    return activeSession?.agent_name || activeAgent?.name || "Assistant";
-  }, [isL1Session, activeSession, activeAgent]);
+    if (isL1Session) return t('sidebar.assistant');
+    return activeSession?.agent_name || activeAgent?.name || t('sidebar.assistant');
+  }, [isL1Session, activeSession, activeAgent, t]);
 
   const activeAgentInstanceId = isL1Session ? (groupAgents[0]?.instance_id || null) : (activeAgent?.instance_id || null);
   const activeAgentState = isL1Session ? groupAgents[0]?.state : activeAgent?.state;
@@ -642,7 +642,7 @@ export function ChatPage() {
               >
                 {activeSession?.name ||
                   (isL1Session
-                    ? "General Q&A (L1)"
+                    ? t('chat.general')
                     : activeGroup
                       ? `${activeGroup} Team`
                       : "Loading…")}

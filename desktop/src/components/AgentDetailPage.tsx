@@ -98,10 +98,10 @@ export function AgentDetailPage() {
       if (match) return match.name
     }
     return ''
-  }, [teamsData, id, isL1])
+  }, [teamsData, id, isL1, t])
 
   const effectiveId = agent?.id ?? id ?? null
-  const effectiveName = agent?.name ?? templateName ?? t('agent.unknownAgent')
+  const effectiveName = isL1 ? t('sidebar.assistant') : agent?.name ?? templateName ?? t('agent.unknownAgent')
   const hasAgent = !!agent
 
   // Fetch configs/profile from the shared store (single source of truth)

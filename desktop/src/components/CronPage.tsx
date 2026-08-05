@@ -31,7 +31,7 @@ import {
   History,
 } from 'lucide-react'
 
-const L1_OPTION = { value: 'L1', label: 'L1 Orchestrator' }
+const L1_VALUE = 'L1'
 
 // ─── Skeleton Card ────────────────────────────────────────────────────────────
 
@@ -127,7 +127,9 @@ function TaskCard({
           <Badge variant="secondary" className="text-xs">{t(`cron.type${task.task_type.charAt(0).toUpperCase()}${task.task_type.slice(1)}`)}</Badge>
           <Badge variant="outline" className="gap-1 bg-background/50 text-xs hidden sm:flex">
             <Bot className="h-3 w-3 text-primary" />
-            {task.target_agent || 'L1'}
+            {task.target_agent?.toUpperCase() === 'L1' || !task.target_agent
+              ? t('sidebar.assistant')
+              : task.target_agent}
           </Badge>
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${
@@ -261,6 +263,7 @@ function TaskCard({
 
 export function CronPage() {
   const { t } = useTranslation()
+  const assistantOption = { value: L1_VALUE, label: t('sidebar.assistant') }
   const [tasks, setTasks] = useState<CronTask[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -297,7 +300,7 @@ export function CronPage() {
   // Optimistic toggle tracking
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
 
-  const [teamOptions, setTeamOptions] = useState<{ value: string; label: string }[]>([L1_OPTION])
+  const [teamOptions, setTeamOptions] = useState<{ value: string; label: string }[]>([assistantOption])
   const [taskTypeModels, setTaskTypeModels] = useState<Record<string, { name: string; fallback: boolean } | null>>({})
 
   // Dialog first-field ref for auto-focus
@@ -339,7 +342,7 @@ export function CronPage() {
         const leaderTeams = data.teams
           .filter(t => t.agents?.some(a => a.is_leader))
           .map(t => ({ value: t.name, label: `${t.name} Team` }))
-        setTeamOptions([L1_OPTION, ...leaderTeams])
+        setTeamOptions([assistantOption, ...leaderTeams])
       }
     } catch {
       // Silently fall back to L1-only

@@ -120,43 +120,66 @@ function ConnectionStatusBar() {
   const cacheHitTokens = useRuntimeStore((s) => s.status?.cache_hit_tokens ?? 0)
   const cacheMissTokens = useRuntimeStore((s) => s.status?.cache_miss_tokens ?? 0)
 
+  const startBackend = useCallback(async () => {
+    if (!isElectron) return { success: false, error: 'Backend controls are only available in Electron' }
+
+    const ea = (window as any).electronAPI
+    setConnectionError(null)
+    setIsChecking(true)
+    try {
+      const result = await ea.startBackend()
+      const status = await ea.getBackendStatus()
+      setBackendStatus(status)
+      setIsChecking(false)
+      if (!result.success) {
+        setConnectionError(result.error || 'Failed to start backend')
+      }
+      return result
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start backend'
+      setIsChecking(false)
+      setConnectionError(message)
+      return { success: false, error: message }
+    }
+  }, [setBackendStatus, setConnectionError, setIsChecking])
+
   useEffect(() => {
     if (!isElectron) {
       setIsChecking(false)
       return
     }
-    setIsChecking(true)
 
     const ea = (window as any).electronAPI
-
-    ea.getBackendStatus().then((s: BackendStatus) => {
-      setBackendStatus(s)
-      if (s.running) setIsChecking(false)
-    })
-
+    let cancelled = false
     const unsub = ea.onBackendStatusChanged((s: BackendStatus) => {
+      if (cancelled) return
       setBackendStatus(s)
-      setConnectionError(null)
-      if (s.running) setIsChecking(false)
+      if (s.running) {
+        setConnectionError(null)
+        setIsChecking(false)
+      }
     })
 
-    // Read latest values from the store inside the timeout instead of
-    // closing over the initial render's `backendStatus`/`mode` — the
-    // previous closure made this always see `{running: false}` and fire
-    // the "did not start in time" toast even when the backend was up.
-    const timeout = setTimeout(() => {
-      setIsChecking(false)
-      const { backendStatus: latest, mode: latestMode } = useConnectionStore.getState()
-      if (!latest.running && latestMode === 'local') {
-        setConnectionError('Backend did not start in time. Check Settings → Connection.')
+    void (async () => {
+      try {
+        const current = await ea.getBackendStatus()
+        if (cancelled) return
+        setBackendStatus(current)
+        if (current.running || useConnectionStore.getState().mode !== 'local') {
+          setIsChecking(false)
+          return
+        }
+        await startBackend()
+      } catch {
+        if (!cancelled) await startBackend()
       }
-    }, 12000)
+    })()
 
     return () => {
+      cancelled = true
       unsub()
-      clearTimeout(timeout)
     }
-  }, [])
+  }, [setBackendStatus, setConnectionError, setIsChecking, startBackend])
 
   // ── Tray sync: push connection state to macOS menu bar Tray ──
   useEffect(() => {
@@ -191,17 +214,14 @@ function ConnectionStatusBar() {
       action: {
         label: 'Retry',
         onClick: () => {
-          const ea = (window as any).electronAPI
-          setConnectionError(null)
-          setIsChecking(true)
-          ea?.startBackend?.()
+          void startBackend()
         },
       },
     })
     return () => {
       toast.dismiss('connection-error')
     }
-  }, [connectionError, setConnectionError, setIsChecking])
+  }, [connectionError, setConnectionError, setIsChecking, startBackend])
 
   if (isElectron && backendStatus.running) return null
 
@@ -249,10 +269,7 @@ function ConnectionStatusBar() {
         <span className="flex-1 truncate">{connectionError}</span>
         <button
           onClick={() => {
-            const ea = (window as any).electronAPI
-            setConnectionError(null)
-            setIsChecking(true)
-            ea?.startBackend?.()
+            void startBackend()
           }}
           className="underline cursor-pointer hover:opacity-80 shrink-0"
         >
