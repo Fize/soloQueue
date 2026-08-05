@@ -401,7 +401,6 @@ export function ChatPage() {
       currentMessages,
       streamChatSegments,
       activeAgentState === "processing" &&
-        !!requestId &&
         !wsManager.hasChatHandler(requestId),
     );
   }, [

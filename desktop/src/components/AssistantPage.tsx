@@ -189,7 +189,6 @@ export function AssistantPage() {
       streamChatSegments,
       isL1Session &&
         l1AgentState === "processing" &&
-        !!activeRequestId &&
         !requestOwnedLocally,
     );
   }, [
