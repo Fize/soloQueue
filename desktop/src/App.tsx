@@ -65,10 +65,14 @@ const WorkflowListPage = lazy(() =>
   import('@/components/workflow/WorkflowListPage').then((m) => ({ default: m.WorkflowListPage }))
 )
 const WorkflowEditorPage = lazy(() =>
-  import('@/components/workflow/WorkflowEditorPage').then((m) => ({ default: m.WorkflowEditorPage }))
+  import('@/components/workflow/WorkflowEditorPage').then((m) => ({
+    default: m.WorkflowEditorPage,
+  }))
 )
 const WorkflowRunDetailPage = lazy(() =>
-  import('@/components/workflow/WorkflowRunDetailPage').then((m) => ({ default: m.WorkflowRunDetailPage }))
+  import('@/components/workflow/WorkflowRunDetailPage').then((m) => ({
+    default: m.WorkflowRunDetailPage,
+  }))
 )
 function RouteFallback() {
   return (
@@ -88,7 +92,16 @@ const LAST_ROUTE_KEY = 'soloqueue_last_route'
 function getLastRoute() {
   try {
     const route = localStorage.getItem(LAST_ROUTE_KEY)
-    const knownPrefixes = ['/chat', '/assistant', '/agents/', '/cron', '/simulations', '/workflows', '/stats', '/settings']
+    const knownPrefixes = [
+      '/chat',
+      '/assistant',
+      '/agents/',
+      '/cron',
+      '/simulations',
+      '/workflows',
+      '/stats',
+      '/settings',
+    ]
     if (route && knownPrefixes.some((p) => route.startsWith(p))) return route
   } catch {
     // localStorage may be unavailable (private mode, disabled storage).
@@ -121,7 +134,8 @@ function ConnectionStatusBar() {
   const cacheMissTokens = useRuntimeStore((s) => s.status?.cache_miss_tokens ?? 0)
 
   const startBackend = useCallback(async () => {
-    if (!isElectron) return { success: false, error: 'Backend controls are only available in Electron' }
+    if (!isElectron)
+      return { success: false, error: 'Backend controls are only available in Electron' }
 
     const ea = (window as any).electronAPI
     setConnectionError(null)
@@ -198,7 +212,18 @@ function ConnectionStatusBar() {
       cacheHitTokens,
       cacheMissTokens,
     })
-  }, [mode, remoteUrl, backendStatus.running, backendStatus.uptime, isChecking, connectionError, promptTokens, outputTokens, cacheHitTokens, cacheMissTokens])
+  }, [
+    mode,
+    remoteUrl,
+    backendStatus.running,
+    backendStatus.uptime,
+    isChecking,
+    connectionError,
+    promptTokens,
+    outputTokens,
+    cacheHitTokens,
+    cacheMissTokens,
+  ])
 
   // ── Electron mode: connection status is surfaced via the macOS menu bar Tray.
   //    See `tray:update-status` in main.js. The in-app bar would conflict with
@@ -327,10 +352,7 @@ function App() {
     // the stored route before the restore navigation lands.
     if (location.pathname === '/' || location.pathname === '/new-chat') return
     try {
-      localStorage.setItem(
-        LAST_ROUTE_KEY,
-        `${location.pathname}${location.search}${location.hash}`
-      )
+      localStorage.setItem(LAST_ROUTE_KEY, `${location.pathname}${location.search}${location.hash}`)
     } catch {
       // localStorage may be unavailable; persistence is best-effort.
     }
@@ -344,8 +366,13 @@ function App() {
       notificationManager.show(payload)
     })
 
+    // Poll the backend health endpoint so the renderer-side readiness signal
+    // stays accurate in every mode (Electron IPC, browser dev, remote).
+    const stopHealthPolling = useConnectionStore.getState().startBackendHealthPolling()
+
     return () => {
       unsubNotify()
+      stopHealthPolling()
       wsManager.disconnect()
     }
   }, [])
@@ -396,6 +423,18 @@ function App() {
     useAgentStore.getState().fetchLiveAgents()
     useAgentStore.getState().fetchTeams()
   }, [backendRunning])
+
+  // Reconnect the WebSocket when the health probe confirms the backend is
+  // ready (false→true edge). connect() is idempotent — it returns early when
+  // a socket is already OPEN or CONNECTING — so calling it repeatedly is safe.
+  const backendReady = useConnectionStore((s) => s.backendReady)
+  const prevBackendReadyRef = useRef(false)
+  useEffect(() => {
+    const wasReady = prevBackendReadyRef.current
+    prevBackendReadyRef.current = backendReady
+    if (!backendReady || wasReady) return
+    wsManager.connect()
+  }, [backendReady])
 
   return (
     <TooltipProvider>

@@ -59,14 +59,14 @@ export interface AgentWorkingIndicatorProps {
  */
 function AgentWorkingIndicatorInner({
   modelName,
+  taskLevel,
   compact = false,
 }: AgentWorkingIndicatorProps) {
   // `taskLevel` and `modelName` are intentionally string-or-undefined:
   //   - undefined  → not processing, no chip
   //   - ""         → processing but router hasn't classified yet
   //   - a known level / real model
-  // Both fields share the same shape so the model chip can transition from
-  // its pending state without changing the surrounding layout.
+  const taskTypeIsPending = taskLevel !== undefined && taskLevel === ''
   const modelNameIsPending = modelName !== undefined && modelName === ''
   const modelColorVar = getModelColorVar(modelName)
 
@@ -84,9 +84,15 @@ function AgentWorkingIndicatorInner({
         <span className="animate-led-ping-2 absolute h-2 w-2 rounded-full bg-signal/20" />
       </span>
 
-      {/* Model chip. Routing levels remain internal metadata. */}
-      {modelName !== undefined && (
+      {(taskLevel !== undefined || modelName !== undefined) && (
         <div className="flex items-center gap-1.5 shrink-0">
+          {taskTypeIsPending ? (
+            <div className="h-[22px] w-[72px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
+          ) : taskLevel ? (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border text-foreground/80 bg-signal/10 border-signal/20">
+              {taskLevel}
+            </span>
+          ) : null}
           {modelNameIsPending ? (
             <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
           ) : (
