@@ -14,6 +14,7 @@ import {
 import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useConnectionStore } from '@/stores/connectionStore'
+import { BackendUnavailable } from '@/components/BackendUnavailable'
 import { listL2Groups, listProjects, getTeams } from '@/lib/api'
 import type { ChatSession, Project } from '@/types'
 import { cn, pathsMatch } from '@/lib/utils'
@@ -53,8 +54,7 @@ export function SessionTree() {
   // VISIBLE_SESSION_COUNT: max sessions shown before the "Show N more" affordance appears.
   const VISIBLE_SESSION_COUNT = 5
   const sessionListKey = useCallback(
-    (groupName: string, projectId?: string) =>
-      `${groupName}::${projectId || '__group__'}`,
+    (groupName: string, projectId?: string) => `${groupName}::${projectId || '__group__'}`,
     []
   )
   const isListExpanded = useCallback(
@@ -89,9 +89,7 @@ export function SessionTree() {
     if (!s) return
     const activeGroupName = s?.group
     const activeProjectId = s?.project_path
-      ? groups
-          .flatMap((g) => g.projects)
-          .find((p) => pathsMatch(s.project_path!, p.path))?.id
+      ? groups.flatMap((g) => g.projects).find((p) => pathsMatch(s.project_path!, p.path))?.id
       : undefined
     const focusedPath = `${activeSessionId}:${activeGroupName || ''}:${activeProjectId || ''}`
     if (focusedSessionPathRef.current === focusedPath) return
@@ -117,9 +115,7 @@ export function SessionTree() {
       for (const g of groups) {
         for (const p of g.projects) {
           const target =
-            activeProjectId != null
-              ? p.id === activeProjectId && g.name === activeGroupName
-              : false
+            activeProjectId != null ? p.id === activeProjectId && g.name === activeGroupName : false
           const k = `${g.name}:${p.id}`
           if (next[k] !== target) {
             next[k] = target
@@ -269,25 +265,12 @@ export function SessionTree() {
   // groups are rare and would be visible on the next refresh anyway.)
   if (!sessionsLoading && groups.length === 0 && sessions.length === 0 && !backendRunning) {
     return (
-      <div
-        className="flex flex-col gap-1.5 pl-3 pr-2 py-2 text-[11px] text-muted-foreground/70"
-        role="status"
-      >
-        <div className="flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-          <span>Backend not connected</span>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            loadSessions()
-            loadGroupInfo()
-          }}
-          className="self-start text-foreground/80 hover:text-foreground underline-offset-2 hover:underline cursor-pointer"
-        >
-          Retry
-        </button>
-      </div>
+      <BackendUnavailable
+        onRetry={() => {
+          loadSessions()
+          loadGroupInfo()
+        }}
+      />
     )
   }
 
@@ -367,7 +350,9 @@ export function SessionTree() {
                                 <span className="w-3.5 shrink-0" />
                               )}
                               <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-70 text-muted-foreground/60" />
-                              <span className="flex-1 text-left truncate font-medium">{proj.name}</span>
+                              <span className="flex-1 text-left truncate font-medium">
+                                {proj.name}
+                              </span>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -382,75 +367,86 @@ export function SessionTree() {
                             </div>
 
                             {/* Sessions under this project */}
-                            {pExpanded && projSessions.length > 0 && (() => {
-                              const listKey = sessionListKey(group.name, proj.id)
-                              const visible = projSessions.slice(0, VISIBLE_SESSION_COUNT)
-                              const hidden = projSessions.slice(VISIBLE_SESSION_COUNT)
-                              const listExpanded = isListExpanded(listKey)
-                              return (
-                                <div className="space-y-0.5 mt-0.5">
-                                  {visible.map((s) => (
-                                    <TreeItem
-                                      key={s.id}
-                                      sessionId={s.id}
-                                      label={s.name || 'New chat'}
-                                      isPast={s.name ? s.name.startsWith('Past') : false}
-                                      active={activeSessionId === s.id}
-                                      onClick={() => {
-                                        setActiveSession(s.id)
-                                        navigate(`/chat/${s.id}`)
-                                      }}
-                                      onDelete={(e) => handleDelete(e, s.id)}
-                                      disabled={!!streamingSessions[s.id]}
-                                      indent={2}
-                                    />
-                                  ))}
-                                  {listExpanded && hidden.map((s) => (
-                                    <TreeItem
-                                      key={s.id}
-                                      sessionId={s.id}
-                                      label={s.name || 'New chat'}
-                                      isPast={s.name ? s.name.startsWith('Past') : false}
-                                      active={activeSessionId === s.id}
-                                      onClick={() => {
-                                        setActiveSession(s.id)
-                                        navigate(`/chat/${s.id}`)
-                                      }}
-                                      onDelete={(e) => handleDelete(e, s.id)}
-                                      disabled={!!streamingSessions[s.id]}
-                                      indent={2}
-                                    />
-                                  ))}
-                                  {hidden.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleList(listKey)}
-                                      aria-expanded={listExpanded}
-                                      aria-label={listExpanded
-                                        ? t('sessionTree.showLess')
-                                        : t('sessionTree.showMore', { count: hidden.length })}
-                                      className="w-full flex items-center gap-1.5 pl-[44px] pr-3 py-1 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/20 transition-colors cursor-pointer"
-                                    >
-                                      {listExpanded
-                                        ? <ChevronUp className="h-3 w-3 shrink-0" />
-                                        : <ChevronDown className="h-3 w-3 shrink-0" />}
-                                      <span>
-                                        {listExpanded
-                                          ? t('sessionTree.showLess')
-                                          : t('sessionTree.showMore', { count: hidden.length })}
-                                      </span>
-                                    </button>
-                                  )}
-                                </div>
-                              )
-                            })()}
+                            {pExpanded &&
+                              projSessions.length > 0 &&
+                              (() => {
+                                const listKey = sessionListKey(group.name, proj.id)
+                                const visible = projSessions.slice(0, VISIBLE_SESSION_COUNT)
+                                const hidden = projSessions.slice(VISIBLE_SESSION_COUNT)
+                                const listExpanded = isListExpanded(listKey)
+                                return (
+                                  <div className="space-y-0.5 mt-0.5">
+                                    {visible.map((s) => (
+                                      <TreeItem
+                                        key={s.id}
+                                        sessionId={s.id}
+                                        label={s.name || 'New chat'}
+                                        isPast={s.name ? s.name.startsWith('Past') : false}
+                                        active={activeSessionId === s.id}
+                                        onClick={() => {
+                                          setActiveSession(s.id)
+                                          navigate(`/chat/${s.id}`)
+                                        }}
+                                        onDelete={(e) => handleDelete(e, s.id)}
+                                        disabled={!!streamingSessions[s.id]}
+                                        indent={2}
+                                      />
+                                    ))}
+                                    {listExpanded &&
+                                      hidden.map((s) => (
+                                        <TreeItem
+                                          key={s.id}
+                                          sessionId={s.id}
+                                          label={s.name || 'New chat'}
+                                          isPast={s.name ? s.name.startsWith('Past') : false}
+                                          active={activeSessionId === s.id}
+                                          onClick={() => {
+                                            setActiveSession(s.id)
+                                            navigate(`/chat/${s.id}`)
+                                          }}
+                                          onDelete={(e) => handleDelete(e, s.id)}
+                                          disabled={!!streamingSessions[s.id]}
+                                          indent={2}
+                                        />
+                                      ))}
+                                    {hidden.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleList(listKey)}
+                                        aria-expanded={listExpanded}
+                                        aria-label={
+                                          listExpanded
+                                            ? t('sessionTree.showLess')
+                                            : t('sessionTree.showMore', { count: hidden.length })
+                                        }
+                                        className="w-full flex items-center gap-1.5 pl-[44px] pr-3 py-1 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/20 transition-colors cursor-pointer"
+                                      >
+                                        {listExpanded ? (
+                                          <ChevronUp className="h-3 w-3 shrink-0" />
+                                        ) : (
+                                          <ChevronDown className="h-3 w-3 shrink-0" />
+                                        )}
+                                        <span>
+                                          {listExpanded
+                                            ? t('sessionTree.showLess')
+                                            : t('sessionTree.showMore', { count: hidden.length })}
+                                        </span>
+                                      </button>
+                                    )}
+                                  </div>
+                                )
+                              })()}
                           </div>
                         )
                       })}
                       {/* Sessions without a matching project path (unassociated) */}
                       {(() => {
                         const unassociated = groupSessions
-                          .filter((s) => !s.project_path || !group.projects.some(p => pathsMatch(s.project_path!, p.path)))
+                          .filter(
+                            (s) =>
+                              !s.project_path ||
+                              !group.projects.some((p) => pathsMatch(s.project_path!, p.path))
+                          )
                           .sort((a, b) => {
                             const timeA = a.createdAt || (a as any).created_at || ''
                             const timeB = b.createdAt || (b as any).created_at || ''
@@ -479,35 +475,40 @@ export function SessionTree() {
                                 indent={1}
                               />
                             ))}
-                            {listExpanded && hidden.map((s) => (
-                              <TreeItem
-                                key={s.id}
-                                sessionId={s.id}
-                                label={s.name || 'New chat'}
-                                isPast={s.name ? s.name.startsWith('Past') : false}
-                                active={activeSessionId === s.id}
-                                onClick={() => {
-                                  setActiveSession(s.id)
-                                  navigate(`/chat/${s.id}`)
-                                }}
-                                onDelete={(e) => handleDelete(e, s.id)}
-                                disabled={!!streamingSessions[s.id]}
-                                indent={1}
-                              />
-                            ))}
+                            {listExpanded &&
+                              hidden.map((s) => (
+                                <TreeItem
+                                  key={s.id}
+                                  sessionId={s.id}
+                                  label={s.name || 'New chat'}
+                                  isPast={s.name ? s.name.startsWith('Past') : false}
+                                  active={activeSessionId === s.id}
+                                  onClick={() => {
+                                    setActiveSession(s.id)
+                                    navigate(`/chat/${s.id}`)
+                                  }}
+                                  onDelete={(e) => handleDelete(e, s.id)}
+                                  disabled={!!streamingSessions[s.id]}
+                                  indent={1}
+                                />
+                              ))}
                             {hidden.length > 0 && (
                               <button
                                 type="button"
                                 onClick={() => toggleList(listKey)}
                                 aria-expanded={listExpanded}
-                                aria-label={listExpanded
-                                  ? t('sessionTree.showLess')
-                                  : t('sessionTree.showMore', { count: hidden.length })}
+                                aria-label={
+                                  listExpanded
+                                    ? t('sessionTree.showLess')
+                                    : t('sessionTree.showMore', { count: hidden.length })
+                                }
                                 className="w-full flex items-center gap-1.5 pl-[28px] pr-3 py-1 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/20 transition-colors cursor-pointer"
                               >
-                                {listExpanded
-                                  ? <ChevronUp className="h-3 w-3 shrink-0" />
-                                  : <ChevronDown className="h-3 w-3 shrink-0" />}
+                                {listExpanded ? (
+                                  <ChevronUp className="h-3 w-3 shrink-0" />
+                                ) : (
+                                  <ChevronDown className="h-3 w-3 shrink-0" />
+                                )}
                                 <span>
                                   {listExpanded
                                     ? t('sessionTree.showLess')
@@ -545,35 +546,40 @@ export function SessionTree() {
                                 indent={1}
                               />
                             ))}
-                            {listExpanded && hidden.map((s) => (
-                              <TreeItem
-                                key={s.id}
-                                sessionId={s.id}
-                                label={s.name || 'New chat'}
-                                isPast={s.name ? s.name.startsWith('Past') : false}
-                                active={activeSessionId === s.id}
-                                onClick={() => {
-                                  setActiveSession(s.id)
-                                  navigate(`/chat/${s.id}`)
-                                }}
-                                onDelete={(e) => handleDelete(e, s.id)}
-                                disabled={!!streamingSessions[s.id]}
-                                indent={1}
-                              />
-                            ))}
+                            {listExpanded &&
+                              hidden.map((s) => (
+                                <TreeItem
+                                  key={s.id}
+                                  sessionId={s.id}
+                                  label={s.name || 'New chat'}
+                                  isPast={s.name ? s.name.startsWith('Past') : false}
+                                  active={activeSessionId === s.id}
+                                  onClick={() => {
+                                    setActiveSession(s.id)
+                                    navigate(`/chat/${s.id}`)
+                                  }}
+                                  onDelete={(e) => handleDelete(e, s.id)}
+                                  disabled={!!streamingSessions[s.id]}
+                                  indent={1}
+                                />
+                              ))}
                             {hidden.length > 0 && (
                               <button
                                 type="button"
                                 onClick={() => toggleList(listKey)}
                                 aria-expanded={listExpanded}
-                                aria-label={listExpanded
-                                  ? t('sessionTree.showLess')
-                                  : t('sessionTree.showMore', { count: hidden.length })}
+                                aria-label={
+                                  listExpanded
+                                    ? t('sessionTree.showLess')
+                                    : t('sessionTree.showMore', { count: hidden.length })
+                                }
                                 className="w-full flex items-center gap-1.5 pl-[28px] pr-3 py-1 rounded-md text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/20 transition-colors cursor-pointer"
                               >
-                                {listExpanded
-                                  ? <ChevronUp className="h-3 w-3 shrink-0" />
-                                  : <ChevronDown className="h-3 w-3 shrink-0" />}
+                                {listExpanded ? (
+                                  <ChevronUp className="h-3 w-3 shrink-0" />
+                                ) : (
+                                  <ChevronDown className="h-3 w-3 shrink-0" />
+                                )}
                                 <span>
                                   {listExpanded
                                     ? t('sessionTree.showLess')
