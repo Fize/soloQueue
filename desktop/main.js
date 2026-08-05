@@ -801,7 +801,13 @@ function readStoredConnectionConfig() {
     const mode = stored.mode === 'remote' ? 'remote' : 'local'
     let password = ''
     if (mode === 'remote' && stored.encryptedPassword && safeStorage.isEncryptionAvailable()) {
-      password = safeStorage.decryptString(Buffer.from(stored.encryptedPassword, 'base64'))
+      try {
+        password = safeStorage.decryptString(Buffer.from(stored.encryptedPassword, 'base64'))
+      } catch (err) {
+        console.error('[Electron] Failed to decrypt stored password:', err.message)
+      }
+    } else if (mode === 'remote' && stored.encryptedPassword) {
+      console.error('[Electron] safeStorage unavailable — stored password cannot be read (isEncryptionAvailable=false)')
     }
     return {
       version: stored.version,
@@ -812,6 +818,7 @@ function readStoredConnectionConfig() {
       encryptedPassword: typeof stored.encryptedPassword === 'string' ? stored.encryptedPassword : '',
     }
   } catch {
+    console.error('[Electron] Failed to read connection config at', getConnectionConfigPath())
     return null
   }
 }
@@ -867,14 +874,19 @@ function persistConnectionConfig(input, { preservePassword = true } = {}) {
 function applyRemoteAuthConfig(config) {
   remoteAuthHeader = null
   remoteAuthOrigin = null
-  if (!config || config.mode !== 'remote') return
+  if (!config || config.mode !== 'remote') {
+    console.log('[Electron] Remote auth policy: not remote (mode=' + (config && config.mode) + ')')
+    return
+  }
 
   const origin = normalizeRemoteOrigin(config.remoteUrl)
   const header = buildBasicAuthHeader(config.username, config.password)
   if (origin && header) {
     remoteAuthOrigin = origin
     remoteAuthHeader = header
-    console.log('[Electron] Remote auth policy configured')
+    console.log('[Electron] Remote auth policy configured for', origin, '(user=' + config.username + ', hasPassword=' + !!config.password + ')')
+  } else {
+    console.error('[Electron] Remote auth policy FAILED: origin=' + origin + ' header=' + (header ? 'set' : 'null') + ' user=' + JSON.stringify(config.username) + ' hasPassword=' + !!config.password)
   }
 }
 

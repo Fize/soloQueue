@@ -25,6 +25,20 @@ describe('remote auth policy', () => {
     expect(shouldInjectRemoteAuth('https://other.example/api/teams', origin)).toBe(false)
   })
 
+  it('matches the configured host across http/https protocol switches', () => {
+    // The user may edit the URL in the UI (http → https) without re-saving;
+    // the renderer then requests https while the stored origin is http.
+    // Both must be considered the same backend host for header injection.
+    expect(shouldInjectRemoteAuth('https://remote.example/api/teams', 'http://remote.example')).toBe(true)
+    expect(shouldInjectRemoteAuth('http://remote.example/api/teams', 'https://remote.example')).toBe(true)
+  })
+
+  it('does not match different hosts or ports regardless of protocol', () => {
+    expect(shouldInjectRemoteAuth('https://remote.example/api/teams', 'https://other.example')).toBe(false)
+    expect(shouldInjectRemoteAuth('https://remote.example:8443/api/teams', 'https://remote.example')).toBe(false)
+    expect(shouldInjectRemoteAuth('https://remote.example/api/teams', 'https://remote.example:8443')).toBe(false)
+  })
+
   it('does not overwrite an existing Authorization header', () => {
     expect(hasAuthorizationHeader({ authorization: 'Bearer test' })).toBe(true)
     expect(hasAuthorizationHeader({ 'Content-Type': 'application/json' })).toBe(false)
