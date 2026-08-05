@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools/sandbox"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // RuntimeType is the user-visible execution boundary.
@@ -315,12 +315,20 @@ func NewRuntimeManager(desired RuntimeType, log *logger.Logger) *RuntimeManager 
 }
 
 func (m *RuntimeManager) newDockerBackend(scope runtimeScope) (sandbox.Backend, error) {
-	return sandbox.NewDockerBackend(sandbox.DockerOptions{
+	backend, err := sandbox.NewDockerBackend(sandbox.DockerOptions{
 		Workspace:      scope.workspace,
 		PlanDir:        scope.planDir,
 		Owner:          scope.owner,
 		NetworkEnabled: scope.networkEnabled,
 	}, m.log)
+	// Do not return a typed nil through the Backend interface. If Docker is
+	// unavailable, the constructor returns (*DockerRunner)(nil, err); returning
+	// that value directly would make the interface non-nil and cause cleanup to
+	// invoke Stop on a nil receiver during runtime resolution.
+	if err != nil {
+		return nil, err
+	}
+	return backend, nil
 }
 
 func (m *RuntimeManager) SetBackendFactory(factory BackendFactory) {
@@ -610,7 +618,10 @@ func (m *RuntimeManager) Status(workspace, planDir string) RuntimeStatus {
 		status.State = "ready"
 		status.Backend = runtime.BackendName()
 	} else {
-		status.State = "starting"
+		// Sandbox runtimes are prepared lazily on the first tool operation. No
+		// scope here means Docker has not been requested yet; reporting
+		// "starting" makes a healthy, idle installation look stuck forever.
+		status.State = "idle"
 		status.Backend = "docker"
 	}
 	return status

@@ -215,7 +215,7 @@ export interface SandboxConfig {
 
 export interface SandboxRuntimeStatus {
   desired_runtime: 'host' | 'sandbox';
-  state: 'disabled' | 'starting' | 'ready' | 'failed' | 'draining';
+  state: 'disabled' | 'idle' | 'starting' | 'ready' | 'failed' | 'draining';
   backend?: string;
   workspace?: string;
   isolation_complete: boolean;

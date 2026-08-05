@@ -102,9 +102,10 @@ export function SandboxSection({ config, status, onChange, onSave }: SandboxSect
             <span className={`font-mono ${
               status.state === 'ready' ? 'text-emerald-600 dark:text-emerald-400' :
               status.state === 'failed' ? 'text-destructive' :
+              status.state === 'idle' ? 'text-muted-foreground' :
               'text-amber-600 dark:text-amber-400'
             }`}>
-              {status.state}
+              {status.state === 'idle' ? t('config.sandboxStateIdle') : status.state}
             </span>
           </div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
