@@ -417,7 +417,11 @@ export function ChannelsTab() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="font-medium">{account.name || account.id}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{account.botIdMasked || t('channels.notConnected')} · {account.bind_type?.toUpperCase() || 'L1'}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {account.botIdMasked || t('channels.notConnected')} · {
+                        account.bind_type === 'l2' ? t('channels.l2Agent') : t('channels.l1Orchestrator')
+                      }
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Switch checked={account.enabled} onCheckedChange={(checked) => setWechatAccounts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: checked } : item))} />

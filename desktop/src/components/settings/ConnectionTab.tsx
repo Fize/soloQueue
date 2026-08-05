@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { useConnectionStore, type BackendStatus } from '@/stores/connectionStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,6 +27,7 @@ function BackendManagement() {
   const backendStatus = useConnectionStore((s) => s.backendStatus)
   const setBackendStatus = useConnectionStore((s) => s.setBackendStatus)
   const { t } = useTranslation()
+  const [busyAction, setBusyAction] = useState<'start' | 'stop' | 'restart' | null>(null)
 
   // Poll backend status and listen for push events
   useEffect(() => {
@@ -56,9 +57,11 @@ function BackendManagement() {
 
   const handleStart = async () => {
     if (!isElectron) return
+    setBusyAction('start')
     try {
       const ea = (window as any).electronAPI
       const result = await ea.startBackend()
+      setBackendStatus(await ea.getBackendStatus())
       if (!result.success) {
         toast.error(result.error || t('connection.startFailed'))
       } else {
@@ -66,25 +69,33 @@ function BackendManagement() {
       }
     } catch {
       toast.error(t('connection.startFailed'))
+    } finally {
+      setBusyAction(null)
     }
   }
 
   const handleStop = async () => {
     if (!isElectron) return
+    setBusyAction('stop')
     try {
       const ea = (window as any).electronAPI
       await ea.stopBackend()
+      setBackendStatus(await ea.getBackendStatus())
       toast.success(t('connection.stoppedToast'))
     } catch {
       toast.error(t('connection.stopFailed'))
+    } finally {
+      setBusyAction(null)
     }
   }
 
   const handleRestart = async () => {
     if (!isElectron) return
+    setBusyAction('restart')
     try {
       const ea = (window as any).electronAPI
       const result = await ea.restartBackend()
+      setBackendStatus(await ea.getBackendStatus())
       if (!result.success) {
         toast.error(result.error || t('connection.restartFailed'))
       } else {
@@ -92,6 +103,8 @@ function BackendManagement() {
       }
     } catch {
       toast.error(t('connection.restartFailed'))
+    } finally {
+      setBusyAction(null)
     }
   }
 
@@ -145,30 +158,30 @@ function BackendManagement() {
           variant="outline"
           size="sm"
           onClick={handleStart}
-          disabled={backendStatus.running}
+          disabled={backendStatus.running || busyAction !== null}
           className="flex-1"
         >
-          <Play className="h-3.5 w-3.5 mr-1.5" />
+          {busyAction === 'start' ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
           {t('connection.start')}
         </Button>
         <Button
           variant="outline"
           size="sm"
           onClick={handleStop}
-          disabled={!backendStatus.running}
+          disabled={!backendStatus.running || busyAction !== null}
           className="flex-1"
         >
-          <Square className="h-3.5 w-3.5 mr-1.5" />
+          {busyAction === 'stop' ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Square className="h-3.5 w-3.5 mr-1.5" />}
           {t('connection.stop')}
         </Button>
         <Button
           variant="outline"
           size="sm"
           onClick={handleRestart}
-          disabled={!backendStatus.running}
+          disabled={!backendStatus.running || busyAction !== null}
           className="flex-1"
         >
-          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+          {busyAction === 'restart' ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
           {t('connection.restart')}
         </Button>
       </div>

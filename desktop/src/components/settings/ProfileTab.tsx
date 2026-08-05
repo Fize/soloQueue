@@ -384,12 +384,12 @@ export function ProfileTab() {
 
   return (
     <div className="space-y-6">
-      {/* L1 Notification Channel Config */}
+      {/* Assistant notification channel config */}
       {(qqBotOptions.length > 0 || wechatBotOptions.length > 0) && (
         <div className="border rounded-lg bg-card p-5 shadow-sm">
           <h3 className="text-sm font-bold mb-3">通知渠道 (Notification Channels)</h3>
           <p className="text-xs text-muted-foreground mb-4">
-            配置 L1 主助手的消息通知渠道。定时任务完成后将通过绑定渠道通知用户。
+            配置助手的消息通知渠道。定时任务完成后将通过绑定渠道通知用户。
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">

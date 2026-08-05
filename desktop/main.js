@@ -99,6 +99,7 @@ let mainWindow = null
 let goProcess = null
 let backendStartTime = null
 let externalGoInstance = false // Flag to track if Go was already running
+let backendStartPromise = null
 let intentionalClose = false
 let restartAttempts = 0
 const MAX_RESTART_ATTEMPTS = 5
@@ -352,8 +353,39 @@ function checkPortActive(port) {
   })
 }
 
+function waitForProcessExit(child, timeoutMs = 5000) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  return new Promise((resolve) => {
+    let timer = null
+    const done = () => {
+      if (timer) clearTimeout(timer)
+      child.removeListener('exit', done)
+      child.removeListener('error', done)
+      resolve()
+    }
+    child.once('exit', done)
+    child.once('error', done)
+    timer = setTimeout(done, timeoutMs)
+  })
+}
+
 // ── Backend lifecycle ──────────────────────────────────────
-async function spawnGoBackend() {
+function spawnGoBackend() {
+  // Startup can be requested by the renderer and by the app lifecycle at the
+  // same time. Share one promise so a second request waits for the same health
+  // check instead of returning success while the first process is still
+  // starting.
+  if (backendStartPromise) return backendStartPromise
+
+  const promise = startGoBackend()
+  const wrappedPromise = promise.finally(() => {
+    if (backendStartPromise === wrappedPromise) backendStartPromise = null
+  })
+  backendStartPromise = wrappedPromise
+  return wrappedPromise
+}
+
+async function startGoBackend() {
   intentionalClose = false
   // 1. Check if Go backend is already running on the port
   const isActive = await checkPortActive(BACKEND_PORT)
@@ -371,7 +403,21 @@ async function spawnGoBackend() {
   }
 
   // 2. Spawn local child process if not already running
-  if (goProcess) return { success: true }
+  if (goProcess) {
+    const healthy = await checkHealth()
+    if (healthy) {
+      backendStartTime ||= Date.now()
+      sendBackendStatus(true)
+      return { success: true }
+    }
+    if (goProcess.killed || goProcess.exitCode !== null || goProcess.signalCode !== null) {
+      const stoppingProcess = goProcess
+      await waitForProcessExit(stoppingProcess)
+      if (goProcess === stoppingProcess) goProcess = null
+    } else {
+      return { success: false, error: 'Backend is already starting' }
+    }
+  }
   externalGoInstance = false
 
   const binary = getGoBinaryPath()
@@ -396,6 +442,18 @@ async function spawnGoBackend() {
   }
 
   return new Promise((resolve) => {
+    let poll = null
+    let settled = false
+    const finish = (result) => {
+      if (settled) return
+      settled = true
+      if (poll) clearInterval(poll)
+      resolve(result)
+    }
+
+    backendStartTime = null
+    sendBackendStatus(false)
+
     // Bind to 127.0.0.1 via default flag in serve command
     goProcess = spawn(
       binary,
@@ -438,28 +496,37 @@ async function spawnGoBackend() {
 
     goProcess.on('exit', (code, signal) => {
       handleUnexpectedExit(code, signal)
+      if (!backendStartTime) {
+        finish({
+          success: false,
+          error: `Backend exited before becoming ready${code === null ? '' : ` (code ${code})`}`,
+        })
+      }
     })
     goProcess.on('error', (err) => {
       console.error(`[Electron] Go backend process error:`, err)
       handleUnexpectedExit(null, null)
+      finish({ success: false, error: `Failed to start backend: ${err.message}` })
     })
 
     // Poll health until ready (max ~10s, 500ms interval)
     let attempts = 0
     const maxAttempts = 20
-    const poll = setInterval(async () => {
+    poll = setInterval(async () => {
       attempts++
       const healthy = await checkHealth()
       if (healthy) {
-        clearInterval(poll)
         backendStartTime = Date.now()
         sendBackendStatus(true)
-        resolve({ success: true })
+        finish({ success: true })
       } else if (attempts >= maxAttempts) {
-        clearInterval(poll)
+        // A timed-out startup is an intentional stop. Do not let the crash
+        // watchdog immediately race the user's next explicit Start action.
+        intentionalClose = true
         killGoProcess()
+        backendStartTime = null
         sendBackendStatus(false)
-        resolve({ success: false, error: 'Backend failed to start within 10 seconds' })
+        finish({ success: false, error: 'Backend failed to start within 10 seconds' })
       }
     }, 500)
   })

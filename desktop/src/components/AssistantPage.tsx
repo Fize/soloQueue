@@ -15,8 +15,10 @@ import type { SkillInfo, ChatSegment } from "@/types";
 import { StickyToolConfirmPanel } from "@/components/chat";
 import { recoverInFlightMessages } from "@/components/chat/recoverInFlightMessages";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
+import { useTranslation } from "@/lib/i18n";
 
 export function AssistantPage() {
+  const { t } = useTranslation();
   const {
     activeSessionId,
     messages,
@@ -76,10 +78,7 @@ export function AssistantPage() {
   const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   const sidebarCollapsed = useRuntimeStore((state) => state.sidebarCollapsed);
 
-  const agentName = useMemo(() => {
-    const l1 = agentsData?.agents.find((a) => a.id === "l1-agent");
-    return l1?.name || "L1 Agent";
-  }, [agentsData]);
+  const agentName = t('sidebar.assistant');
 
   const isL1Session = activeSessionId === "l1";
   const l1Agent = useMemo(() => {
@@ -266,7 +265,7 @@ export function AssistantPage() {
                 {agentName}
               </h2>
               <p className="max-w-xs text-center text-xs text-muted-foreground">
-                Send a message to the L1 agent for an instant response.
+                {t('chat.assistantDesc')}
               </p>
             </div>
           ) : (

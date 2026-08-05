@@ -3,7 +3,7 @@ import { Cpu } from 'lucide-react'
 import { cn, getModelColorVar } from '@/lib/utils'
 
 export interface AgentWorkingIndicatorProps {
-  /** Display name of the active agent (e.g. "L1 Agent", "Engineering Team"). */
+  /** Display name of the active agent (e.g. "Assistant", "Engineering Team"). */
   agentName?: string
   /**
    * Model name to display, when known.
@@ -19,8 +19,8 @@ export interface AgentWorkingIndicatorProps {
    */
   modelName?: string | undefined
   /**
-   * Task level key (e.g. "L0", "L1", "L1-universal", "L3-expert"). Only the
-   * prefix is shown (e.g. "L1") since the suffix is an internal role label.
+   * Internal routing metadata. It is intentionally not rendered in the
+   * desktop UI because routing levels are implementation details.
    *
    * Special value `""` (empty string) means "the agent is processing but
    * the router hasn't classified the prompt yet, and there's no
@@ -49,8 +49,7 @@ export interface AgentWorkingIndicatorProps {
  * Visual recipe:
  *  - Avatar matches the assistant message avatar (Sparkles)
  *  - Label: "Working…" or "Delegating…" with three pulsing dots
- *  - Right side: model chip + task-level chip (placeholder "…" until
- *    the router classifies the prompt)
+ *  - Right side: model chip (placeholder "…" until the model is known)
  *  - Whole pill is wrapped in a breathing scale/opacity animation
  *    (see `.agent-working-breathing` in index.css) that softly
  *    expands and contracts on a 2.4s cycle.
@@ -60,18 +59,15 @@ export interface AgentWorkingIndicatorProps {
  */
 function AgentWorkingIndicatorInner({
   modelName,
-  taskLevel,
   compact = false,
 }: AgentWorkingIndicatorProps) {
   // `taskLevel` and `modelName` are intentionally string-or-undefined:
   //   - undefined  → not processing, no chip
   //   - ""         → processing but router hasn't classified yet
-  //   - "L0"|"L1"… → known level / real model
-  // Both fields share the same shape so the level + model chips render
-  // as a coherent pair from one request-scoped route result.
-  const levelIsPending = taskLevel !== undefined && taskLevel === ''
+  //   - a known level / real model
+  // Both fields share the same shape so the model chip can transition from
+  // its pending state without changing the surrounding layout.
   const modelNameIsPending = modelName !== undefined && modelName === ''
-  const levelLabel = taskLevel && taskLevel.length > 0 ? taskLevel.split('-')[0] : null
   const modelColorVar = getModelColorVar(modelName)
 
   return (
@@ -88,44 +84,27 @@ function AgentWorkingIndicatorInner({
         <span className="animate-led-ping-2 absolute h-2 w-2 rounded-full bg-signal/20" />
       </span>
 
-      {/* Left-aligned context chips: model + task level. */}
-      {(levelLabel || levelIsPending || (modelName !== undefined && modelName.length > 0)) && (
+      {/* Model chip. Routing levels remain internal metadata. */}
+      {modelName !== undefined && (
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Task level chip — show real value, or a pulsing skeleton while
-              the router is still classifying the prompt. */}
-          {(levelLabel || levelIsPending) && (
-            levelIsPending ? (
-              <div className="h-[22px] w-[28px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
-            ) : (
-              <span
-                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border text-foreground/80 bg-signal/10 border-signal/20"
-              >
-                {levelLabel}
-              </span>
-            )
-          )}
-          {/* Model chip — also uses a skeleton placeholder when the level
-              isn't classified yet, so the two chips stay in lockstep. */}
-          {modelName !== undefined && (
-            modelNameIsPending ? (
-              <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
-            ) : (
-              <span
-                className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[220px] truncate"
-                style={{
-                  backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
-                  color: `var(--foreground)`,
-                  borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
-                }}
-                title={modelName}
-              >
-                <Cpu
-                  className="h-2.5 w-2.5 shrink-0"
-                  style={{ color: `color-mix(in srgb, ${modelColorVar} 80%, var(--foreground))` }}
-                />
-                <span className="truncate opacity-90">{modelName}</span>
-              </span>
-            )
+          {modelNameIsPending ? (
+            <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
+          ) : (
+            <span
+              className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[220px] truncate"
+              style={{
+                backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
+                color: `var(--foreground)`,
+                borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
+              }}
+              title={modelName}
+            >
+              <Cpu
+                className="h-2.5 w-2.5 shrink-0"
+                style={{ color: `color-mix(in srgb, ${modelColorVar} 80%, var(--foreground))` }}
+              />
+              <span className="truncate opacity-90">{modelName}</span>
+            </span>
           )}
         </div>
       )}
