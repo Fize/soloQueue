@@ -613,6 +613,20 @@ func (cw *ContextWindow) MessageAt(i int) (Message, bool) {
 	return cw.messages[i], true
 }
 
+// HasToolResult reports whether a tool message with the given name and exact
+// content already exists — the basis for skill re-invocation deduplication.
+func (cw *ContextWindow) HasToolResult(toolName, content string) bool {
+	cw.RLock()
+	defer cw.RUnlock()
+
+	for _, m := range cw.messages {
+		if m.Role == RoleTool && m.Name == toolName && m.Content == content {
+			return true
+		}
+	}
+	return false
+}
+
 // PopLast removes and returns the last message.
 //
 // Used by Session to remove a failed user prompt push.
@@ -957,10 +971,22 @@ func (cw *ContextWindow) asyncCompact() {
 		return // compression failed, keep current state
 	}
 
+	// Re-attach the most recent rendering of each invoked skill so the model
+	// keeps its active skill workflow after compaction. Computed outside the
+	// lock: BPE token counting is expensive and must not block Push.
+	restored := ""
+	restoredTokens := 0
+	if finalSummary != "" && cw.tokenizer != nil {
+		if r := RestoreRecentSkillContent(msgs, cw.tokenizer, DefaultSkillRestorePerSkillTokens, DefaultSkillRestoreTotalTokens); r != "" {
+			restored = r
+			restoredTokens = cw.tokenizer.Count(restored)
+		}
+	}
+
 	// Replace history with summary under write lock
 	cw.Lock()
 	if len(cw.messages) > 0 && finalSummary != "" {
-		summaryTokens := cw.tokenizer.Count(finalSummary)
+		summaryTokens := cw.tokenizer.Count(finalSummary) + restoredTokens
 		var lastMsgTimestamp time.Time
 		for i := len(msgs) - 1; i >= 0; i-- {
 			if !msgs[i].Timestamp.IsZero() {
@@ -972,9 +998,14 @@ func (cw *ContextWindow) asyncCompact() {
 			lastMsgTimestamp = time.Now()
 		}
 
+		summaryContent := "[Conversation Summary]\n" + finalSummary
+		if restored != "" {
+			summaryContent += "\n\n# Active Skill Instructions\n" + restored
+		}
+
 		summaryMsg := Message{
 			Role:      RoleSystem,
-			Content:   "[Conversation Summary]\n" + finalSummary,
+			Content:   summaryContent,
 			Tokens:    summaryTokens,
 			Timestamp: lastMsgTimestamp,
 		}
