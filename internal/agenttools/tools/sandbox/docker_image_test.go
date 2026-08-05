@@ -66,3 +66,13 @@ func TestValidateSandboxImageRequiresV2Contract(t *testing.T) {
 		t.Fatal("stale sandbox image must be rejected")
 	}
 }
+
+func TestDockerRunnerStopAndCloseNilAreNoOps(t *testing.T) {
+	var runner *DockerRunner
+	if err := runner.Stop(context.Background()); err != nil {
+		t.Fatalf("nil runner Stop returned error: %v", err)
+	}
+	if err := runner.Close(); err != nil {
+		t.Fatalf("nil runner Close returned error: %v", err)
+	}
+}

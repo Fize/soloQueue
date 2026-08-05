@@ -426,6 +426,9 @@ func (d *DockerRunner) waitExecRunning(ctx context.Context, execID string) error
 
 // Stop stops the container.
 func (d *DockerRunner) Stop(ctx context.Context) error {
+	if d == nil {
+		return nil
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if ctx == nil {
@@ -449,8 +452,14 @@ func (d *DockerRunner) Stop(ctx context.Context) error {
 
 // Close is an alias used by owners that manage backend lifecycle.
 func (d *DockerRunner) Close() error {
+	if d == nil {
+		return nil
+	}
 	if err := d.Stop(context.Background()); err != nil {
 		return err
+	}
+	if d.cli == nil {
+		return nil
 	}
 	return d.cli.Close()
 }

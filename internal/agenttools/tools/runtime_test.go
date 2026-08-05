@@ -87,6 +87,21 @@ func TestRuntimeManagerSandboxFailureDoesNotFallbackToHost(t *testing.T) {
 	}
 }
 
+func TestRuntimeManagerStatusIsIdleBeforeLazyPreparation(t *testing.T) {
+	manager := NewRuntimeManager(RuntimeSandbox, nil)
+	status := manager.Status(t.TempDir(), "")
+
+	if status.State != "idle" {
+		t.Fatalf("status before first tool use = %q, want idle", status.State)
+	}
+	if status.Backend != "docker" {
+		t.Fatalf("backend before first tool use = %q, want docker", status.Backend)
+	}
+	if !status.IsolationComplete {
+		t.Fatal("sandbox status should report complete isolation before lazy preparation")
+	}
+}
+
 func TestRuntimeManagerExistingViewTracksRuntimeChanges(t *testing.T) {
 	manager := NewRuntimeManager(RuntimeHost, nil)
 	backend := &fakeSandboxBackend{}
