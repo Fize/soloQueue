@@ -353,6 +353,19 @@ CREATE TABLE IF NOT EXISTS workflow_node_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_workflow_node_runs_run ON workflow_node_runs(workflow_run_id, updated_at);
 
+-- skill_invocations: Skill tool call telemetry for listing ordering and
+-- governance reporting.
+CREATE TABLE IF NOT EXISTS skill_invocations (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	agent_id TEXT NOT NULL DEFAULT '',
+	skill_id TEXT NOT NULL,
+	args TEXT NOT NULL DEFAULT '',
+	result TEXT NOT NULL DEFAULT 'ok' CHECK(result IN ('ok','not_found','fork','error')),
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations(skill_id, created_at);
+
 CREATE TABLE IF NOT EXISTS workflow_run_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	workflow_run_id TEXT NOT NULL,

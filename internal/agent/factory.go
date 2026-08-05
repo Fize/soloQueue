@@ -100,6 +100,7 @@ type DefaultFactory struct {
 	toolsCfg       tools.Config
 	defaultModelID string // Default value used when AgentTemplate.ModelID is empty
 	skillRegistry  *skill.SkillRegistry
+	skillStats     skill.InvocationStats // Skill invocation telemetry (optional)
 	workDir        string // ~/.soloqueue, used to compute planDir based on team
 	log            *logger.Logger
 	resolveModel   ModelResolver               // nil = skip model validation (tests)
@@ -129,6 +130,14 @@ func NewDefaultFactory(
 		opt(f)
 	}
 	return f
+}
+
+// ApplyOption applies a FactoryOption to an already-constructed factory; used
+// when the option's value is only known after construction. No-op on nil.
+func (f *DefaultFactory) ApplyOption(opt FactoryOption) {
+	if opt != nil {
+		opt(f)
+	}
 }
 
 // FactoryOption configures a DefaultFactory.
@@ -262,6 +271,14 @@ func WithMCPManager(mgr *mcp.Manager) FactoryOption {
 func WithSkillRegistry(reg *skill.SkillRegistry) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.skillRegistry = reg
+	}
+}
+
+// WithSkillInvocationStats wires skill telemetry into every SkillTool created
+// by this factory. Optional; unset ⇒ tools skip recording.
+func WithSkillInvocationStats(stats skill.InvocationStats) FactoryOption {
+	return func(f *DefaultFactory) {
+		f.skillStats = stats
 	}
 }
 
@@ -717,7 +734,11 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 				cleanup := func() { child.Stop(5) }
 				return &LocatableAdapter{Agent: child}, cleanup, nil
 			}
-			skillTool := skill.NewSkillTool(sr, forkSpawn)
+			skillOpts := []skill.SkillToolOption{skill.WithAgentID(tmpl.ID)}
+			if f.skillStats != nil {
+				skillOpts = append(skillOpts, skill.WithInvocationStats(f.skillStats))
+			}
+			skillTool := skill.NewSkillTool(sr, forkSpawn, skillOpts...)
 			allTools = append(allTools, skillTool)
 		}
 	}

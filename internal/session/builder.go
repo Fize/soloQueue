@@ -241,8 +241,11 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			return &agent.LocatableAdapter{Agent: child}, cleanup, nil
 		}
 
-		skillTool := skill.NewSkillTool(b.RT.SkillRegistry, forkSpawn,
-			skill.WithSkillLogger(sessLog))
+		skillOpts := []skill.SkillToolOption{skill.WithSkillLogger(sessLog), skill.WithAgentID(def.ID)}
+		if b.RT.SharedDB != nil {
+			skillOpts = append(skillOpts, skill.WithInvocationStats(skill.NewSQLiteInvocationStats(b.RT.SharedDB)))
+		}
+		skillTool := skill.NewSkillTool(b.RT.SkillRegistry, forkSpawn, skillOpts...)
 		allTools = append(allTools, skillTool)
 	}
 

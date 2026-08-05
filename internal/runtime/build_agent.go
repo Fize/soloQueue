@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
@@ -34,6 +35,9 @@ func (bc *buildContext) buildAgentInfra() {
 		agent.WithExploreDir(bc.exploreDir),
 		agent.WithTeamStore(bc.teamstore),
 	)
+	if bc.sharedDB != nil {
+		bc.agentFactory.ApplyOption(agent.WithSkillInvocationStats(skill.NewSQLiteInvocationStats(bc.sharedDB)))
+	}
 
 	// ── L2 Supervisors ────────────────────────────────────────────────────────
 	bc.supervisors = []*agent.Supervisor{} // empty slice
