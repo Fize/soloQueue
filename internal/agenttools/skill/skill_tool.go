@@ -72,13 +72,21 @@ type skillToolArgs struct {
 
 func (SkillTool) Name() string { return "Skill" }
 
-// skillListingBudgetRunes caps the full listing lines so the description stays
-// under ~1K tokens even for large catalogs (aligned with Claude Code).
-const skillListingBudgetRunes = 4000
+// ForkResultPrefix marks Skill tool results produced by fork-mode execution.
+// Fork results are legitimate repeatable answers (e.g. re-querying the same
+// stock quote), NOT idempotent instructions — dedup (agent/skill_dedup.go) and
+// post-compaction restore (memory/ctxwin/skill_restore.go) skip them.
+const ForkResultPrefix = "[Fork result] "
 
-// Description dynamically generates a budgeted skill listing for the LLM:
+// Description dynamically generates the skill listing for the LLM:
 // a usage directive prioritizing skills, then a trigger-first one-line index
 // (BuildSkillListing). This is the primary proactive-usage mechanism.
+//
+// The listing has no budget cap (budget 0 = unbounded): every visible skill
+// gets a full summary, because ID-only lines carry no trigger signal and are
+// effectively invisible. Output is a deterministic function of the catalog
+// (counts desc, ID asc ties), so the system prompt stays cache-stable; size is
+// governed by catalog count — see README "Skills" for the best-practice range.
 func (t *SkillTool) Description() string {
 	skills := t.registry.Skills()
 
@@ -101,7 +109,7 @@ func (t *SkillTool) Description() string {
 		counts, _ = t.stats.Counts(context.Background(), time.Now().Add(-statsWindow))
 	}
 
-	listing := BuildSkillListing(visible, skillListingBudgetRunes, counts)
+	listing := BuildSkillListing(visible, 0, counts) // 0 = no budget cap
 	listing = markForkSkills(listing, byID)
 
 	return "Invoke a skill to load specialized workflows and methodologies. Skills contain mandatory step-by-step instructions for specific domains. When your task matches a skill's description, you MUST call this tool BEFORE using raw tools (Read, Write, Bash, etc.). Treat skills as your highest-priority execution guide — they encode battle-tested workflows. Skipping a matching skill is a protocol violation.\n\nAvailable skills:\n" + listing
@@ -190,7 +198,7 @@ func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error)
 				t.logger.InfoContext(ctx, logger.CatTool, "skill: fork completed",
 					"skill_id", s.ID, "result_len", len(result))
 			}
-			return result, nil
+			return ForkResultPrefix + fmt.Sprintf("skill %q executed in a sub-agent:\n\n%s", s.ID, result), nil
 		}
 		// forkSpawn not set, degrade to inline
 		fallthrough

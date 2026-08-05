@@ -40,8 +40,8 @@ func TestSQLiteInvocationStats_RecordAndCounts(t *testing.T) {
 	if counts["docx"] != 2 {
 		t.Errorf("docx count = %d, want 2 (aggregated across agents)", counts["docx"])
 	}
-	if counts["pdf"] != 1 {
-		t.Errorf("pdf count = %d, want 1", counts["pdf"])
+	if counts["pdf"] != 0 {
+		t.Errorf("pdf count = %d, want 0 (not_found is not usage)", counts["pdf"])
 	}
 }
 
@@ -95,7 +95,7 @@ func TestSQLiteInvocationStats_RecordsDuration(t *testing.T) {
 	}
 }
 
-func TestSQLiteInvocationStats_CountsIncludesAllResults(t *testing.T) {
+func TestSQLiteInvocationStats_CountsExcludesFailures(t *testing.T) {
 	ctx := context.Background()
 	stats := newTestStats(t)
 
@@ -108,7 +108,9 @@ func TestSQLiteInvocationStats_CountsIncludesAllResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("counts: %v", err)
 	}
-	if counts["mixed"] != 4 {
-		t.Errorf("all result kinds should count: got %d, want 4", counts["mixed"])
+	// Only successful invocations (ok/fork) count as usage; not_found and
+	// error must not inflate ordering or governance's never-invoked list.
+	if counts["mixed"] != 2 {
+		t.Errorf("only ok+fork should count: got %d, want 2", counts["mixed"])
 	}
 }

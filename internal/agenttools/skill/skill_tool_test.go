@@ -1,9 +1,12 @@
 package skill
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 )
 
 func TestSkillToolDescription_NoSkills(t *testing.T) {
@@ -98,7 +101,69 @@ func TestSkillToolDescription_TriggerFirstSummary(t *testing.T) {
 	}
 }
 
-func TestSkillToolDescription_BudgetCapsListing(t *testing.T) {
+// forkLocatableStub implements iface.Locatable with a canned stream result.
+type forkLocatableStub struct{ content string }
+
+func (s *forkLocatableStub) Ask(context.Context, string) (string, error) { return s.content, nil }
+func (s *forkLocatableStub) AskStream(_ context.Context, _ string) (<-chan iface.AgentEvent, error) {
+	ch := make(chan iface.AgentEvent, 1)
+	ch <- forkContentEvent(s.content)
+	close(ch)
+	return ch, nil
+}
+func (s *forkLocatableStub) Confirm(string, string) error { return nil }
+func (s *forkLocatableStub) ErrorCount() int32            { return 0 }
+func (s *forkLocatableStub) LastError() string            { return "" }
+
+// forkContentEvent is an AgentEvent carrying a content delta.
+type forkContentEvent string
+
+func (e forkContentEvent) ContentDelta() (string, bool) { return string(e), true }
+func (e forkContentEvent) IsAgentEvent()                {}
+
+func TestSkillToolExecute_ForkResultPrefixed(t *testing.T) {
+	reg := NewSkillRegistry()
+	_ = reg.Register(&Skill{ID: "market", Context: "fork", Instructions: "query the quote"})
+	st := NewSkillTool(reg, func(_ context.Context, s *Skill, content, args string) (iface.Locatable, func(), error) {
+		return &forkLocatableStub{content: "AAPL quote: $250"}, func() {}, nil
+	})
+
+	got, err := st.Execute(context.Background(), `{"skill":"market","args":"AAPL"}`)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !strings.HasPrefix(got, ForkResultPrefix) {
+		t.Errorf("fork result should carry %q prefix: got %q", ForkResultPrefix, got)
+	}
+	if !strings.Contains(got, "AAPL quote: $250") {
+		t.Errorf("fork result body lost: got %q", got)
+	}
+}
+
+func TestSkillToolExecute_InlineResultUnprefixed(t *testing.T) {
+	// Inline results must NOT carry the fork marker — dedup (and
+	// post-compaction restore) rely on the boundary: marked = repeatable
+	// answer, unmarked = idempotent instructions.
+	reg := NewSkillRegistry()
+	_ = reg.Register(&Skill{ID: "pdf", Instructions: "extract the tables"})
+	st := NewSkillTool(reg, nil) // forkSpawn nil → fork skills degrade to inline, not used here
+
+	got, err := st.Execute(context.Background(), `{"skill":"pdf","args":"report.pdf"}`)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if strings.HasPrefix(got, ForkResultPrefix) {
+		t.Errorf("inline result must not carry the fork marker: got %q", got)
+	}
+	if got != "extract the tables" {
+		t.Errorf("inline result should be the rendered instructions: got %q", got)
+	}
+}
+
+func TestSkillToolDescription_NoBudgetCap_AllSkillsSummarized(t *testing.T) {
+	// The listing has no budget cap: every visible skill must get a full
+	// summary line. ID-only lines carry no trigger signal and are effectively
+	// invisible, so degradation is not a fallback we accept.
 	reg := NewSkillRegistry()
 	for i := 0; i < 50; i++ {
 		_ = reg.Register(&Skill{
@@ -109,23 +174,13 @@ func TestSkillToolDescription_BudgetCapsListing(t *testing.T) {
 	st := NewSkillTool(reg, nil)
 	got := st.Description()
 
-	// Every ID must survive the budget.
-	for i := 0; i < 50; i++ {
-		id := fmt.Sprintf("skill-%02d", i)
-		if !strings.Contains(got, id) {
-			t.Fatalf("ID %s dropped by budget", id)
-		}
-	}
-	// And at least one line must degrade to ID-only.
-	hasIDOnly := false
 	for _, line := range strings.Split(got, "\n") {
-		if strings.HasPrefix(line, "- ") && !strings.Contains(line, ": ") {
-			hasIDOnly = true
-			break
+		if !strings.HasPrefix(line, "- ") {
+			continue
 		}
-	}
-	if !hasIDOnly {
-		t.Errorf("budget should degrade tail skills to ID-only: %q", got)
+		if !strings.Contains(line, ": ") {
+			t.Errorf("line should carry a full summary, got ID-only %q", line)
+		}
 	}
 }
 
