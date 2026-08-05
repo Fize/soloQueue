@@ -1,6 +1,8 @@
-import { useConnectionStore } from '@/stores/connectionStore'
+import { useConnectionStore, isBackendReady, ensureBackendReady } from '@/stores/connectionStore'
 
 export const API_BASE = '/api'
+
+export type ApiRequestOptions = RequestInit & { waitForBackend?: boolean }
 
 export class APIError extends Error {
   status: number
@@ -47,22 +49,43 @@ async function throwAPIError(response: Response): Promise<never> {
   throw new APIError(message, response.status, code)
 }
 
-async function send(path: string, options: RequestInit | undefined, root: boolean): Promise<Response> {
-  const { headers: _headers, mode: _mode, credentials: _credentials, cache: _cache, ...rest } = options || {}
-  return fetch(resolveUrl(path, root), {
-    ...rest,
-    headers: buildHeaders(options),
-    mode: 'cors',
-    credentials: 'omit',
-    cache: 'no-store',
-  })
+async function send(
+  path: string,
+  options: ApiRequestOptions | undefined,
+  root: boolean
+): Promise<Response> {
+  if (options?.waitForBackend !== false) {
+    await ensureBackendReady(10_000)
+  }
+  const {
+    headers: _headers,
+    mode: _mode,
+    credentials: _credentials,
+    cache: _cache,
+    waitForBackend: _waitForBackend,
+    ...rest
+  } = options || {}
+  try {
+    return await fetch(resolveUrl(path, root), {
+      ...rest,
+      headers: buildHeaders(options),
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+    })
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new APIError('Cannot reach backend', 0, 'network_error')
+    }
+    throw err
+  }
 }
 
-export async function request<T>(path: string, options?: RequestInit): Promise<T> {
+export async function request<T>(path: string, options?: ApiRequestOptions): Promise<T> {
   return requestJson<T>(path, options)
 }
 
-export async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
+export async function requestJson<T>(path: string, options?: ApiRequestOptions): Promise<T> {
   const response = await send(path, options, false)
   if (!response.ok) await throwAPIError(response)
   if (response.status === 204) return undefined as T
@@ -72,7 +95,7 @@ export async function requestJson<T>(path: string, options?: RequestInit): Promi
   return JSON.parse(body) as T
 }
 
-export async function requestRootJson<T>(path: string, options?: RequestInit): Promise<T> {
+export async function requestRootJson<T>(path: string, options?: ApiRequestOptions): Promise<T> {
   const response = await send(path, options, true)
   if (!response.ok) await throwAPIError(response)
   if (response.status === 204) return undefined as T
@@ -82,20 +105,28 @@ export async function requestRootJson<T>(path: string, options?: RequestInit): P
   return JSON.parse(body) as T
 }
 
-export async function requestText(path: string, options?: RequestInit): Promise<string> {
+export async function requestText(path: string, options?: ApiRequestOptions): Promise<string> {
   const response = await send(path, options, false)
   if (!response.ok) await throwAPIError(response)
   return response.text()
 }
 
-export async function requestBlob(path: string, options?: RequestInit): Promise<Blob> {
+export async function requestBlob(path: string, options?: ApiRequestOptions): Promise<Blob> {
   const response = await send(path, options, false)
   if (!response.ok) await throwAPIError(response)
   return response.blob()
 }
 
-export async function requestForm<T>(path: string, formData: FormData, options?: RequestInit): Promise<T> {
+export async function requestForm<T>(
+  path: string,
+  formData: FormData,
+  options?: ApiRequestOptions
+): Promise<T> {
   return requestJson<T>(path, { ...options, body: formData })
+}
+
+export function getErrorMessage(err: unknown): string {
+  return err instanceof Error && err.message ? err.message : 'Network error'
 }
 
 export function getFileUrl(path: string): string {

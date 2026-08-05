@@ -10,21 +10,27 @@ function getStoredMode(): ConnectionMode {
   try {
     const v = localStorage.getItem(MODE_KEY)
     if (v === 'remote') return 'remote'
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return 'local'
 }
 
 function getStoredRemoteUrl(): string {
   try {
     return localStorage.getItem(REMOTE_URL_KEY) || ''
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return ''
 }
 
 function getStoredUsername(): string {
   try {
     return localStorage.getItem(USERNAME_KEY) || ''
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return ''
 }
 
@@ -40,6 +46,7 @@ interface ConnectionState {
   username: string
   password: string
   backendStatus: BackendStatus
+  backendReady: boolean
   saving: boolean
   isChecking: boolean
   connectionError: string | null
@@ -58,6 +65,9 @@ interface ConnectionState {
 
   getEffectiveBaseUrl: () => string
   getEffectiveWsUrl: () => string
+
+  startBackendHealthPolling: () => () => void
+  ensureBackendReady: (timeoutMs: number) => Promise<void>
 }
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
@@ -68,6 +78,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   // stores the persisted remote credential and injects auth for remote calls.
   password: '',
   backendStatus: { running: false, pid: null, uptime: null },
+  backendReady: false,
   saving: false,
   isChecking: false,
   connectionError: null,
@@ -88,7 +99,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     set({ password })
   },
 
-  setBackendStatus: (status) => set({ backendStatus: status }),
+  setBackendStatus: (status) =>
+    set({ backendStatus: status, backendReady: status.running === true }),
   setSaving: (saving) => set({ saving }),
   setIsChecking: (checking) => set({ isChecking: checking }),
   setConnectionError: (error) => set({ connectionError: error }),
@@ -126,7 +138,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         // preload script. No password is read on this path.
       }
     }
-    set({ mode: getStoredMode(), remoteUrl: getStoredRemoteUrl(), username: getStoredUsername(), password: '' })
+    set({
+      mode: getStoredMode(),
+      remoteUrl: getStoredRemoteUrl(),
+      username: getStoredUsername(),
+      password: '',
+    })
   },
 
   getEffectiveBaseUrl: () => {
@@ -144,6 +161,63 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }
     return ''
   },
+
+  startBackendHealthPolling: () => {
+    let stopped = false
+    let failures = 0
+    let timer: ReturnType<typeof setInterval> | null = null
+
+    const check = async () => {
+      if (stopped) return
+      const base = useConnectionStore.getState().getEffectiveBaseUrl()
+      const url = base ? `${base}/healthz` : '/healthz'
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 1500)
+      try {
+        const res = await fetch(url, { signal: controller.signal, cache: 'no-store' })
+        if (res.status === 200) {
+          failures = 0
+          if (!stopped) set({ backendReady: true })
+        } else {
+          failures += 1
+          if (failures >= 2 && !stopped) set({ backendReady: false })
+        }
+      } catch {
+        failures += 1
+        if (failures >= 2 && !stopped) set({ backendReady: false })
+      } finally {
+        clearTimeout(timeout)
+      }
+    }
+
+    void check()
+    timer = setInterval(() => {
+      void check()
+    }, 5000)
+
+    return () => {
+      stopped = true
+      if (timer !== null) clearInterval(timer)
+    }
+  },
+
+  ensureBackendReady: (timeoutMs) =>
+    new Promise<void>((resolve) => {
+      if (useConnectionStore.getState().backendReady) {
+        resolve()
+        return
+      }
+      const unsub = useConnectionStore.subscribe((state) => {
+        if (state.backendReady) {
+          unsub()
+          resolve()
+        }
+      })
+      setTimeout(() => {
+        unsub()
+        resolve()
+      }, timeoutMs)
+    }),
 
   getEffectiveWsUrl: () => {
     const { mode, remoteUrl } = get()
@@ -164,5 +238,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${proto}//${window.location.host}/ws`
   },
-
 }))
+
+export function isBackendReady(): boolean {
+  return useConnectionStore.getState().backendReady
+}
+
+export function ensureBackendReady(timeoutMs: number): Promise<void> {
+  return useConnectionStore.getState().ensureBackendReady(timeoutMs)
+}

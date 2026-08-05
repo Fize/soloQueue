@@ -18,6 +18,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': 'http://localhost:8765',
+      '/healthz': 'http://localhost:8765',
       '/ws': {
         target: 'ws://localhost:8765',
         ws: true,
