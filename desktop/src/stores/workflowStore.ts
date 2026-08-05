@@ -9,6 +9,8 @@ import type {
   GraphEdge,
   WorkflowRunSummary,
   WorkflowRunDetail,
+  WorkflowTask,
+  BuiltinWorkflowView,
 } from '@/types'
 import { listAgents } from '@/lib/api/agent-api'
 import {
@@ -22,6 +24,13 @@ import {
   startWorkflowRun,
   updateWorkflow as updateWorkflowRequest,
   validateWorkflowYAML,
+  pauseWorkflowRun,
+  resumeWorkflowRun,
+  restartWorkflowRun,
+  abandonWorkflowRun,
+  cleanupWorkflowRun,
+  listBuiltinWorkflows,
+  installBuiltinWorkflows,
 } from '@/lib/api/workflow-api'
 
 // ─── YAML ↔ Graph Serialization ─────────────────────────────────────────
@@ -89,6 +98,7 @@ export function graphToYAML(
         lines.push(`        loop: true`)
         lines.push(`        max_traversals: ${output.max_traversals}`)
       }
+      if (output.terminal_status) lines.push(`        terminal_status: ${output.terminal_status}`)
     }
     if (node.onError && node.onError.strategy !== 'fail') {
       lines.push('    on_error:')
@@ -147,7 +157,7 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
     const entryNodes = Array.isArray(documentValue.entry)
       ? documentValue.entry.filter((entry): entry is string => typeof entry === 'string')
       : []
-    const nodes: GraphNode[] = []
+    let nodes: GraphNode[] = []
     const edges: GraphEdge[] = []
     const agents: Record<string, { template: string; model?: string }> = Object.fromEntries(
       Object.entries(documentValue.agents || {}).flatMap(([key, ref]) => {
@@ -160,7 +170,7 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
     )
     let name = typeof documentValue.name === 'string' ? documentValue.name : ''
     let currentNode: Partial<GraphNode> | null = null
-    let position: { x: number; y: number } | null = null
+    const positionedNodeIDs = new Set<string>()
 
     const lines = yaml.split('\n')
     let i = 0
@@ -180,7 +190,11 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
       // Capture position comment
       const posMatch = trimmed.match(/#\s*@position:\s*(-?\d+\.?\d*),\s*(-?\d+\.?\d*)/)
       if (posMatch) {
-        position = { x: parseFloat(posMatch[1]), y: parseFloat(posMatch[2]) }
+        const savedPosition = { x: parseFloat(posMatch[1]), y: parseFloat(posMatch[2]) }
+        if (currentNode?.id) {
+          currentNode.position = savedPosition
+          positionedNodeIDs.add(currentNode.id)
+        }
         i++
         continue
       }
@@ -207,7 +221,6 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
           finalizeNode()
         }
         currentNode = { outputs: {} }
-        position = null
         currentNode.id = content.replace(/^- id:\s*/, '').trim()
         i++
         continue
@@ -278,6 +291,14 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
                     if (subcontent === 'to: []') {
                       // Terminal output
                       currentNode.outputs![outcomeName].to = []
+                    } else if (/^to:\s*\[.*\]\s*$/.test(subcontent)) {
+                      const inlineTargets = subcontent
+                        .replace(/^to:\s*\[/, '')
+                        .replace(/\]\s*$/, '')
+                        .split(',')
+                        .map(target => target.trim().replace(/^['"]|['"]$/g, ''))
+                        .filter(Boolean)
+                      currentNode.outputs![outcomeName].to = inlineTargets
                     } else {
                       // to: followed by list items at indent 10
                       i++
@@ -302,6 +323,12 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
                   }
                   if (subcontent.startsWith('max_traversals:')) {
                     currentNode.outputs![outcomeName].max_traversals = parseInt(subcontent.replace(/^max_traversals:\s*/, '').trim()) || 1
+                  }
+                  if (subcontent.startsWith('terminal_status:')) {
+                    const value = subcontent.replace(/^terminal_status:\s*/, '').trim()
+                    if (value === 'completed' || value === 'blocked' || value === 'failed') {
+                      currentNode.outputs![outcomeName].terminal_status = value
+                    }
                   }
                   i++
                 }
@@ -367,7 +394,7 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
           join: currentNode.join && currentNode.join.from.length >= 2 ? currentNode.join : undefined,
           outputs: currentNode.outputs || {},
           onError: currentNode.onError && currentNode.onError.strategy !== 'fail' ? currentNode.onError : undefined,
-          position: position || { x: nodes.length * 200, y: 100 },
+          position: currentNode.position || { x: nodes.length * 200, y: 100 },
         })
       }
     }
@@ -395,6 +422,10 @@ export function yamlToGraph(yaml: string): { graph: GraphState; name: string; ag
           }
         }
       }
+    }
+
+    if (nodes.length > 0 && positionedNodeIDs.size === 0) {
+      nodes = autoLayoutNodes(nodes)
     }
 
     // Return null for garbage input that produces no valid content
@@ -489,6 +520,63 @@ function edgesFromNodes(nodes: GraphNode[]): GraphEdge[] {
   ))
 }
 
+// Keep initial graph coordinates deterministic and readable without adding a
+// layout dependency. Saved YAML positions still take precedence in yamlToGraph.
+export function autoLayoutNodes(nodes: GraphNode[]): GraphNode[] {
+  const nodeIDs = new Set(nodes.map(node => node.id))
+  const outgoing = new Map<string, string[]>()
+  const indegree = new Map<string, number>()
+  const layers = new Map<string, number>()
+
+  for (const node of nodes) {
+    const targets = Object.values(node.outputs || {})
+      .flatMap(output => output.to)
+      .filter(target => nodeIDs.has(target))
+    outgoing.set(node.id, targets)
+    indegree.set(node.id, 0)
+  }
+  for (const targets of outgoing.values()) {
+    for (const target of targets) indegree.set(target, (indegree.get(target) || 0) + 1)
+  }
+
+  const roots = nodes.filter(node => indegree.get(node.id) === 0).map(node => node.id)
+  const queue = roots.length > 0 ? roots : nodes.slice(0, 1).map(node => node.id)
+  queue.forEach(nodeID => layers.set(nodeID, 0))
+  const visited = new Set<string>()
+  for (let index = 0; index < queue.length; index += 1) {
+    const source = queue[index]
+    if (visited.has(source)) continue
+    visited.add(source)
+    const sourceLayer = layers.get(source) || 0
+    for (const target of outgoing.get(source) || []) {
+      // Assign each node once from the entry side. A loop back-edge therefore
+      // points to an existing layer instead of shifting the whole graph.
+      if (layers.has(target)) continue
+      layers.set(target, sourceLayer + 1)
+      queue.push(target)
+    }
+  }
+
+  const highestLayer = Math.max(-1, ...layers.values())
+  nodes.forEach((node, index) => {
+    if (!layers.has(node.id)) layers.set(node.id, highestLayer + 1 + index)
+  })
+
+  const rowByLayer = new Map<number, number>()
+  return nodes.map(node => {
+    const layer = layers.get(node.id) || 0
+    const row = rowByLayer.get(layer) || 0
+    rowByLayer.set(layer, row + 1)
+    return {
+      ...node,
+      position: {
+        x: 120 + layer * 360,
+        y: 120 + row * 220,
+      },
+    }
+  })
+}
+
 // ─── Store ──────────────────────────────────────────────────────────────
 
 export type DirtySource = 'visual' | 'yaml' | null
@@ -505,6 +593,9 @@ interface WorkflowState {
   workflowMetasLoading: boolean
   workflowMetasError: string | null
   fetchWorkflowMetas: () => Promise<void>
+  builtinWorkflows: BuiltinWorkflowView[]
+  fetchBuiltinWorkflows: () => Promise<void>
+  installBuiltinWorkflow: (name: string) => Promise<boolean>
 
   // Active workflow editor state
   activeWorkflowName: string | null
@@ -554,8 +645,13 @@ interface WorkflowState {
   clearActiveRunDetail: () => void
 
   // Run controls
-  startRun: (workflowName: string, input?: string) => Promise<string | null>
+  startRun: (workflowName: string, task: WorkflowTask) => Promise<string | null>
   cancelRun: (workflowName: string, runId: string) => Promise<void>
+  pauseRun: (workflowName: string, runId: string, mode?: 'graceful' | 'force') => Promise<void>
+  resumeRun: (workflowName: string, runId: string, allowDirty?: boolean) => Promise<void>
+  restartRun: (workflowName: string, runId: string) => Promise<string | null>
+  abandonRun: (workflowName: string, runId: string) => Promise<void>
+  cleanupRun: (workflowName: string, runId: string, force?: boolean) => Promise<void>
 
   // Sync guard
   _syncing: boolean
@@ -586,6 +682,27 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   workflowMetas: [],
   workflowMetasLoading: false,
   workflowMetasError: null,
+  builtinWorkflows: [],
+
+  fetchBuiltinWorkflows: async () => {
+    try {
+      const builtins = await listBuiltinWorkflows()
+      set({ builtinWorkflows: builtins || [] })
+    } catch {
+      set({ builtinWorkflows: [] })
+    }
+  },
+
+  installBuiltinWorkflow: async (name) => {
+    try {
+      await installBuiltinWorkflows([name])
+      await get().fetchWorkflowMetas()
+      await get().fetchBuiltinWorkflows()
+      return true
+    } catch {
+      return false
+    }
+  },
 
   fetchWorkflowMetas: async () => {
     if (inflightMetasLoad) {
@@ -905,9 +1022,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   clearActiveRunDetail: () => set({ activeRunDetail: null }),
 
-  startRun: async (workflowName, input?) => {
+  startRun: async (workflowName, task) => {
     try {
-      const data = await startWorkflowRun(workflowName, input || '')
+      const data = await startWorkflowRun(workflowName, task)
       return data.run_id || null
     } catch { /* handled by caller */ }
     return null
@@ -915,5 +1032,26 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   cancelRun: async (workflowName, runId) => {
     await cancelWorkflowRun(workflowName, runId)
+  },
+
+  pauseRun: async (workflowName, runId, mode = 'graceful') => {
+    await pauseWorkflowRun(workflowName, runId, mode)
+  },
+
+  resumeRun: async (workflowName, runId, allowDirty = false) => {
+    await resumeWorkflowRun(workflowName, runId, allowDirty)
+  },
+
+  restartRun: async (workflowName, runId) => {
+    const data = await restartWorkflowRun(workflowName, runId)
+    return data.run_id || null
+  },
+
+  abandonRun: async (workflowName, runId) => {
+    await abandonWorkflowRun(workflowName, runId)
+  },
+
+  cleanupRun: async (workflowName, runId, force = false) => {
+    await cleanupWorkflowRun(workflowName, runId, force)
   },
 }))

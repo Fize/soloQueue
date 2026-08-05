@@ -31,6 +31,7 @@ export interface OutputDef {
   to: string[]
   loop: boolean
   max_traversals: number
+  terminal_status?: 'completed' | 'blocked' | 'failed'
 }
 
 export interface JoinDef {
@@ -64,6 +65,7 @@ export interface WorkflowEdge {
   to_node: string
   loop: boolean
   max_traversals: number
+  terminal_status?: 'completed' | 'blocked' | 'failed'
 }
 
 // ─── Graph State (internal editor model) ────────────────────────────────
@@ -105,10 +107,60 @@ export type NodeRunState =
 
 export type RunStatus =
   | 'pending'
+  | 'preparing_worktree'
   | 'running'
+  | 'pause_requested'
+  | 'paused'
+  | 'resuming'
+  | 'interrupted'
   | 'completed'
+  | 'blocked'
   | 'failed'
   | 'cancelled'
+  | 'abandoned'
+
+export interface WorkflowDeliveryRequest {
+  commit?: { enabled: boolean; message?: string }
+  push?: { enabled: boolean; remote?: string; branch?: string }
+  pull_request?: { enabled: boolean; title?: string; body?: string; draft?: boolean }
+}
+
+export interface WorkflowTask {
+  goal: string
+  acceptance_criteria: string[]
+  constraints?: string[]
+  delivery?: WorkflowDeliveryRequest
+}
+
+export interface BuiltinWorkflowView {
+  spec: { name: string; description: string; version: string; yaml: string }
+  status: 'available' | 'installed' | 'conflict'
+  error?: string
+}
+
+export interface WorkflowRunEvent {
+  id: number
+  run_id: string
+  node_run_id?: string
+  type: string
+  payload: Record<string, unknown>
+  prev_hash?: string
+  hash: string
+  created_at: string
+}
+
+export interface WorkflowConfirmation {
+  call_id: string
+  node_run_id?: string
+  tool_name?: string
+  prompt: string
+  options?: string[]
+  allow_in_session: boolean
+  status: string
+  choice?: string
+  requested_at: string
+  resolved_at?: string
+}
 
 export interface NodeInputDTO {
   from_node: string
@@ -151,10 +203,33 @@ export interface WorkflowRunSummary {
   node_count: number
   completed_count: number
   failed_count: number
+  task: WorkflowTask
+  source?: string
+  repository_path?: string
+  base_ref?: string
+  base_commit?: string
+  branch_name?: string
+  worktree_path?: string
+  worktree_state?: string
+  parent_run_id?: string
+  restarted_from_run_id?: string
+  successor_run_id?: string
+  pause_mode?: string
+  resume_available: boolean
+  restart_available: boolean
+  cleanup_available: boolean
+  quality_status?: string
+  delivery_status?: string
+  delivery_result?: Record<string, unknown>
+  audit_dir?: string
+  audit_head_hash?: string
+  error_code?: string
+  error_message?: string
 }
 
 export interface WorkflowRunDetail extends WorkflowRunSummary {
   node_runs: NodeRunDTO[]
   terminal_outputs: TerminalOutput[]
   edges: WorkflowEdge[]
+  confirmations?: WorkflowConfirmation[]
 }

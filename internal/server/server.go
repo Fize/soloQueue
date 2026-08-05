@@ -41,16 +41,16 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
-	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
 
@@ -84,7 +84,7 @@ type Mux struct {
 	effectiveAuthUser string
 	effectiveAuthPass string
 	teamstore         *store.Store // team/agent DB store; nil if not backed by SQLite
-	onConfigChange    func() error     // callback on LLM config update
+	onConfigChange    func() error // callback on LLM config update
 	simEngine         *simulation.SimulationEngine
 	sharedDB          *db.DB // for metric reporting
 	workflowStore     *workflow.Store
@@ -502,6 +502,8 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Get("/", m.handleListWorkflows)
 		r.Post("/", m.handleCreateWorkflow)
 		r.Post("/validate", m.handleValidateWorkflow)
+		r.Get("/builtin", m.handleListBuiltinWorkflows)
+		r.Post("/builtin/install", m.handleInstallBuiltinWorkflows)
 		r.Route("/{name}", func(r chi.Router) {
 			r.Get("/", m.handleGetWorkflow)
 			r.Put("/", m.handleUpdateWorkflow)
@@ -511,6 +513,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Route("/runs/{runID}", func(r chi.Router) {
 				r.Get("/", m.handleGetWorkflowRun)
 				r.Post("/cancel", m.handleCancelWorkflowRun)
+				r.Post("/pause", m.handlePauseWorkflowRun)
+				r.Post("/resume", m.handleResumeWorkflowRun)
+				r.Post("/restart", m.handleRestartWorkflowRun)
+				r.Post("/abandon", m.handleAbandonWorkflowRun)
+				r.Post("/cleanup", m.handleCleanupWorkflowRun)
+				r.Get("/events", m.handleListWorkflowRunEvents)
+				r.Post("/confirmations/{callID}/resolve", m.handleResolveWorkflowConfirmation)
 			})
 		})
 	})

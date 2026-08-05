@@ -5,6 +5,7 @@ import {
   unknownAgentTemplates,
   yamlToGraph,
   defaultYAMLTemplate,
+  autoLayoutNodes,
   useWorkflowStore,
 } from './workflowStore'
 import type { AgentResponse, GraphState } from '@/types'
@@ -195,6 +196,62 @@ describe('graphToYAML', () => {
 // ─── yamlToGraph ────────────────────────────────────────────────────────
 
 describe('yamlToGraph', () => {
+  it('parses flow-style output targets into graph edges', () => {
+    const yaml = `name: flow-style
+entry: [start]
+nodes:
+  - id: start
+    agent: reviewer
+    prompt: Start
+    outputs:
+      done:
+        to: [finish]
+  - id: finish
+    agent: writer
+    prompt: Finish
+    outputs:
+      done:
+        to: []
+`
+
+    const result = yamlToGraph(yaml)
+
+    expect(result?.graph.edges).toEqual([{
+      id: 'start:done:finish',
+      source: 'start',
+      target: 'finish',
+      outcome: 'done',
+      loop: false,
+      maxTraversals: 0,
+    }])
+  })
+
+  it('assigns a readable topology layout when positions are not persisted', () => {
+    const yaml = `name: no-positions
+entry: [start]
+nodes:
+  - id: start
+    agent: reviewer
+    prompt: Start
+    outputs:
+      done:
+        to: [finish]
+  - id: finish
+    agent: writer
+    prompt: Finish
+    outputs:
+      done:
+        to: []
+`
+
+    const result = yamlToGraph(yaml)
+
+    expect(result?.graph.nodes.map(node => node.position)).toEqual([
+      { x: 120, y: 120 },
+      { x: 480, y: 120 },
+    ])
+  })
+
   it('round-trips name correctly', () => {
     const yaml = graphToYAML('parse-test', makeSimpleGraph(), agents)
     const result = yamlToGraph(yaml)
@@ -318,6 +375,24 @@ describe('yamlToGraph', () => {
     const result = yamlToGraph('')
     // Empty string has no nodes and no name, returns null
     expect(result).toBeNull()
+  })
+})
+
+describe('autoLayoutNodes', () => {
+  it('places a linear workflow left-to-right without node overlap', () => {
+    const nodes: GraphState['nodes'] = [
+      { id: 'start', agent: 'reviewer', prompt: '', outputs: { done: { to: ['middle'], loop: false, max_traversals: 0 } }, position: { x: 0, y: 0 } },
+      { id: 'middle', agent: 'writer', prompt: '', outputs: { done: { to: ['finish'], loop: false, max_traversals: 0 } }, position: { x: 0, y: 0 } },
+      { id: 'finish', agent: 'publisher', prompt: '', outputs: { done: { to: [], loop: false, max_traversals: 0 } }, position: { x: 0, y: 0 } },
+    ]
+
+    const laidOut = autoLayoutNodes(nodes)
+
+    expect(laidOut.map(node => node.id)).toEqual(['start', 'middle', 'finish'])
+    expect(laidOut[0].position.y).toBe(laidOut[1].position.y)
+    expect(laidOut[1].position.y).toBe(laidOut[2].position.y)
+    expect(laidOut[1].position.x - laidOut[0].position.x).toBeGreaterThanOrEqual(340)
+    expect(laidOut[2].position.x - laidOut[1].position.x).toBeGreaterThanOrEqual(340)
   })
 })
 

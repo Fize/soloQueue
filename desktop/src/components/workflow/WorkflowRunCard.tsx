@@ -12,7 +12,7 @@ interface WorkflowRunCardProps {
 // ─── Component ──────────────────────────────────────────────────────────
 
 export function WorkflowRunCard({ run, onClick }: WorkflowRunCardProps) {
-  const isRunning = run.status === 'running'
+  const isRunning = ['running', 'preparing_worktree', 'pause_requested', 'resuming'].includes(run.status)
   const progress = run.node_count > 0
     ? Math.round((run.completed_count / run.node_count) * 100)
     : 0

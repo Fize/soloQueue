@@ -58,8 +58,20 @@ type Engine struct {
 // scheduler internals to callers. Observer is invoked by the scheduler
 // goroutine and must return promptly.
 type RunOptions struct {
-	ID       string
-	Observer func(*RunState)
+	ID                 string
+	Observer           func(*RunState)
+	PauseRequested     func() (mode string, requested bool)
+	CancelRequested    func() bool
+	RecordConfirmation func(ConfirmationRequest)
+	Resume             *ResumeInput
+}
+
+type ResumeInput struct {
+	NodeRuns       []*NodeRun
+	ReadyQueue     []string
+	JoinBuckets    map[JoinKey]*JoinBucket
+	LoopCounters   map[LoopKey]int
+	TerminalOutput []TerminalOutput
 }
 
 // NewEngine creates a workflow engine with the given executor and limits.
@@ -104,12 +116,42 @@ func (e *Engine) RunWithOptions(ctx context.Context, wf *ParsedWorkflow, input s
 		WorkDir:      workDir,
 	}
 
-	// Create root activation for entry nodes
-	rootActivation := newActivationID()
+	resumeHasState := options.Resume != nil && (len(options.Resume.NodeRuns) > 0 || len(options.Resume.ReadyQueue) > 0 || len(options.Resume.JoinBuckets) > 0 || len(options.Resume.LoopCounters) > 0 || len(options.Resume.TerminalOutput) > 0)
+	if resumeHasState {
+		for _, nodeRun := range options.Resume.NodeRuns {
+			if nodeRun == nil {
+				continue
+			}
+			copy := *nodeRun
+			copy.Inputs = append([]NodeInput(nil), nodeRun.Inputs...)
+			rs.NodeRuns[copy.ID] = &copy
+		}
+		rs.ReadyQueue = append(rs.ReadyQueue, options.Resume.ReadyQueue...)
+		for key, bucket := range options.Resume.JoinBuckets {
+			if bucket == nil {
+				continue
+			}
+			copy := &JoinBucket{Received: make(map[string]NodeInput, len(bucket.Received)), Expected: make(map[string]bool, len(bucket.Expected))}
+			for source, input := range bucket.Received {
+				copy.Received[source] = input
+			}
+			for source, expected := range bucket.Expected {
+				copy.Expected[source] = expected
+			}
+			rs.JoinBuckets[key] = copy
+		}
+		for key, count := range options.Resume.LoopCounters {
+			rs.LoopCounters[key] = count
+		}
+		rs.TerminalOutput = append(rs.TerminalOutput, options.Resume.TerminalOutput...)
+	} else {
+		// Create root activation for entry nodes
+		rootActivation := newActivationID()
 
-	// Initialize entry NodeRuns — all share root activation
-	for _, entryID := range wf.Entry {
-		e.createNodeRun(rs, entryID, rootActivation, input)
+		// Initialize entry NodeRuns — all share root activation
+		for _, entryID := range wf.Entry {
+			e.createNodeRun(rs, entryID, rootActivation, input)
+		}
 	}
 	if options.Observer != nil {
 		options.Observer(rs)
@@ -120,8 +162,27 @@ func (e *Engine) RunWithOptions(ctx context.Context, wf *ParsedWorkflow, input s
 	var wg sync.WaitGroup
 
 	for {
+		pauseMode := ""
+		if options.PauseRequested != nil {
+			pauseMode, _ = options.PauseRequested()
+		}
+		if pauseMode == "force" {
+			rs.PauseMode = pauseMode
+			rs.Status = RunPaused
+			e.cancelAll(rs, fmt.Errorf("workflow force-paused"))
+			break
+		}
+		if pauseMode == "graceful" && len(rs.Running) == 0 {
+			rs.PauseMode = pauseMode
+			rs.Status = RunPaused
+			break
+		}
+		// A graceful pause lets in-flight nodes reach a result boundary, but
+		// does not start another queued node while the pause is pending.
 		// Drain any ready nodes up to concurrency limit
-		e.dispatchReady(rs, runCtx, resultCh, &wg, defaults)
+		if pauseMode != "graceful" {
+			e.dispatchReady(rs, runCtx, resultCh, &wg, defaults, options.RecordConfirmation)
+		}
 		if options.Observer != nil {
 			options.Observer(rs)
 		}
@@ -131,8 +192,9 @@ func (e *Engine) RunWithOptions(ctx context.Context, wf *ParsedWorkflow, input s
 			break
 		}
 
-		// Nothing ready but things are running — wait for a result
-		if len(rs.ReadyQueue) == 0 && len(rs.Running) > 0 {
+		// Once the concurrency limit is full, queued work cannot make progress
+		// until an in-flight node finishes, so always consume a result first.
+		if len(rs.Running) > 0 {
 			select {
 			case result := <-resultCh:
 				e.handleResult(rs, runCtx, result, resultCh, &wg, defaults)
@@ -141,6 +203,15 @@ func (e *Engine) RunWithOptions(ctx context.Context, wf *ParsedWorkflow, input s
 				}
 			case <-runCtx.Done():
 				e.cancelAll(rs, runCtx.Err())
+				if options.PauseRequested != nil {
+					if mode, requested := options.PauseRequested(); requested {
+						rs.PauseMode = mode
+						rs.Status = RunPaused
+					}
+				}
+				if options.CancelRequested != nil && options.CancelRequested() {
+					rs.Status = RunCancelled
+				}
 				if options.Observer != nil {
 					options.Observer(rs)
 				}
@@ -150,6 +221,9 @@ func (e *Engine) RunWithOptions(ctx context.Context, wf *ParsedWorkflow, input s
 		}
 	}
 
+	// Wake executors that are still trying to publish after a terminal,
+	// fail-fast, pause, or cancellation path has stopped the scheduler.
+	runCancel()
 	wg.Wait()
 
 	// Determine final status
@@ -158,7 +232,6 @@ func (e *Engine) RunWithOptions(ctx context.Context, wf *ParsedWorkflow, input s
 	if options.Observer != nil {
 		options.Observer(rs)
 	}
-	runCancel()
 	return rs, nil
 }
 
@@ -243,7 +316,7 @@ type nodeExecResult struct {
 	Err       error
 }
 
-func (e *Engine) dispatchReady(rs *RunState, ctx context.Context, resultCh chan<- nodeExecResult, wg *sync.WaitGroup, defaults Defaults) {
+func (e *Engine) dispatchReady(rs *RunState, ctx context.Context, resultCh chan<- nodeExecResult, wg *sync.WaitGroup, defaults Defaults, recordConfirmation func(ConfirmationRequest)) {
 	maxParallel := e.limits.MaxParallelNodes
 	if maxParallel <= 0 {
 		maxParallel = 4
@@ -280,13 +353,14 @@ func (e *Engine) dispatchReady(rs *RunState, ctx context.Context, resultCh chan<
 			agentRef := rs.Workflow.Agents[node.Agent]
 
 			req := NodeRunRequest{
-				RunID:         rs.ID,
-				Workflow:      rs.Workflow,
-				Node:          node,
-				AgentRef:      agentRef,
-				NodeRun:       nr,
-				WorkflowInput: rs.Input,
-				WorkDir:       rs.WorkDir,
+				RunID:              rs.ID,
+				Workflow:           rs.Workflow,
+				Node:               node,
+				AgentRef:           agentRef,
+				NodeRun:            nr,
+				WorkflowInput:      rs.Input,
+				WorkDir:            rs.WorkDir,
+				RecordConfirmation: recordConfirmation,
 			}
 
 			result, err := e.executor.Execute(nodeCtx, req)
@@ -369,6 +443,14 @@ func (e *Engine) handleResult(rs *RunState, ctx context.Context, result nodeExec
 			Outcome: result.Handoff.Outcome,
 			Content: result.Handoff.Content,
 		})
+		switch out.TerminalStatus {
+		case "blocked":
+			rs.Status = RunBlocked
+			e.cancelAll(rs, fmt.Errorf("workflow terminal outcome blocked"))
+		case "failed":
+			rs.Status = RunFailed
+			e.cancelAll(rs, fmt.Errorf("workflow terminal outcome failed"))
+		}
 		return
 	}
 
@@ -510,7 +592,7 @@ func (e *Engine) cancelAll(rs *RunState, cause error) {
 
 func (e *Engine) finalizeStatus(rs *RunState) {
 	// If already set to failed/cancelled, keep it
-	if rs.Status == RunFailed || rs.Status == RunCancelled {
+	if rs.Status == RunFailed || rs.Status == RunCancelled || rs.Status == RunPaused || rs.Status == RunBlocked || rs.Status == RunAbandoned || rs.Status == RunInterrupted {
 		return
 	}
 

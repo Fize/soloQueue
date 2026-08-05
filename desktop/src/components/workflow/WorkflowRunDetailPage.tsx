@@ -3,19 +3,28 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Square,
+  Pause,
+  Play,
   RotateCw,
   Clock,
   Loader2,
   ChevronDown,
   ChevronRight,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
 import { useWorkflowStore } from '@/stores/workflowStore'
+import { useConnectionStore } from '@/stores/connectionStore'
+import { useRuntimeStore } from '@/stores/runtimeStore'
+import { listWorkflowRunEvents, resolveWorkflowConfirmation } from '@/lib/api/workflow-api'
 import { DAGPreview } from './DAGPreview'
 import { WorkflowStatusBadge, getStateBorderClass } from './WorkflowStatusBadge'
+import { shouldWaitForWorkflowBackend } from './workflowPageState'
 import { cn } from '@/lib/utils'
-import type { NodeRunDTO, NodeRunState } from '@/types'
+import type { NodeRunDTO, NodeRunState, WorkflowRunEvent } from '@/types'
+
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI
 
 // ─── Timeline Tab ──────────────────────────────────────────────────────
 
@@ -200,36 +209,74 @@ function OutputsTab({ outputs }: { outputs: { node: string; outcome: string; con
   )
 }
 
+function AuditTab({ events }: { events: WorkflowRunEvent[] }) {
+  return (
+    <div className="space-y-1 p-4">
+      {events.map((event) => (
+        <div key={event.id} className="rounded-lg border border-border/40 bg-card/35 px-3 py-2 font-mono text-[10px]">
+          <div className="flex items-center justify-between gap-2 text-muted-foreground">
+            <span>{event.id} · {event.type}</span>
+            <span>{new Date(event.created_at).toLocaleTimeString()}</span>
+          </div>
+          <pre className="mt-1 whitespace-pre-wrap break-words text-foreground/80">{JSON.stringify(event.payload, null, 2)}</pre>
+        </div>
+      ))}
+      {events.length === 0 && <p className="py-8 text-center text-xs text-muted-foreground">No audit events yet</p>}
+    </div>
+  )
+}
+
 // ─── Main Page ──────────────────────────────────────────────────────────
 
 export function WorkflowRunDetailPage() {
   const { name, runId } = useParams<{ name: string; runId: string }>()
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const connectionMode = useConnectionStore((state) => state.mode)
+  const backendRunning = useConnectionStore((state) => state.backendStatus.running)
+  const sidebarCollapsed = useRuntimeStore((state) => state.sidebarCollapsed)
+  const waitingForBackend = shouldWaitForWorkflowBackend(isElectron, connectionMode, backendRunning)
   const {
     activeRunDetail,
     activeRunDetailLoading,
     fetchRunDetail,
     clearActiveRunDetail,
     cancelRun,
+    pauseRun,
+    resumeRun,
+    restartRun,
+    abandonRun,
+    cleanupRun,
     activeWorkflowGraph,
     setActiveWorkflow,
   } = useWorkflowStore()
 
-  const [activeTab, setActiveTab] = useState<'timeline' | 'nodeRuns' | 'outputs'>('timeline')
+  const [activeTab, setActiveTab] = useState<'timeline' | 'nodeRuns' | 'outputs' | 'audit'>('timeline')
+  const [events, setEvents] = useState<WorkflowRunEvent[]>([])
   const [cancelling, setCancelling] = useState(false)
+  const [resolvingConfirmation, setResolvingConfirmation] = useState<string | null>(null)
+  const [cleaningUp, setCleaningUp] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
+    if (waitingForBackend) {
+      clearActiveRunDetail()
+      return
+    }
     if (name) {
       setActiveWorkflow(name)
     }
     if (name && runId) fetchRunDetail(name, runId)
     return () => clearActiveRunDetail()
-  }, [name, runId, fetchRunDetail, clearActiveRunDetail, setActiveWorkflow])
+  }, [name, runId, waitingForBackend, fetchRunDetail, clearActiveRunDetail, setActiveWorkflow])
 
   useEffect(() => {
-    if (!name || !runId || activeRunDetail?.status !== 'running') return
+    if (!name || !runId || waitingForBackend) return
+    void listWorkflowRunEvents(name, runId, 0, 200).then((response) => setEvents(response.data || [])).catch(() => setEvents([]))
+  }, [name, runId, waitingForBackend, activeRunDetail?.status])
+
+  useEffect(() => {
+    if (!name || !runId || !['running', 'preparing_worktree', 'pause_requested', 'resuming'].includes(activeRunDetail?.status || '')) return
     const timer = window.setInterval(() => {
       fetchRunDetail(name, runId)
       setNow(Date.now())
@@ -248,6 +295,54 @@ export function WorkflowRunDetailPage() {
       toast.error(t('workflow.cancelRunFailed'))
     } finally {
       setCancelling(false)
+    }
+  }
+
+  const handlePause = async () => {
+    if (!name || !runId) return
+    try {
+      await pauseRun(name, runId, 'graceful')
+      await fetchRunDetail(name, runId)
+    } catch (err: any) {
+      toast.error(err.message || 'Pause failed')
+    }
+  }
+
+  const handleResume = async () => {
+    if (!name || !runId) return
+    try {
+      await resumeRun(name, runId)
+      await fetchRunDetail(name, runId)
+    } catch (err: any) {
+      toast.error(err.message || 'Resume failed')
+    }
+  }
+
+  const handleConfirmation = async (callID: string, choice: string) => {
+    if (!name || !runId) return
+    setResolvingConfirmation(callID)
+    try {
+      await resolveWorkflowConfirmation(name, runId, callID, choice)
+      await fetchRunDetail(name, runId)
+      toast.success(choice ? 'Confirmation submitted' : 'Tool execution denied')
+    } catch (err: any) {
+      toast.error(err.message || 'Confirmation failed')
+    } finally {
+      setResolvingConfirmation(null)
+    }
+  }
+
+  const handleCleanup = async () => {
+    if (!name || !runId || !window.confirm('Remove this run worktree? The audit history will be kept.')) return
+    setCleaningUp(true)
+    try {
+      await cleanupRun(name, runId)
+      await fetchRunDetail(name, runId)
+      toast.success('Worktree removed')
+    } catch (err: any) {
+      toast.error(err.message || 'Worktree cleanup failed')
+    } finally {
+      setCleaningUp(false)
     }
   }
 
@@ -270,7 +365,8 @@ export function WorkflowRunDetailPage() {
   // Progress
   const totalNodes = activeRunDetail?.node_count || 0
   const completedNodes = activeRunDetail?.completed_count || 0
-  const isRunning = activeRunDetail?.status === 'running'
+  const isRunning = activeRunDetail?.status === 'running' || activeRunDetail?.status === 'preparing_worktree' || activeRunDetail?.status === 'pause_requested' || activeRunDetail?.status === 'resuming'
+  const isPaused = activeRunDetail?.status === 'paused' || activeRunDetail?.status === 'interrupted'
 
   // Elapsed time
   const elapsed = useMemo(() => {
@@ -288,7 +384,10 @@ export function WorkflowRunDetailPage() {
   return (
     <div className="flex h-full flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <header className="shrink-0 flex items-center justify-between border-b border-border/60 bg-card/20 px-6 py-2.5">
+      <header className={cn(
+        'shrink-0 flex items-center justify-between border-b border-border/60 bg-card/20 px-6 py-2.5',
+        sidebarCollapsed && 'pl-[115px]'
+      )}>
         <div className="flex items-center gap-4 min-w-0">
           <button
             type="button"
@@ -309,42 +408,90 @@ export function WorkflowRunDetailPage() {
 
         <div className="flex items-center gap-2 electron-no-drag">
           {isRunning && (
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={cancelling}
-              className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 border border-rose-500/25 px-3 py-2 text-xs font-semibold text-rose-500 transition-colors cursor-pointer disabled:cursor-not-allowed"
-            >
-              {cancelling ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Square className="h-3.5 w-3.5" />
-              )}
-              {t('common.cancel')}
+            <>
+              <button type="button" onClick={handlePause} className="flex items-center gap-1.5 rounded-lg border border-warning/30 px-3 py-2 text-xs text-warning hover:bg-warning/10 transition-colors">
+                <Pause className="h-3.5 w-3.5" /> Pause
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 border border-rose-500/25 px-3 py-2 text-xs font-semibold text-rose-500 transition-colors cursor-pointer disabled:cursor-not-allowed"
+              >
+                {cancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+                {t('common.cancel')}
+              </button>
+            </>
+          )}
+          {isPaused && activeRunDetail?.resume_available && (
+            <button type="button" onClick={handleResume} className="flex items-center gap-1.5 rounded-lg border border-success/30 px-3 py-2 text-xs text-success hover:bg-success/10 transition-colors">
+              <Play className="h-3.5 w-3.5" /> Resume
             </button>
           )}
-          {!isRunning && activeRunDetail && (
+          {!isRunning && activeRunDetail?.restart_available && (
             <button
               type="button"
-            onClick={async () => {
-              if (!name) return
-              const runID = await useWorkflowStore.getState().startRun(name, activeRunDetail.input)
-              if (runID) navigate(`/workflows/${name}/runs/${runID}`)
-            }}
+              onClick={async () => {
+                if (!name || !runId) return
+                const newID = await restartRun(name, runId)
+                if (newID) navigate(`/workflows/${name}/runs/${newID}`)
+              }}
               className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
             >
-              <RotateCw className="h-3.5 w-3.5" />
-              Rerun
+              <RotateCw className="h-3.5 w-3.5" /> Restart
+            </button>
+          )}
+          {isPaused && (
+            <button type="button" onClick={() => name && runId && abandonRun(name, runId)} className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors">
+              Abandon
+            </button>
+          )}
+          {!isRunning && activeRunDetail?.cleanup_available && (
+            <button type="button" onClick={handleCleanup} disabled={cleaningUp} className="flex items-center gap-1.5 rounded-lg border border-rose-500/25 px-3 py-2 text-xs text-rose-500 hover:bg-rose-500/10 disabled:opacity-40 transition-colors">
+              {cleaningUp ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Cleanup
             </button>
           )}
         </div>
       </header>
 
+      {activeRunDetail?.confirmations?.filter((confirmation) => confirmation.status === 'pending').map((confirmation) => {
+        const choices = confirmation.options?.length ? confirmation.options : ['yes']
+        const busy = resolvingConfirmation === confirmation.call_id
+        return (
+          <div key={confirmation.call_id} className="shrink-0 border-b border-warning/30 bg-warning/5 px-6 py-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-warning">Tool confirmation required</div>
+                <div className="mt-1 text-xs text-foreground/90 break-words">{confirmation.prompt}</div>
+                <div className="mt-1 text-[10px] font-mono text-muted-foreground">
+                  {confirmation.tool_name || 'tool'}{confirmation.node_run_id ? ` · ${confirmation.node_run_id}` : ''}
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-wrap justify-end gap-2 electron-no-drag">
+                {choices.map((choice) => (
+                  <button key={choice} type="button" disabled={busy} onClick={() => handleConfirmation(confirmation.call_id, choice)} className="rounded-lg border border-success/30 px-3 py-1.5 text-xs text-success hover:bg-success/10 disabled:opacity-40">
+                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : choice}
+                  </button>
+                ))}
+                {confirmation.allow_in_session && !choices.includes('allow-in-session') && (
+                  <button type="button" disabled={busy} onClick={() => handleConfirmation(confirmation.call_id, 'allow-in-session')} className="rounded-lg border border-signal/30 px-3 py-1.5 text-xs text-signal hover:bg-signal/10 disabled:opacity-40">
+                    Allow in session
+                  </button>
+                )}
+                <button type="button" disabled={busy} onClick={() => handleConfirmation(confirmation.call_id, '')} className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-500 hover:bg-rose-500/10 disabled:opacity-40">
+                  Deny
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+
       {/* Body */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: Live DAG */}
         <div className="flex-1 relative bg-background min-w-0">
-          {activeRunDetailLoading ? (
+          {waitingForBackend || activeRunDetailLoading ? (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="h-8 w-8 text-signal animate-spin" />
             </div>
@@ -387,7 +534,7 @@ export function WorkflowRunDetailPage() {
         <div className="w-[420px] shrink-0 border-l border-border/40 bg-card/5 flex flex-col min-h-0">
           {/* Tabs */}
           <div className="shrink-0 flex border-b border-border/40 bg-muted/10">
-            {(['timeline', 'nodeRuns', 'outputs'] as const).map((tab) => (
+            {(['timeline', 'nodeRuns', 'outputs', 'audit'] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -399,7 +546,7 @@ export function WorkflowRunDetailPage() {
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/20'
                 )}
               >
-                {t(`workflow.${tab === 'nodeRuns' ? 'nodeRuns' : tab === 'outputs' ? 'outputsTab' : 'timeline'}`)}
+                {t(`workflow.${tab === 'nodeRuns' ? 'nodeRuns' : tab === 'outputs' ? 'outputsTab' : tab === 'audit' ? 'audit' : 'timeline'}`)}
               </button>
             ))}
           </div>
@@ -415,6 +562,7 @@ export function WorkflowRunDetailPage() {
             {activeTab === 'outputs' && (
               <OutputsTab outputs={activeRunDetail?.terminal_outputs || []} />
             )}
+            {activeTab === 'audit' && <AuditTab events={events} />}
           </div>
         </div>
       </div>

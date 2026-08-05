@@ -9,14 +9,15 @@ import type { ComponentPropsWithoutRef } from 'react'
 export interface TextareaProps extends Omit<ComponentPropsWithoutRef<'textarea'>, 'size'> {
   label?: string
   error?: string
+  containerClassName?: string
 }
 
 const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
-  { className, label, error, id, ...props },
+  { className, label, error, containerClassName, id, ...props },
   ref
 ) {
   return (
-    <Field.Root className="flex flex-col gap-1.5">
+    <Field.Root className={cn('flex flex-col gap-1.5', containerClassName)}>
       {label && (
         <Field.Label className="text-xs font-medium text-muted-foreground leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
           {label}

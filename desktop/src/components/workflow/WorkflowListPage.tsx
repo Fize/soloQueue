@@ -14,6 +14,9 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/lib/i18n'
+import { useConnectionStore } from '@/stores/connectionStore'
+import { useRuntimeStore } from '@/stores/runtimeStore'
+import { cn } from '@/lib/utils'
 import {
   defaultYAMLTemplate,
   unknownAgentTemplates,
@@ -22,6 +25,9 @@ import {
 } from '@/stores/workflowStore'
 import { WorkflowCard } from './WorkflowCard'
 import { WorkflowRunCard } from './WorkflowRunCard'
+import { shouldWaitForWorkflowBackend } from './workflowPageState'
+
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI
 
 // ─── Create Sheet ───────────────────────────────────────────────────────
 
@@ -225,11 +231,18 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
 export function WorkflowListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const connectionMode = useConnectionStore((state) => state.mode)
+  const backendRunning = useConnectionStore((state) => state.backendStatus.running)
+  const sidebarCollapsed = useRuntimeStore((state) => state.sidebarCollapsed)
+  const waitingForBackend = shouldWaitForWorkflowBackend(isElectron, connectionMode, backendRunning)
   const {
     workflowMetas,
     workflowMetasLoading,
     workflowMetasError,
     fetchWorkflowMetas,
+    builtinWorkflows,
+    fetchBuiltinWorkflows,
+    installBuiltinWorkflow,
     fetchRuns,
     deleteWorkflow,
     runs,
@@ -240,12 +253,15 @@ export function WorkflowListPage() {
   const [sheetOpen, setSheetOpen] = useState(false)
 
   useEffect(() => {
-    fetchWorkflowMetas()
-  }, [fetchWorkflowMetas])
+    if (waitingForBackend) return
+    void fetchWorkflowMetas()
+    void fetchBuiltinWorkflows()
+  }, [waitingForBackend, fetchWorkflowMetas, fetchBuiltinWorkflows])
 
   useEffect(() => {
+    if (waitingForBackend) return
     workflowMetas.forEach((workflow) => { void fetchRuns(workflow.name) })
-  }, [workflowMetas, fetchRuns])
+  }, [waitingForBackend, workflowMetas, fetchRuns])
 
   const handleDelete = (name: string, e: MouseEvent) => {
     e.stopPropagation()
@@ -273,15 +289,19 @@ export function WorkflowListPage() {
 
   // Partition: running runs first
   const allRuns = Object.values(runs).flat()
-  const activeRuns = allRuns.filter(r => r.status === 'running')
+  const activeRuns = allRuns.filter(r => ['running', 'preparing_worktree', 'pause_requested', 'resuming'].includes(r.status))
   const validWorkflows = workflowMetas.filter(m => m.valid)
   const invalidWorkflows = workflowMetas.filter(m => !m.valid)
+  const qualityLoop = builtinWorkflows.find(item => item.spec.name === 'engineering-quality-loop')
 
   return (
     <>
       <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
         {/* Header */}
-        <div className="shrink-0 flex items-center justify-between border-b border-border/60 px-8 py-5 bg-card/20 backdrop-blur-sm">
+        <div className={cn(
+          'shrink-0 flex items-center justify-between border-b border-border/60 px-8 py-5 bg-card/20 backdrop-blur-sm',
+          sidebarCollapsed && 'pl-[115px]'
+        )}>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-foreground">{t('workflow.title')}</h1>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -291,15 +311,29 @@ export function WorkflowListPage() {
           <div className="flex items-center gap-3 electron-no-drag">
             <button
               onClick={fetchWorkflowMetas}
-              disabled={workflowMetasLoading}
+              disabled={workflowMetasLoading || waitingForBackend}
               className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${workflowMetasLoading ? 'animate-spin' : ''}`} />
               {t('workflow.refresh')}
             </button>
+            {qualityLoop?.status === 'available' && (
+              <button
+                onClick={async () => {
+                  const installed = await installBuiltinWorkflow('engineering-quality-loop')
+                  if (installed) toast.success('Built-in quality loop installed')
+                  else toast.error('Built-in quality loop installation failed')
+                }}
+                disabled={waitingForBackend}
+                className="flex items-center gap-2 rounded-lg border border-primary/30 px-3 py-2 text-xs text-primary hover:bg-primary/10 disabled:opacity-50 transition-colors"
+              >
+                Install quality loop
+              </button>
+            )}
             <button
               onClick={() => setSheetOpen(true)}
-              className="flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-all shadow-md shadow-primary/20 cursor-pointer"
+              disabled={waitingForBackend}
+              className="flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 disabled:bg-primary/40 px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-all shadow-md shadow-primary/20 cursor-pointer disabled:cursor-not-allowed"
             >
               <Plus className="h-4 w-4" />
               {t('workflow.newWorkflow')}
@@ -309,6 +343,15 @@ export function WorkflowListPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-8 py-6">
+          {waitingForBackend && (
+            <div className="flex h-full items-center justify-center">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t('common.loading')}
+              </div>
+            </div>
+          )}
+          {!waitingForBackend && (
           <div className="mx-auto max-w-4xl space-y-6">
             {/* Active Runs */}
             {activeRuns.length > 0 && (
@@ -423,6 +466,7 @@ export function WorkflowListPage() {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 

@@ -18,6 +18,35 @@ interface DAGPreviewProps {
   onEdgeClick?: (edgeId: string) => void
 }
 
+export function fitGraphToViewport(
+  points: Array<{ id: string; x: number; y: number }>,
+  width: number,
+  height: number,
+  padding = 24,
+): { points: Map<string, { x: number; y: number }>; scale: number } {
+  if (points.length === 0) return { points: new Map(), scale: 1 }
+
+  const minX = Math.min(...points.map(point => point.x))
+  const maxX = Math.max(...points.map(point => point.x))
+  const minY = Math.min(...points.map(point => point.y))
+  const maxY = Math.max(...points.map(point => point.y))
+  const graphWidth = Math.max(1, maxX - minX)
+  const graphHeight = Math.max(1, maxY - minY)
+  const scale = Math.min(
+    1,
+    Math.max(1, width - padding * 2) / graphWidth,
+    Math.max(1, height - padding * 2) / graphHeight,
+  )
+
+  return {
+    scale,
+    points: new Map(points.map(point => [point.id, {
+      x: padding + (point.x - minX) * scale,
+      y: padding + (point.y - minY) * scale,
+    }])),
+  }
+}
+
 // ─── Node state → fill color ─────────────────────────────────────────────
 
 const stateFillMap: Record<string, string> = {
@@ -142,12 +171,22 @@ export function DAGPreview({
     // Run simulation synchronously
     for (let i = 0; i < 100; i++) simulation.tick()
 
+    const fitted = fitGraphToViewport(
+      simNodes.map(node => ({ id: node.id, x: (node as any).x, y: (node as any).y })),
+      width,
+      height,
+    )
+    const renderNodes = simNodes.map(node => {
+      const point = fitted.points.get(node.id)
+      return { ...node, x: point?.x || 0, y: point?.y || 0 }
+    })
+
     // Draw edges
     const edgeGroup = g.append('g').attr('class', 'edges')
 
     for (const edge of edges) {
-      const sourceNode = simNodes.find(n => n.id === edge.source)
-      const targetNode = simNodes.find(n => n.id === edge.target)
+      const sourceNode = renderNodes.find(n => n.id === edge.source)
+      const targetNode = renderNodes.find(n => n.id === edge.target)
       if (!sourceNode || !targetNode) continue
 
       const isLoop = edge.source === edge.target
@@ -194,7 +233,7 @@ export function DAGPreview({
           .attr('y', my)
           .attr('text-anchor', 'middle')
           .attr('fill', 'var(--color-muted-foreground)')
-          .attr('font-size', '9')
+          .attr('font-size', String(9 * fitted.scale))
           .attr('font-family', 'var(--font-mono)')
           .text(edge.outcome)
       }
@@ -203,7 +242,7 @@ export function DAGPreview({
     // Draw nodes
     const nodeGroup = g.append('g').attr('class', 'nodes')
 
-    for (const simNode of simNodes) {
+    for (const simNode of renderNodes) {
       const node = simNode as any
       const nodeId = node.id
       const state = nodeStates?.[nodeId]
@@ -220,7 +259,7 @@ export function DAGPreview({
 
       // Node rect
       const nodeEl = nodeGroup.append('g')
-        .attr('transform', `translate(${node.x - 80}, ${node.y - 28})`)
+        .attr('transform', `translate(${node.x - 80 * fitted.scale}, ${node.y - 28 * fitted.scale}) scale(${fitted.scale})`)
         .attr('class', cn('cursor-pointer', interactive && 'hover:opacity-80'))
         .on('click', () => {
           if (interactive && onNodeClick) onNodeClick(nodeId)
@@ -251,7 +290,7 @@ export function DAGPreview({
           .attr('y', 10)
           .attr('text-anchor', 'middle')
           .attr('fill', 'var(--color-accent-foreground)')
-          .attr('font-size', '7')
+          .attr('font-size', String(7 * fitted.scale))
           .attr('font-weight', 'bold')
           .attr('font-family', 'var(--font-mono)')
           .text('ENTRY')
@@ -262,7 +301,7 @@ export function DAGPreview({
         .attr('x', 12)
         .attr('y', 24)
         .attr('fill', 'var(--color-foreground)')
-        .attr('font-size', '11')
+        .attr('font-size', String(11 * fitted.scale))
         .attr('font-weight', '600')
         .attr('font-family', 'var(--font-mono)')
         .text(nodeId)
@@ -272,7 +311,7 @@ export function DAGPreview({
         .attr('x', 12)
         .attr('y', 40)
         .attr('fill', 'var(--color-muted-foreground)')
-        .attr('font-size', '9')
+        .attr('font-size', String(9 * fitted.scale))
         .attr('font-family', 'var(--font-sans)')
         .text(node.agent || '')
 
@@ -289,7 +328,7 @@ export function DAGPreview({
           .attr('y', 19)
           .attr('text-anchor', 'middle')
           .attr('fill', 'var(--color-muted-foreground)')
-          .attr('font-size', '8')
+          .attr('font-size', String(8 * fitted.scale))
           .attr('font-family', 'var(--font-mono)')
           .text(String(outcomeCount))
       }

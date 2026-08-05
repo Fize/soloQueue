@@ -13,14 +13,19 @@ import { toast } from 'sonner'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/lib/i18n'
 import { unknownAgentTemplates, useWorkflowStore } from '@/stores/workflowStore'
+import { useConnectionStore } from '@/stores/connectionStore'
+import { useRuntimeStore } from '@/stores/runtimeStore'
 import { ReactFlowProvider } from '@xyflow/react'
 import { VisualDAGEditor } from './VisualDAGEditor'
 import { DAGPreview } from './DAGPreview'
+import { shouldWaitForWorkflowBackend } from './workflowPageState'
 import { cn } from '@/lib/utils'
+
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI
 
 // ─── YAML Mode Layout ───────────────────────────────────────────────────
 
-function YAMLEditorView() {
+export function YAMLEditorView() {
   const { t } = useTranslation()
   const {
     activeWorkflowYAML,
@@ -109,7 +114,8 @@ function YAMLEditorView() {
           <Textarea
             value={activeWorkflowYAML}
             onChange={(e) => handleChange(e.target.value)}
-            className="h-full w-full resize-none font-mono text-xs rounded-none border-0 bg-background p-4"
+            containerClassName="h-full min-h-0"
+            className="h-full min-h-0 w-full resize-none font-mono text-xs rounded-none border-0 bg-background p-4"
             style={{ tabSize: 2 }}
             spellCheck={false}
             placeholder={`name: example
@@ -198,6 +204,9 @@ export function WorkflowEditorPage() {
   const { name } = useParams<{ name: string }>()
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const connectionMode = useConnectionStore((state) => state.mode)
+  const backendRunning = useConnectionStore((state) => state.backendStatus.running)
+  const sidebarCollapsed = useRuntimeStore((state) => state.sidebarCollapsed)
   const {
     activeWorkflowGraph,
     activeWorkflowAgents,
@@ -216,19 +225,17 @@ export function WorkflowEditorPage() {
 
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
+  const waitingForBackend = shouldWaitForWorkflowBackend(isElectron, connectionMode, backendRunning)
 
   // Load workflow on mount
   useEffect(() => {
-    if (name) {
+    if (name && !waitingForBackend) {
       void setActiveWorkflow(name).catch(() => {
         // The store exposes a recoverable editor error state.
       })
+      void fetchAvailableAgents()
     }
-  }, [name, setActiveWorkflow])
-
-  useEffect(() => {
-    void fetchAvailableAgents()
-  }, [fetchAvailableAgents])
+  }, [name, waitingForBackend, setActiveWorkflow, fetchAvailableAgents])
 
   const invalidAgentTemplates = unknownAgentTemplates(activeWorkflowAgents, availableAgents)
   const agentDataBlocked = availableAgentsLoading
@@ -271,9 +278,22 @@ export function WorkflowEditorPage() {
       toast.error(t('workflow.unknownAgents', { names: invalidAgentTemplates.join(', ') || '—' }))
       return
     }
+	const goal = window.prompt('Workflow task goal')?.trim() || ''
+	if (!goal) {
+		toast.error('A task goal is required')
+		return
+	}
+	const criteria = (window.prompt('Acceptance criteria (one per line)') || '')
+		.split('\n')
+		.map(value => value.trim())
+		.filter(Boolean)
+	if (criteria.length === 0) {
+		toast.error('At least one acceptance criterion is required')
+		return
+	}
     setRunning(true)
     try {
-      const runId = await startRun(name)
+      const runId = await startRun(name, { goal, acceptance_criteria: criteria })
       if (runId) {
         toast.success(t('workflow.runStarted'))
         navigate(`/workflows/${name}/runs/${runId}`)
@@ -288,13 +308,18 @@ export function WorkflowEditorPage() {
   }
 
   const retryLoad = () => {
-    if (name) void setActiveWorkflow(name).catch(() => {})
+    if (!name || waitingForBackend) return
+    void setActiveWorkflow(name).catch(() => {})
+    void fetchAvailableAgents()
   }
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <header className="shrink-0 flex items-center justify-between border-b border-border/60 bg-card/20 px-4 py-2.5">
+      <header className={cn(
+        'shrink-0 flex items-center justify-between border-b border-border/60 bg-card/20 px-4 py-2.5',
+        sidebarCollapsed && 'pl-[115px]'
+      )}>
         <div className="flex items-center gap-4 min-w-0">
           {/* Back button */}
           <button
@@ -326,7 +351,7 @@ export function WorkflowEditorPage() {
           <button
             type="button"
             onClick={handleRun}
-            disabled={running || activeWorkflowLoading || !!activeWorkflowLoadError || agentDataBlocked}
+            disabled={waitingForBackend || running || activeWorkflowLoading || !!activeWorkflowLoadError || agentDataBlocked}
             className="flex items-center gap-1.5 rounded-lg bg-success hover:bg-success/90 disabled:bg-success/40 px-3 py-2 text-xs font-semibold text-success-foreground transition-all shadow-sm shadow-success/20 cursor-pointer disabled:cursor-not-allowed"
           >
             {running ? (
@@ -340,7 +365,7 @@ export function WorkflowEditorPage() {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || activeWorkflowLoading || !!activeWorkflowLoadError || agentDataBlocked}
+            disabled={waitingForBackend || saving || activeWorkflowLoading || !!activeWorkflowLoadError || agentDataBlocked}
             className="flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:bg-primary/40 px-3 py-2 text-xs font-semibold text-primary-foreground transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
           >
             {saving ? (
@@ -368,12 +393,22 @@ export function WorkflowEditorPage() {
                   ? t('workflow.agentsLoadFailed')
                   : t('workflow.unknownAgents', { names: invalidAgentTemplates.join(', ') })}
             </span>
+            {availableAgentsError && (
+              <button
+                type="button"
+                onClick={() => void fetchAvailableAgents()}
+                disabled={availableAgentsLoading}
+                className="ml-auto shrink-0 rounded-md border border-rose-500/30 px-2 py-1 text-[10px] font-medium text-rose-500 hover:bg-rose-500/10 disabled:opacity-50"
+              >
+                {t('common.retry')}
+              </button>
+            )}
           </div>
         </div>
       )}
 
       {/* Body — loading and errors must never masquerade as an empty editor. */}
-      {activeWorkflowLoading ? (
+      {waitingForBackend || activeWorkflowLoading ? (
         <div className="flex flex-1 items-center justify-center bg-background">
           <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
             <Loader2 className="h-4 w-4 animate-spin" />

@@ -5,6 +5,7 @@ import {
   Controls,
   MiniMap,
   useReactFlow,
+  useNodesInitialized,
   useUpdateNodeInternals,
   type Connection,
   type NodeChange,
@@ -20,7 +21,7 @@ import { WorkflowNode } from './WorkflowNodeComponent'
 import { AgentPalette } from './AgentPalette'
 import { NodePropertyPanel } from './NodePropertyPanel'
 import { EdgePropertyPanel } from './EdgePropertyPanel'
-import { useWorkflowStore } from '@/stores/workflowStore'
+import { autoLayoutNodes, useWorkflowStore } from '@/stores/workflowStore'
 import { Link2, MousePointerClick } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
 import type { AgentResponse, GraphNode, GraphEdge } from '@/types'
@@ -103,24 +104,12 @@ function toRFEdges(graphEdges: GraphEdge[]): Edge[] {
   }))
 }
 
-// ─── Auto-layout (simple grid) ─────────────────────────────────────────
-
-function autoLayoutNodes(nodes: GraphNode[]): GraphNode[] {
-  const cols = Math.ceil(Math.sqrt(nodes.length))
-  return nodes.map((n, i) => ({
-    ...n,
-    position: {
-      x: 100 + (i % cols) * 280,
-      y: 80 + Math.floor(i / cols) * 160,
-    },
-  }))
-}
-
 // ─── Component ──────────────────────────────────────────────────────────
 
 export function VisualDAGEditor() {
   const { t } = useTranslation()
   const reactFlowInstance = useReactFlow()
+  const nodesInitialized = useNodesInitialized()
   const updateNodeInternals = useUpdateNodeInternals()
   const {
     activeWorkflowGraph,
@@ -229,13 +218,13 @@ export function VisualDAGEditor() {
   // its initial nodes arrive; fitting after every added node would pan the
   // user's canvas away from the drop position.
   useEffect(() => {
-    if (!activeWorkflowName || rfNodes.length === 0 || fittedWorkflowRef.current === activeWorkflowName) return
+    if (!activeWorkflowName || !nodesInitialized || rfNodes.length === 0 || fittedWorkflowRef.current === activeWorkflowName) return
     fittedWorkflowRef.current = activeWorkflowName
     const frame = requestAnimationFrame(() => {
       reactFlowInstance.fitView({ padding: 0.2, duration: 180 })
     })
     return () => cancelAnimationFrame(frame)
-  }, [activeWorkflowName, reactFlowInstance, rfNodes.length])
+  }, [activeWorkflowName, nodesInitialized, reactFlowInstance, rfNodes.length])
 
   // Handle node changes (position updates)
   const onNodesChange = useCallback(
@@ -363,7 +352,10 @@ export function VisualDAGEditor() {
   const handleAutoLayout = useCallback(() => {
     const laidOut = autoLayoutNodes(activeWorkflowGraph.nodes)
     setGraph({ ...activeWorkflowGraph, nodes: laidOut })
-  }, [activeWorkflowGraph, setGraph])
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => reactFlowInstance.fitView({ padding: 0.2, duration: 180 }))
+    })
+  }, [activeWorkflowGraph, reactFlowInstance, setGraph])
 
   // Add a node for an existing agent. Agent references belong to the workflow
   // YAML and must not be fabricated here, otherwise server validation rejects
