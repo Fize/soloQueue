@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
 // ─── LoadAgentTemplates tests ──────────────────────────────────────
@@ -1909,5 +1910,55 @@ func TestDefaultFactory_Create_SimulationAgentNoTools(t *testing.T) {
 	// Verify that the simulation agent has NO tools
 	if specs := simAgent.ToolSpecs(); len(specs) > 0 {
 		t.Errorf("expected simulation agent to have no tools, but got %d tools: %v", len(specs), specs)
+	}
+}
+
+func TestDefaultFactory_Create_DoesNotRegisterResolveProject(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		isLeader bool
+	}{
+		{name: "L2 leader", isLeader: true},
+		{name: "L3 worker", isLeader: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			log, err := logger.System(workDir, logger.WithConsole(false))
+			if err != nil {
+				t.Fatalf("logger.System: %v", err)
+			}
+			defer log.Close()
+
+			factory := NewDefaultFactory(
+				NewRegistry(nil),
+				&agenttest.FakeLLM{},
+				tools.Config{},
+				log,
+				WithWorkDir(workDir),
+				WithTeamStore(store.NewStore(
+					filepath.Join(workDir, "groups"),
+					filepath.Join(workDir, "agents"),
+					nil,
+				)),
+			)
+
+			tmpl := AgentTemplate{
+				ID:           "test-agent",
+				Name:         "Test Agent",
+				SystemPrompt: "Test prompt.",
+				IsLeader:     tc.isLeader,
+			}
+			a, _, err := factory.Create(context.Background(), tmpl, workDir)
+			if err != nil {
+				t.Fatalf("factory.Create: %v", err)
+			}
+			defer a.Stop(time.Second)
+
+			for _, spec := range a.ToolSpecs() {
+				if spec.Function.Name == "resolve_project" {
+					t.Fatal("resolve_project should only be registered for L1")
+				}
+			}
+		})
 	}
 }
