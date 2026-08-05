@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
@@ -52,5 +53,19 @@ func TestDedupeSkillResult_EmptyWindow(t *testing.T) {
 	got := dedupeSkillResult(cw, tc, "fresh content")
 	if got != "fresh content" {
 		t.Errorf("fresh content in empty window should pass through: %q", got)
+	}
+}
+
+func TestDedupeSkillResult_ForkResultNeverDedupes(t *testing.T) {
+	// Fork results are repeatable answers (e.g. re-querying the same stock
+	// quote), not idempotent instructions — identical fork results must pass.
+	forkResult := skill.ForkResultPrefix + "skill \"market\" executed in a sub-agent:\n\nAAPL quote: $250"
+	cw := newDedupCW()
+	cw.Push(ctxwin.RoleTool, forkResult, ctxwin.WithToolName("Skill"), ctxwin.WithToolCallID("call-1"))
+
+	tc := llm.ToolCall{ID: "call-2", Function: llm.FunctionCall{Name: "Skill", Arguments: `{"skill":"market"}`}}
+	got := dedupeSkillResult(cw, tc, forkResult)
+	if got != forkResult {
+		t.Errorf("identical fork result should pass through, got: %q", got)
 	}
 }

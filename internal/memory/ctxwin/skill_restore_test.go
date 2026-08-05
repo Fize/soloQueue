@@ -69,6 +69,25 @@ func TestRestoreRecentSkillContent_SkipsAlreadyLoadedNotes(t *testing.T) {
 	}
 }
 
+func TestRestoreRecentSkillContent_SkipsForkResults(t *testing.T) {
+	base := time.Now()
+	tok := bigBudget(t)
+	// Fork results are answers, not instructions — never restored. The inline
+	// skill rendering must still be restored.
+	msgs := append([]Message{},
+		skillMsg(t, "c1", "market", forkResultPrefix+"skill \"market\" executed in a sub-agent:\n\nAAPL quote: $250", base)...,
+	)
+	msgs = append(msgs, skillMsg(t, "c2", "pdf", "pdf instructions", base.Add(time.Minute))...)
+
+	got := RestoreRecentSkillContent(msgs, tok, 100000, 100000)
+	if strings.Contains(got, "AAPL quote") {
+		t.Errorf("fork result must not be restored: %q", got)
+	}
+	if !strings.Contains(got, "pdf instructions") {
+		t.Errorf("inline rendering should still be restored: %q", got)
+	}
+}
+
 func TestRestoreRecentSkillContent_EmptyHistory(t *testing.T) {
 	got := RestoreRecentSkillContent(nil, NewTokenizer(), 100000, 100000)
 	if got != "" {
@@ -94,7 +113,7 @@ func TestRestoreRecentSkillContent_NonSkillToolsIgnored(t *testing.T) {
 	}
 }
 
-func TestRestoreRecentSkillContent_TotalBudgetDropsOldest(t *testing.T) {
+func TestRestoreRecentSkillContent_TotalBudgetTruncatesToFit(t *testing.T) {
 	base := time.Now()
 	tok := bigBudget(t)
 	aContent := strings.Repeat("A", 100)
@@ -103,13 +122,18 @@ func TestRestoreRecentSkillContent_TotalBudgetDropsOldest(t *testing.T) {
 	msgs = append(msgs, skillMsg(t, "c1", "a", aContent, base)...)
 	msgs = append(msgs, skillMsg(t, "c2", "b", bContent, base.Add(time.Minute))...)
 
-	// Total budget fits the most recent skill's content but not both.
-	got := RestoreRecentSkillContent(msgs, tok, 100000, tok.Count(bContent)+10)
+	// Total budget fits the most recent skill fully plus ~half of the older
+	// one — the older entry is truncated into the remaining space, not dropped.
+	budget := tok.Count(bContent) + tok.Count(aContent)/2
+	got := RestoreRecentSkillContent(msgs, tok, 100000, budget)
 	if !strings.Contains(got, strings.Repeat("B", 100)) {
 		t.Errorf("most recent content should fit the budget: %q", got)
 	}
-	if strings.Contains(got, strings.Repeat("A", 100)) {
-		t.Errorf("oldest content should be dropped under total budget: %q", got)
+	if !strings.Contains(got, strings.Repeat("A", 25)) {
+		t.Errorf("older content should be truncated into remaining budget: %q", got)
+	}
+	if tok.Count(got) > budget+2 {
+		t.Errorf("restored content exceeds total budget: %d > %d", tok.Count(got), budget)
 	}
 }
 

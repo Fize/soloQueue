@@ -35,6 +35,36 @@ go test ./...
 cd web && pnpm check && pnpm test
 ```
 
+## Skills
+
+SoloQueue supports Claude Code–compatible skills: each skill is a `SKILL.md`
+file with YAML frontmatter (`name`, `description`, `allowed-tools`, …),
+installed under `~/.soloqueue/skills/<skill-id>/`. The agent lists every
+available skill in the Skill tool description; when a task matches, the model
+invokes the skill before using raw tools.
+
+### How many skills can I install?
+
+There is **no hard limit** — the listing always renders every visible skill in
+full. The cost is tokens: the skill index is part of the system prompt on every
+request.
+
+- **Estimated cost**: the bundled catalog of 47 skills renders to roughly
+  **6.4K characters ≈ 1.5K–2K tokens**, about **35 tokens per skill** on
+  average. Actual size varies with description length, so treat these as
+  estimates.
+- **Best practice**: keep **≤ 50 installed skills**. Beyond that, every
+  additional 10 skills adds roughly +350 tokens to every request and the model
+  has a harder time picking the right skill.
+- The listing is deterministic (invocation-count order, ID order for ties), so
+  the system prompt stays stable for prompt caching.
+
+Inspect never-invoked skills and weak descriptions with:
+
+```bash
+soloqueue skills report
+```
+
 ## Token Optimization with RTK (Recommended)
 
 SoloQueue integrates with [RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk) to optimize tool executions and compress command outputs (e.g. `git`, test runners, linters, directory structures), reducing LLM token consumption by 60%–90%.

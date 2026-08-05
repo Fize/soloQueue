@@ -59,10 +59,14 @@ func (s *SQLiteInvocationStats) Record(ctx context.Context, e InvocationEvent) e
 }
 
 func (s *SQLiteInvocationStats) Counts(ctx context.Context, since time.Time) (map[string]int, error) {
+	// Only successful invocations (inline ok or fork) count as usage: errors
+	// are execution failures, not evidence the skill was used, and would push
+	// broken skills up the listing order. Governance's never-invoked list then
+	// also surfaces skills that only ever failed.
 	// created_at is stored as UTC datetime('now'); compare in the same textual
 	// format to keep the index on (skill_id, created_at) usable.
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT skill_id, COUNT(*) FROM skill_invocations WHERE created_at >= ? GROUP BY skill_id`,
+		`SELECT skill_id, COUNT(*) FROM skill_invocations WHERE result IN ('ok','fork') AND created_at >= ? GROUP BY skill_id`,
 		since.UTC().Format("2006-01-02 15:04:05"))
 	if err != nil {
 		return nil, err
