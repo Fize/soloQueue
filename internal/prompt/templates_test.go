@@ -120,3 +120,34 @@ func TestSharedAgentRules_ExplicitSkillRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestSharedAgentRules_DelegationCarriesDomainSignals(t *testing.T) {
+	// The delegating agent cannot see the executor's skill set, so tasks must
+	// carry domain signals (goal, formats, artifacts, keywords) instead of
+	// skill IDs — the executing agent matches its own skills.
+	required := []string{
+		"task description MUST carry enough domain signals",
+		"file types/formats involved",
+		"Do NOT reference skill IDs",
+		"executing agent decides",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(SharedAgentRules, phrase) {
+			t.Errorf("SharedAgentRules should contain %q", phrase)
+		}
+	}
+}
+
+func TestSharedAgentRules_LowCostInvocation(t *testing.T) {
+	// Breaks the cost/benefit asymmetry: invoking the Skill tool is cheap, so
+	// the model should call first and evaluate rather than skip.
+	required := []string{
+		"Invoking the Skill tool itself is cheap",
+		"invoke it first and evaluate",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(SharedAgentRules, phrase) {
+			t.Errorf("SharedAgentRules should contain %q", phrase)
+		}
+	}
+}
