@@ -33,6 +33,7 @@ Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
 	root.AddCommand(cli.ServeCmd(version))
 	root.AddCommand(cli.WechatCmd(version))
 	root.AddCommand(cli.MemoryCmd())
+	root.AddCommand(cli.SkillsCmd())
 
 	return root
 }
