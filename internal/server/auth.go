@@ -74,6 +74,12 @@ func (m *Mux) resolveEffectiveAuth() {
 // WebSocket connections may use a one-time ?token= query parameter instead.
 func (m *Mux) tokenAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Readiness probe must be unauthenticated — it returns no user data.
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Localhost always bypasses auth
 		if isLocalhostAccess(r) {
 			next.ServeHTTP(w, r)
