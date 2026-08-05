@@ -124,7 +124,19 @@ func TestHTTP_Auth(t *testing.T) {
 		}
 	}
 
-	// 5. WebSocket: Access via localhost loopback -> Bypasses auth (returns 503 Service Unavailable because hub is nil, not 401)
+	// 5. Readiness probe via external IP without auth -> 200 OK (auth-exempt)
+	{
+		req := httptest.NewRequest("GET", "/healthz", nil)
+		req.Host = "192.168.1.100:8765"
+		req.RemoteAddr = "192.168.1.100:12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for /healthz without auth, got %d", rec.Code)
+		}
+	}
+
+	// 6. WebSocket: Access via localhost loopback -> Bypasses auth (returns 503 Service Unavailable because hub is nil, not 401)
 	{
 		req := httptest.NewRequest("GET", "/ws", nil)
 		req.Host = "localhost:8765"
@@ -148,7 +160,7 @@ func TestHTTP_Auth(t *testing.T) {
 		}
 	}
 
-	// 7. WebSocket: Access via external IP with correct Basic Auth -> Bypasses auth (returns 503 Service Unavailable because hub is nil, not 401)
+	// 8. WebSocket: Access via external IP with correct Basic Auth -> Bypasses auth (returns 503 Service Unavailable because hub is nil, not 401)
 	{
 		req := httptest.NewRequest("GET", "/ws", nil)
 		req.Host = "192.168.1.100:8765"
