@@ -140,6 +140,10 @@ func validateAndBuild(def WorkflowDef) (*ParsedWorkflow, error) {
 			if !identifierPattern.MatchString(outcome) {
 				return nil, fmt.Errorf("workflow: node %q outcome %q must match %s", n.ID, outcome, identifierPattern)
 			}
+			out := n.Outputs[outcome]
+			if out.TerminalStatus != "" && out.TerminalStatus != "completed" && out.TerminalStatus != "blocked" && out.TerminalStatus != "failed" {
+				return nil, fmt.Errorf("workflow: node %q output %q terminal_status must be completed, blocked, or failed", n.ID, outcome)
+			}
 		}
 		// Validate join
 		if n.Join != nil {
@@ -177,11 +181,12 @@ func validateAndBuild(def WorkflowDef) (*ParsedWorkflow, error) {
 					return nil, fmt.Errorf("workflow: node %q output %q references unknown node %q", n.ID, outcome, to)
 				}
 				edge := &Edge{
-					FromNode:      n.ID,
-					Outcome:       outcome,
-					ToNode:        to,
-					Loop:          out.Loop,
-					MaxTraversals: out.MaxTraversals,
+					FromNode:       n.ID,
+					Outcome:        outcome,
+					ToNode:         to,
+					Loop:           out.Loop,
+					MaxTraversals:  out.MaxTraversals,
+					TerminalStatus: out.TerminalStatus,
 				}
 				edges = append(edges, edge)
 			}
@@ -194,9 +199,10 @@ func validateAndBuild(def WorkflowDef) (*ParsedWorkflow, error) {
 					return nil, fmt.Errorf("workflow: node %q output %q: terminal output cannot have max_traversals", n.ID, outcome)
 				}
 				edges = append(edges, &Edge{
-					FromNode: n.ID,
-					Outcome:  outcome,
-					ToNode:   "", // terminal
+					FromNode:       n.ID,
+					Outcome:        outcome,
+					ToNode:         "", // terminal
+					TerminalStatus: out.TerminalStatus,
 				})
 			}
 		}

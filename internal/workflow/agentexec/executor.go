@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
 
@@ -143,7 +143,21 @@ func (e *Executor) Execute(ctx context.Context, req workflow.NodeRunRequest) (wo
 
 	// Consume events (we don't need to do anything with them;
 	// confirmation relay is handled by the session-level event channel)
-	for range evCh {
+	for event := range evCh {
+		if confirmation, ok := event.(agent.ToolNeedsConfirmEvent); ok && req.RecordConfirmation != nil {
+			callID := confirmation.CallID
+			req.RecordConfirmation(workflow.ConfirmationRequest{
+				CallID:         callID,
+				NodeRunID:      req.NodeRun.ID,
+				ToolName:       confirmation.Name,
+				PromptRedacted: confirmation.Prompt,
+				Options:        append([]string(nil), confirmation.Options...),
+				AllowInSession: confirmation.AllowInSession,
+				Resolve: func(choice string) error {
+					return child.Confirm(callID, choice)
+				},
+			})
+		}
 		// Just drain — the handoff result is stored in handoff.result
 		if ctx.Err() != nil {
 			return workflow.NodeRunResult{}, ctx.Err()

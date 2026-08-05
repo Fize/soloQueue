@@ -7,6 +7,7 @@ import {
   AlertCircle,
   Ban,
   Clock,
+  Pause,
 } from 'lucide-react'
 import type { NodeRunState, RunStatus } from '@/types'
 
@@ -25,6 +26,13 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   timed_out: Clock,
   pending: Clock,
   completed: CheckCircle2,
+  preparing_worktree: Clock,
+  pause_requested: Clock,
+  paused: Pause,
+  resuming: Loader2,
+  interrupted: AlertCircle,
+  blocked: AlertCircle,
+  abandoned: Ban,
 }
 
 const labelMap: Record<string, string> = {
@@ -36,6 +44,13 @@ const labelMap: Record<string, string> = {
   timed_out: 'Timed Out',
   pending: 'Pending',
   completed: 'Completed',
+  preparing_worktree: 'Preparing worktree',
+  pause_requested: 'Pause requested',
+  paused: 'Paused',
+  resuming: 'Resuming',
+  interrupted: 'Interrupted',
+  blocked: 'Blocked',
+  abandoned: 'Abandoned',
 }
 
 // ─── CVA variants ───────────────────────────────────────────────────────
@@ -53,6 +68,13 @@ const badgeVariants = cva(
         timed_out: 'bg-rose-400/10 text-rose-400 border border-rose-400/25',
         pending: 'bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/25',
         completed: 'bg-primary/10 text-primary border border-primary/25',
+        preparing_worktree: 'bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/25',
+        pause_requested: 'bg-warning/10 text-warning border border-warning/25',
+        paused: 'bg-warning/10 text-warning border border-warning/25',
+        resuming: 'bg-signal/10 text-signal border border-signal/25',
+        interrupted: 'bg-rose-500/10 text-rose-500 border border-rose-500/25',
+        blocked: 'bg-warning/10 text-warning border border-warning/25',
+        abandoned: 'bg-muted-foreground/10 text-muted-foreground border border-muted-foreground/25',
       } satisfies Record<BadgeState, string>,
       size: {
         sm: 'px-1.5 py-0.5 text-[9px]',
@@ -75,6 +97,13 @@ const dotVariants = cva('h-2 w-2 shrink-0 rounded-full', {
       timed_out: 'bg-rose-400',
       pending: 'bg-muted-foreground/40',
       completed: 'bg-primary',
+      preparing_worktree: 'bg-muted-foreground/40',
+      pause_requested: 'bg-warning',
+      paused: 'bg-warning',
+      resuming: 'bg-signal',
+      interrupted: 'bg-rose-500',
+      blocked: 'bg-warning',
+      abandoned: 'bg-muted-foreground/40',
     } satisfies Record<BadgeState, string>,
   },
   defaultVariants: { state: 'pending' },
@@ -136,6 +165,17 @@ export function getStateBorderClass(state: BadgeState): string {
       return 'border-muted-foreground/40'
     case 'running':
       return 'border-signal'
+    case 'preparing_worktree':
+    case 'pause_requested':
+    case 'resuming':
+      return 'border-signal'
+    case 'paused':
+    case 'blocked':
+      return 'border-warning'
+    case 'interrupted':
+      return 'border-rose-500'
+    case 'abandoned':
+      return 'border-muted-foreground/40'
     case 'succeeded':
     case 'completed':
       return state === 'completed' ? 'border-primary' : 'border-success'

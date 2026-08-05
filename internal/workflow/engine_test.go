@@ -6,7 +6,284 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
+
+func TestEngine_FanOutBeyondParallelLimitCompletes(t *testing.T) {
+	yaml := `
+name: wide-fanout
+version: "1"
+agents:
+  worker:
+    template: dev
+entry: [task_a, task_b, task_c, task_d, task_e]
+nodes:
+  - id: task_a
+    agent: worker
+    prompt: A
+    outputs: {done: {to: []}}
+  - id: task_b
+    agent: worker
+    prompt: B
+    outputs: {done: {to: []}}
+  - id: task_c
+    agent: worker
+    prompt: C
+    outputs: {done: {to: []}}
+  - id: task_d
+    agent: worker
+    prompt: D
+    outputs: {done: {to: []}}
+  - id: task_e
+    agent: worker
+    prompt: E
+    outputs: {done: {to: []}}
+`
+	wf := mustParse(t, yaml)
+	engine := NewEngine(NewFakeExecutor(), DefaultEngineLimits())
+	done := make(chan *RunState, 1)
+	go func() {
+		run, _ := engine.Run(context.Background(), wf, "test", "/tmp/test")
+		done <- run
+	}()
+
+	select {
+	case run := <-done:
+		if run.Status != RunCompleted {
+			t.Fatalf("status = %s, want %s", run.Status, RunCompleted)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("workflow did not consume results while ready nodes remained queued")
+	}
+}
+
+func TestEngine_ParallelTerminalBlockedCancelsAndReturns(t *testing.T) {
+	yaml := `
+name: parallel-blocked
+version: "1"
+agents:
+  worker:
+    template: dev
+entry: [blocked, worker_a, worker_b]
+nodes:
+  - id: blocked
+    agent: worker
+    prompt: Block
+    outputs:
+      blocked:
+        to: []
+        terminal_status: blocked
+  - id: worker_a
+    agent: worker
+    prompt: A
+    outputs: {done: {to: []}}
+  - id: worker_b
+    agent: worker
+    prompt: B
+    outputs: {done: {to: []}}
+`
+	wf := mustParse(t, yaml)
+	executor := &terminalCancelExecutor{started: make(chan string, 3), release: make(chan struct{})}
+	engine := NewEngine(executor, DefaultEngineLimits())
+	done := make(chan *RunState, 1)
+	go func() {
+		run, _ := engine.Run(context.Background(), wf, "test", "/tmp/test")
+		done <- run
+	}()
+	for range 3 {
+		select {
+		case <-executor.started:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("parallel nodes did not all start")
+		}
+	}
+	close(executor.release)
+
+	select {
+	case run := <-done:
+		if run.Status != RunBlocked {
+			t.Fatalf("status = %s, want %s", run.Status, RunBlocked)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("terminal blocked run waited for workflow timeout")
+	}
+}
+
+func TestEngine_ParallelFailFastCancelsAndReturns(t *testing.T) {
+	wf := mustParse(t, `
+name: parallel-fail-fast
+version: "1"
+agents:
+  worker: {template: dev}
+entry: [failed, worker_a, worker_b]
+nodes:
+  - id: failed
+    agent: worker
+    prompt: Fail
+    outputs: {done: {to: []}}
+  - id: worker_a
+    agent: worker
+    prompt: A
+    outputs: {done: {to: []}}
+  - id: worker_b
+    agent: worker
+    prompt: B
+    outputs: {done: {to: []}}
+`)
+	executor := &terminalCancelExecutor{started: make(chan string, 3), release: make(chan struct{})}
+	done := make(chan *RunState, 1)
+	go func() {
+		run, _ := NewEngine(executor, DefaultEngineLimits()).Run(context.Background(), wf, "test", "/tmp/test")
+		done <- run
+	}()
+	for range 3 {
+		select {
+		case <-executor.started:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("parallel nodes did not all start")
+		}
+	}
+	close(executor.release)
+	select {
+	case run := <-done:
+		if run.Status != RunFailed {
+			t.Fatalf("status = %s, want %s", run.Status, RunFailed)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("fail-fast run waited for workflow timeout")
+	}
+}
+
+func TestEngine_ResumeRestoresPartialJoin(t *testing.T) {
+	yaml := `
+name: resume-join
+version: "1"
+agents:
+  worker:
+    template: dev
+entry: [task_a, task_b]
+nodes:
+  - id: task_a
+    agent: worker
+    prompt: A
+    outputs:
+      done:
+        to: [merge]
+  - id: task_b
+    agent: worker
+    prompt: B
+    outputs:
+      done:
+        to: [merge]
+  - id: merge
+    agent: worker
+    join:
+      mode: all
+      from: [task_a, task_b]
+    prompt: Merge
+    outputs: {done: {to: []}}
+`
+	wf := mustParse(t, yaml)
+	executor := NewFakeExecutor()
+	executor.SetNode("task_b", FakeNodeResult{Handoff: &HandoffData{Outcome: "done", Content: "B"}})
+	executor.SetNode("merge", FakeNodeResult{Handoff: &HandoffData{Outcome: "done", Content: "merged"}})
+	activationID := "activation-1"
+	resume := &ResumeInput{
+		NodeRuns: []*NodeRun{
+			{ID: "task_a:1", NodeID: "task_a", Attempt: 1, ActivationID: activationID, State: NodeSucceeded, Result: &HandoffData{Outcome: "done", Content: "A"}},
+			{ID: "task_b:1", NodeID: "task_b", Attempt: 1, ActivationID: activationID, State: NodeQueued},
+		},
+		ReadyQueue: []string{"task_b:1"},
+		JoinBuckets: map[JoinKey]*JoinBucket{
+			{NodeID: "merge", ActivationID: activationID}: {
+				Received: map[string]NodeInput{"task_a": {FromNode: "task_a", Outcome: "done", Content: "A", ActivationID: activationID}},
+				Expected: map[string]bool{"task_a": true, "task_b": true},
+			},
+		},
+	}
+	engine := NewEngine(executor, DefaultEngineLimits())
+	run, err := engine.RunWithOptions(context.Background(), wf, "test", "/tmp/test", RunOptions{Resume: resume})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != RunCompleted || executor.Calls["merge"] != 1 {
+		t.Fatalf("status=%s merge_calls=%d, want completed and one merge", run.Status, executor.Calls["merge"])
+	}
+}
+
+func TestEngine_ResumeRestoresLoopCounter(t *testing.T) {
+	yaml := `
+name: resume-loop
+version: "1"
+agents:
+  worker:
+    template: dev
+entry: [write]
+nodes:
+  - id: write
+    agent: worker
+    prompt: Write
+    outputs:
+      draft:
+        to: [review]
+  - id: review
+    agent: worker
+    prompt: Review
+    outputs:
+      approved:
+        to: []
+      needs_revision:
+        to: [write]
+        loop: true
+        max_traversals: 1
+`
+	wf := mustParse(t, yaml)
+	executor := NewFakeExecutor()
+	executor.SetNode("review", FakeNodeResult{Handoff: &HandoffData{Outcome: "needs_revision", Content: "still bad"}})
+	activationID := "activation-1"
+	loopKey := makeLoopKey(edgeKey("review", "needs_revision", "write"), activationID)
+	resume := &ResumeInput{
+		NodeRuns: []*NodeRun{
+			{ID: "review:2", NodeID: "review", Attempt: 1, ActivationID: activationID, State: NodeQueued},
+		},
+		ReadyQueue:   []string{"review:2"},
+		LoopCounters: map[LoopKey]int{loopKey: 1},
+	}
+	engine := NewEngine(executor, DefaultEngineLimits())
+	run, err := engine.RunWithOptions(context.Background(), wf, "test", "/tmp/test", RunOptions{Resume: resume})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != RunFailed || executor.Calls["write"] != 0 {
+		t.Fatalf("status=%s write_calls=%d, want failed before another traversal", run.Status, executor.Calls["write"])
+	}
+}
+
+func TestEngine_EmptyResumeStartsEntryNodes(t *testing.T) {
+	yaml := `
+name: resume-before-start
+version: "1"
+agents:
+  worker:
+    template: dev
+entry: [start]
+nodes:
+  - id: start
+    agent: worker
+    prompt: Start
+    outputs: {done: {to: []}}
+`
+	wf := mustParse(t, yaml)
+	executor := NewFakeExecutor()
+	engine := NewEngine(executor, DefaultEngineLimits())
+	run, err := engine.RunWithOptions(context.Background(), wf, "test", "/tmp/test", RunOptions{Resume: &ResumeInput{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != RunCompleted || executor.Calls["start"] != 1 {
+		t.Fatalf("status=%s start_calls=%d, want completed and one entry execution", run.Status, executor.Calls["start"])
+	}
+}
 
 // ---------------------------------------------------------------------------
 // FakeNodeExecutor — scriptable executor for engine tests
@@ -26,6 +303,25 @@ type FakeExecutor struct {
 	MaxCalls int                         // max total calls allowed (0 = unlimited)
 	Calls    map[string]int              // nodeID -> call count
 	Results  map[string][]FakeNodeResult // serialized results for inspection
+}
+
+type terminalCancelExecutor struct {
+	started chan string
+	release chan struct{}
+}
+
+func (e *terminalCancelExecutor) Execute(ctx context.Context, req NodeRunRequest) (NodeRunResult, error) {
+	e.started <- req.Node.ID
+	if req.Node.ID == "blocked" {
+		<-e.release
+		return NodeRunResult{Handoff: &HandoffData{Outcome: "blocked", Content: "needs input"}}, nil
+	}
+	if req.Node.ID == "failed" {
+		<-e.release
+		return NodeRunResult{}, errors.New("failed")
+	}
+	<-ctx.Done()
+	return NodeRunResult{}, ctx.Err()
 }
 
 // NewFakeExecutor creates a scriptable fake executor.
@@ -480,8 +776,8 @@ nodes:
 	wf := mustParse(t, yaml)
 	exec := NewFakeExecutor()
 	exec.SetNode("risky",
-		FakeNodeResult{Error: errors.New("boom")},  // attempt 1: fail
-		FakeNodeResult{Error: errors.New("boom")},  // attempt 2: fail
+		FakeNodeResult{Error: errors.New("boom")},                                  // attempt 1: fail
+		FakeNodeResult{Error: errors.New("boom")},                                  // attempt 2: fail
 		FakeNodeResult{Handoff: &HandoffData{Outcome: "done", Content: "finally"}}, // attempt 3: success
 	)
 

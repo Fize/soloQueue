@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -29,6 +30,12 @@ func workflowStatus(err error) int {
 	}
 	if strings.Contains(msg, "name mismatch") {
 		return http.StatusConflict
+	}
+	if strings.Contains(msg, "conflict") || strings.Contains(msg, "exists") {
+		return http.StatusConflict
+	}
+	if strings.Contains(msg, "invalid") || strings.Contains(msg, "required") {
+		return http.StatusBadRequest
 	}
 	return http.StatusUnprocessableEntity
 }
@@ -196,7 +203,11 @@ func (m *Mux) handleStartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Input string `json:"input"`
+		Task       *workflow.WorkflowTask `json:"task"`
+		Repository string                 `json:"repository"`
+		BaseRef    string                 `json:"base_ref"`
+		Branch     string                 `json:"branch"`
+		Source     string                 `json:"source"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -204,12 +215,21 @@ func (m *Mux) handleStartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 	// Runs outlive the request that created them; using r.Context() would cancel
 	// the workflow as soon as this handler returns.
-	id, err := m.workflowRuns.Start(context.Background(), wf, req.Input)
-	if err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	if req.Task != nil {
+		raw, rawErr := m.workflowStore.ReadRaw(name)
+		if rawErr != nil {
+			m.writeJSON(w, workflowStatus(rawErr), map[string]string{"error": rawErr.Error()})
+			return
+		}
+		id, startErr := m.workflowRuns.StartTask(context.Background(), wf, raw, *req.Task, req.Repository, req.BaseRef, req.Branch, req.Source)
+		if startErr != nil {
+			m.writeJSON(w, workflowStatus(startErr), map[string]string{"error": startErr.Error()})
+			return
+		}
+		m.writeJSON(w, http.StatusAccepted, map[string]any{"run_id": id, "status": workflow.RunPreparing})
 		return
 	}
-	m.writeJSON(w, http.StatusAccepted, map[string]string{"run_id": id})
+	m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task.goal and task.acceptance_criteria are required"})
 }
 
 func (m *Mux) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
@@ -255,4 +275,173 @@ func (m *Mux) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.writeJSON(w, http.StatusAccepted, map[string]string{"run_id": id})
+}
+
+func (m *Mux) handleListBuiltinWorkflows(w http.ResponseWriter, r *http.Request) {
+	if !m.workflowAvailable(w) {
+		return
+	}
+	views, err := m.workflowStore.ListBuiltinWorkflowStatuses(r.Context())
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, views)
+}
+
+func (m *Mux) handleInstallBuiltinWorkflows(w http.ResponseWriter, r *http.Request) {
+	if !m.workflowAvailable(w) {
+		return
+	}
+	var req struct {
+		Names []string `json:"names"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Names) == 0 {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "names are required"})
+		return
+	}
+	result, err := m.workflowStore.InstallBuiltinWorkflows(r.Context(), req.Names)
+	if err != nil {
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, result)
+}
+
+func (m *Mux) getWorkflowRunForAction(w http.ResponseWriter, name, id string) (*workflow.RunDetail, bool) {
+	detail, err := m.workflowRuns.Get(id)
+	if err != nil || detail.WorkflowName != name {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "workflow run not found"})
+		return nil, false
+	}
+	return detail, true
+}
+
+func (m *Mux) handlePauseWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if !m.workflowAvailable(w) {
+		return
+	}
+	name, id := chi.URLParam(r, "name"), chi.URLParam(r, "runID")
+	if _, ok := m.getWorkflowRunForAction(w, name, id); !ok {
+		return
+	}
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if err := m.workflowRuns.Pause(id, req.Mode); err != nil {
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusAccepted, map[string]string{"run_id": id})
+}
+
+func (m *Mux) handleResumeWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if !m.workflowAvailable(w) {
+		return
+	}
+	name, id := chi.URLParam(r, "name"), chi.URLParam(r, "runID")
+	if _, ok := m.getWorkflowRunForAction(w, name, id); !ok {
+		return
+	}
+	var req struct {
+		AllowDirty bool `json:"allow_dirty"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if err := m.workflowRuns.Resume(context.Background(), id, req.AllowDirty); err != nil {
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusAccepted, map[string]string{"run_id": id})
+}
+
+func (m *Mux) handleRestartWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if !m.workflowAvailable(w) {
+		return
+	}
+	name, id := chi.URLParam(r, "name"), chi.URLParam(r, "runID")
+	if _, ok := m.getWorkflowRunForAction(w, name, id); !ok {
+		return
+	}
+	newID, err := m.workflowRuns.Restart(context.Background(), id)
+	if err != nil {
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusAccepted, map[string]string{"run_id": newID, "restarted_from_run_id": id})
+}
+
+func (m *Mux) handleAbandonWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if !m.workflowAvailable(w) {
+		return
+	}
+	name, id := chi.URLParam(r, "name"), chi.URLParam(r, "runID")
+	if _, ok := m.getWorkflowRunForAction(w, name, id); !ok {
+		return
+	}
+	if err := m.workflowRuns.Abandon(id); err != nil {
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusAccepted, map[string]string{"run_id": id})
+}
+
+func (m *Mux) handleCleanupWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if !m.workflowAvailable(w) {
+		return
+	}
+	name, id := chi.URLParam(r, "name"), chi.URLParam(r, "runID")
+	if _, ok := m.getWorkflowRunForAction(w, name, id); !ok {
+		return
+	}
+	force := r.URL.Query().Get("force") == "true"
+	if err := m.workflowRuns.CleanupWorktree(r.Context(), id, force); err != nil {
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusAccepted, map[string]string{"run_id": id})
+}
+
+func (m *Mux) handleListWorkflowRunEvents(w http.ResponseWriter, r *http.Request) {
+	if !m.workflowAvailable(w) {
+		return
+	}
+	name, id := chi.URLParam(r, "name"), chi.URLParam(r, "runID")
+	if _, ok := m.getWorkflowRunForAction(w, name, id); !ok {
+		return
+	}
+	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	events, err := m.workflowRuns.Events(id, after, limit)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]any{"data": events, "error": nil})
+}
+
+func (m *Mux) handleResolveWorkflowConfirmation(w http.ResponseWriter, r *http.Request) {
+	if !m.workflowAvailable(w) {
+		return
+	}
+	name, id := chi.URLParam(r, "name"), chi.URLParam(r, "runID")
+	if _, ok := m.getWorkflowRunForAction(w, name, id); !ok {
+		return
+	}
+	var req struct {
+		Choice string `json:"choice"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if err := m.workflowRuns.ResolveConfirmation(id, chi.URLParam(r, "callID"), req.Choice); err != nil {
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusAccepted, map[string]string{"run_id": id, "call_id": chi.URLParam(r, "callID")})
 }

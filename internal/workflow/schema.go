@@ -1,8 +1,5 @@
 // Package workflow provides a user-authored YAML DAG engine with outcome routing,
-// parallel fan-out/in, bounded loops, and node-level error retry.
-//
-// v1 scope: synchronous execution triggered by L1 agent via workflow_run tool.
-// No LLM creation, no async execution, no persistence, no visualization.
+// parallel fan-out/in, bounded loops, durable runs, and node-level error retry.
 package workflow
 
 import (
@@ -19,13 +16,13 @@ import (
 
 // WorkflowDef represents the raw YAML workflow definition before validation.
 type WorkflowDef struct {
-	Name        string             `yaml:"name"`
-	Description string             `yaml:"description"`
-	Version     string             `yaml:"version"`
-	Defaults    Defaults           `yaml:"defaults"`
+	Name        string              `yaml:"name"`
+	Description string              `yaml:"description"`
+	Version     string              `yaml:"version"`
+	Defaults    Defaults            `yaml:"defaults"`
 	Agents      map[string]AgentRef `yaml:"agents"`
-	Entry       []string           `yaml:"entry"`
-	Nodes       []NodeDef          `yaml:"nodes"`
+	Entry       []string            `yaml:"entry"`
+	Nodes       []NodeDef           `yaml:"nodes"`
 }
 
 // Defaults holds workflow-level default configuration values.
@@ -54,13 +51,13 @@ type AgentRef struct {
 
 // NodeDef is a single node in the workflow graph.
 type NodeDef struct {
-	ID      string              `yaml:"id"`
-	Agent   string              `yaml:"agent"`
-	Prompt  string              `yaml:"prompt"`
-	Timeout Duration            `yaml:"timeout"`
-	Join    *JoinDef            `yaml:"join"`
+	ID      string               `yaml:"id"`
+	Agent   string               `yaml:"agent"`
+	Prompt  string               `yaml:"prompt"`
+	Timeout Duration             `yaml:"timeout"`
+	Join    *JoinDef             `yaml:"join"`
 	Outputs map[string]OutputDef `yaml:"outputs"`
-	OnError *ErrorPolicy        `yaml:"on_error"`
+	OnError *ErrorPolicy         `yaml:"on_error"`
 }
 
 // JoinDef configures fan-in behavior for a node.
@@ -74,6 +71,9 @@ type OutputDef struct {
 	To            []string `yaml:"to"`
 	Loop          bool     `yaml:"loop"`
 	MaxTraversals int      `yaml:"max_traversals"`
+	// TerminalStatus classifies a terminal output. Empty means completed for
+	// backwards compatibility with v1 definitions.
+	TerminalStatus string `yaml:"terminal_status"`
 }
 
 // ErrorPolicy controls what happens when a node encounters a system error.
@@ -130,11 +130,12 @@ type ParsedWorkflow struct {
 // Loop edges form the back-edge in a bounded cycle; the rest of the graph
 // (with all loop edges removed) must be a DAG.
 type Edge struct {
-	FromNode      string
-	Outcome       string
-	ToNode        string
-	Loop          bool
-	MaxTraversals int
+	FromNode       string
+	Outcome        string
+	ToNode         string
+	Loop           bool
+	MaxTraversals  int
+	TerminalStatus string
 }
 
 // IsLoop reports whether this edge is a declared loop back-edge.
@@ -197,11 +198,18 @@ type HandoffData struct {
 type RunStatus string
 
 const (
-	RunPending   RunStatus = "pending"
-	RunRunning   RunStatus = "running"
-	RunCompleted RunStatus = "completed"
-	RunFailed    RunStatus = "failed"
-	RunCancelled RunStatus = "cancelled"
+	RunPending     RunStatus = "pending"
+	RunPreparing   RunStatus = "preparing_worktree"
+	RunRunning     RunStatus = "running"
+	RunPauseAsked  RunStatus = "pause_requested"
+	RunPaused      RunStatus = "paused"
+	RunResuming    RunStatus = "resuming"
+	RunInterrupted RunStatus = "interrupted"
+	RunCompleted   RunStatus = "completed"
+	RunBlocked     RunStatus = "blocked"
+	RunFailed      RunStatus = "failed"
+	RunCancelled   RunStatus = "cancelled"
+	RunAbandoned   RunStatus = "abandoned"
 )
 
 // TerminalOutput is the final output from a node that reached to:[].
@@ -218,8 +226,8 @@ type RunState struct {
 	ID             string
 	Workflow       *ParsedWorkflow
 	Status         RunStatus
-	NodeRuns       map[string]*NodeRun  // keyed by NodeRun.ID
-	ReadyQueue     []string             // NodeRun IDs ready to execute
+	NodeRuns       map[string]*NodeRun // keyed by NodeRun.ID
+	ReadyQueue     []string            // NodeRun IDs ready to execute
 	Running        map[string]contextCanceller
 	JoinBuckets    map[JoinKey]*JoinBucket
 	LoopCounters   map[LoopKey]int
@@ -228,6 +236,7 @@ type RunState struct {
 	FinishedAt     time.Time
 	Input          string // original workflow_run input
 	WorkDir        string // shared project directory
+	PauseMode      string // requested pause mode when execution stops
 }
 
 // contextCanceller is a func that cancels a running node's context.
@@ -277,7 +286,7 @@ type EngineLimits struct {
 // DefaultEngineLimits returns the recommended production limits.
 func DefaultEngineLimits() EngineLimits {
 	return EngineLimits{
-		MaxYAMLBytes:       1 << 20,    // 1 MiB
+		MaxYAMLBytes:       1 << 20, // 1 MiB
 		MaxNodes:           64,
 		MaxEdges:           256,
 		MaxParallelNodes:   4,
@@ -312,13 +321,24 @@ func (l EngineLimits) Clamp(d Defaults) Defaults {
 
 // NodeRunRequest is the input to a NodeExecutor.Execute call.
 type NodeRunRequest struct {
-	RunID        string
-	Workflow     *ParsedWorkflow
-	Node         *NodeDef
-	AgentRef     AgentRef
-	NodeRun      *NodeRun
-	WorkflowInput string
-	WorkDir      string
+	RunID              string
+	Workflow           *ParsedWorkflow
+	Node               *NodeDef
+	AgentRef           AgentRef
+	NodeRun            *NodeRun
+	WorkflowInput      string
+	WorkDir            string
+	RecordConfirmation func(ConfirmationRequest)
+}
+
+type ConfirmationRequest struct {
+	CallID         string
+	NodeRunID      string
+	ToolName       string
+	PromptRedacted string
+	Options        []string
+	AllowInSession bool
+	Resolve        func(string) error
 }
 
 // NodeRunResult is the output from a NodeExecutor.Execute call.

@@ -333,7 +333,9 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	if b.RT.WorkflowStore != nil && b.RT.WorkflowEngine != nil {
 		allTools = append(allTools,
 			workflowtool.NewListTool(b.RT.WorkflowStore, sessLog),
-			workflowtool.NewRunTool(b.RT.WorkflowStore, b.RT.WorkflowEngine, sessLog),
+			workflowtool.NewRunToolWithManager(b.RT.WorkflowStore, b.RT.WorkflowRuns, sessLog),
+			workflowtool.NewGetTool(b.RT.WorkflowRuns),
+			workflowtool.NewWaitTool(b.RT.WorkflowRuns),
 		)
 	}
 
