@@ -1,14 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import {
-  ArrowLeft,
-  Play,
-  Save,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  RefreshCw,
-} from 'lucide-react'
+import { ArrowLeft, Play, Save, CheckCircle2, AlertCircle, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/lib/i18n'
@@ -18,10 +10,8 @@ import { useRuntimeStore } from '@/stores/runtimeStore'
 import { ReactFlowProvider } from '@xyflow/react'
 import { VisualDAGEditor } from './VisualDAGEditor'
 import { DAGPreview } from './DAGPreview'
-import { shouldWaitForWorkflowBackend } from './workflowPageState'
+import { BackendUnavailable } from '@/components/BackendUnavailable'
 import { cn } from '@/lib/utils'
-
-const isElectron = typeof window !== 'undefined' && !!window.electronAPI
 
 // ─── YAML Mode Layout ───────────────────────────────────────────────────
 
@@ -64,8 +54,8 @@ export function YAMLEditorView() {
 
   // Compute entry nodes
   const entryNodes = activeWorkflowGraph.nodes
-    .filter(n => !activeWorkflowGraph.edges.some(e => e.target === n.id))
-    .map(n => n.id)
+    .filter((n) => !activeWorkflowGraph.edges.some((e) => e.target === n.id))
+    .map((n) => n.id)
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -204,8 +194,7 @@ export function WorkflowEditorPage() {
   const { name } = useParams<{ name: string }>()
   const navigate = useNavigate()
   const { t } = useTranslation()
-  const connectionMode = useConnectionStore((state) => state.mode)
-  const backendRunning = useConnectionStore((state) => state.backendStatus.running)
+  const backendReady = useConnectionStore((state) => state.backendReady)
   const sidebarCollapsed = useRuntimeStore((state) => state.sidebarCollapsed)
   const {
     activeWorkflowGraph,
@@ -225,22 +214,39 @@ export function WorkflowEditorPage() {
 
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
-  const waitingForBackend = shouldWaitForWorkflowBackend(isElectron, connectionMode, backendRunning)
 
   // Load workflow on mount
   useEffect(() => {
-    if (name && !waitingForBackend) {
+    if (name) {
       void setActiveWorkflow(name).catch(() => {
         // The store exposes a recoverable editor error state.
       })
       void fetchAvailableAgents()
     }
-  }, [name, waitingForBackend, setActiveWorkflow, fetchAvailableAgents])
+  }, [name, setActiveWorkflow, fetchAvailableAgents])
+
+  const prevBackendReadyRef = useRef(false)
+  useEffect(() => {
+    const wasReady = prevBackendReadyRef.current
+    prevBackendReadyRef.current = backendReady
+    if (!backendReady || wasReady) return
+    if (activeWorkflowLoading || availableAgentsLoading) return
+    if (name) {
+      void setActiveWorkflow(name).catch(() => {})
+      void fetchAvailableAgents()
+    }
+  }, [
+    backendReady,
+    activeWorkflowLoading,
+    availableAgentsLoading,
+    name,
+    setActiveWorkflow,
+    fetchAvailableAgents,
+  ])
 
   const invalidAgentTemplates = unknownAgentTemplates(activeWorkflowAgents, availableAgents)
-  const agentDataBlocked = availableAgentsLoading
-    || !!availableAgentsError
-    || invalidAgentTemplates.length > 0
+  const agentDataBlocked =
+    availableAgentsLoading || !!availableAgentsError || invalidAgentTemplates.length > 0
 
   const nodeCount = activeWorkflowGraph.nodes.length
   const edgeCount = activeWorkflowGraph.edges.length
@@ -278,19 +284,19 @@ export function WorkflowEditorPage() {
       toast.error(t('workflow.unknownAgents', { names: invalidAgentTemplates.join(', ') || '—' }))
       return
     }
-	const goal = window.prompt('Workflow task goal')?.trim() || ''
-	if (!goal) {
-		toast.error('A task goal is required')
-		return
-	}
-	const criteria = (window.prompt('Acceptance criteria (one per line)') || '')
-		.split('\n')
-		.map(value => value.trim())
-		.filter(Boolean)
-	if (criteria.length === 0) {
-		toast.error('At least one acceptance criterion is required')
-		return
-	}
+    const goal = window.prompt('Workflow task goal')?.trim() || ''
+    if (!goal) {
+      toast.error('A task goal is required')
+      return
+    }
+    const criteria = (window.prompt('Acceptance criteria (one per line)') || '')
+      .split('\n')
+      .map((value) => value.trim())
+      .filter(Boolean)
+    if (criteria.length === 0) {
+      toast.error('At least one acceptance criterion is required')
+      return
+    }
     setRunning(true)
     try {
       const runId = await startRun(name, { goal, acceptance_criteria: criteria })
@@ -308,7 +314,7 @@ export function WorkflowEditorPage() {
   }
 
   const retryLoad = () => {
-    if (!name || waitingForBackend) return
+    if (!name) return
     void setActiveWorkflow(name).catch(() => {})
     void fetchAvailableAgents()
   }
@@ -316,10 +322,12 @@ export function WorkflowEditorPage() {
   return (
     <div className="flex h-full flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <header className={cn(
-        'shrink-0 flex items-center justify-between border-b border-border/60 bg-card/20 px-4 py-2.5',
-        sidebarCollapsed && 'pl-[115px]'
-      )}>
+      <header
+        className={cn(
+          'shrink-0 flex items-center justify-between border-b border-border/60 bg-card/20 px-4 py-2.5',
+          sidebarCollapsed && 'pl-[115px]'
+        )}
+      >
         <div className="flex items-center gap-4 min-w-0">
           {/* Back button */}
           <button
@@ -351,7 +359,13 @@ export function WorkflowEditorPage() {
           <button
             type="button"
             onClick={handleRun}
-            disabled={waitingForBackend || running || activeWorkflowLoading || !!activeWorkflowLoadError || agentDataBlocked}
+            disabled={
+              !backendReady ||
+              running ||
+              activeWorkflowLoading ||
+              !!activeWorkflowLoadError ||
+              agentDataBlocked
+            }
             className="flex items-center gap-1.5 rounded-lg bg-success hover:bg-success/90 disabled:bg-success/40 px-3 py-2 text-xs font-semibold text-success-foreground transition-all shadow-sm shadow-success/20 cursor-pointer disabled:cursor-not-allowed"
           >
             {running ? (
@@ -365,7 +379,13 @@ export function WorkflowEditorPage() {
           <button
             type="button"
             onClick={handleSave}
-            disabled={waitingForBackend || saving || activeWorkflowLoading || !!activeWorkflowLoadError || agentDataBlocked}
+            disabled={
+              !backendReady ||
+              saving ||
+              activeWorkflowLoading ||
+              !!activeWorkflowLoadError ||
+              agentDataBlocked
+            }
             className="flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:bg-primary/40 px-3 py-2 text-xs font-semibold text-primary-foreground transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
           >
             {saving ? (
@@ -408,7 +428,11 @@ export function WorkflowEditorPage() {
       )}
 
       {/* Body — loading and errors must never masquerade as an empty editor. */}
-      {waitingForBackend || activeWorkflowLoading ? (
+      {!backendReady ? (
+        <div className="flex flex-1 items-center justify-center bg-background">
+          <BackendUnavailable onRetry={retryLoad} />
+        </div>
+      ) : activeWorkflowLoading ? (
         <div className="flex flex-1 items-center justify-center bg-background">
           <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -420,7 +444,9 @@ export function WorkflowEditorPage() {
           <div className="max-w-md rounded-xl border border-rose-500/25 bg-rose-500/5 p-5 text-center shadow-sm">
             <AlertCircle className="mx-auto h-6 w-6 text-rose-500" />
             <p className="mt-3 text-sm font-semibold text-foreground">{t('workflow.loadFailed')}</p>
-            <p className="mt-1 text-xs text-muted-foreground break-words">{activeWorkflowLoadError}</p>
+            <p className="mt-1 text-xs text-muted-foreground break-words">
+              {activeWorkflowLoadError}
+            </p>
             <div className="mt-4 flex justify-center gap-2">
               <button
                 type="button"

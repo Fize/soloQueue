@@ -1,4 +1,4 @@
-import { useConnectionStore, isBackendReady, ensureBackendReady } from '@/stores/connectionStore'
+import { useConnectionStore, ensureBackendReady } from '@/stores/connectionStore'
 
 export const API_BASE = '/api'
 

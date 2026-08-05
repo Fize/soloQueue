@@ -31,6 +31,7 @@ import {
   getSimulationAgentPlan,
   getSimulationAgentReflections,
 } from '@/lib/api'
+import { getErrorMessage } from '@/transport/http-client'
 
 interface AgentDetailPanelProps {
   persona: SimulationPersona
@@ -103,8 +104,8 @@ export function AgentDetailPanel({
       try {
         const data = await getSimulationAgentPlan(simId, persona.id)
         setPlan(data.plan || null)
-      } catch {
-        setPlanError('Network error')
+      } catch (err) {
+        setPlanError(getErrorMessage(err))
       } finally {
         setPlanLoading(false)
       }
@@ -255,7 +256,9 @@ export function AgentDetailPanel({
           {/* Metadata badges: Age, Gender, MBTI, Country, Profession */}
           <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
             {persona.age && (
-              <span className="px-2 py-1 rounded bg-muted text-foreground">{persona.age} years old</span>
+              <span className="px-2 py-1 rounded bg-muted text-foreground">
+                {persona.age} years old
+              </span>
             )}
             {persona.gender && (
               <span className="px-2 py-1 rounded bg-muted text-foreground uppercase">
@@ -355,7 +358,9 @@ export function AgentDetailPanel({
               Social Relationships
             </h4>
             {agentRels.length === 0 ? (
-              <div className="text-xs text-muted-foreground italic pl-1">No social relationships found.</div>
+              <div className="text-xs text-muted-foreground italic pl-1">
+                No social relationships found.
+              </div>
             ) : (
               <TooltipProvider>
                 <div className="flex flex-wrap gap-2">
@@ -466,14 +471,22 @@ export function AgentDetailPanel({
           value="memory"
           className="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 focus-visible:outline-none"
         >
-          <AgentMemoriesTab memories={memories} memoriesLoading={memoriesLoading} memoriesError={memoriesError} />
+          <AgentMemoriesTab
+            memories={memories}
+            memoriesLoading={memoriesLoading}
+            memoriesError={memoriesError}
+          />
         </TabsContent>
 
         <TabsContent
           value="reflections"
           className="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 focus-visible:outline-none"
         >
-          <AgentReflectionsTab reflections={reflections} reflectionsLoading={reflectionsLoading} reflectionsError={reflectionsError} />
+          <AgentReflectionsTab
+            reflections={reflections}
+            reflectionsLoading={reflectionsLoading}
+            reflectionsError={reflectionsError}
+          />
         </TabsContent>
 
         <TabsContent
@@ -489,7 +502,9 @@ export function AgentDetailPanel({
             {agentMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-6 text-muted-foreground gap-2 border border-dashed rounded-xl">
                 <Activity className="h-6 w-6 opacity-30" />
-                <span className="text-xs">This agent has no activity logs in this simulation yet.</span>
+                <span className="text-xs">
+                  This agent has no activity logs in this simulation yet.
+                </span>
               </div>
             ) : (
               <div className="space-y-3">
@@ -605,7 +620,8 @@ export function AgentDetailPanel({
       ) : (
         <div className="h-[120px] border-t border-border shrink-0 flex flex-col bg-card/25 items-center justify-center p-4">
           <span className="text-xs text-muted-foreground text-center">
-            In-character interview functionality is only available when the simulation is running or completed.
+            In-character interview functionality is only available when the simulation is running or
+            completed.
           </span>
         </div>
       )}
