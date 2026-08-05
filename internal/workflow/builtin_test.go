@@ -14,11 +14,11 @@ func TestBuiltinEngineeringQualityLoopParses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(wf.Nodes) != 10 || wf.Entry[0] != "analyze" {
+	if len(wf.Nodes) != 9 || wf.Entry[0] != "plan" {
 		t.Fatalf("unexpected workflow: nodes=%d entry=%v", len(wf.Nodes), wf.Entry)
 	}
-	if got := wf.Defaults.WorkflowTimeout.Duration(); got != DefaultEngineLimits().MaxWorkflowTimeout || got != time.Hour {
-		t.Fatalf("workflow timeout = %s, want engine maximum %s", got, DefaultEngineLimits().MaxWorkflowTimeout)
+	if got := wf.Defaults.WorkflowTimeout.Duration(); got != 120*time.Minute {
+		t.Fatalf("workflow timeout = %s, want 120m", got)
 	}
 }
 

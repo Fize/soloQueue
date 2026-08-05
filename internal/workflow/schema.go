@@ -291,8 +291,8 @@ func DefaultEngineLimits() EngineLimits {
 		MaxEdges:           256,
 		MaxParallelNodes:   4,
 		MaxNodeRuns:        100,
-		MaxWorkflowTimeout: 60 * time.Minute,
-		MaxNodeTimeout:     30 * time.Minute,
+		MaxWorkflowTimeout: 180 * time.Minute,
+		MaxNodeTimeout:     60 * time.Minute,
 		MaxOutputBytes:     256 << 10, // 256 KiB
 	}
 }
