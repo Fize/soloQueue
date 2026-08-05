@@ -18,8 +18,22 @@ export function shouldInjectRemoteAuth(requestUrl, remoteOrigin) {
 
   try {
     const url = new URL(requestUrl)
-    if (url.origin !== remoteOrigin) return false
+    // Match by host:port regardless of protocol. The renderer's URL input
+    // applies immediately (onChange) without saving, and a scheme-less input
+    // is defaulted to https by getEffectiveBaseUrl — so the request origin
+    // can legitimately differ from the stored origin's scheme. http/https
+    // (and ws/wss) always reach the same backend host.
+    if (!sameHost(url, remoteOrigin)) return false
     return url.pathname === '/healthz' || url.pathname === '/api' || url.pathname.startsWith('/api/')
+  } catch {
+    return false
+  }
+}
+
+// sameHost compares host:port, ignoring the protocol scheme.
+function sameHost(url, remoteOrigin) {
+  try {
+    return url.host === new URL(remoteOrigin).host
   } catch {
     return false
   }
