@@ -37,34 +37,25 @@ const EngineeringQualityLoopYAML = `name: engineering-quality-loop
 description: "Built-in engineering quality loop: develop, verify, fix, review, test, and final acceptance."
 version: "1"
 defaults:
-  node_timeout: 20m
-  workflow_timeout: 60m
+  node_timeout: 40m
+  workflow_timeout: 120m
   max_node_runs: 80
 agents:
   architect:
     template: andrej karpathy
-  explorer:
-    template: explorer
   editor:
     template: editor
   tester:
     template: tester
 entry:
-  - analyze
+  - plan
 nodes:
-  - id: analyze
-    agent: explorer
-    prompt: |
-      Analyze the repository and task. Map affected files, current behavior, risks, and a verification strategy.
-      Do not modify files. Preserve the user's requested delivery policy.
-    outputs:
-      analyzed:
-        to: [plan]
   - id: plan
     agent: architect
     prompt: |
-      Turn the analysis into an implementation plan with explicit acceptance checks, rollback notes, and ownership.
-      Do not commit, push, or open a PR unless the task delivery request explicitly requires it.
+      Analyze the repository and task, then turn the analysis into an implementation plan with explicit acceptance checks, rollback notes, and ownership.
+      The analysis is your internal work — you decide how to conduct it (e.g., mapping affected files, current behavior, risks, verification strategy).
+      Do not modify files during analysis. Do not commit, push, or open a PR unless the task delivery request explicitly requires it.
     outputs:
       planned:
         to: [develop]
