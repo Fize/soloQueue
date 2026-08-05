@@ -627,6 +627,7 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 
 		// Push immediate tool results for ALL tools (sync results + delegation confirmations)
 		for i, tc := range calls {
+			results[i] = dedupeSkillResult(s.cw, tc, results[i])
 			s.cw.Push(ctxwin.RoleTool, results[i],
 				ctxwin.WithToolCallID(tc.ID),
 				ctxwin.WithToolName(tc.Function.Name),
@@ -647,6 +648,7 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 
 	// Sync path: push tool results to ContextWindow
 	for i, tc := range calls {
+		results[i] = dedupeSkillResult(s.cw, tc, results[i])
 		s.cw.Push(ctxwin.RoleTool, results[i],
 			ctxwin.WithToolCallID(tc.ID),
 			ctxwin.WithToolName(tc.Function.Name),
