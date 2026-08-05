@@ -9,20 +9,20 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team"
-	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
-	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	workflowtool "github.com/xiaobaitu/soloqueue/internal/workflow/tool"
 )
 
@@ -112,6 +112,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
 	sessionToolsCfg := toolsCfg
 	sessionToolsCfg.Logger = sessLog
+	sessionToolsCfg.TeamStore = b.RT.TeamStore
 	sessionToolsCfg.CronScope = tools.CronAccessScope{Mode: tools.CronAccessGlobal}
 	baseTools := tools.Build(sessionToolsCfg)
 
