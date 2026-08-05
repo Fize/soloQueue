@@ -36,7 +36,7 @@ func TestTranscribe_DecodesSilkBeforeWhisper(t *testing.T) {
 	}
 	dir := t.TempDir()
 	decoderPath := filepath.Join(dir, "silk-decoder")
-	if err := os.WriteFile(decoderPath, []byte("#!/bin/sh\n[ \"$1\" = -Fs_API ] && [ \"$2\" = 16000 ] || exit 1\nprintf '\\0\\0\\0\\0' > \"$4\"\n"), 0o755); err != nil {
+	if err := os.WriteFile(decoderPath, []byte("#!/bin/sh\ncase \"$1\" in *.silk) ;; *) exit 1 ;; esac\ncase \"$2\" in *.pcm) ;; *) exit 1 ;; esac\n[ \"$3\" = -Fs_API ] && [ \"$4\" = 16000 ] || exit 1\nprintf '\\0\\0\\0\\0' > \"$2\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	whisperPath := filepath.Join(dir, "whisper-cli")
@@ -64,7 +64,7 @@ func TestTranscribe_RejectsEmptyPCM(t *testing.T) {
 	}
 	dir := t.TempDir()
 	decoderPath := filepath.Join(dir, "silk-decoder")
-	if err := os.WriteFile(decoderPath, []byte("#!/bin/sh\n[ \"$1\" = -Fs_API ] && [ \"$2\" = 16000 ] || exit 1\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(decoderPath, []byte("#!/bin/sh\ncase \"$1\" in *.silk) ;; *) exit 1 ;; esac\ncase \"$2\" in *.pcm) ;; *) exit 1 ;; esac\n[ \"$3\" = -Fs_API ] && [ \"$4\" = 16000 ] || exit 1\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

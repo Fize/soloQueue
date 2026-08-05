@@ -83,7 +83,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	pcmFile.Close()
 	defer os.Remove(pcmPath)
 
-	decode := exec.CommandContext(ctx, t.silkDecoder, "-Fs_API", "16000", silkPath, pcmPath)
+	decode := exec.CommandContext(ctx, t.silkDecoder, silkPath, pcmPath, "-Fs_API", "16000")
 	if out, err := decode.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("silk decode: %w\n%s", err, string(out))
 	}
