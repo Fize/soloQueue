@@ -90,20 +90,31 @@ func TestDefaultRules(t *testing.T) {
 	}
 }
 
-func TestSharedAgentRules_SkillPriorityAppliesAfterDelegationDecision(t *testing.T) {
-	required := []string{
+func TestSharedAgentRules_ThreeSkillExecutionModes(t *testing.T) {
+	// The old model made delegation and skill selection mutually exclusive.
+	// The new model classifies by HOW the task reaches the agent: skill
+	// instance / skill step / standalone.
+	absent := []string{
 		"Delegation and help-seeking decisions take precedence over skill selection",
-		"After deciding to execute all or part of the task yourself",
-		"inspect the available skills before using raw tools",
+	}
+	for _, phrase := range absent {
+		if strings.Contains(SharedAgentRules, phrase) {
+			t.Errorf("SharedAgentRules should NOT contain %q", phrase)
+		}
+	}
+
+	required := []string{
+		"YOU ARE THE SKILL",
+		"SKILL STEP",
+		"STANDALONE",
+		"do not re-select",
+		"If none matches, proceed with raw tools",
+		"This is step N of the <skill> SOP",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(SharedAgentRules, phrase) {
 			t.Errorf("SharedAgentRules should contain %q", phrase)
 		}
-	}
-
-	if strings.Contains(SharedAgentRules, "Before executing, scan ALL available tools") {
-		t.Error("SharedAgentRules should not require skill selection before delegation decisions")
 	}
 }
 
@@ -142,7 +153,7 @@ func TestSharedAgentRules_LowCostInvocation(t *testing.T) {
 	// Breaks the cost/benefit asymmetry: invoking the Skill tool is cheap, so
 	// the model should call first and evaluate rather than skip.
 	required := []string{
-		"Invoking the Skill tool itself is cheap",
+		"Invoking the Skill tool is cheap",
 		"invoke it first and evaluate",
 	}
 	for _, phrase := range required {

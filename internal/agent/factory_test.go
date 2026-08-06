@@ -772,6 +772,21 @@ func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 }
 
+func TestL2L3Directives_ContainSkillUseRules(t *testing.T) {
+	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "Skill Use at L2") {
+		t.Error("prompt.L2EnforcedDirectivesPart1 should contain 'Skill Use at L2' section")
+	}
+	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "never pass skill IDs") {
+		t.Error("prompt.L2EnforcedDirectivesPart1 should forbid passing skill IDs to workers")
+	}
+	if !strings.Contains(prompt.L3EnforcedDirectives, "Skill Use at L3") {
+		t.Error("prompt.L3EnforcedDirectives should contain 'Skill Use at L3' section")
+	}
+	if !strings.Contains(prompt.L3EnforcedDirectives, "standalone") {
+		t.Error("prompt.L3EnforcedDirectives should classify standalone tasks")
+	}
+}
+
 // ─── buildL2SystemPrompt / buildL3SystemPrompt: plan-related tests ────────
 
 func TestBuildL2SystemPrompt_ContainsExploreDirPath(t *testing.T) {
