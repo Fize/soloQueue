@@ -317,7 +317,6 @@ func NewRuntimeManager(desired RuntimeType, log *logger.Logger) *RuntimeManager 
 func (m *RuntimeManager) newDockerBackend(scope runtimeScope) (sandbox.Backend, error) {
 	backend, err := sandbox.NewDockerBackend(sandbox.DockerOptions{
 		Workspace:      scope.workspace,
-		PlanDir:        scope.planDir,
 		Owner:          scope.owner,
 		NetworkEnabled: scope.networkEnabled,
 	}, m.log)

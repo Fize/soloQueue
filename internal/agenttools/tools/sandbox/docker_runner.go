@@ -53,7 +53,7 @@ func NewDockerBackend(opts DockerOptions, log *logger.Logger) (*DockerRunner, er
 	}
 
 	var mounts []Mount
-	if opts.Workspace == "" && opts.PlanDir == "" && opts.CacheDir == "" && opts.ArtifactDir == "" {
+	if opts.Workspace == "" && opts.CacheDir == "" {
 		mounts = buildDefaultMounts()
 	} else {
 		mounts, err = buildMounts(opts)
@@ -168,10 +168,10 @@ func (d *DockerRunner) Start(ctx context.Context) error {
 			Image:      d.imageName,
 			Cmd:        []string{"/bin/sh", "-c", "mkdir -p \"$HOME\" && exec tail -f /dev/null"},
 			WorkingDir: workDir,
-			User:       sandboxContainerUser(),
+			User:       "root",
 			Env: []string{
-				"HOME=/tmp/soloqueue-home",
-				"XDG_CACHE_HOME=/tmp/soloqueue-home/.cache",
+				"HOME=/root",
+				"XDG_CACHE_HOME=/root/.cache",
 			},
 			Labels: map[string]string{
 				"soloqueue.owner":       "soloqueue",

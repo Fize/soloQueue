@@ -127,13 +127,12 @@ func (d *DockerRunner) WriteFile(ctx context.Context, path string, data []byte, 
 	}
 	var archive bytes.Buffer
 	tw := tar.NewWriter(&archive)
-	uid, gid := sandboxContainerIDs()
 	if err := tw.WriteHeader(&tar.Header{
 		Name: tmpBase,
 		Mode: 0o600,
 		Size: int64(len(data)),
-		Uid:  uid,
-		Gid:  gid,
+		Uid:  0,
+		Gid:  0,
 	}); err != nil {
 		return WriteFileResult{}, err
 	}

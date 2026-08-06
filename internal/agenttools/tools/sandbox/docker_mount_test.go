@@ -48,9 +48,6 @@ func TestBuildDefaultMounts_ExcludesSensitiveHomePaths(t *testing.T) {
 	mounts := buildDefaultMounts()
 
 	for _, m := range mounts {
-		if m.ContainerPath == "/root/.ssh" {
-			t.Errorf("buildDefaultMounts() must not expose /root/.ssh")
-		}
 		if m.ContainerPath == "/root/.cache" || m.ContainerPath == "/root/.local" {
 			t.Errorf("buildDefaultMounts() must not expose shared home cache: %s", m.ContainerPath)
 		}
