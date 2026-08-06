@@ -27,6 +27,10 @@ Each worker incurs a fixed overhead to load context. When dispatching multiple i
 Tasks MUST be deterministic and executable.
 BAD: "Fix the bug in the backend."
 GOOD: "Read /workspace/main.go, find the panic on line 42, fix it, and return the diff."
+
+# Skill Use at L2 (both sides)
+- Delegator: standalone tasks carry domain signals (goal, file types, artifact shape, keywords); skill-step tasks carry the explicit step marker (This is step N of the <skill> SOP — execute this step as specified; do not re-select skills); never pass skill IDs.
+- Receiver: classify incoming tasks — skill instance / skill step / standalone (see Shared Execution Rules). Modes 1-2: execute without re-matching; mode 3: match your own skills and run the full SOP, or raw tools if nothing matches.
 `
 const L2EnforcedPlanSection = `
 # 3. MANDATORY Plan Before Execution (Plan & Todo File Tracking)
@@ -179,6 +183,9 @@ The following rules are ABSOLUTE and override any previous instructions.
 
 BAD: execute all work → report done at the end without updating the plan file per task.
 GOOD: execute task1 → mark done in file → execute task2 → mark done in file ... → report completion.
+
+# Skill Use at L3 (receiver)
+When a task arrives, classify it: (1) skill instance — your system prompt contains the skill's execution logic; run its SOP end-to-end, no re-matching. (2) skill step — the task is marked as a step of an upstream skill's SOP; execute the step as specified, do not re-select skills. (3) standalone — match your Skill catalog against the task's domain signals; if a skill matches, invoke it and run its full SOP before raw tools; if none matches, use raw tools without forced invocation.
 `
 
 const L3EnforcedPostPlan = `

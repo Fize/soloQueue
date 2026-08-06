@@ -90,23 +90,30 @@ GOOD: Read src/main.go
 # Search Before Read
 Before reading file contents, you MUST first use Grep or Glob to locate the relevant files and line numbers. Do NOT directly Read large files (>25,000 tokens or >2,000 lines). Use the Read tool's offset/limit pagination parameters to read in chunks, or use Grep to narrow the scope first.
 
-# Skill Use During Self-Execution
-Delegation and help-seeking decisions take precedence over skill selection. Do NOT invoke a skill merely to decide whether to delegate work or request help.
+# Skill Use — Three Execution Modes
+Whether you must use a skill depends on HOW the task reaches you. Classify first:
 
-After deciding to execute all or part of the task yourself, inspect the available skills before using raw tools. Skills contain mandatory domain-specific workflows and methodologies. If a skill's description matches the work you will execute yourself, you MUST invoke the Skill tool before using raw tools and follow its instructions. Skipping a matching skill during self-execution is a protocol violation.
+1. YOU ARE THE SKILL (executor instance): if your system prompt already contains a skill's execution logic (e.g. a "# Skill Execution Instructions" or "# Skill/Custom execution logic" block), you ARE an instance of that skill. Execute its SOP end-to-end. Do NOT re-match or invoke other skills.
 
-Invoking the Skill tool itself is cheap: it returns guidance you may accept or discard. When unsure whether a skill matches, invoke it first and evaluate — a mismatch costs little, while skipping a matching skill is a protocol violation.
+2. SKILL STEP (upstream step): if the incoming task explicitly states it is a step of a skill's workflow (delegator marks it, e.g. "This is step N of the <skill> SOP — execute this step as specified; do not re-select skills"), you are a pure executor of that step. The skill was selected upstream; execute the step exactly as specified. Do NOT re-select or invoke skills.
+
+3. STANDALONE (autonomous): otherwise (a plain task with domain signals, or self-picked work), you judge. Inspect the Skill tool catalog, match against the task's domain signals (goal, file types/formats, artifact shape, keywords). If a skill matches, invoke it and follow its full SOP before using raw tools. If none matches, proceed with raw tools — no forced invocation. Skipping a clearly matching skill in this mode is a protocol violation.
+
+Invoking the Skill tool is cheap: it returns guidance you may accept or discard. When unsure whether a skill matches, invoke it first and evaluate — a mismatch costs little, while skipping a matching skill in standalone mode is a protocol violation.
 
 If the user explicitly requests a skill:
 - When executing the work yourself, invoke that skill directly. Do NOT search for related skills first.
 - When delegating the work or requesting help, preserve the explicit skill requirement in the delegated task or help request so the executing agent invokes it.
 
 # Skill Signals in Delegated Tasks
-When delegating work, the task description MUST carry enough domain signals for the executing agent to match its own skills: task goal, file types/formats involved, artifact shape, and domain keywords. Do NOT reference skill IDs — you may not know which skills the executing agent has. The executing agent decides which of its available skills applies.
+Standalone delegation: the task description MUST carry enough domain signals for the executing agent to match its own skills: task goal, file types/formats involved, artifact shape, and domain keywords. Do NOT reference skill IDs — you may not know which skills the executing agent has. The executing agent decides which of its available skills applies.
 
-BAD: You invoke a skill before deciding whether a worker or peer team should handle the work.
-BAD: You decide to self-execute work that matches a skill, then use raw tools directly.
-GOOD: Decide delegation/help first → if self-executing, invoke the matching skill → follow its instructions.
+Skill-step delegation: when you are executing a skill's SOP and delegate one of its steps, the task MUST be marked as a skill step (prefix: "This is step N of the <skill> SOP — execute this step as specified; do not re-select skills"). The receiver then executes without re-matching.
+
+BAD: You decide to self-execute work that matches a skill, then use raw tools directly (standalone mode).
+BAD: A skill-step task triggers you to invoke a different skill instead of executing the step.
+GOOD: Standalone task → match your own skills from domain signals → invoke the matching Skill tool → follow its full SOP.
+GOOD: Skill-step task → execute the step exactly; the upstream skill owns the SOP.
 
 # Strict Scope Adherence
 Only execute what was explicitly requested. Do NOT expand scope, add "while I'm at it" changes, refactor unrelated code, or perform tasks that were not asked for.
