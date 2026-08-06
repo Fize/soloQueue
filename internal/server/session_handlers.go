@@ -1589,11 +1589,22 @@ func isBinary(data []byte) bool {
 
 var fileBlockRegex = regexp.MustCompile(`- File Name:\s*(.+?)\n\s*Save Path:\s*(.+?)\s+\(Size:`)
 
+// legacyFileBlockRegex matches the old WebSocket upload block format `- name: path (image, recognized by visual model)`.
+var legacyFileBlockRegex = regexp.MustCompile(`- ([^:\n]+?):\s*(\S+?)\s+\(image, recognized by visual model\)`)
+
 // extractFilesFromPrompt parses file attachments from prompt strings for old historical timeline events.
 func extractFilesFromPrompt(content string) []map[string]interface{} {
 	var files []map[string]interface{}
 	matches := fileBlockRegex.FindAllStringSubmatch(content, -1)
 	for _, m := range matches {
+		if len(m) >= 3 {
+			files = append(files, map[string]interface{}{
+				"name": strings.TrimSpace(m[1]),
+				"path": strings.TrimSpace(m[2]),
+			})
+		}
+	}
+	for _, m := range legacyFileBlockRegex.FindAllStringSubmatch(content, -1) {
 		if len(m) >= 3 {
 			files = append(files, map[string]interface{}{
 				"name": strings.TrimSpace(m[1]),

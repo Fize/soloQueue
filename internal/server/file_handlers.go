@@ -69,6 +69,9 @@ func (m *Mux) allowedRoots() []string {
 	planDir := filepath.Join(m.workDir, "plan")
 	roots = append(roots, planDir)
 
+	downloadsDir := filepath.Join(m.workDir, "downloads")
+	roots = append(roots, downloadsDir)
+
 	workspaceDir := filepath.Join(m.workDir, "workspace")
 	roots = append(roots, workspaceDir)
 

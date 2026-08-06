@@ -1317,6 +1317,16 @@ func TestStripRecalledMemories(t *testing.T) {
 			input:    "<recalled_memories>\n1. memory\n</recalled_memories>\n\nreal message\n\n[SELECTED DOM ELEMENT:\n- Selector: `button`]\n\n[USER DRAWINGS/ANNOTATIONS DETECTED: ...]\n\n[CRITICAL DIRECTIVE: ...]",
 			expected: "real message",
 		},
+		{
+			name:     "with legacy ws upload block",
+			input:    "real message\n\n[Uploaded files:\n- image.png: /Users/xiaobaitu/.soloqueue/downloads/image.png (image, recognized by visual model)\n]",
+			expected: "real message",
+		},
+		{
+			name:     "with legacy ws upload block and vision transcription",
+			input:    "real message\n\n[Uploaded files:\n- image.png: /x/y.png (image, recognized by visual model)\n]\n\n[System: The user included 1 image(s). ...]",
+			expected: "real message",
+		},
 	}
 
 	for _, tc := range tests {

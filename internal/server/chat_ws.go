@@ -86,8 +86,15 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	if len(msg.Files) > 0 {
 		var blocks []string
 		for _, f := range msg.Files {
-			// Detect if this is an image file by reading and sniffing MIME type.
-			if fileContent, err := os.ReadFile(f.Path); err == nil {
+			absPath, err := filepath.Abs(f.Path)
+			if err != nil {
+				absPath = f.Path
+			}
+			var fileContent []byte
+			fileContent, err = os.ReadFile(absPath)
+			size := int64(0)
+			if err == nil {
+				size = int64(len(fileContent))
 				mimeType := http.DetectContentType(fileContent)
 				if strings.HasPrefix(mimeType, "image/") {
 					b64 := base64.StdEncoding.EncodeToString(fileContent)
@@ -95,11 +102,11 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 						Data:     b64,
 						MimeType: mimeType,
 					})
-					blocks = append(blocks, fmt.Sprintf("- %s: %s (image, recognized by visual model)", f.Name, f.Path))
+					blocks = append(blocks, fmt.Sprintf("- File Name: %s\n  Save Path: %s (Size: %d bytes)\n  Type: Image (identified by vision model)", f.Name, absPath, size))
 					continue
 				}
 			}
-			blocks = append(blocks, fmt.Sprintf("- %s: %s", f.Name, f.Path))
+			blocks = append(blocks, fmt.Sprintf("- File Name: %s\n  Save Path: %s (Size: %d bytes)", f.Name, absPath, size))
 		}
 		finalPrompt = fmt.Sprintf("%s\n\n[Uploaded files:\n%s\n]", msg.Prompt, strings.Join(blocks, "\n"))
 	}
@@ -282,6 +289,13 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	reqCtx = session.WithRejectBusyQueue(reqCtx)
 	if len(images) > 0 {
 		reqCtx = context.WithValue(reqCtx, ctxwin.ImageContextKey, images)
+	}
+	if len(msg.Files) > 0 {
+		var fileAttachments []ctxwin.FileAttachment
+		for _, f := range msg.Files {
+			fileAttachments = append(fileAttachments, ctxwin.FileAttachment{Name: f.Name, Path: f.Path})
+		}
+		reqCtx = context.WithValue(reqCtx, ctxwin.FilesContextKey, fileAttachments)
 	}
 	client.addActiveRequest(msg.RequestID, reqCancel)
 	forwarderStarted := false
