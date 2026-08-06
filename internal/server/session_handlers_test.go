@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -676,5 +677,42 @@ func TestHTTP_SessionHistory_DeduplicateUserInputs(t *testing.T) {
 
 	if userMsgCount != 2 {
 		t.Errorf("Expected 2 user messages after deduplication, but got %d", userMsgCount)
+	}
+}
+
+func TestExtractFilesFromPrompt(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []map[string]interface{}
+	}{
+		{
+			name:  "http format",
+			input: "- File Name: a.png\n  Save Path: /p/a.png (Size: 123 bytes)",
+			expected: []map[string]interface{}{
+				{"name": "a.png", "path": "/p/a.png"},
+			},
+		},
+		{
+			name:  "legacy ws image format",
+			input: "- a.png: /p/a.png (image, recognized by visual model)",
+			expected: []map[string]interface{}{
+				{"name": "a.png", "path": "/p/a.png"},
+			},
+		},
+		{
+			name:     "plain text without blocks",
+			input:    "just a normal message with no file blocks",
+			expected: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractFilesFromPrompt(tc.input)
+			if !reflect.DeepEqual(got, tc.expected) {
+				t.Errorf("extractFilesFromPrompt(%q) = %#v; want %#v", tc.input, got, tc.expected)
+			}
+		})
 	}
 }

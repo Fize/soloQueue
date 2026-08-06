@@ -317,6 +317,12 @@ func StripUploadedFilePrompts(s string) string {
 	} else if idx := strings.Index(s, "[User has uploaded a file, saved locally at:\n"); idx == 0 {
 		s = ""
 	}
+	// Legacy WebSocket upload block (pre-format-unification timeline entries).
+	if idx := strings.Index(s, "\n\n[Uploaded files:\n"); idx >= 0 {
+		s = s[:idx]
+	} else if idx := strings.Index(s, "[Uploaded files:\n"); idx == 0 {
+		s = ""
+	}
 	if idx := strings.Index(s, "\n\n[System: The user included "); idx >= 0 {
 		s = s[:idx]
 	} else if idx := strings.Index(s, "[System: The user included "); idx == 0 {
