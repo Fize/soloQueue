@@ -90,6 +90,28 @@ func TestDefaultRules(t *testing.T) {
 	}
 }
 
+func TestDefaultRules_EmotionalToneAdaptation(t *testing.T) {
+	// Rule 28 "Emotional Tone Adaptation" is appended after rule 27
+	// "Frustration Detection" in HardcodedL1Rules — the ruleset that is
+	// unconditionally injected into the L1 agent's system prompt
+	// (internal/prompt/assemble.go). The plan named DefaultRules, but that
+	// constant holds only orchestrator rules 1-14 and contains no rule 27;
+	// placing rule 28 there would dangle its "per rule 27" references and
+	// would not guarantee delivery to the main agent. See tester report.
+	if !strings.Contains(HardcodedL1Rules, "Emotional Tone Adaptation") {
+		t.Fatal("HardcodedL1Rules should contain rule 28 'Emotional Tone Adaptation'")
+	}
+	// Rule 28 must appear after rule 27 (Frustration Detection).
+	idxFrustration := strings.Index(HardcodedL1Rules, "Frustration Detection")
+	idxTone := strings.Index(HardcodedL1Rules, "Emotional Tone Adaptation")
+	if idxFrustration < 0 {
+		t.Fatal("HardcodedL1Rules should contain 'Frustration Detection'")
+	}
+	if idxTone <= idxFrustration {
+		t.Errorf("'Emotional Tone Adaptation' should appear after 'Frustration Detection' (frustration idx=%d, tone idx=%d)", idxFrustration, idxTone)
+	}
+}
+
 func TestSharedAgentRules_ThreeSkillExecutionModes(t *testing.T) {
 	// The old model made delegation and skill selection mutually exclusive.
 	// The new model classifies by HOW the task reaches the agent: skill

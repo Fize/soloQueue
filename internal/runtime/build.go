@@ -16,24 +16,24 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
+	lsp "github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	lsp "github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
-	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
-	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 	"github.com/xiaobaitu/soloqueue/internal/workflow/agentexec"
 )
@@ -75,7 +75,6 @@ func Build(
 	bc.teamstore = store.NewStore(filepath.Join(bc.workDir, "groups"), filepath.Join(bc.workDir, "agents"), bc.sharedDB)
 
 	bc.settings = bc.cfg.Get() // refresh with file-backed configuration
-
 
 	// Phase 2: Validate & resolve config (now fully DB-backed)
 	if err := bc.resolveConfig(); err != nil {
@@ -426,39 +425,41 @@ func (bc *buildContext) initSharedDB() error {
 
 func (bc *buildContext) assembleStack() *Stack {
 	return &Stack{
-		Settings:          bc.cfg,
-		LLMClient:         bc.llmClient,
-		Log:               bc.log,
-		AgentRegistry:     bc.agentRegistry,
-		AgentFactory:      bc.agentFactory,
-		Supervisors:       bc.supervisors,
-		Leaders:           bc.leaders,
-		AllTemplates:      bc.allTemplates,
-		Groups:            bc.groups,
-		SystemPrompt:      bc.systemPrompt,
-		PromptCfg:         bc.promptCfg,
-		DefaultModel:      bc.defaultModel,
-		Tokenizer:         bc.tokenizer,
-		Compactor:         bc.compactorInstance,
-		ToolsCfg:          bc.toolsCfg,
-		RuntimeManager:    bc.runtimeMgr,
-		RulesCreated:      bc.rulesCreated,
-		TaskRouter:        bc.taskRouter,
-		SkillRegistry:     bc.skillReg,
-		MemoryManager:     bc.memoryMgr,
-		MemoryEngine:      bc.memoryEngine,
-		SharedDB:          bc.sharedDB,
-		BypassConfirm:     bc.bypassConfirm,
-		MCPManager:        bc.mcpMgr,
-		LSPManager:        bc.lspMgr,
-		TeamStore:         bc.teamstore,
-		L1Channels:        bc.l1Channels,
-		L1NotifyChannel:   bc.l1NotifyChannel,
-		SimulationEngine:  bc.simEngine,
-		WorkflowStore:     bc.workflowStore,
-		WorkflowEngine:    bc.workflowEngine,
-		WorkflowRuns:      bc.workflowRuns,
-		compactorInstance: bc.compactorInstance,
+		Settings:            bc.cfg,
+		LLMClient:           bc.llmClient,
+		FastModelProviderID: bc.fastModelProviderID,
+		FastModelID:         bc.fastModelID,
+		Log:                 bc.log,
+		AgentRegistry:       bc.agentRegistry,
+		AgentFactory:        bc.agentFactory,
+		Supervisors:         bc.supervisors,
+		Leaders:             bc.leaders,
+		AllTemplates:        bc.allTemplates,
+		Groups:              bc.groups,
+		SystemPrompt:        bc.systemPrompt,
+		PromptCfg:           bc.promptCfg,
+		DefaultModel:        bc.defaultModel,
+		Tokenizer:           bc.tokenizer,
+		Compactor:           bc.compactorInstance,
+		ToolsCfg:            bc.toolsCfg,
+		RuntimeManager:      bc.runtimeMgr,
+		RulesCreated:        bc.rulesCreated,
+		TaskRouter:          bc.taskRouter,
+		SkillRegistry:       bc.skillReg,
+		MemoryManager:       bc.memoryMgr,
+		MemoryEngine:        bc.memoryEngine,
+		SharedDB:            bc.sharedDB,
+		BypassConfirm:       bc.bypassConfirm,
+		MCPManager:          bc.mcpMgr,
+		LSPManager:          bc.lspMgr,
+		TeamStore:           bc.teamstore,
+		L1Channels:          bc.l1Channels,
+		L1NotifyChannel:     bc.l1NotifyChannel,
+		SimulationEngine:    bc.simEngine,
+		WorkflowStore:       bc.workflowStore,
+		WorkflowEngine:      bc.workflowEngine,
+		WorkflowRuns:        bc.workflowRuns,
+		compactorInstance:   bc.compactorInstance,
 	}
 }
 
@@ -616,4 +617,3 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 	}()
 	log.Debug(logger.CatApp, "prompt hot-reload: watching directories", "roles", rolesDir, "groups", groupsDir, "agents", agentsDir)
 }
-

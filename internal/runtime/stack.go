@@ -9,36 +9,38 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/vectorstore"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
-	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
-	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
 
 // Stack holds runtime dependencies, initialized once by Build to avoid duplication.
 type Stack struct {
-	CfgMu          sync.RWMutex
-	LLMClient      agent.LLMClient
-	ToolsCfg       tools.Config
-	RuntimeManager *tools.RuntimeManager
-	DefaultModel   *config.LLMModel
-	Settings       *config.GlobalService
-	Log            *logger.Logger
+	CfgMu               sync.RWMutex
+	LLMClient           agent.LLMClient
+	FastModelProviderID string // fast/classifier model provider, used by persona reflection
+	FastModelID         string // fast/classifier model ID
+	ToolsCfg            tools.Config
+	RuntimeManager      *tools.RuntimeManager
+	DefaultModel        *config.LLMModel
+	Settings            *config.GlobalService
+	Log                 *logger.Logger
 
 	AgentRegistry *agent.Registry
 	AgentFactory  *agent.DefaultFactory
@@ -54,10 +56,10 @@ type Stack struct {
 	TaskRouter    *router.Router
 	SkillRegistry *skill.SkillRegistry
 	MemoryManager *conversation.Manager // Short-term memory manager
-	MemoryEngine  *engine.Engine     // Memory engine (BM25 + KG + optional vector)
-	SharedDB      *db.DB             // Shared SQLite connection
-	MCPManager    *mcp.Manager             // MCP server manager
-	LSPManager    *lsp.Manager             // Built-in LSP MCP server manager
+	MemoryEngine  *engine.Engine        // Memory engine (BM25 + KG + optional vector)
+	SharedDB      *db.DB                // Shared SQLite connection
+	MCPManager    *mcp.Manager          // MCP server manager
+	LSPManager    *lsp.Manager          // Built-in LSP MCP server manager
 
 	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
 
