@@ -123,6 +123,7 @@ export interface ModelRoutesConfig {
 	engineering: string;
 	research: string;
 	classifier: string;
+	vision?: string;
 	fallback: string;
 }
 

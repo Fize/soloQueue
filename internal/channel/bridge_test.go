@@ -26,6 +26,7 @@ func (*fakeSession) Clear(context.Context) error                                
 func (*fakeSession) Compact(context.Context) error                                    { return nil }
 func (*fakeSession) CancelCurrent(string) error                                       { return nil }
 func (*fakeSession) SaveUploadedFile(context.Context, string, []byte) (string, error) { return "", nil }
+func (*fakeSession) SetChannelSenderData(string, []byte, func(context.Context, string) error) {}
 
 type fakeSender struct {
 	message Message

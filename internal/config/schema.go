@@ -314,6 +314,7 @@ type ModelRoutesConfig struct {
 	Engineering string `json:"engineering" yaml:"engineering,omitempty"`
 	Research    string `json:"research"    yaml:"research,omitempty"`
 	Classifier  string `json:"classifier"  yaml:"classifier,omitempty"`
+	Vision      string `json:"vision"      yaml:"vision,omitempty"`
 	Fallback    string `json:"fallback"    yaml:"fallback,omitempty"`
 }
 
