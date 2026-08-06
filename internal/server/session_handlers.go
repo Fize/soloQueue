@@ -1552,6 +1552,14 @@ func (m *Mux) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 
 	filename := filepath.Base(header.Filename)
 	destPath := filepath.Join(downloadsDir, filename)
+	// Repeated uploads (e.g. clipboard pastes) reuse the same filename and
+	// would overwrite the previous file, making every preview show the same
+	// image. Deduplicate so each upload keeps its own path.
+	if _, err := os.Stat(destPath); err == nil {
+		ext := filepath.Ext(filename)
+		base := strings.TrimSuffix(filename, ext)
+		destPath = filepath.Join(downloadsDir, fmt.Sprintf("%s-%d%s", base, time.Now().UnixNano(), ext))
+	}
 
 	out, err := os.Create(destPath)
 	if err != nil {
