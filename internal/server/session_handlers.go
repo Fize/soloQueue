@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -151,8 +152,18 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build context with image data for multimodal models.
+	// Build context with file and image data.
 	askCtx := context.Background()
+	var fileAttachments []ctxwin.FileAttachment
+	for _, f := range req.Files {
+		fileAttachments = append(fileAttachments, ctxwin.FileAttachment{
+			Name: f.Name,
+			Path: f.Path,
+		})
+	}
+	if len(fileAttachments) > 0 {
+		askCtx = context.WithValue(askCtx, ctxwin.FilesContextKey, fileAttachments)
+	}
 	if len(images) > 0 {
 		askCtx = context.WithValue(askCtx, ctxwin.ImageContextKey, images)
 	}
@@ -305,8 +316,18 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess.SetIsQBot(false)
-	// Build context with image data for multimodal models.
+	// Build context with file and image data.
 	askCtx := r.Context()
+	var fileAttachments []ctxwin.FileAttachment
+	for _, f := range req.Files {
+		fileAttachments = append(fileAttachments, ctxwin.FileAttachment{
+			Name: f.Name,
+			Path: f.Path,
+		})
+	}
+	if len(fileAttachments) > 0 {
+		askCtx = context.WithValue(askCtx, ctxwin.FilesContextKey, fileAttachments)
+	}
 	if len(images) > 0 {
 		askCtx = context.WithValue(askCtx, ctxwin.ImageContextKey, images)
 	}
@@ -1019,6 +1040,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		Role      string                   `json:"role"`
 		Segments  []map[string]interface{} `json:"segments"`
 		Timestamp string                   `json:"timestamp"`
+		Files     []map[string]interface{} `json:"files,omitempty"`
 	}
 
 	type pendingToolCall struct {
@@ -1157,11 +1179,22 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 					"text": session.StripRecalledMemories(msg.Content),
 				})
 			}
+			var attachedFiles []map[string]interface{}
+			for _, f := range msg.Files {
+				attachedFiles = append(attachedFiles, map[string]interface{}{
+					"name": f.Name,
+					"path": f.Path,
+				})
+			}
+			if len(attachedFiles) == 0 {
+				attachedFiles = extractFilesFromPrompt(msg.Content)
+			}
 			msgs = append(msgs, historyMsg{
 				ID:        msgID,
 				Role:      "user",
 				Segments:  segments,
 				Timestamp: msgTimestamp,
+				Files:     attachedFiles,
 			})
 		case "assistant":
 			// Dedup: skip duplicate partial-flush events. A cancelled turn can
@@ -1552,4 +1585,21 @@ func isBinary(data []byte) bool {
 		}
 	}
 	return false
+}
+
+var fileBlockRegex = regexp.MustCompile(`- File Name:\s*(.+?)\n\s*Save Path:\s*(.+?)\s+\(Size:`)
+
+// extractFilesFromPrompt parses file attachments from prompt strings for old historical timeline events.
+func extractFilesFromPrompt(content string) []map[string]interface{} {
+	var files []map[string]interface{}
+	matches := fileBlockRegex.FindAllStringSubmatch(content, -1)
+	for _, m := range matches {
+		if len(m) >= 3 {
+			files = append(files, map[string]interface{}{
+				"name": strings.TrimSpace(m[1]),
+				"path": strings.TrimSpace(m[2]),
+			})
+		}
+	}
+	return files
 }

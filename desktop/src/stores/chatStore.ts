@@ -225,6 +225,7 @@ export const useChatStore = create<ChatState>((set) => ({
         role: hm.role as 'user' | 'assistant',
         segments: hm.segments.map(convertHistorySegment),
         timestamp: hm.timestamp,
+        files: hm.files,
       }))
       set((s) => {
         // Don't overwrite messages that were added by a racing send().
@@ -284,6 +285,7 @@ export const useChatStore = create<ChatState>((set) => ({
         role: hm.role as 'user' | 'assistant',
         segments: hm.segments.map(convertHistorySegment),
         timestamp: hm.timestamp,
+        files: hm.files,
       }))
       set((s) => {
         const current = s.messages[sessionId] || []

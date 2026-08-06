@@ -310,10 +310,25 @@ func StripDesignDirective(s string) string {
 	return s
 }
 
-// StripRecalledMemories removes the <recalled_memories>...</recalled_memories>
-// block from the beginning of a message if present.
+// StripUploadedFilePrompts removes system-appended file upload blocks and vision transcription blocks.
+func StripUploadedFilePrompts(s string) string {
+	if idx := strings.Index(s, "\n\n[User has uploaded a file, saved locally at:\n"); idx >= 0 {
+		s = s[:idx]
+	} else if idx := strings.Index(s, "[User has uploaded a file, saved locally at:\n"); idx == 0 {
+		s = ""
+	}
+	if idx := strings.Index(s, "\n\n[System: The user included "); idx >= 0 {
+		s = s[:idx]
+	} else if idx := strings.Index(s, "[System: The user included "); idx == 0 {
+		s = ""
+	}
+	return strings.TrimSpace(s)
+}
+
+// StripRecalledMemories removes directives and system metadata blocks from a message string.
 func StripRecalledMemories(s string) string {
 	s = StripDesignDirective(s)
+	s = StripUploadedFilePrompts(s)
 	const startTag = "<recalled_memories>"
 	const endTag = "</recalled_memories>"
 	start := strings.Index(s, startTag)
@@ -1317,6 +1332,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	// Extract images from context if present (e.g., from qbot image uploads).
 	// Images are passed as []llm.ImageContent via context.WithValue.
 	var pushOpts []ctxwin.PushOption
+	if files, ok := ctx.Value(ctxwin.FilesContextKey).([]ctxwin.FileAttachment); ok && len(files) > 0 {
+		pushOpts = append(pushOpts, ctxwin.WithFiles(files))
+	}
 	if images, ok := ctx.Value(ctxwin.ImageContextKey).([]llm.ImageContent); ok && len(images) > 0 {
 		pushOpts = append(pushOpts, ctxwin.WithImages(images))
 

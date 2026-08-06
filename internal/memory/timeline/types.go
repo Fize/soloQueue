@@ -39,19 +39,24 @@ func newEvent(et EventType) Event {
 	}
 }
 
-// ─── MessagePayload ─────────────────────────────────────────────────────────
+// FileAttachment represents file metadata attached to a user message.
+type FileAttachment struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
 
 // MessagePayload represents the payload for a message event.
 type MessagePayload struct {
-	Role             string        `json:"role"`                   // system/user/assistant/tool
-	Content          string        `json:"content"`                // Message content
-	ReasoningContent string        `json:"reasoning,omitempty"`    // DeepSeek reasoning
-	Name             string        `json:"name,omitempty"`         // Tool name (role=tool)
-	ToolCallID       string        `json:"tool_call_id,omitempty"` // Tool call ID (role=tool)
-	ToolCalls        []ToolCallRec `json:"tool_calls,omitempty"`   // tool_calls when role is assistant
-	IsEphemeral      bool          `json:"ephemeral,omitempty"`    // Marks verbose tool output
-	AgentID          string        `json:"agent_id,omitempty"`     // Reserved for multi-agent systems
-	Timestamp        string        `json:"ts,omitempty"`           // Original message timestamp (RFC3339Nano)
+	Role             string           `json:"role"`                   // system/user/assistant/tool
+	Content          string           `json:"content"`                // Message content
+	ReasoningContent string           `json:"reasoning,omitempty"`    // DeepSeek reasoning
+	Name             string           `json:"name,omitempty"`         // Tool name (role=tool)
+	ToolCallID       string           `json:"tool_call_id,omitempty"` // Tool call ID (role=tool)
+	ToolCalls        []ToolCallRec    `json:"tool_calls,omitempty"`   // tool_calls when role is assistant
+	Files            []FileAttachment `json:"files,omitempty"`        // Attached files metadata (role=user)
+	IsEphemeral      bool             `json:"ephemeral,omitempty"`    // Marks verbose tool output
+	AgentID          string           `json:"agent_id,omitempty"`     // Reserved for multi-agent systems
+	Timestamp        string           `json:"ts,omitempty"`           // Original message timestamp (RFC3339Nano)
 }
 
 // ─── ControlPayload ─────────────────────────────────────────────────────────
