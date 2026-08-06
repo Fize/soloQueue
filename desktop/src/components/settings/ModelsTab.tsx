@@ -29,24 +29,25 @@ export function ModelsTab() {
 		engineering: '',
 		research: '',
 		classifier: '',
-    fallback: '',
-  })
-  const [providerFilter, setProviderFilter] = useState('all')
+		vision: '',
+		fallback: '',
+	})
+	const [providerFilter, setProviderFilter] = useState('all')
 
-  const loadData = async () => {
-    setLoading(true)
-    try {
-      const [dbProviders, dbModels, dbDefaults] = await Promise.all([
-        listProviders(),
-        listModels(),
-		getModelRoutes(),
-      ])
-      setProviders(dbProviders || [])
-      setModels(dbModels || [])
-		setModelRoutes(
-			dbDefaults || { general: '', engineering: '', research: '', classifier: '', fallback: '' }
-      )
-    } catch (err) {
+	const loadData = async () => {
+		setLoading(true)
+		try {
+			const [dbProviders, dbModels, dbDefaults] = await Promise.all([
+				listProviders(),
+				listModels(),
+				getModelRoutes(),
+			])
+			setProviders(dbProviders || [])
+			setModels(dbModels || [])
+			setModelRoutes(
+				dbDefaults || { general: '', engineering: '', research: '', classifier: '', vision: '', fallback: '' }
+			)
+		} catch (err) {
       toast.error((err as Error).message)
     } finally {
       setLoading(false)

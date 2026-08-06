@@ -194,6 +194,8 @@ type Session struct {
 	memoryHook    MemoryHook               // optional callback for short-term memory (nil = disabled)
 	memoryManager *conversation.Manager // for dedup cursor; set alongside memoryHook
 
+	VisionDescriber VisionDescriberFunc // optional callback to transcribe images when active model lacks vision
+
 	idleTimeout      time.Duration // 0 = disabled; auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum CW tokens to trigger compact
 	isQBot           atomic.Bool
@@ -1205,6 +1207,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	if effectiveCW <= 0 {
 		effectiveCW = agent.DefaultContextWindow
 	}
+	var activeRouteResult RouteResult
 	if s.Router != nil {
 		// Check for explicit level lock/unlock commands (/l0, /l1, /l2, /l3)
 		if newLevel, isLock := parseLevelLockCommand(prompt); isLock {
@@ -1260,6 +1263,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		}
 
 		if result.Level != "" {
+			activeRouteResult = result
 			s.logger.DebugContext(ctx, logger.CatApp, "task router applied model override",
 				"target_id", s.TargetID,
 				"provider_id", result.ProviderID,
@@ -1315,6 +1319,27 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	var pushOpts []ctxwin.PushOption
 	if images, ok := ctx.Value(ctxwin.ImageContextKey).([]llm.ImageContent); ok && len(images) > 0 {
 		pushOpts = append(pushOpts, ctxwin.WithImages(images))
+
+		effectiveVision := s.Agent.Def.Vision
+		if activeRouteResult.ModelID != "" {
+			effectiveVision = activeRouteResult.Vision
+		}
+
+		if !effectiveVision && s.VisionDescriber != nil {
+			s.logger.InfoContext(ctx, logger.CatApp, "askstream: model lacks vision, invoking vision describer",
+				"target_id", s.TargetID,
+				"image_count", len(images),
+			)
+			desc, err := s.VisionDescriber(ctx, images)
+			if err != nil {
+				s.logger.WarnContext(ctx, logger.CatApp, "askstream: vision describer failed",
+					"target_id", s.TargetID,
+					"err", err.Error(),
+				)
+			} else if desc != "" {
+				prompt += fmt.Sprintf("\n\n[System: The user included %d image(s). As the current model lacks vision, here is a detailed visual information transcription provided by the vision model:\n%s]", len(images), desc)
+			}
+		}
 	}
 	s.cw.Push(ctxwin.RoleUser, prompt, pushOpts...)
 	s.mu.Unlock()
@@ -1787,10 +1812,11 @@ type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwi
 type SessionManager struct {
 	factory       AgentFactory
 	routerFunc    TaskRouterFunc
-	memoryHook    MemoryHook
-	memoryManager *conversation.Manager
-	metaStore     ChannelMetadataStore
-	logger        *logger.Logger
+	memoryHook      MemoryHook
+	memoryManager   *conversation.Manager
+	metaStore       ChannelMetadataStore
+	visionDescriber VisionDescriberFunc
+	logger          *logger.Logger
 
 	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum tokens to trigger compact
@@ -1825,6 +1851,11 @@ func (m *SessionManager) SetRouter(fn TaskRouterFunc) {
 // Must be called before Init(). Not thread-safe for setup.
 func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 	m.memoryHook = hook
+}
+
+// SetVisionDescriber sets the vision describer function for the session.
+func (m *SessionManager) SetVisionDescriber(fn VisionDescriberFunc) {
+	m.visionDescriber = fn
 }
 
 // SetMemoryManager sets the memory manager for dedup cursor tracking.
@@ -1896,6 +1927,9 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	}
 	if m.memoryManager != nil {
 		s.memoryManager = m.memoryManager
+	}
+	if m.visionDescriber != nil {
+		s.VisionDescriber = m.visionDescriber
 	}
 	if m.metaStore != nil {
 		s.metaStore = m.metaStore

@@ -154,6 +154,22 @@ func (s *GlobalService) DefaultClassifierModel() *LLMModel {
 	return nil
 }
 
+// DefaultVisionModel resolves the configured vision model used for image transcription.
+// Returns nil if no vision model is configured or if the configured model is disabled/lacks vision.
+func (s *GlobalService) DefaultVisionModel() *LLMModel {
+	settings := s.Get()
+	if settings.ModelRoutes.Vision == "" {
+		return nil
+	}
+	model := enabledModelByRef(settings, settings.ModelRoutes.Vision)
+	if model != nil && model.Vision {
+		return model
+	}
+	return nil
+}
+
+
+
 // ResolveScheduledTaskModel resolves a persisted task type. Scheduled tasks
 // intentionally do not fall back to compiled defaults: unattended work must
 // use an explicitly configured model or fail visibly.

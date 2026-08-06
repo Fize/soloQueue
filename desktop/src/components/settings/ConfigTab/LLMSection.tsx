@@ -291,9 +291,10 @@ export function LLMSection({
         <div className="border-t pt-4 space-y-3">
           <h4 className="text-sm font-medium text-foreground">{t('config.modelRouteSupportTitle')}</h4>
           {([
-            { role: 'classifier', title: 'config.modelRouteClassifier', desc: 'config.modelRouteClassifierDesc', required: false },
-            { role: 'fallback', title: 'config.modelRouteFallback', desc: 'config.modelRouteFallbackDesc', required: true },
-          ] as const).map(({ role, title, desc, required }) => (
+            { role: 'classifier', title: 'config.modelRouteClassifier', desc: 'config.modelRouteClassifierDesc', required: false, filterVision: false },
+            { role: 'vision', title: 'config.modelRouteVision', desc: 'config.modelRouteVisionDesc', required: false, filterVision: true },
+            { role: 'fallback', title: 'config.modelRouteFallback', desc: 'config.modelRouteFallbackDesc', required: true, filterVision: false },
+          ] as const).map(({ role, title, desc, required, filterVision }) => (
             <div key={role} className="grid gap-2 rounded-lg bg-muted/30 p-3 md:grid-cols-[minmax(9rem,0.8fr)_minmax(0,1.25fr)_minmax(14rem,1fr)] md:items-center">
               <label htmlFor={`role-select-${role}`} className="text-sm font-semibold text-foreground">{t(title)}</label>
               <div className="min-w-0">
@@ -308,10 +309,10 @@ export function LLMSection({
                   if (required && !v) return
                   onDefaultModelsChange({ ...defaultModels, [role]: v })
                 }}
-                placeholder={required ? t('config.llmSelectModel') : t('config.llmUnsetInherit')}
+                placeholder={required ? t('config.llmSelectModel') : t('config.llmUnsetConfigured')}
                 options={[
-                  ...(required ? [] : [{ value: '', label: t('config.llmUnsetInherit') }]),
-                  ...models.filter((m) => m.enabled).map((m) => ({ value: `${m.providerId}:${m.id}`, label: `${m.providerId}:${m.id} (${m.name})` })),
+                  ...(required ? [] : [{ value: '', label: t('config.llmUnsetConfigured') }]),
+                  ...models.filter((m) => m.enabled && (!filterVision || m.vision)).map((m) => ({ value: `${m.providerId}:${m.id}`, label: `${m.providerId}:${m.id} (${m.name})` })),
                 ]}
               />
               </div>

@@ -164,6 +164,7 @@ func DefaultSettings() Settings {
 			Engineering: "deepseek:deepseek-v4-flash-thinking-max",
 			Research:    "deepseek:deepseek-v4-flash-thinking-max",
 			Classifier:  "deepseek:deepseek-v4-flash",
+			Vision:      "",
 			Fallback:    "deepseek:deepseek-v4-flash",
 		},
 		Agent: AgentConfig{},
