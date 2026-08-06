@@ -19,9 +19,7 @@ type Mount struct {
 // DockerBackend. Empty paths are not mounted.
 type DockerOptions struct {
 	Workspace      string
-	PlanDir        string
 	CacheDir       string
-	ArtifactDir    string
 	Owner          string
 	NetworkEnabled bool
 }
@@ -146,15 +144,26 @@ func buildMounts(opts DockerOptions) ([]Mount, error) {
 			Purpose:       "workspace",
 		})
 	}
-	if err := add(opts.PlanDir, opts.PlanDir, false, "plan"); err != nil {
-		return nil, err
-	}
 	if err := add(opts.CacheDir, "/root/.cache/soloqueue", false, "cache"); err != nil {
 		return nil, err
 	}
-	if err := add(opts.ArtifactDir, "/soloqueue/artifacts", false, "artifact"); err != nil {
-		return nil, err
+
+	if home, err := os.UserHomeDir(); err == nil {
+		sshPath := filepath.Join(home, ".ssh")
+		if _, err := os.Stat(sshPath); err == nil {
+			if err := add(sshPath, "/root/.ssh", true, "ssh"); err != nil {
+				return nil, err
+			}
+		}
+
+		soloqueuePath := filepath.Join(home, ".soloqueue")
+		if _, err := os.Stat(soloqueuePath); err == nil {
+			if err := add(soloqueuePath, "/root/.soloqueue", false, "soloqueue"); err != nil {
+				return nil, err
+			}
+		}
 	}
+
 	return deduplicateMounts(mounts), nil
 }
 
