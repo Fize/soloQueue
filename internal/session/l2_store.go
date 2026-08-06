@@ -27,7 +27,7 @@ const (
 
 // L2SessionEntry holds a single L2 session with its metadata.
 type L2SessionEntry struct {
-	ID         string    `json:"id"`              // UUID
+	TargetID string    `json:"id"`              // UUID
 	Name       string    `json:"name"`            // auto-generated from first exchange
 	Group      string    `json:"group"`           // leader template group
 	ProjectID  string    `json:"project_id"`      // optional project ID
@@ -70,6 +70,7 @@ type L2SessionStore struct {
 
 	builder *Builder
 	logger  *logger.Logger
+	metaStore ChannelMetadataStore
 	workDir string
 }
 
@@ -96,6 +97,25 @@ func (s *L2SessionStore) SetChannelSenderForGroup(group, channelType string, fn 
 		s.channelSenders[group] = make(map[string]func(context.Context, string) error)
 	}
 	s.channelSenders[group][channelType] = fn
+}
+
+// SetChannelMetadataStore configures the DB store for channel metadata.
+func (s *L2SessionStore) SetChannelMetadataStore(store ChannelMetadataStore) {
+	s.metaStore = store
+}
+
+// SetChannelSenderDataForGroup saves the sender closure and persists its metadata to the DB if a store is configured.
+func (s *L2SessionStore) SetChannelSenderDataForGroup(group, channelType string, metadata []byte, fn func(context.Context, string) error) {
+	s.SetChannelSenderForGroup(group, channelType, fn)
+	if s.metaStore != nil {
+		if err := s.metaStore.SaveChannelSenderData(group, channelType, string(metadata)); err != nil {
+			s.logger.WarnContext(context.Background(), logger.CatApp, "l2 store: failed to save channel metadata",
+				"group", group,
+				"channel_type", channelType,
+				"err", err.Error(),
+			)
+		}
+	}
 }
 
 // ApplyChannelSendersTo copies the latest registered L2 channel senders to a
@@ -140,7 +160,7 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 	}
 
 	entry := &L2SessionEntry{
-		ID:        id,
+		TargetID: id,
 		Name:      "", // auto-generated after first exchange
 		Group:     group,
 		ProjectID: projectID,
@@ -159,7 +179,7 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 	}
 
 	return &L2SessionInfo{
-		ID:        entry.ID,
+		ID:        entry.TargetID,
 		Name:      entry.Name,
 		Group:     entry.Group,
 		ProjectID: entry.ProjectID,
@@ -225,7 +245,7 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 		plans = append(plans, meta.Plans...)
 	}
 	s.sessions[id] = &L2SessionEntry{
-		ID:         id,
+		TargetID: id,
 		Name:       meta.Name,
 		Group:      meta.Group,
 		WorkDir:    meta.WorkDir,
@@ -507,7 +527,7 @@ func (s *L2SessionStore) GetEntry(id string) *L2SessionEntry {
 	}
 	// Return a copy without the Session pointer.
 	return &L2SessionEntry{
-		ID:         entry.ID,
+		TargetID:   entry.TargetID,
 		Name:       entry.Name,
 		Group:      entry.Group,
 		ProjectID:  entry.ProjectID,
@@ -645,12 +665,12 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 		// Skip sessions that have never been activated (no timeline directory on disk).
 		// These are "phantom" sessions created but never used — they should not
 		// reappear after the window is closed and reopened while the server is still running.
-		tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+entry.ID)
+		tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+entry.TargetID)
 		if _, err := os.Stat(tlDir); err != nil {
 			continue
 		}
 		result = append(result, L2SessionInfo{
-			ID:              entry.ID,
+			ID:              entry.TargetID,
 			Name:            entry.Name,
 			Group:           entry.Group,
 			ProjectID:       entry.ProjectID,

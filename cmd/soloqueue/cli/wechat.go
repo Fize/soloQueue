@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -31,6 +32,7 @@ type WechatBotManager struct {
 	supervisorsFn func() []*agent.Supervisor
 	registry      *agent.Registry
 	gateways      []*wechat.Gateway
+	bridges       []*channel.TextBridge
 }
 
 type wechatCredentialStore struct {
@@ -80,7 +82,37 @@ func (s *wechatCredentialStore) SaveWechatCredential(_ context.Context, req wech
 }
 
 func NewWechatBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, workDir, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) *WechatBotManager {
-	return &WechatBotManager{cfg: cfg, mgr: mgr, l2Store: l2Store, rt: rt, workDir: workDir, version: version, mainLog: mainLog, supervisorsFn: supervisorsFn, registry: registry}
+	m := &WechatBotManager{cfg: cfg, mgr: mgr, l2Store: l2Store, rt: rt, workDir: workDir, version: version, mainLog: mainLog, supervisorsFn: supervisorsFn, registry: registry}
+
+	channel.RegisterSenderFactory("wechat", func(ctx context.Context, data []byte, text string) error {
+		var msg channel.Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return err
+		}
+
+		m.mu.Lock()
+		bridges := make([]*channel.TextBridge, len(m.bridges))
+		copy(bridges, m.bridges)
+		m.mu.Unlock()
+
+		if len(bridges) == 0 {
+			return fmt.Errorf("no active wechat bridge available")
+		}
+
+		var lastErr error
+		for _, b := range bridges {
+			// In TextBridge, there isn't an exported SendText method, wait, how can we trigger it?
+			// The original code does `b.sender.SendText(ctx, b.lastMsg, text)`. We can expose a Send method.
+			err := b.Send(ctx, msg, text)
+			if err == nil {
+				return nil
+			}
+			lastErr = err
+		}
+		return fmt.Errorf("all wechat bridges failed to send, last error: %w", lastErr)
+	})
+
+	return m
 }
 
 func (m *WechatBotManager) Reload() {
@@ -90,6 +122,7 @@ func (m *WechatBotManager) Reload() {
 		gateway.Close()
 	}
 	m.gateways = nil
+	m.bridges = nil
 
 	settings := m.cfg.Get()
 	for _, baseCfg := range settings.WechatBots {
@@ -123,6 +156,7 @@ func (m *WechatBotManager) Reload() {
 		bridge := channel.NewTextBridge(provider, client, wxLog, m.version, baseCfg.WhitelistEnabled, baseCfg.Whitelist)
 		gateway := wechat.NewGateway(wxCfg, client, bridge, wxLog)
 		m.gateways = append(m.gateways, gateway)
+		m.bridges = append(m.bridges, bridge)
 
 		go func() {
 			if err := gateway.Run(context.Background()); err != nil && err != wechat.ErrClosed {
@@ -140,6 +174,7 @@ func (m *WechatBotManager) Shutdown() {
 		gateway.Close()
 	}
 	m.gateways = nil
+	m.bridges = nil
 }
 
 func WechatCmd(version string) *cobra.Command {

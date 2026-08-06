@@ -92,6 +92,7 @@ func ServeCmd(version string) *cobra.Command {
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
 			mgr.SetMemoryManager(rt.MemoryManager)
+			mgr.SetChannelMetadataStore(rt.SharedDB)
 			mgr.SetIdleReaper(30*time.Minute, 200000)
 
 			// Initialize Scheduled Tasks (Cron & Timers) system
@@ -99,6 +100,7 @@ func ServeCmd(version string) *cobra.Command {
 			builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
 			// ── L2 Session Store ──
 			l2Store := session.NewL2SessionStore(builder, workDir, log)
+			l2Store.SetChannelMetadataStore(rt.SharedDB)
 			cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{
 				mgr:     mgr,
 				builder: builder,

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
@@ -113,11 +114,17 @@ type TaskRouterFunc func(ctx context.Context, prompt string, priorLevel string, 
 // recordedAt indicates the date of the conversation segment for correct file routing.
 type MemoryHook func(ctx context.Context, conversationText string, recordedAt time.Time)
 
+// ChannelMetadataStore persists channel sender metadata across restarts.
+type ChannelMetadataStore interface {
+	SaveChannelSenderData(targetID, channelType, metadata string) error
+	GetChannelSenderData(targetID, channelType string) (string, error)
+}
+
 // ─── Session ──────────────────────────────────────────────────────────────
 
 // Session represents a conversation session.
 type Session struct {
-	ID      string
+	TargetID string
 	TeamID  string
 	Agent   *agent.Agent
 	Router  TaskRouterFunc // Optional: task routing classifier (nil = no routing, use default model)
@@ -127,6 +134,7 @@ type Session struct {
 	cw     *ctxwin.ContextWindow // Replaces original history, manages full conversation context
 	tl     *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
 	logger *logger.Logger        // Session-level logger
+	metaStore ChannelMetadataStore // Optional: for persisting channel sender metadata
 
 	// pending queue: new messages enqueue when session is busy, popped and injected
 	// into ContextWindow before the agent's next LLM API call in the tool loop, merging consecutive messages
@@ -206,7 +214,7 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	}
 
 	s := &Session{
-		ID:            id,
+		TargetID:      id,
 		TeamID:        teamID,
 		Agent:         a,
 		Created:       time.Now(),
@@ -228,13 +236,13 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 				switch lower {
 				case "/cancel", "/compact", "/help", "/?", "/clear", "/version":
 					s.logger.WarnContext(context.Background(), logger.CatApp, "pending drain: dropping stale slash command",
-						"session_id", s.ID,
+						"target_id", s.TargetID,
 						"command", lower,
 					)
 					return ""
 				}
 				s.logger.InfoContext(context.Background(), logger.CatApp, "pending messages injected into context window",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 					"prompt_len", len(pending),
 				)
 				return pending
@@ -244,7 +252,7 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	}
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session created",
-		"session_id", id,
+		"target_id", id,
 		"team_id", teamID,
 	)
 
@@ -346,10 +354,24 @@ func (s *Session) SetChannelSender(channelType string, fn func(context.Context, 
 	s.channelSenders[channelType] = fn
 	s.channelSendersMu.Unlock()
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session: channelSender registered",
-		"session_id", s.ID,
+		"target_id", s.TargetID,
 		"channel_type", channelType,
 		"had_previous", prev,
 	)
+}
+
+// SetChannelSenderData saves the channel sender closure and persists its metadata to the DB if a store is configured.
+func (s *Session) SetChannelSenderData(channelType string, metadata []byte, fn func(context.Context, string) error) {
+	s.SetChannelSender(channelType, fn)
+	if s.metaStore != nil {
+		if err := s.metaStore.SaveChannelSenderData(s.TargetID, channelType, string(metadata)); err != nil {
+			s.logger.WarnContext(context.Background(), logger.CatApp, "session: failed to save channel metadata",
+				"target_id", s.TargetID,
+				"channel_type", channelType,
+				"err", err.Error(),
+			)
+		}
+	}
 }
 
 // HasNotifyChannel reports whether this session's agent has configured a
@@ -368,7 +390,7 @@ func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 	}
 	if notifyChannel == "" {
 		s.logger.WarnContext(ctx, logger.CatApp, "session: SendViaChannel skipped, no notify_channel configured",
-			"session_id", s.ID,
+			"target_id", s.TargetID,
 		)
 		return nil
 	}
@@ -377,20 +399,54 @@ func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 	fn := s.channelSenders[notifyChannel]
 	s.channelSendersMu.RUnlock()
 
-	if fn == nil {
-		s.logger.WarnContext(ctx, logger.CatApp, "session: SendViaChannel skipped, no sender for notify_channel",
-			"session_id", s.ID,
+	if fn != nil {
+		s.logger.InfoContext(ctx, logger.CatApp, "session: SendViaChannel delivering via memory",
+			"target_id", s.TargetID,
 			"notify_channel", notifyChannel,
+			"text_len", len(text),
 		)
-		return nil
+		return fn(ctx, text)
 	}
 
-	s.logger.InfoContext(ctx, logger.CatApp, "session: SendViaChannel delivering",
-		"session_id", s.ID,
+	if s.metaStore != nil {
+		metadata, err := s.metaStore.GetChannelSenderData(s.TargetID, notifyChannel)
+		if err != nil {
+			s.logger.WarnContext(ctx, logger.CatApp, "session: failed to load channel metadata",
+				"target_id", s.TargetID,
+				"notify_channel", notifyChannel,
+				"err", err.Error(),
+			)
+		} else if metadata != "" {
+			factory := channel.GetSenderFactory(notifyChannel)
+			if factory != nil {
+				s.logger.InfoContext(ctx, logger.CatApp, "session: SendViaChannel delivering via DB fallback",
+					"target_id", s.TargetID,
+					"notify_channel", notifyChannel,
+					"text_len", len(text),
+				)
+				if err := factory(ctx, []byte(metadata), text); err != nil {
+					s.logger.WarnContext(ctx, logger.CatApp, "session: factory send failed",
+						"target_id", s.TargetID,
+						"notify_channel", notifyChannel,
+						"err", err.Error(),
+					)
+					return err // Bubble up error just like fn(ctx, text) would
+				}
+				return nil
+			} else {
+				s.logger.WarnContext(ctx, logger.CatApp, "session: SendViaChannel skipped, no factory for notify_channel",
+					"target_id", s.TargetID,
+					"notify_channel", notifyChannel,
+				)
+			}
+		}
+	}
+
+	s.logger.WarnContext(ctx, logger.CatApp, "session: SendViaChannel skipped, no sender for notify_channel",
+		"target_id", s.TargetID,
 		"notify_channel", notifyChannel,
-		"text_len", len(text),
 	)
-	return fn(ctx, text)
+	return nil
 }
 
 // IsQBot returns true if the session is currently serving or was last triggered by QBot.
@@ -519,7 +575,7 @@ func (s *Session) AskIsolatedWithModel(ctx context.Context, prompt string, param
 func (s *Session) QueueMessage(prompt string) {
 	s.pending.Enqueue(prompt)
 	s.logger.InfoContext(context.Background(), logger.CatApp, "message queued via QueueMessage",
-		"session_id", s.ID,
+		"target_id", s.TargetID,
 		"prompt_len", len(prompt),
 	)
 }
@@ -596,7 +652,7 @@ func (s *Session) Clear() error {
 	}
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session cleared",
-		"session_id", s.ID,
+		"target_id", s.TargetID,
 	)
 
 	return nil
@@ -616,7 +672,7 @@ func (s *Session) Compact(ctx context.Context) (string, error) {
 	}
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session compacted",
-		"session_id", s.ID,
+		"target_id", s.TargetID,
 	)
 
 	return summary, nil
@@ -899,7 +955,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	}
 	if !s.inFlight.CompareAndSwap(0, 1) {
 		s.logger.InfoContext(ctx, logger.CatApp, "ask rejected: session busy, message queued",
-			"session_id", s.ID,
+			"target_id", s.TargetID,
 			"prompt_len", len(prompt),
 		)
 		s.pending.Enqueue(prompt)
@@ -926,7 +982,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	s.mu.Unlock()
 
 	s.logger.DebugContext(ctx, logger.CatApp, "ask: prompt pushed to context window",
-		"session_id", s.ID,
+		"target_id", s.TargetID,
 		"prompt_len", len(prompt),
 	)
 
@@ -939,7 +995,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 		s.mu.Unlock()
 
 		s.logger.WarnContext(ctx, logger.CatApp, "ask failed, user prompt removed",
-			"session_id", s.ID,
+			"target_id", s.TargetID,
 			"duration_ms", duration,
 			"err", err.Error(),
 		)
@@ -950,7 +1006,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	// Skip the push but keep the user prompt so LLM retains context.
 	if reply == "" {
 		s.logger.WarnContext(ctx, logger.CatApp, "ask: empty assistant reply skipped",
-			"session_id", s.ID,
+			"target_id", s.TargetID,
 			"duration_ms", duration,
 			"reasoning_len", len(reasoningContent),
 		)
@@ -963,7 +1019,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	s.mu.Unlock()
 
 	s.logger.DebugContext(ctx, logger.CatApp, "ask complete",
-		"session_id", s.ID,
+		"target_id", s.TargetID,
 		"reply_len", len(reply),
 		"reasoning_len", len(reasoningContent),
 		"duration_ms", duration,
@@ -1000,7 +1056,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		// Compact modifies CW state and must not run concurrently with AskStream.
 		if !s.inFlight.CompareAndSwap(0, 1) {
 			s.logger.InfoContext(ctx, logger.CatApp, "compact rejected: session busy, message queued",
-				"session_id", s.ID,
+				"target_id", s.TargetID,
 			)
 			if !rejectsBusyQueue(ctx) {
 				s.pending.Enqueue(prompt)
@@ -1055,7 +1111,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		// Clear modifies CW state and must not run concurrently with AskStream.
 		if !s.inFlight.CompareAndSwap(0, 1) {
 			s.logger.InfoContext(ctx, logger.CatApp, "clear rejected: session busy, message queued",
-				"session_id", s.ID,
+				"target_id", s.TargetID,
 			)
 			if !rejectsBusyQueue(ctx) {
 				s.pending.Enqueue(prompt)
@@ -1122,7 +1178,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 
 	if !s.inFlight.CompareAndSwap(0, 1) {
 		s.logger.InfoContext(ctx, logger.CatApp, "askstream rejected: session busy, message queued",
-			"session_id", s.ID,
+			"target_id", s.TargetID,
 			"prompt_len", len(prompt),
 		)
 		if !rejectsBusyQueue(ctx) {
@@ -1157,7 +1213,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			s.lastLevel = newLevel
 			s.lastLevelMu.Unlock()
 			s.logger.DebugContext(ctx, logger.CatApp, "task level locked by user",
-				"session_id", s.ID,
+				"target_id", s.TargetID,
 				"level", newLevel,
 			)
 		}
@@ -1185,7 +1241,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				result.ContextWindow = s.Agent.Def.ContextWindow
 			}
 			s.logger.DebugContext(ctx, logger.CatApp, "task routing skipped (level locked)",
-				"session_id", s.ID,
+				"target_id", s.TargetID,
 				"level", result.Level,
 			)
 		} else {
@@ -1193,7 +1249,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			result, err = s.Router(routerCtx, prompt, priorLevel, s.cw.BuildPayload())
 			if err != nil {
 				s.logger.WarnContext(ctx, logger.CatApp, "task router failed, using default model",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 					"err", err.Error(),
 				)
 				// Don't return — proceed with defaults (no model override)
@@ -1205,7 +1261,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 
 		if result.Level != "" {
 			s.logger.DebugContext(ctx, logger.CatApp, "task router applied model override",
-				"session_id", s.ID,
+				"target_id", s.TargetID,
 				"provider_id", result.ProviderID,
 				"model_id", result.ModelID,
 				"thinking_enabled", result.ThinkingEnabled,
@@ -1236,7 +1292,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 					m.Level = result.Level
 				}); err != nil {
 					s.logger.WarnContext(ctx, logger.CatApp, "persist lastLevel to meta.json failed",
-						"session_id", s.ID,
+						"target_id", s.TargetID,
 						"err", err.Error(),
 					)
 				}
@@ -1264,7 +1320,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	s.mu.Unlock()
 
 	s.logger.DebugContext(ctx, logger.CatApp, "askstream: prompt pushed to context window",
-		"session_id", s.ID,
+		"target_id", s.TargetID,
 		"prompt_len", len(prompt),
 	)
 
@@ -1273,12 +1329,12 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		// Agent stopped: attempt to restart and retry once
 		if errors.Is(err, agent.ErrStopped) || errors.Is(err, agent.ErrNotStarted) {
 			s.logger.InfoContext(ctx, logger.CatApp, "askstream: agent not running, attempting restart",
-				"session_id", s.ID,
+				"target_id", s.TargetID,
 				"err", err.Error(),
 			)
 			if startErr := s.Agent.Start(context.Background()); startErr != nil {
 				s.logger.WarnContext(ctx, logger.CatApp, "askstream: agent restart failed",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 					"err", startErr.Error(),
 				)
 			} else {
@@ -1300,7 +1356,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		s.inFlight.Store(0)
 
 		s.logger.WarnContext(ctx, logger.CatApp, "askstream: agent stream setup failed",
-			"session_id", s.ID,
+			"target_id", s.TargetID,
 			"err", err.Error(),
 		)
 		return nil, err
@@ -1322,7 +1378,7 @@ enqueued:
 		defer func() {
 			if r := recover(); r != nil {
 				s.logger.ErrorContext(ctx, logger.CatApp, "session event processor panic recovered",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 					"panic", fmt.Sprintf("%v", r),
 				)
 			}
@@ -1399,7 +1455,7 @@ enqueued:
 					pending = partialFlushRemainder(pending, dump)
 					if pending == "" {
 						s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial flush skipped (content already persisted by push hook)",
-							"session_id", s.ID,
+							"target_id", s.TargetID,
 							"content_len", accContent.Len(),
 							"persisted_len", len(dump),
 						)
@@ -1413,7 +1469,7 @@ enqueued:
 					AgentID:          s.Agent.InstanceID,
 				})
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial assistant content flushed to timeline",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 					"content_len", accContent.Len(),
 				)
 			}
@@ -1434,7 +1490,7 @@ enqueued:
 					rollbackTurn()
 
 					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
-						"session_id", s.ID,
+						"target_id", s.TargetID,
 						"events_processed", eventCount,
 						"duration_ms", time.Since(start).Milliseconds(),
 					)
@@ -1452,7 +1508,7 @@ enqueued:
 					rollbackTurn()
 
 					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
-						"session_id", s.ID,
+						"target_id", s.TargetID,
 						"events_processed", eventCount,
 						"duration_ms", time.Since(start).Milliseconds(),
 					)
@@ -1477,7 +1533,7 @@ enqueued:
 					rollbackTurn()
 
 					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (write)",
-						"session_id", s.ID,
+						"target_id", s.TargetID,
 						"events_processed", eventCount,
 						"duration_ms", time.Since(start).Milliseconds(),
 					)
@@ -1495,14 +1551,14 @@ enqueued:
 			switch e := ev.(type) {
 			case agent.ToolNeedsConfirmEvent:
 				s.logger.InfoContext(ctx, logger.CatApp, "session-forwarder: confirm event received and forwarded",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 					"call_id", e.CallID,
 					"tool_name", e.Name,
 				)
 			case agent.DelegationStartedEvent:
 				// Async delegation started: release inFlight, allowing user to send new messages
 				s.logger.DebugContext(ctx, logger.CatApp, "delegation started",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 				)
 				s.newTurnDone()
 				s.inFlight.Store(0)
@@ -1515,7 +1571,7 @@ enqueued:
 				finalReasoning = e.ReasoningContent
 				gotDone = true
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream done event received",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 					"content_len", len(e.Content),
 					"reasoning_len", len(e.ReasoningContent),
 				)
@@ -1524,7 +1580,7 @@ enqueued:
 				rollbackTurn()
 
 				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event, user prompt removed",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 					"err", e.Err.Error(),
 				)
 			}
@@ -1544,13 +1600,13 @@ enqueued:
 				s.mu.Unlock()
 
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream: assistant reply pushed to context window",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 				)
 			} else {
 				// Empty assistant reply — invalid for LLM API.
 				// Skip the push but keep the user prompt for context.
 				s.logger.WarnContext(ctx, logger.CatApp, "askstream: empty assistant reply skipped",
-					"session_id", s.ID,
+					"target_id", s.TargetID,
 					"reasoning_len", len(finalReasoning),
 				)
 			}
@@ -1559,7 +1615,7 @@ enqueued:
 		s.closeTurnDone()
 
 		s.logger.DebugContext(ctx, logger.CatApp, "askstream complete",
-			"session_id", s.ID,
+			"target_id", s.TargetID,
 			"events_processed", eventCount,
 			"duration_ms", time.Since(start).Milliseconds(),
 		)
@@ -1591,7 +1647,7 @@ func (s *Session) Close() {
 	s.closed.Store(true)
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session closed",
-		"session_id", s.ID,
+		"target_id", s.TargetID,
 		"lifetime_sec", time.Since(s.Created).Seconds(),
 	)
 
@@ -1615,7 +1671,7 @@ func (s *Session) closeTurnDone() {
 		close(s.turnDone)
 		s.turnDoneClosed = true
 		s.logger.DebugContext(context.Background(), logger.CatApp, "delegation turn completed",
-			"session_id", s.ID,
+			"target_id", s.TargetID,
 		)
 	}
 	s.delegationPending.Store(false)
@@ -1694,7 +1750,7 @@ func (s *Session) CancelCurrent(reason string) error {
 		case <-turn.done:
 		case <-deadline.C:
 			s.logger.WarnContext(context.Background(), logger.CatApp, "session cancellation cleanup timed out",
-				"session_id", s.ID,
+				"target_id", s.TargetID,
 				"active_turns", len(turns),
 			)
 			return nil
@@ -1702,7 +1758,7 @@ func (s *Session) CancelCurrent(reason string) error {
 	}
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session task tree cancelled",
-		"session_id", s.ID,
+		"target_id", s.TargetID,
 		"active_turns", len(turns),
 		"reason", reason,
 	)
@@ -1733,6 +1789,7 @@ type SessionManager struct {
 	routerFunc    TaskRouterFunc
 	memoryHook    MemoryHook
 	memoryManager *conversation.Manager
+	metaStore     ChannelMetadataStore
 	logger        *logger.Logger
 
 	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
@@ -1774,6 +1831,12 @@ func (m *SessionManager) SetMemoryHook(hook MemoryHook) {
 // Must be set alongside SetMemoryHook. Not thread-safe for setup.
 func (m *SessionManager) SetMemoryManager(mm *conversation.Manager) {
 	m.memoryManager = mm
+}
+
+// SetChannelMetadataStore configures the DB store for channel metadata.
+// Must be called before Init(). Not thread-safe for setup.
+func (m *SessionManager) SetChannelMetadataStore(store ChannelMetadataStore) {
+	m.metaStore = store
 }
 
 // SetIdleReaper enables automatic context compression for idle sessions.
@@ -1834,6 +1897,9 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	if m.memoryManager != nil {
 		s.memoryManager = m.memoryManager
 	}
+	if m.metaStore != nil {
+		s.metaStore = m.metaStore
+	}
 	if m.idleTimeout > 0 {
 		s.idleTimeout = m.idleTimeout
 		s.compactThreshold = m.compactThreshold
@@ -1848,7 +1914,7 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	m.session = s
 
 	m.logger.InfoContext(ctx, logger.CatApp, "session initialized",
-		"session_id", id,
+		"target_id", id,
 		"team_id", teamID,
 		"total_duration", time.Since(initStart).String(),
 	)

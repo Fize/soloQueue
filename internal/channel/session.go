@@ -33,6 +33,7 @@ type SessionProvider interface {
 	Compact(ctx context.Context) error
 	CancelCurrent(reason string) error
 	SaveUploadedFile(ctx context.Context, filename string, content []byte) (string, error)
+	SetChannelSenderData(channelType string, metadata []byte, fn func(context.Context, string) error)
 }
 
 var (

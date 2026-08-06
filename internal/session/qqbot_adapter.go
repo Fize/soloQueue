@@ -110,13 +110,13 @@ func (b *channelAdapterBase) consumeAskStreamEvents(
 
 		case agent.ToolNeedsConfirmEvent:
 			b.log.InfoContext(ctx, logger.CatApp, "channel adapter: auto-approving tool",
-				"session_id", sess.ID,
+				"target_id", sess.TargetID,
 				"tool_name", e.Name,
 				"call_id", e.CallID,
 			)
 			if err := sess.Agent.Confirm(e.CallID, "approve"); err != nil {
 				b.log.WarnContext(ctx, logger.CatApp, "channel adapter: auto-approve failed",
-					"session_id", sess.ID,
+					"target_id", sess.TargetID,
 					"call_id", e.CallID,
 					"err", err.Error(),
 				)
@@ -266,6 +266,14 @@ func (a *SessionAskAdapter) SetChannelSender(channelType string, fn func(context
 	}
 }
 
+// SetChannelSenderData saves the sender closure and persists its metadata.
+func (a *SessionAskAdapter) SetChannelSenderData(channelType string, metadata []byte, fn func(context.Context, string) error) {
+	if sess := a.mgr.Session(); sess != nil {
+		sess.SetChannelSenderData(channelType, metadata, fn)
+	}
+}
+
+
 // AskStream implements channel.SessionProvider.
 func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
 	sess := a.mgr.Session()
@@ -282,7 +290,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 	if cw != nil {
 		tokens, _, _ := cw.TokenUsage()
 		a.log.InfoContext(ctx, logger.CatApp, "channel adapter: session CW state",
-			"session_id", sess.ID,
+			"target_id", sess.TargetID,
 			"cw_tokens", tokens,
 			"cw_msgs", cw.Len(),
 		)
@@ -403,6 +411,15 @@ func (a *L2ChannelAdapter) SetChannelSender(channelType string, fn func(context.
 	}
 }
 
+// SetChannelSenderData saves the sender closure and persists its metadata.
+func (a *L2ChannelAdapter) SetChannelSenderData(channelType string, metadata []byte, fn func(context.Context, string) error) {
+	if sess, err := a.getSession(context.Background()); err == nil {
+		sess.SetChannelSenderData(channelType, metadata, fn)
+		a.l2Store.SetChannelSenderDataForGroup(a.bindAgent, channelType, metadata, fn)
+	}
+}
+
+
 // AskStream implements channel.SessionProvider.
 func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
 	sess, err := a.getSession(ctx)
@@ -419,7 +436,7 @@ func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onInter
 	if cw != nil {
 		tokens, _, _ := cw.TokenUsage()
 		a.log.InfoContext(ctx, logger.CatApp, "channel L2 adapter: session CW state",
-			"session_id", sess.ID,
+			"target_id", sess.TargetID,
 			"cw_tokens", tokens,
 			"cw_msgs", cw.Len(),
 		)
@@ -482,6 +499,9 @@ func (a *ErrorChannelAdapter) AskStream(ctx context.Context, prompt string, onIn
 
 func (a *ErrorChannelAdapter) SaveUploadedFile(ctx context.Context, filename string, content []byte) (string, error) {
 	return "", errors.New(a.errMsg)
+}
+
+func (a *ErrorChannelAdapter) SetChannelSenderData(channelType string, metadata []byte, fn func(context.Context, string) error) {
 }
 
 // ─── Parsers ─────────────────────────────────────────────────────────────────
