@@ -16,18 +16,18 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/cron"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 func mcpLoaderFromRT(rt *runtime.Stack) *mcp.Loader {
@@ -95,6 +95,8 @@ func ServeCmd(version string) *cobra.Command {
 			mgr.SetVisionDescriber(session.BuildVisionDescriber(cfg, log))
 			mgr.SetChannelMetadataStore(rt.SharedDB)
 			mgr.SetIdleReaper(30*time.Minute, 200000)
+			mgr.SetPersonaStatePath(filepath.Join(workDir, "persona", "roles", "state.md"))
+			mgr.SetPersonaReflection(rt.ReadLLMClient(), rt.FastModelProviderID, rt.FastModelID, func() string { return prompt.ReadSoulName(rt.PromptCfg) })
 
 			// Initialize Scheduled Tasks (Cron & Timers) system
 			cronStore := cron.NewDBStore(rt.SharedDB)

@@ -28,8 +28,8 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 )
 
 const (
@@ -227,6 +227,10 @@ Focus on:
 - What was accomplished or decided
 - Key files or code that were modified
 - Important outcomes or decisions
+- USER EMOTION: the user's visible emotional signals per entry (e.g.
+  "user: amused, laughed at the pun", "user: frustrated, repeated the
+  question twice"). Record only observable signals, never inferences.
+  If neutral, write "user mood: neutral".
 
 Be brief. Use bullet points.
 
@@ -251,6 +255,10 @@ Instructions:
 - Preserve other existing ## entries unchanged
 - Keep it concise and index-like — under 300 words total
 - Use bullet points
+- USER EMOTION: the user's visible emotional signals per entry (e.g.
+  "user: amused, laughed at the pun", "user: frustrated, repeated the
+  question twice"). Record only observable signals, never inferences.
+  If neutral, write "user mood: neutral".
 
 Output the COMPLETE merged file content (including the # DATE header and all ## entries).`, existing, conversationText)
 }

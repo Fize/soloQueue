@@ -23,12 +23,12 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
-	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 
@@ -125,16 +125,16 @@ type ChannelMetadataStore interface {
 // Session represents a conversation session.
 type Session struct {
 	TargetID string
-	TeamID  string
-	Agent   *agent.Agent
-	Router  TaskRouterFunc // Optional: task routing classifier (nil = no routing, use default model)
-	Created time.Time
+	TeamID   string
+	Agent    *agent.Agent
+	Router   TaskRouterFunc // Optional: task routing classifier (nil = no routing, use default model)
+	Created  time.Time
 
-	mu     sync.Mutex
-	cw     *ctxwin.ContextWindow // Replaces original history, manages full conversation context
-	tl     *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
-	logger *logger.Logger        // Session-level logger
-	metaStore ChannelMetadataStore // Optional: for persisting channel sender metadata
+	mu        sync.Mutex
+	cw        *ctxwin.ContextWindow // Replaces original history, manages full conversation context
+	tl        *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
+	logger    *logger.Logger        // Session-level logger
+	metaStore ChannelMetadataStore  // Optional: for persisting channel sender metadata
 
 	// pending queue: new messages enqueue when session is busy, popped and injected
 	// into ContextWindow before the agent's next LLM API call in the tool loop, merging consecutive messages
@@ -191,8 +191,18 @@ type Session struct {
 	gitBaseRef   string
 	metaBaseline map[string]string // path→sha256 snapshot, non-git projects only
 
-	memoryHook    MemoryHook               // optional callback for short-term memory (nil = disabled)
+	memoryHook    MemoryHook            // optional callback for short-term memory (nil = disabled)
 	memoryManager *conversation.Manager // for dedup cursor; set alongside memoryHook
+
+	// personaStatePath points to the persona state.md used for the nightly
+	// reflection; empty disables persona state injection.
+	personaStatePath string
+
+	personaLLM  agent.LLMClient // reflection LLM; nil = reflection disabled (L2 sessions)
+	personaName func() string   // resolves assistant name from soul.md at call time
+
+	personaProviderID string // fast/classifier model provider for reflection LLM calls
+	personaModelID    string // fast/classifier model ID for reflection LLM calls
 
 	VisionDescriber VisionDescriberFunc // optional callback to transcribe images when active model lacks vision
 
@@ -620,6 +630,75 @@ func (s *Session) SetMemoryManager(mm *conversation.Manager) {
 	s.memoryManager = mm
 }
 
+// SetPersonaStatePath sets the path to the persona state.md for injection into
+// the context window. Empty disables persona state injection.
+func (s *Session) SetPersonaStatePath(p string) {
+	s.personaStatePath = p
+}
+
+// SetPersonaReflection enables persona reflection for this session. L1-only:
+// leave llm nil to disable reflection (L2 sessions). nameFn resolves the
+// assistant name from soul.md at call time; may be nil. providerID/modelID are
+// the fast/classifier model used for reflection LLM calls.
+func (s *Session) SetPersonaReflection(llm agent.LLMClient, providerID, modelID string, nameFn func() string) {
+	s.personaLLM = llm
+	s.personaProviderID = providerID
+	s.personaModelID = modelID
+	s.personaName = nameFn
+}
+
+// maybeInjectPersonaState pushes the persona state block as a system message
+// if it is enabled, the file exists, and the block is not already present.
+// The [persona_state] marker disappears on compaction/clear, so the block is
+// re-injected on the next user turn.
+func (s *Session) maybeInjectPersonaState() {
+	if s.personaStatePath == "" || s.cw == nil {
+		return
+	}
+	for i := 0; i < s.cw.Len(); i++ {
+		if m, ok := s.cw.MessageAt(i); ok && strings.Contains(m.Content, "[persona_state]") {
+			return
+		}
+	}
+	data, err := os.ReadFile(s.personaStatePath)
+	if err != nil {
+		return // missing state.md: silently skip
+	}
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return
+	}
+	s.cw.Push(ctxwin.RoleSystem, "[persona_state]\n"+content)
+}
+
+// runPersonaReflection runs the state.md reflection asynchronously on the
+// provided raw conversation. L1-only: disabled unless personaLLM is set.
+func (s *Session) runPersonaReflection(ctx context.Context, raw string) {
+	if s.personaLLM == nil || s.personaStatePath == "" || strings.TrimSpace(raw) == "" {
+		return
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error(logger.CatApp, "persona reflection: panic recovered", "panic", fmt.Sprintf("%v", r))
+			}
+		}()
+		name := "assistant"
+		if s.personaName != nil {
+			if n := s.personaName(); n != "" {
+				name = n
+			}
+		}
+		var daily string
+		if s.memoryManager != nil {
+			daily, _ = s.memoryManager.ReadRecentMemory(1)
+		}
+		if err := UpdatePersonaState(ctx, s.logger, s.personaLLM, s.personaStatePath, name, raw, daily, time.Now(), s.personaProviderID, s.personaModelID); err != nil {
+			s.logger.Error(logger.CatApp, "persona reflection failed", "err", err.Error())
+		}
+	}()
+}
+
 // Clear performs a soft clear: appends /clear control event to timeline, resets ContextWindow
 //
 // Does not delete any persistent data. ContextWindow only retains the system prompt.
@@ -656,6 +735,15 @@ func (s *Session) Clear() error {
 	// Reset ContextWindow (retaining system prompt)
 	s.cw.Reset()
 	s.mu.Unlock()
+
+	// Trigger persona reflection on the cleared conversation (L1-only).
+	if len(dateGroups) > 0 {
+		var parts []string
+		for _, g := range dateGroups {
+			parts = append(parts, formatPayloadForMemory(g.msgs))
+		}
+		s.runPersonaReflection(context.Background(), strings.Join(parts, "\n"))
+	}
 
 	// Call memory hook for each date group (outside lock)
 	if s.memoryHook != nil && len(dateGroups) > 0 {
@@ -1001,6 +1089,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	s.mu.Lock()
 	s.cw.Resize(effectiveCW, 0, 0)
 	cwLenBeforeTurn := s.cw.Len()
+	s.maybeInjectPersonaState()
 	s.cw.Push(ctxwin.RoleUser, prompt)
 	s.mu.Unlock()
 
@@ -1090,6 +1179,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		// Record the "/compact" prompt in CW + timeline so it survives the
 		// post-completion loadHistory. Without this the user's prompt is
 		// silently dropped from the chat UI.
+		s.maybeInjectPersonaState()
 		s.cw.Push(ctxwin.RoleUser, prompt)
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
@@ -1365,6 +1455,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			}
 		}
 	}
+	s.maybeInjectPersonaState()
 	s.cw.Push(ctxwin.RoleUser, prompt, pushOpts...)
 	s.mu.Unlock()
 
@@ -1834,13 +1925,20 @@ type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwi
 
 // SessionManager manages the unique active session
 type SessionManager struct {
-	factory       AgentFactory
-	routerFunc    TaskRouterFunc
-	memoryHook      MemoryHook
-	memoryManager   *conversation.Manager
-	metaStore       ChannelMetadataStore
-	visionDescriber VisionDescriberFunc
-	logger          *logger.Logger
+	factory          AgentFactory
+	routerFunc       TaskRouterFunc
+	memoryHook       MemoryHook
+	memoryManager    *conversation.Manager
+	metaStore        ChannelMetadataStore
+	visionDescriber  VisionDescriberFunc
+	personaStatePath string          // state.md path for persona state injection; empty = disabled
+	personaLLM       agent.LLMClient // reflection LLM for /clear persona reflection; nil = disabled (L2)
+	personaName      func() string   // resolves assistant name from soul.md at call time
+
+	personaProviderID string // fast/classifier model provider for reflection LLM calls
+	personaModelID    string // fast/classifier model ID for reflection LLM calls
+
+	logger *logger.Logger
 
 	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum tokens to trigger compact
@@ -1886,6 +1984,22 @@ func (m *SessionManager) SetVisionDescriber(fn VisionDescriberFunc) {
 // Must be set alongside SetMemoryHook. Not thread-safe for setup.
 func (m *SessionManager) SetMemoryManager(mm *conversation.Manager) {
 	m.memoryManager = mm
+}
+
+// SetPersonaStatePath sets the state.md path for persona state injection.
+// Must be called before Init(). Empty disables injection. Not thread-safe for setup.
+func (m *SessionManager) SetPersonaStatePath(p string) {
+	m.personaStatePath = p
+}
+
+// SetPersonaReflection enables persona reflection on /clear for the L1 session.
+// Must be called before Init(). Pass nil llm to disable (L2 sessions).
+// Not thread-safe for setup.
+func (m *SessionManager) SetPersonaReflection(llm agent.LLMClient, providerID, modelID string, nameFn func() string) {
+	m.personaLLM = llm
+	m.personaProviderID = providerID
+	m.personaModelID = modelID
+	m.personaName = nameFn
 }
 
 // SetChannelMetadataStore configures the DB store for channel metadata.
@@ -1942,6 +2056,8 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 
 	sessionLogger := m.logger.Child()
 	s := NewSession(id, teamID, a, cw, tl, sessionLogger)
+	s.SetPersonaStatePath(m.personaStatePath)
+	s.SetPersonaReflection(m.personaLLM, m.personaProviderID, m.personaModelID, m.personaName)
 
 	if m.routerFunc != nil {
 		s.Router = m.routerFunc

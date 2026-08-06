@@ -440,6 +440,31 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
 	}
 	summaryHook := func(segments []ctxwin.SummarySegment, finalSummary string) {
+		// Nightly persona reflection: runs async before the per-segment memory
+		// routing so the raw conversation is still available for evidence.
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					sessLog.Error(logger.CatApp, "persona reflection: panic recovered",
+						"panic", fmt.Sprintf("%v", r))
+				}
+			}()
+			name := prompt.ReadSoulName(b.RT.PromptCfg)
+			var raw strings.Builder
+			for _, seg := range segments {
+				raw.WriteString(FormatCtxwinMessages(seg.Msgs))
+				raw.WriteString("\n")
+			}
+			var daily string
+			if b.RT.MemoryManager != nil {
+				daily, _ = b.RT.MemoryManager.ReadRecentMemory(1)
+			}
+			statePath := filepath.Join(b.WorkDir, "persona", "roles", "state.md")
+			if err := UpdatePersonaState(context.Background(), sessLog, b.RT.ReadLLMClient(), statePath, name, raw.String(), daily, time.Now(), b.RT.FastModelProviderID, b.RT.FastModelID); err != nil {
+				sessLog.Error(logger.CatApp, "persona reflection failed", "err", err.Error())
+			}
+		}()
+
 		cutoff := time.Now().AddDate(0, 0, -7)
 		cursor := time.Time{}
 		if b.RT.MemoryManager != nil {

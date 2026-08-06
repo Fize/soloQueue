@@ -151,6 +151,10 @@ func TestBuildMergePrompt_EmptyExisting(t *testing.T) {
 	if strings.Contains(prompt, now.Format("15:04")) {
 		t.Error("prompt should NOT contain recordedAt time as a header")
 	}
+	// The empty-file variant must capture observable user emotion signals.
+	if !strings.Contains(prompt, "USER EMOTION") {
+		t.Error("prompt should contain USER EMOTION capture instruction")
+	}
 }
 
 func TestBuildMergePrompt_WithExisting(t *testing.T) {
@@ -172,6 +176,10 @@ func TestBuildMergePrompt_WithExisting(t *testing.T) {
 	// The recordedAt time should NOT appear as a header.
 	if strings.Contains(prompt, now.Format("15:04")) {
 		t.Error("prompt should NOT contain recordedAt time")
+	}
+	// The merge variant must capture observable user emotion signals.
+	if !strings.Contains(prompt, "USER EMOTION") {
+		t.Error("prompt should contain USER EMOTION capture instruction")
 	}
 }
 
