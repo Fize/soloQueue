@@ -540,6 +540,13 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				Arguments: tc.Function.Arguments,
 			})
 		}
+		var files []timeline.FileAttachment
+		for _, f := range msg.Files {
+			files = append(files, timeline.FileAttachment{
+				Name: f.Name,
+				Path: f.Path,
+			})
+		}
 		if err := tl.AppendMessage(&timeline.MessagePayload{
 			Role:             string(msg.Role),
 			Content:          msg.Content,
@@ -547,6 +554,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			Name:             msg.Name,
 			ToolCallID:       msg.ToolCallID,
 			ToolCalls:        toolCalls,
+			Files:            files,
 			IsEphemeral:      msg.IsEphemeral,
 			AgentID:          agentID,
 		}); err != nil {
@@ -927,6 +935,13 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 				Arguments: tc.Function.Arguments,
 			})
 		}
+		var files []timeline.FileAttachment
+		for _, f := range msg.Files {
+			files = append(files, timeline.FileAttachment{
+				Name: f.Name,
+				Path: f.Path,
+			})
+		}
 		if err := tl.AppendMessage(&timeline.MessagePayload{
 			Role:             string(msg.Role),
 			Content:          msg.Content,
@@ -934,6 +949,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 			Name:             msg.Name,
 			ToolCallID:       msg.ToolCallID,
 			ToolCalls:        toolCalls,
+			Files:            files,
 			IsEphemeral:      msg.IsEphemeral,
 			AgentID:          agentID,
 		}); err != nil {
@@ -1106,6 +1122,13 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 				Arguments: tc.Function.Arguments,
 			})
 		}
+		var files []timeline.FileAttachment
+		for _, f := range msg.Files {
+			files = append(files, timeline.FileAttachment{
+				Name: f.Name,
+				Path: f.Path,
+			})
+		}
 		if err := tl.AppendMessage(&timeline.MessagePayload{
 			Role:             string(msg.Role),
 			Content:          msg.Content,
@@ -1113,6 +1136,7 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 			Name:             msg.Name,
 			ToolCallID:       msg.ToolCallID,
 			ToolCalls:        toolCalls,
+			Files:            files,
 			IsEphemeral:      msg.IsEphemeral,
 			AgentID:          agentID,
 		}); err != nil {

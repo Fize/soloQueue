@@ -306,6 +306,7 @@ export interface SessionHistoryMessage {
   role: "user" | "assistant";
   segments: SessionHistorySegment[];
   timestamp: string;
+  files?: { name: string; path: string }[];
 }
 
 export interface SessionHistoryResponse {

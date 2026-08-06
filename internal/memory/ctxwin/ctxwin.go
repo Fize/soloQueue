@@ -23,6 +23,15 @@ type contextKey string
 // ImageContextKey is the context key for passing images ([]llm.ImageContent) between handlers.
 const ImageContextKey contextKey = "image_context"
 
+// FilesContextKey is the context key for passing file metadata ([]FileAttachment) between handlers.
+const FilesContextKey contextKey = "files_context"
+
+// FileAttachment represents file metadata attached to a user message.
+type FileAttachment struct {
+	Name string
+	Path string
+}
+
 // ─── PayloadMessage ─────────────────────────────────────────────────────────
 
 // PayloadMessage is the return type of BuildPayload
@@ -63,6 +72,7 @@ type Message struct {
 	Role             MessageRole
 	Content          string
 	Images           []llm.ImageContent // Multimodal images (only used in user messages)
+	Files            []FileAttachment   // Attached files metadata (only used in user messages)
 	Tokens           int                // Estimated on insertion; after Calibrate, sum no longer guarantees == currentTokens
 	IsEphemeral      bool               // Marks verbose tool output (large error logs, file read results)
 	ReasoningContent string             // DeepSeek reasoning; required for API roundtrip
@@ -100,6 +110,11 @@ func WithToolCallID(id string) PushOption {
 // WithImages sets multimodal images (only used in user messages)
 func WithImages(images []llm.ImageContent) PushOption {
 	return func(m *Message) { m.Images = images }
+}
+
+// WithFiles sets file metadata attachments (only used in user messages)
+func WithFiles(files []FileAttachment) PushOption {
+	return func(m *Message) { m.Files = files }
 }
 
 // WithToolCalls sets the tool call list (used when role=assistant)
