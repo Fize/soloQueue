@@ -3,6 +3,7 @@ package qq
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -135,6 +136,17 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 
 	// 2b. Register channel sender for system notifications (cron, etc.).
 	if s, ok := b.sess.(interface {
+		SetChannelSenderData(string, []byte, func(context.Context, string) error)
+	}); ok {
+		msgBytes, _ := json.Marshal(msg)
+		s.SetChannelSenderData("qq", msgBytes, func(ctx context.Context, text string) error {
+			formatted := QQMarkdown(text)
+			return b.SendActiveMessage(ctx, msg, MsgTypeMarkdown, formatted)
+		})
+		b.log.InfoContext(ctx, logger.CatApp, "qqbot: channelSender registered with metadata",
+			"open_id", msg.OpenID,
+		)
+	} else if s, ok := b.sess.(interface {
 		SetChannelSender(string, func(context.Context, string) error)
 	}); ok {
 		s.SetChannelSender("qq", func(ctx context.Context, text string) error {

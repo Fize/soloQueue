@@ -62,6 +62,36 @@ func Open(path string) (*DB, error) {
 	return db, nil
 }
 
+// SaveChannelSenderData persists channel metadata for a given target.
+func (d *DB) SaveChannelSenderData(targetID, channelType, metadata string) error {
+	d.WMu.Lock()
+	defer d.WMu.Unlock()
+	_, err := d.Exec(`
+		INSERT INTO channel_senders (target_id, channel_type, metadata, updated_at)
+		VALUES (?, ?, ?, datetime('now'))
+		ON CONFLICT(target_id, channel_type) DO UPDATE SET
+			metadata = excluded.metadata,
+			updated_at = excluded.updated_at
+	`, targetID, channelType, metadata)
+	return err
+}
+
+// GetChannelSenderData retrieves channel metadata for a given target.
+func (d *DB) GetChannelSenderData(targetID, channelType string) (string, error) {
+	var metadata string
+	err := d.QueryRow(`
+		SELECT metadata FROM channel_senders
+		WHERE target_id = ? AND channel_type = ?
+	`, targetID, channelType).Scan(&metadata)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return metadata, nil
+}
+
 // snapshot contains the full idempotent DDL for all live tables.
 const snapshot = `
 -- scheduled_tasks
@@ -426,6 +456,14 @@ CREATE TABLE IF NOT EXISTS workflow_confirmations (
 	resolved_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_workflow_confirmations_run ON workflow_confirmations(workflow_run_id, status);
+
+CREATE TABLE IF NOT EXISTS channel_senders (
+	target_id TEXT NOT NULL,
+	channel_type TEXT NOT NULL,
+	metadata TEXT NOT NULL,
+	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+	PRIMARY KEY (target_id, channel_type)
+);
 `
 
 // migrate applies the schema snapshot on every startup.

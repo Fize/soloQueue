@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -43,7 +44,15 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 	b.lastMsg = msg
 
 	// Register channel sender for system notifications (cron, etc.).
-	if s, ok := b.sess.(interface{ SetChannelSender(string, func(context.Context, string) error) }); ok {
+	if s, ok := b.sess.(interface{ SetChannelSenderData(string, []byte, func(context.Context, string) error) }); ok {
+		msgBytes, _ := json.Marshal(msg)
+		s.SetChannelSenderData(msg.Channel, msgBytes, func(ctx context.Context, text string) error {
+			return b.sender.SendText(ctx, b.lastMsg, text)
+		})
+		b.log.InfoContext(ctx, logger.CatApp, "bridge: channelSender registered with metadata",
+			"channel", msg.Channel,
+		)
+	} else if s, ok := b.sess.(interface{ SetChannelSender(string, func(context.Context, string) error) }); ok {
 		s.SetChannelSender(msg.Channel, func(ctx context.Context, text string) error {
 			return b.sender.SendText(ctx, b.lastMsg, text)
 		})
@@ -143,10 +152,18 @@ func (b *TextBridge) handleCommand(ctx context.Context, msg Message) bool {
 }
 
 func (b *TextBridge) send(ctx context.Context, msg Message, text string) {
+	_ = b.Send(ctx, msg, text)
+}
+
+// Send sends a text response and returns any error encountered.
+func (b *TextBridge) Send(ctx context.Context, msg Message, text string) error {
 	start := time.Now()
-	if err := b.sender.SendText(ctx, msg, text); err != nil {
+	err := b.sender.SendText(ctx, msg, text)
+	if err != nil {
 		b.log.WarnContext(ctx, logger.CatApp, "channel reply failed", "channel", msg.Channel, "text_len", len(text), "duration_ms", time.Since(start).Milliseconds(), "err", err.Error())
-		return
+		return err
 	}
 	b.log.InfoContext(ctx, logger.CatApp, "channel reply sent", "channel", msg.Channel, "text_len", len(text), "duration_ms", time.Since(start).Milliseconds())
+	return nil
 }
+

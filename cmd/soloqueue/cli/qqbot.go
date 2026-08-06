@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -141,7 +142,7 @@ type QQBotManager struct {
 
 // NewQQBotManager creates a new QQBotManager.
 func NewQQBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) *QQBotManager {
-	return &QQBotManager{
+	m := &QQBotManager{
 		cfg:           cfg,
 		mgr:           mgr,
 		l2Store:       l2Store,
@@ -152,6 +153,35 @@ func NewQQBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2S
 		supervisorsFn: supervisorsFn,
 		registry:      registry,
 	}
+
+	channel.RegisterSenderFactory("qq", func(ctx context.Context, data []byte, text string) error {
+		var msg qqbot.QQMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return err
+		}
+		formatted := qqbot.QQMarkdown(text)
+
+		m.mu.Lock()
+		bridges := make([]*qqbot.SessionBridge, len(m.bridges))
+		copy(bridges, m.bridges)
+		m.mu.Unlock()
+
+		if len(bridges) == 0 {
+			return fmt.Errorf("no active qq bridge available")
+		}
+
+		var lastErr error
+		for _, b := range bridges {
+			err := b.SendActiveMessage(ctx, msg, qqbot.MsgTypeMarkdown, formatted)
+			if err == nil {
+				return nil
+			}
+			lastErr = err
+		}
+		return fmt.Errorf("all qq bridges failed to send, last error: %w", lastErr)
+	})
+
+	return m
 }
 
 // Reload stops all running gateways and starts fresh ones from current config.

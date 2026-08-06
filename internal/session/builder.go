@@ -1009,7 +1009,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	}
 
 	sessLog.Info(logger.CatActor, "BuildL2: session created",
-		"session_id", sessionID,
+		"target_id", sessionID,
 		"group", group,
 		"agent_id", agentID,
 	)
@@ -1145,7 +1145,7 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	s.Supervisor = sv
 
 	sessLog.Info(logger.CatActor, "BuildL2ForCron: session created",
-		"session_id", sessionID,
+		"target_id", sessionID,
 		"group", group,
 		"agent_id", agentID,
 	)
