@@ -3,9 +3,102 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
+
+// stubRuntime is a test double for ToolRuntime. Only HTTPPost has behavior:
+// it records the request and returns a preset response. Everything else is a
+// zero-value no-op.
+type stubRuntime struct {
+	response HTTPResponse
+
+	postURL  string
+	postBody string
+	postOpts HTTPOptions
+}
+
+var _ ToolRuntime = (*stubRuntime)(nil)
+
+func (s *stubRuntime) Type() RuntimeType   { return RuntimeHost }
+func (s *stubRuntime) BackendName() string { return "stub" }
+func (s *stubRuntime) RunCommand(context.Context, string, RunCommandOptions) (RunCommandResult, error) {
+	return RunCommandResult{}, nil
+}
+func (s *stubRuntime) StartProcess(context.Context, ProcessSpec) (Process, error) { return nil, nil }
+func (s *stubRuntime) ReadFile(context.Context, string, ReadFileOptions) (ReadFileResult, error) {
+	return ReadFileResult{}, nil
+}
+func (s *stubRuntime) WriteFile(context.Context, string, []byte, WriteFileOptions) (WriteFileResult, error) {
+	return WriteFileResult{}, nil
+}
+func (s *stubRuntime) MkdirAll(context.Context, string) error { return nil }
+func (s *stubRuntime) Stat(context.Context, string) (FileInfo, error) {
+	return FileInfo{}, nil
+}
+func (s *stubRuntime) Glob(context.Context, string, string, GlobOptions) ([]string, error) {
+	return nil, nil
+}
+func (s *stubRuntime) Grep(context.Context, string, string, GrepOptions) ([]GrepMatch, error) {
+	return nil, nil
+}
+func (s *stubRuntime) HTTPGet(context.Context, string, HTTPOptions) (HTTPResponse, error) {
+	return HTTPResponse{}, nil
+}
+func (s *stubRuntime) HTTPPost(_ context.Context, rawURL, body string, opts HTTPOptions) (HTTPResponse, error) {
+	s.postURL = rawURL
+	s.postBody = body
+	s.postOpts = opts
+	return s.response, nil
+}
+func (s *stubRuntime) ExportFile(context.Context, string) (string, error) { return "", nil }
+
+const tavilyResponseJSON = `{"query":"golang errgroup","results":[{"title":"errgroup package - Go Packages","url":"https://pkg.go.dev/golang.org/x/sync/errgroup","content":"Package errgroup provides synchronization, error propagation, and Context cancellation.","score":0.98}]}`
+
+func TestWebSearch_UsesTavilyWhenKeySet(t *testing.T) {
+	stub := &stubRuntime{response: HTTPResponse{StatusCode: 200, Body: []byte(tavilyResponseJSON)}}
+	tool := newWebSearchTool(Config{
+		WebSearchTimeout: 2 * time.Second,
+		TavilyAPIKey:     "tvly-test-123",
+		Runtime:          stub,
+	})
+
+	out, err := tool.Execute(context.Background(), `{"query":"golang errgroup"}`)
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	if stub.postURL != "https://api.tavily.com/search" {
+		t.Errorf("postURL = %q, want https://api.tavily.com/search", stub.postURL)
+	}
+	if got := stub.postOpts.Headers["Authorization"]; got != "Bearer tvly-test-123" {
+		t.Errorf("Authorization header = %q, want Bearer tvly-test-123", got)
+	}
+	if !strings.Contains(stub.postBody, "golang errgroup") {
+		t.Errorf("postBody = %q, want it to contain query %q", stub.postBody, "golang errgroup")
+	}
+
+	var parsed struct {
+		Results []struct {
+			Title string `json:"title"`
+			URL   string `json:"url"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("out is not valid JSON: %v; out = %s", err, out)
+	}
+	if len(parsed.Results) == 0 {
+		t.Fatalf("results empty; out = %s", out)
+	}
+	if parsed.Results[0].Title != "errgroup package - Go Packages" {
+		t.Errorf("results[0].title = %q, want %q", parsed.Results[0].Title, "errgroup package - Go Packages")
+	}
+	if parsed.Results[0].URL != "https://pkg.go.dev/golang.org/x/sync/errgroup" {
+		t.Errorf("results[0].url = %q, want %q", parsed.Results[0].URL, "https://pkg.go.dev/golang.org/x/sync/errgroup")
+	}
+}
+
 
 const ddgLiteHTML = `<!DOCTYPE HTML>
 <html><body>
@@ -36,6 +129,42 @@ const ddgLiteHTML = `<!DOCTYPE HTML>
   </tr>
 </table>
 </body></html>`
+
+// TestWebSearch_UsesDDGWhenNoKey locks in the fallback branch: without a
+// Tavily API key the tool must POST to DuckDuckGo Lite and parse its HTML.
+func TestWebSearch_UsesDDGWhenNoKey(t *testing.T) {
+	stub := &stubRuntime{response: HTTPResponse{StatusCode: 200, Body: []byte(ddgLiteHTML)}}
+	tool := newWebSearchTool(Config{
+		WebSearchTimeout: 2 * time.Second,
+		Runtime:          stub,
+	})
+
+	out, err := tool.Execute(context.Background(), `{"query":"golang errgroup"}`)
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	if stub.postURL != "https://lite.duckduckgo.com/lite/" {
+		t.Errorf("postURL = %q, want https://lite.duckduckgo.com/lite/", stub.postURL)
+	}
+	if stub.postOpts.ContentType != "application/x-www-form-urlencoded" {
+		t.Errorf("ContentType = %q, want application/x-www-form-urlencoded", stub.postOpts.ContentType)
+	}
+	if !strings.Contains(stub.postBody, "q=golang+errgroup") {
+		t.Errorf("postBody = %q, want it to contain url-encoded query %q", stub.postBody, "q=golang+errgroup")
+	}
+
+	var parsed webSearchResult
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("out is not valid JSON: %v; out = %s", err, out)
+	}
+	if len(parsed.Results) == 0 {
+		t.Fatalf("results empty; out = %s", out)
+	}
+	if parsed.Results[0].Title != "errgroup package - Go Packages" {
+		t.Errorf("results[0].title = %q, want %q", parsed.Results[0].Title, "errgroup package - Go Packages")
+	}
+}
 
 func mkWebSearchTool(t *testing.T) *webSearchTool {
 	t.Helper()
@@ -144,6 +273,24 @@ func TestWebSearch_MaxResultsCapped(t *testing.T) {
 	}
 	if maxR != 20 {
 		t.Errorf("capped max = %d, want 20", maxR)
+	}
+}
+
+// TestWebSearch_DescriptionReflectsProvider locks in that the tool's
+// Description advertises the provider that will actually be used: DuckDuckGo
+// without a Tavily key, Tavily (and not DuckDuckGo) when a key is set.
+func TestWebSearch_DescriptionReflectsProvider(t *testing.T) {
+	noKey := newWebSearchTool(Config{WebSearchTimeout: 2 * time.Second})
+	withKey := newWebSearchTool(Config{WebSearchTimeout: 2 * time.Second, TavilyAPIKey: "tvly-test-123"})
+
+	if got := noKey.Description(); !strings.Contains(got, "DuckDuckGo") {
+		t.Errorf("no-key Description() = %q, want it to contain %q", got, "DuckDuckGo")
+	}
+	if got := withKey.Description(); !strings.Contains(got, "Tavily") {
+		t.Errorf("with-key Description() = %q, want it to contain %q", got, "Tavily")
+	}
+	if got := withKey.Description(); strings.Contains(got, "DuckDuckGo") {
+		t.Errorf("with-key Description() = %q, must not contain %q", got, "DuckDuckGo")
 	}
 }
 

@@ -96,6 +96,9 @@ type Config struct {
 	// WebSearchTimeout is the web search request timeout.
 	WebSearchTimeout time.Duration
 
+	// TavilyAPIKey, when non-empty, routes WebSearch through the Tavily API instead of DuckDuckGo Lite.
+	TavilyAPIKey string
+
 	// ── Logging ──────────────────────────────────────────────────
 	// Logger is an optional logger instance (nil disables logging).
 	Logger *logger.Logger

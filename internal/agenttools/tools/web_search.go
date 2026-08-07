@@ -43,7 +43,10 @@ func newWebSearchTool(cfg Config) *webSearchTool {
 
 func (webSearchTool) Name() string { return "WebSearch" }
 
-func (webSearchTool) Description() string {
+func (t *webSearchTool) Description() string {
+	if t.cfg.TavilyAPIKey != "" {
+		return "Search the web via Tavily. Returns {results:[{title,url,content}]}."
+	}
 	return "Search the web via DuckDuckGo. Returns {results:[{title,url,content}]}."
 }
 
@@ -86,9 +89,14 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 		return "", err
 	}
 
+	provider := "ddg"
+	if t.cfg.TavilyAPIKey != "" {
+		provider = "tavily"
+	}
+
 	if t.logger != nil {
 		t.logger.InfoContext(ctx, logger.CatTool, "web_search: starting",
-			"query", a.Query)
+			"query", a.Query, "provider", provider)
 	}
 	start := time.Now()
 
@@ -100,8 +108,32 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 		maxR = 20
 	}
 
+	var results []ddgResult
+	var err error
+	if t.cfg.TavilyAPIKey != "" {
+		results, err = t.tavilySearch(ctx, a.Query, maxR)
+	} else {
+		results, err = t.ddgSearch(ctx, a.Query, maxR)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	if t.logger != nil {
+		t.logger.InfoContext(ctx, logger.CatTool, "web_search: completed",
+			"query", a.Query, "results", len(results),
+			"duration_ms", time.Since(start).Milliseconds(), "provider", provider)
+	}
+
+	out := webSearchResult{Results: results}
+	b, _ := json.Marshal(out)
+	return string(b), nil
+}
+
+// ddgSearch queries DuckDuckGo Lite and parses the HTML response.
+func (t *webSearchTool) ddgSearch(ctx context.Context, query string, maxResults int) ([]ddgResult, error) {
 	form := url.Values{}
-	form.Set("q", a.Query)
+	form.Set("q", query)
 
 	httpResp, err := t.cfg.Runtime.HTTPPost(ctx, "https://lite.duckduckgo.com/lite/",
 		form.Encode(),
@@ -113,24 +145,51 @@ func (t *webSearchTool) Execute(ctx context.Context, raw string) (string, error)
 		},
 	)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	data := httpResp.Body
 	if httpResp.StatusCode >= 400 {
-		return "", fmt.Errorf("WebSearch %d: %s", httpResp.StatusCode, truncateString(string(data), 200))
+		return nil, fmt.Errorf("WebSearch %d: %s", httpResp.StatusCode, truncateString(string(data), 200))
+	}
+	return parseDDGResults(data, maxResults), nil
+}
+
+// tavilySearch queries the Tavily API and parses the JSON response.
+func (t *webSearchTool) tavilySearch(ctx context.Context, query string, maxResults int) ([]ddgResult, error) {
+	body, err := json.Marshal(struct {
+		Query         string `json:"query"`
+		MaxResults    int    `json:"max_results"`
+		SearchDepth   string `json:"search_depth"`
+		IncludeAnswer bool   `json:"include_answer"`
+	}{query, maxResults, "basic", false})
+	if err != nil {
+		return nil, err
 	}
 
-	results := parseDDGResults(data, maxR)
-
-	if t.logger != nil {
-		t.logger.InfoContext(ctx, logger.CatTool, "web_search: completed",
-			"query", a.Query, "results", len(results),
-			"duration_ms", time.Since(start).Milliseconds())
+	httpResp, err := t.cfg.Runtime.HTTPPost(ctx, "https://api.tavily.com/search",
+		string(body),
+		HTTPOptions{
+			Timeout:     t.cfg.WebSearchTimeout,
+			MaxBody:     2 << 20,
+			ContentType: "application/json",
+			Headers:     map[string]string{"Authorization": "Bearer " + t.cfg.TavilyAPIKey},
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	data := httpResp.Body
+	if httpResp.StatusCode >= 400 {
+		return nil, fmt.Errorf("WebSearch %d: %s", httpResp.StatusCode, truncateString(string(data), 200))
 	}
 
-	out := webSearchResult{Results: results}
-	b, _ := json.Marshal(out)
-	return string(b), nil
+	var parsed struct {
+		Results []ddgResult `json:"results"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	return parsed.Results, nil
 }
 
 // parseDDGResults extracts search results from DuckDuckGo Lite HTML.

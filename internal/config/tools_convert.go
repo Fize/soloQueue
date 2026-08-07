@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
@@ -14,6 +15,10 @@ func (tc ToolsConfig) ToToolsConfig() tools.Config {
 // ToToolsConfigWithSandbox converts config.ToolsConfig and config.SandboxConfig to tools.Config.
 func (tc ToolsConfig) ToToolsConfigWithSandbox(sandbox SandboxConfig) tools.Config {
 	runtimeType := sandbox.RuntimeType()
+	tavilyKey := tc.TavilyAPIKey
+	if tavilyKey == "" {
+		tavilyKey = os.Getenv(tc.TavilyAPIKeyEnv)
+	}
 	return tools.Config{
 		MaxFileSize:        defaultInt64(tc.MaxFileSize, 1<<20),
 		MaxMatches:         DefaultInt(tc.MaxMatches, 100),
@@ -34,6 +39,7 @@ func (tc ToolsConfig) ToToolsConfigWithSandbox(sandbox SandboxConfig) tools.Conf
 		ShellMaxOutput:      defaultInt64(tc.ShellMaxOutput, 256<<10),
 
 		WebSearchTimeout: msToDuration(tc.WebSearchTimeoutMs, 10*time.Minute),
+		TavilyAPIKey:     tavilyKey,
 
 		ImageModels: toImgModelCfgs(tc.ImageModels),
 

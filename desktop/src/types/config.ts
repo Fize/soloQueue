@@ -86,6 +86,8 @@ export interface ToolsConfig {
   shellConfirmRegexes?: string[];
   shellMaxOutput: number;
   webSearchTimeoutMs: number;
+  tavilyApiKey?: string;
+  tavilyApiKeyEnv?: string;
   imageModels?: ImageModelConfig[];
 }
 
