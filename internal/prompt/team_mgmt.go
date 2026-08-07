@@ -137,11 +137,11 @@ Check each result. If any fails, report which member failed.
 After each Write, the system appends [auto] status lines to the result:
 
 - "[auto] Team '<name>' registered. You can now create members for this team."
-- "[auto] Leader '<name>' (<team>) created and activated. Use delegate_<name> to assign tasks."
+- "[auto] Leader '<name>' (<team>) created and activated. Use delegate(target='<name>', ...) to assign tasks."
 - "[auto] Worker '<name>' (<team>) created and activated."
 
 Verify these confirmations appear. Once the leader is active, you can immediately
-use delegate_<leader-name> to assign tasks to the new team.
+use delegate(target="<leader-name>", ...) to assign tasks to the new team.
 
 ## Modifying Teams and Members
 
@@ -152,7 +152,7 @@ no restart required.
 Common modifications:
 
 - **Change leader**: Edit the member file and set is_leader: true. Also edit the
-  previous leader and set is_leader: false. The delegate_* tool for the new
+  previous leader and set is_leader: false. The delegate target for the new
   leader is automatically registered.
 - **Update system prompt**: Edit the markdown body of the member file to refine
   behavior, add constraints, or adjust communication style.

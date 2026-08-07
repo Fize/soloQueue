@@ -26,7 +26,7 @@ func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile) string
 	})
 
 	var b strings.Builder
-	b.WriteString("YOU MUST DELEGATE — every task goes to one of these teams (use the corresponding delegate_* tool):\n")
+	b.WriteString("YOU MUST DELEGATE — every task goes to one of these teams (use the delegate tool):\n")
 
 	// Determine if any leader has group description info
 	hasGroupInfo := false
@@ -50,17 +50,15 @@ func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile) string
 				}
 			}
 
-			toolName := "delegate_" + strings.ReplaceAll(l.Name, " ", "_")
-			fmt.Fprintf(&b, "- Leader: %s → call %s(task=\"...\", work_dir=\"...\")\n", l.Name, toolName)
+			fmt.Fprintf(&b, "- Leader: %s → call delegate(target=\"%s\", task=\"...\", work_dir=\"...\")\n", l.Name, l.Name)
 		}
 	} else {
 		// Old format: inline (backward compatible)
 		for _, l := range sorted {
-			toolName := "delegate_" + strings.ReplaceAll(l.Name, " ", "_")
 			if l.Group != "" {
-				fmt.Fprintf(&b, "\n- %s (%s): %s → call %s(task=\"...\")", l.Name, l.Group, l.Description, toolName)
+				fmt.Fprintf(&b, "\n- %s (%s): %s → call delegate(target=\"%s\", task=\"...\")", l.Name, l.Group, l.Description, l.Name)
 			} else {
-				fmt.Fprintf(&b, "\n- %s: %s → call %s(task=\"...\")", l.Name, l.Description, toolName)
+				fmt.Fprintf(&b, "\n- %s: %s → call delegate(target=\"%s\", task=\"...\")", l.Name, l.Description, l.Name)
 			}
 		}
 	}

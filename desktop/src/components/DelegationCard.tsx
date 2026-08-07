@@ -32,10 +32,25 @@ export function DelegationCard({
 
   const { t } = useTranslation()
 
-  const rawName = name.startsWith('delegate_') ? name.substring(9) : name
-  const cleanName = rawName.replace(/_/g, ' ')
+  const getTargetName = () => {
+    const raw = name.startsWith('delegate_') ? name.substring(9) : name
+    if (raw !== 'delegate' && raw) {
+      return raw
+    }
+    try {
+      const parsed = JSON.parse(args)
+      if (parsed.target) return parsed.target
+    } catch {
+      const match = args.match(/"target"\s*:\s*"([^"]+)"/)
+      if (match && match[1]) return match[1]
+    }
+    return raw || 'agent'
+  }
 
-  const namePart = rawName.toLowerCase().replace(/[\s_-]/g, '')
+  const rawTarget = getTargetName()
+  const cleanName = rawTarget.replace(/_/g, ' ')
+
+  const namePart = rawTarget.toLowerCase().replace(/[\s_-]/g, '')
   const matchedAgent = agentsData?.agents.find(
     (a) => a.name.toLowerCase().replace(/[\s_-]/g, '') === namePart
   )

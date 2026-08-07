@@ -645,7 +645,7 @@ export const useChatStore = create<ChatState>((set) => ({
         if (msg.role !== 'assistant') return msg
         let messageChanged = false
         const segments = msg.segments.map((seg) => {
-          if (seg.type === 'tool_call' && seg.name.startsWith('delegate_') && !seg.done) {
+          if (seg.type === 'tool_call' && (seg.name === 'delegate' || seg.name.startsWith('delegate_')) && !seg.done) {
             changed = true
             messageChanged = true
             return { ...seg, done: true, error: 'Cancelled by user' }

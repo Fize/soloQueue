@@ -1142,7 +1142,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(msg.Content, "[Delegation Completed]") {
 				parsedResults := parseDelegationResults(msg.Content)
 				for _, ptc := range pendingToolCalls {
-					if !strings.HasPrefix(ptc.name, "delegate_") {
+					if !isDelegationToolName(ptc.name) {
 						continue
 					}
 					resultText, ok := parsedResults[ptc.callID]
@@ -1293,7 +1293,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			for _, ptc := range pendingToolCalls {
 				if ptc.callID == msg.ToolCallID {
 					if ptc.msgIdx < len(msgs) && ptc.segIdx < len(msgs[ptc.msgIdx].Segments) {
-						if strings.HasPrefix(ptc.name, "delegate_") && (msg.Content == "" || strings.HasPrefix(msg.Content, "Delegation started:")) {
+						if isDelegationToolName(ptc.name) && (msg.Content == "" || strings.HasPrefix(msg.Content, "Delegation started:")) {
 							// For delegation tools, the initial tool event is just a startup placeholder.
 							// Keep it as not done.
 							msgs[ptc.msgIdx].Segments[ptc.segIdx]["done"] = false
@@ -1380,6 +1380,10 @@ func extractDelegationAgentName(content string) string {
 		}
 	}
 	return "Subagent"
+}
+
+func isDelegationToolName(name string) bool {
+	return name == "delegate" || strings.HasPrefix(name, "delegate_")
 }
 
 // parseDelegationResults parses callID→result pairs from a "[Delegation Completed]" message content.

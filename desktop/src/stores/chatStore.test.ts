@@ -173,6 +173,13 @@ describe('chatStore', () => {
               },
               {
                 type: 'tool_call',
+                callId: 'unified-delegate-call',
+                name: 'delegate',
+                args: '{"target":"dev"}',
+                done: false,
+              },
+              {
+                type: 'tool_call',
                 callId: 'regular-call',
                 name: 'Read',
                 args: '{}',
@@ -194,8 +201,9 @@ describe('chatStore', () => {
 
     const segments = useChatStore.getState().messages[sid][0].segments
     expect(segments[0]).toMatchObject({ done: true, error: 'Cancelled by user' })
-    expect(segments[1]).toMatchObject({ done: false })
-    expect(segments[2]).toMatchObject({ status: 'cancelled' })
+    expect(segments[1]).toMatchObject({ done: true, error: 'Cancelled by user' })
+    expect(segments[2]).toMatchObject({ done: false })
+    expect(segments[3]).toMatchObject({ status: 'cancelled' })
   })
 
   it('sessionsLoading toggles true→false around loadSessions (drives the tree loading UI)', async () => {
