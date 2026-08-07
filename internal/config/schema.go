@@ -207,6 +207,10 @@ type ToolsConfig struct {
 
 	// WebSearch
 	WebSearchTimeoutMs int `json:"webSearchTimeoutMs" yaml:"web_search_timeout_ms,omitempty"`
+	// TavilyAPIKey enables the Tavily search backend when set; empty falls back to DuckDuckGo.
+	TavilyAPIKey string `json:"tavilyApiKey" yaml:"tavily_api_key,omitempty"`
+	// TavilyAPIKeyEnv is an env var fallback for TavilyAPIKey (used when the direct key is empty).
+	TavilyAPIKeyEnv string `json:"tavilyApiKeyEnv" yaml:"tavily_api_key_env,omitempty"`
 
 	// ImageGen
 	ImageModels []ImageModelConfig `json:"imageModels,omitempty" yaml:"image_models,omitempty"`
