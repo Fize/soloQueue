@@ -72,14 +72,6 @@ func (s *Session) CurrentLevel() string {
 	return s.lastLevel
 }
 
-// LevelLocked returns whether the task level has been locked by the user
-// via /l0, /l1, /l2, or /l3 commands.
-func (s *Session) LevelLocked() bool {
-	s.lastLevelMu.RLock()
-	defer s.lastLevelMu.RUnlock()
-	return s.levelLocked
-}
-
 // SetLastLevel sets the session's last classification level.
 // Called during session restore to recover the task level from disk.
 func (s *Session) SetLastLevel(level string) {
@@ -177,10 +169,9 @@ type Session struct {
 	// cancelled: forwarder sets this when cancelled, consumed and reset by the adapter
 	cancelled atomic.Bool
 
-	lastLevel       string       // last classified task level (L0-L3)
-	lastLevelMu     sync.RWMutex // protects lastLevel and levelLocked
-	levelLocked     bool         // true when user explicitly locked level via /l0-/l3
-	lastRouteResult RouteResult  // cached route result for locked mode (model params preserved)
+	lastLevel       string       // last classified task type
+	lastLevelMu     sync.RWMutex // protects lastLevel and lastRouteResult
+	lastRouteResult RouteResult  // cached route result (model params preserved)
 
 	// L2-only: coordinates persistent meta.json writes for level/git_base_ref/baseline.
 	// Empty on L1 sessions; MergeAndSave is only called when metaL2ID is non-empty.
@@ -1327,56 +1318,20 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	}
 	var activeRouteResult RouteResult
 	if s.Router != nil {
-		// Check for explicit level lock/unlock commands (/l0, /l1, /l2, /l3)
-		if newLevel, isLock := parseLevelLockCommand(prompt); isLock {
-			s.lastLevelMu.Lock()
-			s.levelLocked = true
-			s.lastLevel = newLevel
-			s.lastLevelMu.Unlock()
-			s.logger.DebugContext(ctx, logger.CatApp, "task level locked by user",
-				"target_id", s.TargetID,
-				"level", newLevel,
-			)
-		}
-
 		s.lastLevelMu.RLock()
-		locked := s.levelLocked
 		priorLevel := s.lastLevel
-		cachedResult := s.lastRouteResult
 		s.lastLevelMu.RUnlock()
 
-		var result RouteResult
-		var err error
-
-		if locked && !isLevelLockCommand(prompt) {
-			// Locked: skip routing, reuse cached model params
-			result = cachedResult
-			if result.ModelID == "" {
-				// If we have a locked level but no cached result (e.g. restart),
-				// fallback to the agent's default model and the locked level.
-				result.Level = s.lastLevel
-				result.ProviderID = s.Agent.Def.ProviderID
-				result.ModelID = s.Agent.Def.ModelID
-				result.ThinkingEnabled = s.Agent.Def.ThinkingEnabled
-				result.ReasoningEffort = s.Agent.Def.ReasoningEffort
-				result.ContextWindow = s.Agent.Def.ContextWindow
-			}
-			s.logger.DebugContext(ctx, logger.CatApp, "task routing skipped (level locked)",
+		routerCtx := telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageRouter)
+		result, err := s.Router(routerCtx, prompt, priorLevel, s.cw.BuildPayload())
+		if err != nil {
+			s.logger.WarnContext(ctx, logger.CatApp, "task router failed, using default model",
 				"target_id", s.TargetID,
-				"level", result.Level,
+				"err", err.Error(),
 			)
-		} else {
-			routerCtx := telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageRouter)
-			result, err = s.Router(routerCtx, prompt, priorLevel, s.cw.BuildPayload())
-			if err != nil {
-				s.logger.WarnContext(ctx, logger.CatApp, "task router failed, using default model",
-					"target_id", s.TargetID,
-					"err", err.Error(),
-				)
-				// Don't return — proceed with defaults (no model override)
-				result = RouteResult{
-					ClassifierWarning: "Task classification degraded: " + err.Error(),
-				}
+			// Don't return — proceed with defaults (no model override)
+			result = RouteResult{
+				ClassifierWarning: "Task classification degraded: " + err.Error(),
 			}
 		}
 
@@ -2126,35 +2081,7 @@ func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown completed")
 }
 
-// ─── Level lock helpers ─────────────────────────────────────────────────────
 
-// levelLockCommands maps slash commands to level labels.
-var levelLockCommands = map[string]string{
-	"l0": "L0-Conversation",
-	"l1": "L1-SimpleSingleFile",
-	"l2": "L2-MediumMultiFile",
-	"l3": "L3-ComplexRefactoring",
-}
-
-// parseLevelLockCommand checks if prompt starts with a level-lock command.
-// Returns (levelLabel, true) if found, ("", false) otherwise.
-func parseLevelLockCommand(prompt string) (string, bool) {
-	trimmed := strings.TrimSpace(prompt)
-	for cmd, label := range levelLockCommands {
-		prefix := "/" + cmd
-		if strings.HasPrefix(trimmed, prefix+" ") || trimmed == prefix {
-			return label, true
-		}
-	}
-	return "", false
-}
-
-// isLevelLockCommand returns true if prompt is a level-lock command
-// (including when followed by content, e.g., "/l2 analyze this").
-func isLevelLockCommand(prompt string) bool {
-	_, ok := parseLevelLockCommand(prompt)
-	return ok
-}
 
 // formatPayloadForMemory converts ctxwin payload messages to a plain-text string
 // suitable for short-term memory summarization. Skips system messages.

@@ -22,12 +22,6 @@ export const BUILTIN_SLASH_COMMANDS: AutocompleteItem[] = [
   { label: 'init',      description: 'chat.slashInit',                type: 'command' },
   { label: 'help',      description: 'chat.slashHelp',                type: 'command' },
   { label: 'version',   description: 'chat.slashVersion',                    type: 'command' },
-  // ── Routing level locks ──────────────────────────────────────────────────
-  { label: 'l0',        description: 'chat.slashL0',    type: 'command' },
-  { label: 'l1',        description: 'chat.slashL1',    type: 'command' },
-  { label: 'l2',        description: 'chat.slashL2',            type: 'command' },
-  { label: 'l3',        description: 'chat.slashL3',           type: 'command' },
-  { label: 'l4',        description: 'chat.slashL4',           type: 'command' },
 ]
 
 // ─── Component types ─────────────────────────────────────────────────────────

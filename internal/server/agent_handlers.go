@@ -323,7 +323,6 @@ type AgentInfoResponse struct {
 	TaskType           string `json:"task_type"`
 	ThinkingEnabled    bool   `json:"thinking_enabled"`
 	ReasoningEffort    string `json:"reasoning_effort"`
-	LevelLocked        bool   `json:"level_locked"`
 	LastLevel          string `json:"last_level"`
 	ErrorCount         int    `json:"error_count"`
 	LastError          string `json:"last_error"`
@@ -864,20 +863,17 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 	for _, a := range registered {
 		high, normal := a.MailboxDepth()
 		isQBot := false
-		levelLocked := false
 		lastLevel := ""
 		if m.sessionMgr != nil && m.sessionMgr.Session() != nil {
 			sess := m.sessionMgr.Session()
 			if a.Def.ID == "l1-agent" || (sess.Agent != nil && a.Def.ID == sess.Agent.Def.ID) {
 				isQBot = sess.IsQBot()
-				levelLocked = sess.LevelLocked()
 				lastLevel = sess.CurrentLevel()
 			}
 		}
 		if lastLevel == "" && m.l2Store != nil {
 			if sess := m.l2Store.FindByAgentInstanceID(a.InstanceID); sess != nil {
 				isQBot = sess.IsQBot()
-				levelLocked = sess.LevelLocked()
 				lastLevel = sess.CurrentLevel()
 			}
 		}
@@ -899,7 +895,6 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			TaskType:           a.EffectiveTaskType(),
 			ThinkingEnabled:    te,
 			ReasoningEffort:    re,
-			LevelLocked:        levelLocked,
 			LastLevel:          lastLevel,
 			ErrorCount:         int(a.ErrorCount()),
 			LastError:          a.LastError(),
@@ -932,12 +927,10 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 			}
 
 			isQBot := false
-			levelLocked := false
 			lastLevel := ""
 			if m.l2Store != nil {
 				if sess := m.l2Store.FindByAgentInstanceID(a.InstanceID); sess != nil {
 					isQBot = sess.IsQBot()
-					levelLocked = sess.LevelLocked()
 					lastLevel = sess.CurrentLevel()
 				}
 			}
@@ -954,7 +947,6 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 				TaskType:           a.EffectiveTaskType(),
 				ThinkingEnabled:    te,
 				ReasoningEffort:    re,
-				LevelLocked:        levelLocked,
 				LastLevel:          lastLevel,
 				ErrorCount:         int(a.ErrorCount()),
 				LastError:          a.LastError(),
