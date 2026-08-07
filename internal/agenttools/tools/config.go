@@ -222,7 +222,7 @@ func Build(cfg Config) []Tool {
 		}
 	}
 	if hasImgModel {
-		tools = append(tools, newImageGenTool(cfg), newImageEditTool(cfg))
+		tools = append(tools, newImageTool(cfg))
 	}
 	return tools
 }

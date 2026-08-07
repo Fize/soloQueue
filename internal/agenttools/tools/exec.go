@@ -76,7 +76,6 @@ type GlobOptions struct {
 
 // ─── Grep ───────────────────────────────────────────────────────────────────
 
-// GrepOptions contains search options.
 type GrepOptions struct {
 	// MaxMatches is the maximum number of matches to return. 0 means no limit.
 	MaxMatches int
@@ -84,6 +83,17 @@ type GrepOptions struct {
 	MaxLineLen int
 	// GlobPattern is an optional filename filter pattern such as "*.go".
 	GlobPattern string
+	// IncludeIgnored controls whether dependency/hidden dirs (node_modules, vendor, .git, etc.) are searched.
+	IncludeIgnored bool
+}
+
+func isDefaultIgnoredDir(name string) bool {
+	switch strings.ToLower(name) {
+	case ".git", "node_modules", "dist", "build", "vendor", ".soloqueue", ".next", ".cache", "coverage", "__pycache__":
+		return true
+	default:
+		return false
+	}
 }
 
 // GrepMatch represents a single-line match result.
@@ -380,7 +390,13 @@ func (s *Sandbox) Grep(ctx context.Context, dir string, pattern string, opts Gre
 			}
 		}
 
-		if d.IsDir() || !d.Type().IsRegular() {
+		if d.IsDir() {
+			if path != dir && !opts.IncludeIgnored && isDefaultIgnoredDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() {
 			return nil
 		}
 		if len(result) >= maxMatches {

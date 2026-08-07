@@ -56,9 +56,10 @@ type GlobOptions struct {
 
 // GrepOptions controls backend text search.
 type GrepOptions struct {
-	MaxMatches  int
-	MaxLineLen  int
-	GlobPattern string
+	MaxMatches     int
+	MaxLineLen     int
+	GlobPattern    string
+	IncludeIgnored bool
 }
 
 // GrepMatch is a single backend text-search result.
