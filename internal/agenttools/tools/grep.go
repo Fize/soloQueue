@@ -53,16 +53,18 @@ func (grepTool) Parameters() json.RawMessage {
   "properties":{
     "pattern":{"type":"string","description":"Go regexp pattern"},
     "dir":{"type":"string","description":"Directory to search"},
-    "glob":{"type":"string","description":"Optional file-name pattern (doublestar, supports **)"}
+    "glob":{"type":"string","description":"Optional file-name pattern (doublestar, supports **)"},
+    "include_ignored":{"type":"boolean","description":"Optional. Set to true to include node_modules, vendor, dist, and hidden directories in search."}
   },
   "required":["pattern","dir"]
 }`)
 }
 
 type grepArgs struct {
-	Pattern string `json:"pattern"`
-	Dir     string `json:"dir"`
-	Glob    string `json:"glob,omitempty"`
+	Pattern        string `json:"pattern"`
+	Dir            string `json:"dir"`
+	Glob           string `json:"glob,omitempty"`
+	IncludeIgnored bool   `json:"include_ignored,omitempty"`
 }
 
 type grepMatch struct {
@@ -120,9 +122,10 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 	}
 
 	grepMatches, err := t.cfg.Runtime.Grep(ctx, absDir, a.Pattern, GrepOptions{
-		MaxMatches:  maxMatches,
-		MaxLineLen:  maxLine,
-		GlobPattern: a.Glob,
+		MaxMatches:     maxMatches,
+		MaxLineLen:     maxLine,
+		GlobPattern:    a.Glob,
+		IncludeIgnored: a.IncludeIgnored,
 	})
 	if err != nil {
 		return "", err

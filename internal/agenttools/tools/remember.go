@@ -40,19 +40,17 @@ func (rememberTool) Parameters() json.RawMessage {
     "content":{"type":"string","description":"The information to save. Be concise but include all key details."},
     "memory_type":{"type":"string","enum":["preference","decision","stable_fact","reusable_solution"],"description":"Why this information remains useful across future conversations."},
     "explicit_user_request":{"type":"boolean","description":"True only when the user explicitly asked to remember this information."},
-    "timestamp":{"type":"string","description":"Optional. The time this information is about, in YYYY-MM-DD HH:MM format. Use the actual time the event occurred or was discussed, not the current time. If omitted, defaults to now."},
-    "entities":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"relations":{"type":"array","items":{"type":"object","properties":{"target_name":{"type":"string"},"rel_type":{"type":"string"},"weight":{"type":"number"}}}}}},"description":"Optional. Extracted entities and their relationships to index in the knowledge graph."}
+    "timestamp":{"type":"string","description":"Optional. The time this information is about, in YYYY-MM-DD HH:MM format. Use the actual time the event occurred or was discussed, not the current time. If omitted, defaults to now."}
   },
   "required":["content","memory_type"]
 }`)
 }
 
 type rememberArgs struct {
-	Content             string                          `json:"content"`
-	MemoryType          string                          `json:"memory_type"`
-	ExplicitUserRequest bool                            `json:"explicit_user_request,omitempty"`
-	Timestamp           string                          `json:"timestamp"`
-	Entities            []engine.EntityExtraction `json:"entities,omitempty"`
+	Content             string `json:"content"`
+	MemoryType          string `json:"memory_type"`
+	ExplicitUserRequest bool   `json:"explicit_user_request,omitempty"`
+	Timestamp           string `json:"timestamp"`
 }
 
 type rememberResult struct {
@@ -109,7 +107,6 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 		Date:                date,
 		EventTime:           eventTime,
 		ExplicitUserRequest: a.ExplicitUserRequest,
-		Entities:            a.Entities,
 	})
 	if err != nil {
 		return "", err
