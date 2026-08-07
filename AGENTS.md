@@ -122,20 +122,17 @@ codegraph explore "<symbol names or question>"
 
 Returns verbatim source of relevant symbols plus call paths in one call. Covers dynamic dispatch (callbacks, React re-render, JSX children) that grep can't follow.
 
-### L0–L3 hierarchical routing (`internal/router/`)
+### Task routing (`internal/router/` & `internal/tasktype/`)
 
-The router classifies each user prompt and selects the appropriate model:
+The router classifies each user prompt by work nature (not difficulty) to select the appropriate model configuration:
 
-| Level | Use case                              |
-| ----- | ------------------------------------- |
-| L0    | Conversation, simple queries          |
-| L1    | Single-file tasks, quick edits        |
-| L2    | Multi-file changes, medium complexity |
-| L3    | Complex refactoring, large-scale work |
+| TaskType | Use case |
+| -------- | -------- |
+| `general` | Conversation, writing, translation, summarizing |
+| `engineering` | Code, debugging, testing, API, deployment |
+| `research` | Web search, documentation lookup, current info |
 
-Agents at each level use different system prompts and tool sets. The router output determines which model config to use.
-
-**Hybrid sticky logic**: When `priorLevel` is set (from a previous routing decision), the classifier prevents accidental downgrade — e.g., a follow-up question about a complex L2 task won't get classified as L0 unless confidence ≥ 96. This protection is only active when `priorLevel != LevelUnknown`, which requires `lastLevel` to be set (now persisted to the `level` file in the timeline directory).
+The classifier uses Local FastTrack rules (code blocks, tracebacks, commands) first, falling back to a lightweight LLM classifier when ambiguous. `priorLevel` preserves session context for follow-up prompts.
 
 ### Dependency container (`internal/runtime/`)
 
@@ -166,7 +163,7 @@ internal/memory/ctxwin/       context window (tiktoken, dual-waterline compactio
 internal/memory/engine/       long-term memory: BM25 (FTS5) + KG + optional vector
 internal/memory/timeline/     append-only JSONL event sourcing
 internal/prompt/        prompt assembly, templates, team management
-internal/router/        L0-L3 task classification & model routing
+internal/router/        task classification & model routing (TaskType: general/engineering/research)
 internal/runtime/       shared dependency container (Stack, built once)
 internal/server/        REST + WebSocket HTTP router (chi/v5)
 internal/session/       session manager (single active, inFlight atomic CAS)

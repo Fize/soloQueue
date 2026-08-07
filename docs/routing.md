@@ -1,92 +1,34 @@
 # Task Routing & Classification
 
-SoloQueue uses intelligent task classification to route user input to the appropriate processing level (L0-L3).
+SoloQueue uses intelligent task classification to route user input to the appropriate processing model based on work nature (`general`, `engineering`, `research`).
 
-## Classification Levels
+## Task Types (Work-Nature Taxonomy)
 
-| Level  | Name         | Scope                           | Model                      | Thinking |
-| ------ | ------------ | ------------------------------- | -------------------------- | -------- |
-| **L0** | Conversation | Q&A, explanation                | deepseek-v4-flash          | disabled |
-| **L1** | Simple       | Single file changes             | deepseek-v4-flash-thinking | high     |
-| **L2** | Medium       | Multi-file features (2-5 files) | deepseek-v4-pro            | high     |
-| **L3** | Complex      | Architecture changes (5+ files) | deepseek-v4-pro-max        | max      |
+| Task Type | Scope / Description | Typical Use Case |
+| --------- | ------------------- | ---------------- |
+| **`general`** | Q&A, writing, translation, summarizing | Conversation & general text tasks |
+| **`engineering`** | Code, repositories, debugging, tests, deployment | Technical & software development work |
+| **`research`** | Web search, current info, source verification | Information retrieval & research |
+
+> Note: Routing classifies tasks by work nature, not by difficulty.
 
 ## How It Works
 
 The classifier uses a **dual-channel** strategy:
 
-1. **Fast Track** (always first): Pattern-based rules (zero latency)
-   - Matches keywords, file paths, slash commands
+1. **Local Fast Track** (always first): Pattern-based rules (zero latency)
+   - Matches code blocks, stack traces, file paths, commands, search keywords
    - Supports Chinese and English
 
-2. **LLM Fallback** (when uncertain): Lightweight call to deepseek-v4-flash
-   - 4-second timeout
-   - Degrades gracefully to L1 on error
+2. **LLM Fallback** (when uncertain): Lightweight classification call
+   - 2-second timeout
+   - Preserves previous task type on error or fallback
 
-The result with higher confidence wins.
+The result determines which model and thinking parameters to apply for the execution turn.
 
-## Hybrid Sticky Level
+## Session Continuity
 
-The classifier is **session-aware**. Without this, short follow-up messages would be misclassified.
-
-**Problem:**
-
-```
-User: "Refactor the auth module"  → L3 ✓
-User: "test again"                  → L1 ✗ (wrong!)
-```
-
-**Solution:** Session remembers its current task level.
-
-| New Confidence | Prior Level     | Result                           |
-| -------------- | --------------- | -------------------------------- |
-| ≥ 85 (high)    | any             | Use new result                   |
-| 50–84 (medium) | higher than new | Use prior (stay at higher level) |
-| < 50 (low)     | exists          | Use prior (inherit context)      |
-
-## Explicit Level Locking
-
-Users can lock the session to a specific level:
-
-```
-/l0    Lock to L0 (fastest)
-/l1    Lock to L1 (simple)
-/l2    Lock to L2 (medium)
-/l3    Lock to L3 (complex, maximum capability)
-/max   Same as /l3
-/expert Same as /l3
-/chat  Same as /l0
-```
-
-**Lock behavior:**
-
-- Once locked, all subsequent messages use the locked level
-- Lock applies until a new lock command changes it
-- Locked level is displayed in the runtime status API
-
-## Slash Commands (Non-Locking)
-
-These influence classification for the **current message only**:
-
-```
-/read <file>       Classify as file reading (L1-L2)
-/write <file>      Classify as file writing (L1-L2)
-/refactor <files>  Classify as refactoring (L2-L3)
-/test <scope>      Classify as testing (L1-L2)
-/debug <target>    Classify as debugging (L1-L2)
-/fast              Force L0 with no thinking (one-shot)
-```
-
-## Escalation & De-escalation
-
-**Escalation** (bump level up):
-
-- "think carefully", "be thorough", "in depth"
-- "solve thoroughly" (bumps by +2)
-
-**De-escalation** (bump level down):
-
-- "just", "quick", "simple"
+The session remembers the `PreviousTaskType` of prior interactions to maintain classification context across follow-up prompts.
 
 ## Architecture
 
@@ -96,33 +38,24 @@ User Prompt
     ▼
 Session.AskStream()
     │
-    ├─ Check for /l0-/l3 lock command
-    │   └─ Found → set levelLocked=true, save level
-    │
-    ├─ levelLocked? ──yes──→ Use cached RouteResult, skip router
-    │
-    └─ Not locked → Router.Route(ctx, prompt, priorLevel)
-                        │
-                        ▼
-                    Classifier.Classify()
-                        │
-                        ├─ FastTrack (always)
-                        │   └─ Patterns, file paths, escalation
-                        │
-                        ├─ LLM Fallback (if uncertain)
-                        │   └─ Semantic classification
-                        │
-                        └─ applyHybridLogic(result, priorLevel)
-                            └─ Sticky level decision
+    └─ Router.Route(ctx, input, history)
+            │
+            ▼
+        Classifier.Classify()
+            │
+            ├─ Local FastTrack (pattern matching)
+            │
+            └─ LLM Fallback (if ambiguous)
 ```
 
 ## Related Files
 
-| File                                | Purpose                                |
-| ----------------------------------- | -------------------------------------- |
-| `internal/router/models.go`         | Level constants, ClassificationResult  |
-| `internal/router/fasttrack.go`      | Pattern-based Fast Track classifier    |
-| `internal/router/llm_classifier.go` | LLM semantic fallback                  |
-| `internal/router/classifier.go`     | Dual-channel classifier + hybrid logic |
-| `internal/router/router.go`         | Router: classification → model params  |
-| `internal/session/session.go`       | Session: level lock, sticky state      |
+| File | Purpose |
+| ---- | ------- |
+| `internal/tasktype/tasktype.go` | TaskType taxonomy definitions (`general`, `engineering`, `research`) |
+| `internal/router/models.go` | ClassifyInput & ClassificationResult structs |
+| `internal/router/fasttrack.go` | Pattern-based Local Classifier |
+| `internal/router/llm_classifier.go` | LLM semantic classifier fallback |
+| `internal/router/classifier.go` | Default classifier orchestrator |
+| `internal/router/router.go` | Router: task classification → model parameter resolution |
+| `internal/session/session.go` | Session level tracking & execution payload assembly |
