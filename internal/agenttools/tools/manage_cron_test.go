@@ -36,62 +36,53 @@ func findCronTool(t *testing.T, cfg Config, name string) Tool {
 	return nil
 }
 
-func TestCronToolsRequireExplicitScope(t *testing.T) {
-	cfg := newCronToolTestConfig(t, CronAccessScope{})
-	for _, tool := range Build(cfg) {
-		if IsCronTool(tool.Name()) {
-			t.Fatalf("disabled scope unexpectedly registered %q", tool.Name())
-		}
-	}
-}
-
-func TestCronToolSchemasHideTargetFromTeamScope(t *testing.T) {
+func TestManageCron_SchemasHideTargetFromTeamScope(t *testing.T) {
 	for _, scope := range []CronAccessScope{
 		{Mode: CronAccessGlobal},
 		{Mode: CronAccessTeam, Owner: "engineering"},
 	} {
 		cfg := newCronToolTestConfig(t, scope)
-		for _, name := range []string{"create_cron_job", "list_cron_jobs", "update_cron_job", "delete_cron_job"} {
-			tool := findCronTool(t, cfg, name)
-			var schema map[string]any
-			if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
-				t.Fatalf("%s schema is invalid: %v", name, err)
-			}
-			props, _ := schema["properties"].(map[string]any)
-			_, exposesTarget := props["target_agent"]
-			if scope.IsTeam() && exposesTarget {
-				t.Fatalf("team-scoped %s exposes target_agent", name)
-			}
+		tool := findCronTool(t, cfg, "manage_cron")
+		var schema map[string]any
+		if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
+			t.Fatalf("manage_cron schema is invalid: %v", err)
+		}
+		props, _ := schema["properties"].(map[string]any)
+		_, exposesTarget := props["target_agent"]
+		if scope.IsTeam() && exposesTarget {
+			t.Fatalf("team-scoped manage_cron exposes target_agent")
 		}
 	}
 }
 
-func TestCronToolsRejectInvalidArguments(t *testing.T) {
+func TestManageCron_RejectInvalidArguments(t *testing.T) {
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessGlobal})
+	tool := findCronTool(t, cfg, "manage_cron")
 	tests := []struct {
 		name string
 		raw  string
 	}{
-		{name: "create_cron_job", raw: `{"title":"","task_type":"general","schedule":"0 9 * * 1","instruction":"run"}`},
-		{name: "list_cron_jobs", raw: `{"status":"unknown"}`},
-		{name: "update_cron_job", raw: `{}`},
-		{name: "delete_cron_job", raw: `{}`},
+		{name: "invalid action", raw: `{"action":"unknown"}`},
+		{name: "create invalid title", raw: `{"action":"create","title":"","task_type":"general","schedule":"0 9 * * 1","instruction":"run"}`},
+		{name: "list invalid status", raw: `{"action":"list","status":"unknown"}`},
+		{name: "update missing id", raw: `{"action":"update"}`},
+		{name: "delete missing id", raw: `{"action":"delete"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := findCronTool(t, cfg, tt.name).Execute(context.Background(), tt.raw); err == nil {
+			if _, err := tool.Execute(context.Background(), tt.raw); err == nil {
 				t.Fatalf("%s accepted invalid arguments", tt.name)
 			}
 		})
 	}
 }
 
-func TestTeamCronToolsAreOwnerScoped(t *testing.T) {
+func TestManageCron_TeamToolsAreOwnerScoped(t *testing.T) {
 	ctx := context.Background()
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessTeam, Owner: "engineering"})
+	manage := findCronTool(t, cfg, "manage_cron")
 
-	create := findCronTool(t, cfg, "create_cron_job")
-	createdRaw, err := create.Execute(ctx, `{"title":"Team report","task_type":"research","schedule":"0 9 * * 1","instruction":"Prepare report","target_agent":"finance"}`)
+	createdRaw, err := manage.Execute(ctx, `{"action":"create","title":"Team report","task_type":"research","schedule":"0 9 * * 1","instruction":"Prepare report","target_agent":"finance"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +108,7 @@ func TestTeamCronToolsAreOwnerScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	listRaw, err := findCronTool(t, cfg, "list_cron_jobs").Execute(ctx, `{}`)
+	listRaw, err := manage.Execute(ctx, `{"action":"list"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,11 +116,10 @@ func TestTeamCronToolsAreOwnerScoped(t *testing.T) {
 		t.Fatalf("team list leaked or omitted jobs: %s", listRaw)
 	}
 
-	update := findCronTool(t, cfg, "update_cron_job")
-	if _, err := update.Execute(ctx, `{"task_id":"`+foreign.ID+`","title":"stolen"}`); err == nil {
+	if _, err := manage.Execute(ctx, `{"action":"update","task_id":"`+foreign.ID+`","title":"stolen"}`); err == nil {
 		t.Fatal("team update unexpectedly modified a foreign job")
 	}
-	if _, err := update.Execute(ctx, `{"task_id":"`+created.ID+`","title":"Updated","target_agent":"finance"}`); err != nil {
+	if _, err := manage.Execute(ctx, `{"action":"update","task_id":"`+created.ID+`","title":"Updated","target_agent":"finance"}`); err != nil {
 		t.Fatal(err)
 	}
 	task, _ = cfg.CronStore.GetTask(ctx, created.ID)
@@ -137,8 +127,7 @@ func TestTeamCronToolsAreOwnerScoped(t *testing.T) {
 		t.Fatalf("team update escaped scope: %+v", task)
 	}
 
-	deleteTool := findCronTool(t, cfg, "delete_cron_job")
-	if _, err := deleteTool.Execute(ctx, `{"task_id":"`+foreign.ID+`"}`); err == nil {
+	if _, err := manage.Execute(ctx, `{"action":"delete","task_id":"`+foreign.ID+`"}`); err == nil {
 		t.Fatal("team delete unexpectedly removed a foreign job")
 	}
 	if _, err := cfg.CronStore.GetTask(ctx, foreign.ID); err != nil {
@@ -146,10 +135,10 @@ func TestTeamCronToolsAreOwnerScoped(t *testing.T) {
 	}
 }
 
-func TestCreateCronJobGlobalCanTargetAnyAgent(t *testing.T) {
+func TestManageCron_GlobalCanTargetAnyAgent(t *testing.T) {
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessGlobal})
-	create := findCronTool(t, cfg, "create_cron_job")
-	raw, err := create.Execute(context.Background(), `{"title":"Finance report","task_type":"general","schedule":"0 9 * * 1","instruction":"Prepare report","target_agent":"finance"}`)
+	manage := findCronTool(t, cfg, "manage_cron")
+	raw, err := manage.Execute(context.Background(), `{"action":"create","title":"Finance report","task_type":"general","schedule":"0 9 * * 1","instruction":"Prepare report","target_agent":"finance"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,9 +152,10 @@ func TestCreateCronJobGlobalCanTargetAnyAgent(t *testing.T) {
 	}
 }
 
-func TestListCronJobsFiltersByStatusAndTarget(t *testing.T) {
+func TestManageCron_ListFiltersByStatusAndTarget(t *testing.T) {
 	ctx := context.Background()
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessGlobal})
+	manage := findCronTool(t, cfg, "manage_cron")
 	createTask := func(title, target string) *cron.Task {
 		t.Helper()
 		task, err := cfg.CronStore.CreateTask(ctx, cron.CreateTaskInput{
@@ -187,7 +177,7 @@ func TestListCronJobsFiltersByStatusAndTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := findCronTool(t, cfg, "list_cron_jobs").Execute(ctx, `{"status":"paused","target_agent":"engineering"}`)
+	raw, err := manage.Execute(ctx, `{"action":"list","status":"paused","target_agent":"engineering"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,9 +186,10 @@ func TestListCronJobsFiltersByStatusAndTarget(t *testing.T) {
 	}
 }
 
-func TestUpdateCronJobUpdatesAllEditableFields(t *testing.T) {
+func TestManageCron_UpdateUpdatesAllEditableFields(t *testing.T) {
 	ctx := context.Background()
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessGlobal})
+	manage := findCronTool(t, cfg, "manage_cron")
 	task, err := cfg.CronStore.CreateTask(ctx, cron.CreateTaskInput{
 		Title: "Old title", TaskType: "general", Expression: "0 9 * * 1",
 		Instruction: "Old instruction", TargetAgent: "engineering", NextRunAt: time.Now().Add(time.Hour),
@@ -207,8 +198,8 @@ func TestUpdateCronJobUpdatesAllEditableFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw := `{"task_id":"` + task.ID + `","title":"New title","task_type":"engineering","schedule":"30 10 * * 2","instruction":"New instruction","target_agent":"finance","status":"paused"}`
-	if _, err := findCronTool(t, cfg, "update_cron_job").Execute(ctx, raw); err != nil {
+	raw := `{"action":"update","task_id":"` + task.ID + `","title":"New title","task_type":"engineering","schedule":"30 10 * * 2","instruction":"New instruction","target_agent":"finance","status":"paused"}`
+	if _, err := manage.Execute(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := cfg.CronStore.GetTask(ctx, task.ID)
@@ -221,9 +212,10 @@ func TestUpdateCronJobUpdatesAllEditableFields(t *testing.T) {
 	}
 }
 
-func TestDeleteCronJobRemovesJob(t *testing.T) {
+func TestManageCron_DeleteRemovesJob(t *testing.T) {
 	ctx := context.Background()
 	cfg := newCronToolTestConfig(t, CronAccessScope{Mode: CronAccessGlobal})
+	manage := findCronTool(t, cfg, "manage_cron")
 	task, err := cfg.CronStore.CreateTask(ctx, cron.CreateTaskInput{
 		Title: "Delete me", TaskType: "general", Expression: "0 9 * * 1",
 		Instruction: "Delete test", TargetAgent: "L1", NextRunAt: time.Now().Add(time.Hour),
@@ -231,7 +223,7 @@ func TestDeleteCronJobRemovesJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := findCronTool(t, cfg, "delete_cron_job").Execute(ctx, `{"task_id":"`+task.ID+`"}`); err != nil {
+	if _, err := manage.Execute(ctx, `{"action":"delete","task_id":"`+task.ID+`"}`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := cfg.CronStore.GetTask(ctx, task.ID); err == nil {

@@ -212,12 +212,7 @@ func Build(cfg Config) []Tool {
 	}
 
 	if cfg.CronStore != nil && cfg.CronScheduler != nil && cfg.CronScope.Enabled() {
-		tools = append(tools,
-			newScheduleTaskTool(cfg),
-			newListCronJobsTool(cfg),
-			newModifyScheduledTaskTool(cfg),
-			newDeleteScheduledTaskTool(cfg),
-		)
+		tools = append(tools, newManageCronTool(cfg))
 	}
 	hasImgModel := false
 	for _, m := range cfg.ImageModels {
