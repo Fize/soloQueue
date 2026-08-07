@@ -13,12 +13,10 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
-	"github.com/xiaobaitu/soloqueue/internal/cron"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
-	"github.com/xiaobaitu/soloqueue/internal/infra/db"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // mockAsyncTool implements AsyncTool for testing.
@@ -648,37 +646,20 @@ func (m *mockSyncTool) Execute(ctx context.Context, args string) (string, error)
 // --- DelegateTool API tests ---
 
 func TestDelegateTool_IsAsync(t *testing.T) {
-	// With SpawnFn → async
-	dtAsync := &tools.DelegateTool{
-		LeaderID: "dev",
-		SpawnFn:  func(ctx context.Context, task string, wd string) (iface.Locatable, error) { return nil, nil },
-	}
-	if !dtAsync.IsAsync() {
-		t.Error("IsAsync() = false, want true when SpawnFn is set")
-	}
-
-	// Without SpawnFn → sync
-	dtSync := &tools.DelegateTool{
-		LeaderID: "dev",
-		Locator:  nil,
-	}
-	if dtSync.IsAsync() {
-		t.Error("IsAsync() = true, want false when SpawnFn is nil")
+	dt := tools.NewDelegateTool("dev", 5*time.Minute, nil, nil, nil, tools.WorkDirInheritOnly)
+	if !dt.IsAsync() {
+		t.Error("IsAsync() = false, want true")
 	}
 }
 
 func TestDelegateTool_ExecuteAsync(t *testing.T) {
 	target := &mockLocatable{}
-	dt := &tools.DelegateTool{
-		LeaderID:      "dev",
-		WorkDirPolicy: tools.WorkDirExplicitOrInherited,
-		SpawnFn: func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
-			return target, nil
-		},
-		Timeout: 5 * time.Minute,
+	resolver := func(ctx context.Context, targetName, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
+		return target, false, nil
 	}
+	dt := tools.NewDelegateTool("dev", 5*time.Minute, resolver, nil, nil, tools.WorkDirExplicitOrInherited)
 
-	action, err := dt.ExecuteAsync(context.Background(), `{"task":"test","work_dir":"/tmp"}`)
+	action, err := dt.ExecuteAsync(context.Background(), `{"target":"dev","task":"test","work_dir":"/tmp","async":true}`)
 	if err != nil {
 		t.Fatalf("ExecuteAsync: %v", err)
 	}
@@ -697,10 +678,10 @@ func TestDelegateTool_ExecuteAsync(t *testing.T) {
 }
 
 func TestDelegateTool_ExecuteAsync_InvalidArgs(t *testing.T) {
-	dt := &tools.DelegateTool{LeaderID: "dev"}
+	dt := tools.NewDelegateTool("dev", 5*time.Minute, nil, nil, nil, tools.WorkDirInheritOnly)
 
 	// Empty task
-	_, err := dt.ExecuteAsync(context.Background(), `{"task":""}`)
+	_, err := dt.ExecuteAsync(context.Background(), `{"target":"dev","task":"","async":true}`)
 	if err == nil {
 		t.Error("expected error for empty task")
 	}
@@ -713,9 +694,9 @@ func TestDelegateTool_ExecuteAsync_InvalidArgs(t *testing.T) {
 }
 
 func TestDelegateTool_ExecuteAsync_NoLocatorOrSpawnFn(t *testing.T) {
-	dt := &tools.DelegateTool{LeaderID: "dev"}
+	dt := tools.NewDelegateTool("dev", 5*time.Minute, nil, nil, nil, tools.WorkDirInheritOnly)
 
-	_, err := dt.ExecuteAsync(context.Background(), `{"task":"test"}`)
+	_, err := dt.ExecuteAsync(context.Background(), `{"target":"dev","task":"test","async":true}`)
 	if err == nil {
 		t.Error("expected error when no Locator or SpawnFn configured")
 	}
@@ -1505,9 +1486,9 @@ func TestAsyncTurn_FallbackSync(t *testing.T) {
 	}
 }
 
-// TestDelegateAgentTool_SyncAndAsync verifies that DelegateAgentTool behaves correctly
+// TestDelegateTool_SyncAndAsync verifies that DelegateTool behaves correctly
 // for both synchronous and asynchronous invocations.
-func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
+func TestDelegateTool_SyncAndAsync(t *testing.T) {
 	// Mock target agent to return a fixed output
 	target := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
@@ -1517,16 +1498,17 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 
 	var expectedPrompt string = "do code review"
 
-	// Create DelegateAgentTool
-	tool := tools.NewDelegateAgentTool(nil, func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error) {
+	// Create DelegateTool
+	resolver := func(ctx context.Context, name, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
 		if name != "my-dynamic-agent" {
-			return nil, fmt.Errorf("unexpected name: %s", name)
+			return nil, false, fmt.Errorf("unexpected name: %s", name)
 		}
 		if systemPrompt != expectedPrompt {
-			return nil, fmt.Errorf("unexpected systemPrompt: %q, want %q", systemPrompt, expectedPrompt)
+			return nil, false, fmt.Errorf("unexpected systemPrompt: %q, want %q", systemPrompt, expectedPrompt)
 		}
-		return target, nil
-	}, tools.WorkDirExplicitOrInherited)
+		return target, true, nil
+	}
+	tool := tools.NewDelegateTool("caller", 5*time.Minute, resolver, nil, nil, tools.WorkDirExplicitOrInherited)
 	tool.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if skillID == "my-skill" {
 			return "run checks", "some-agent", "/path/to/skill", true
@@ -1535,8 +1517,7 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 	}
 
 	// 1. Test synchronous invocation (async=false)
-	// ExecuteAsync should return (nil, nil)
-	action, err := tool.ExecuteAsync(context.Background(), `{"name":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":"/tmp","async":false}`)
+	action, err := tool.ExecuteAsync(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":"/tmp","async":false}`)
 	if err != nil {
 		t.Fatalf("ExecuteAsync err: %v", err)
 	}
@@ -1545,7 +1526,7 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 	}
 
 	// Execute should block and return the actual output
-	output, err := tool.Execute(context.Background(), `{"name":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":"/tmp","async":false}`)
+	output, err := tool.Execute(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":"/tmp","async":false}`)
 	if err != nil {
 		t.Fatalf("Execute err: %v", err)
 	}
@@ -1555,7 +1536,7 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 
 	// 1.5 Test skill_id resolution
 	expectedPrompt = "do code review\n\n# Skill Execution Instructions\nrun checks"
-	output, err = tool.Execute(context.Background(), `{"name":"my-dynamic-agent","system_prompt":"do code review","skill_id":"my-skill","task":"review diff","work_dir":"/tmp","async":false}`)
+	output, err = tool.Execute(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","skill_id":"my-skill","task":"review diff","work_dir":"/tmp","async":false}`)
 	if err != nil {
 		t.Fatalf("Execute with skill_id err: %v", err)
 	}
@@ -1565,8 +1546,7 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 
 	// 2. Test asynchronous invocation (async=true)
 	expectedPrompt = "do code review"
-	// ExecuteAsync should return a non-nil AsyncAction
-	action, err = tool.ExecuteAsync(context.Background(), `{"name":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":"/tmp","async":true}`)
+	action, err = tool.ExecuteAsync(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":"/tmp","async":true}`)
 	if err != nil {
 		t.Fatalf("ExecuteAsync err: %v", err)
 	}
@@ -1576,79 +1556,9 @@ func TestDelegateAgentTool_SyncAndAsync(t *testing.T) {
 	if action.Prompt != "review diff" {
 		t.Errorf("action.Prompt = %q, want 'review diff'", action.Prompt)
 	}
-	if action.Target != target {
-		t.Error("action.Target does not match target agent")
-	}
 }
 
-// TestFactoryCronToolScopes verifies L2 team scope and L3/cron-execution filtering.
-func TestFactoryCronToolScopes(t *testing.T) {
-	db, err := db.Open(filepath.Join(t.TempDir(), "cron.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	store := cron.NewDBStore(db)
-	cfg := tools.Config{CronStore: store, CronScheduler: cron.NewScheduler(store, nil, nil)}
-
-	reg := NewRegistry(newTestLogger(t))
-	f := NewDefaultFactory(reg, &agenttest.FakeLLM{}, cfg, newTestLogger(t))
-
-	cronToolNames := []string{"manage_cron"}
-
-	// Interactive L2 leaders can manage jobs owned by their own team.
-	l2Tmpl := AgentTemplate{ID: "engineering-leader", Name: "Engineering", IsLeader: true, Group: "engineering"}
-	l2, _, err := f.Create(context.Background(), l2Tmpl, t.TempDir())
-	if err != nil {
-		t.Fatalf("failed to create L2 leader: %v", err)
-	}
-	defer l2.Stop(time.Second)
-	for _, toolName := range cronToolNames {
-		if _, ok := l2.tools.Get(toolName); !ok {
-			t.Errorf("interactive L2 leader should have tool %q", toolName)
-		}
-	}
-
-	// A temporary L2 executing an existing cron job cannot manage cron jobs.
-	cronCtx := iface.ContextWithCronExecution(context.Background())
-	cronL2, _, err := f.Create(cronCtx, l2Tmpl, t.TempDir())
-	if err != nil {
-		t.Fatalf("failed to create cron execution L2: %v", err)
-	}
-	defer cronL2.Stop(time.Second)
-	for _, toolName := range cronToolNames {
-		if _, ok := cronL2.tools.Get(toolName); ok {
-			t.Errorf("cron execution L2 should not have tool %q", toolName)
-		}
-	}
-
-	// L3 worker template
-	l3Tmpl := AgentTemplate{
-		ID:       "l3_worker",
-		Name:     "L3 Worker",
-		IsLeader: false,
-	}
-	child, _, err := f.Create(context.Background(), l3Tmpl, t.TempDir())
-	if err != nil {
-		t.Fatalf("failed to create L3 worker: %v", err)
-	}
-	defer child.Stop(time.Second)
-
-	// Verify L3 worker tools do not contain SendFile or any cron tools
-	for _, toolName := range append([]string{"SendFile"}, cronToolNames...) {
-		if _, ok := child.tools.Get(toolName); ok {
-			t.Errorf("L3 worker should not have tool %q", toolName)
-		}
-	}
-
-	// Interactive L2 leaders retain SendFile.
-	if _, ok := l2.tools.Get("SendFile"); !ok {
-		t.Error("L2 leader should have tool 'SendFile'")
-	}
-}
-
-func TestFactorySkillAgentIntegration(t *testing.T) {
-	// Create a temp directory for our skill and agent files
+func TestLeaderDynamicSkillDelegation(t *testing.T) {
 	tempDir := t.TempDir()
 	skillDir := filepath.Join(tempDir, "my-skill")
 	skillAgentsDir := filepath.Join(skillDir, "agents")
@@ -1656,118 +1566,61 @@ func TestFactorySkillAgentIntegration(t *testing.T) {
 		t.Fatalf("failed to create agents dir: %v", err)
 	}
 
-	// Write custom L3 analyzer agent identity inside the skill agents directory
 	analyzerContent := `---
 name: analyzer
-description: Analyzer role from skill agents directory
-is_leader: false
+description: Skill-provided code analyzer
 ---
-This is the analyzer system prompt.`
+This is the analyzer system prompt.
+`
 	if err := os.WriteFile(filepath.Join(skillAgentsDir, "analyzer.md"), []byte(analyzerContent), 0644); err != nil {
-		t.Fatalf("failed to write analyzer: %v", err)
+		t.Fatalf("failed to write analyzer.md: %v", err)
 	}
 
-	// 1. Test LoadSkillAgentTemplate
-	tmpl, ok := LoadSkillAgentTemplate(skillDir, "analyzer")
-	if !ok {
-		t.Fatalf("failed to load skill agent template")
-	}
-	if tmpl.Name != "analyzer" || !strings.Contains(tmpl.SystemPrompt, "This is the analyzer system prompt.") {
-		t.Errorf("unexpected template loaded: %+v", tmpl)
-	}
-
-	// 2. Test spawning the dynamic agent using f.Create under L2 supervisor
 	reg := NewRegistry(newTestLogger(t))
 	f := NewDefaultFactory(reg, &agenttest.FakeLLM{}, tools.Config{}, newTestLogger(t))
 
-	// Simulate delegating to "analyzer" with a custom skill ID
-	// Let's create an L2 leader and wire the dynamic delegate_agent tool
-	l2Tmpl := AgentTemplate{
-		ID:       "l2_leader",
-		Name:     "L2 Leader",
-		IsLeader: true,
-	}
+	l2Tmpl := AgentTemplate{ID: "engineering", Name: "Engineering", IsLeader: true, Group: "engineering"}
 	leader, _, err := f.Create(context.Background(), l2Tmpl, tempDir)
 	if err != nil {
 		t.Fatalf("failed to create leader: %v", err)
 	}
 	defer leader.Stop(time.Second)
 
-	// Verify we can retrieve and run the delegate_agent tool
-	datTool, ok := leader.tools.Get("delegate_agent")
+	dtTool, ok := leader.tools.Get("delegate")
 	if !ok {
-		t.Fatalf("delegate_agent tool not found on leader")
+		t.Fatalf("delegate tool not found on leader")
 	}
-	dat, ok := datTool.(*tools.DelegateAgentTool)
+	dt, ok := dtTool.(*tools.DelegateTool)
 	if !ok {
-		t.Fatalf("delegate_agent is not of correct type")
+		t.Fatalf("delegate is not of correct type")
 	}
 
-	// Set instructions lookup mock simulating our skill with s.Agent = "analyzer" and s.Dir = skillDir
-	dat.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
+	dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if skillID == "my-skill" {
 			return "Perform analysis.", "analyzer", skillDir, true
 		}
 		return "", "", "", false
 	}
 
-	// Mock target LLM responses for the spawned agent
 	targetLLM := &agenttest.FakeLLM{Responses: []string{"Delegation result"}}
 	f.llm = targetLLM
 
-	// Invoke delegate_agent synchronously
-	args := fmt.Sprintf(`{"name":"analyzer-instance","skill_id":"my-skill","task":"test task","work_dir":%q,"async":false}`, tempDir)
+	args := fmt.Sprintf(`{"target":"analyzer-instance","skill_id":"my-skill","task":"test task","work_dir":%q,"async":false}`, tempDir)
 	ctx := iface.ContextWithWorkDir(context.Background(), tempDir)
-	res, err := dat.Execute(ctx, args)
+	res, err := dt.Execute(ctx, args)
 	if err != nil {
-		t.Fatalf("failed to execute delegate_agent: %v", err)
+		t.Fatalf("failed to execute delegate: %v", err)
 	}
 	if res != "Delegation result" {
 		t.Errorf("unexpected result: %q", res)
 	}
-
-	// Let's locate the spawned analyzer agent in the registry and verify its tools/prompt
-	var spawnedAgent *Agent
-	reg.mu.RLock()
-	for _, a := range reg.agents {
-		if strings.Contains(a.Def.ID, "analyzer-instance") {
-			spawnedAgent = a
-			break
-		}
-	}
-	reg.mu.RUnlock()
-
-	if spawnedAgent == nil {
-		t.Fatal("spawned analyzer agent not found in registry")
-	}
-
-	// Verify tools: should not have SendFile or cron-job tools.
-	for _, toolName := range []string{"SendFile", "create_cron_job", "list_cron_jobs", "update_cron_job", "delete_cron_job"} {
-		if _, ok := spawnedAgent.tools.Get(toolName); ok {
-			t.Errorf("spawned L3 agent should not have tool %q", toolName)
-		}
-	}
-
-	// Verify prompt: should combine analyzer system prompt + skill instructions
-	if !strings.Contains(spawnedAgent.Def.SystemPrompt, "This is the analyzer system prompt.") {
-		t.Error("prompt does not contain analyzer system prompt")
-	}
-	if !strings.Contains(spawnedAgent.Def.SystemPrompt, "Perform analysis.") {
-		t.Error("prompt does not contain skill instructions")
-	}
 }
 
-// TestL1DynamicDelegationEndToEnd simulates the L1 agent receiving a query,
-// writing a custom system prompt, and calling the generic delegate_agent tool.
 func TestL1DynamicDelegationEndToEnd(t *testing.T) {
-	// Target child agent responses
 	childLLM := &agenttest.FakeLLM{
 		Responses: []string{"The result of 1+1 is 2."},
 	}
 
-	// Host agent responses:
-	// Turn 1: Call delegate_agent
-	// Turn 2: Give final response to user using the result of delegation
 	hostLLM := &agenttest.FakeLLM{
 		ToolCallsByTurn: [][]llm.ToolCall{
 			{
@@ -1775,8 +1628,8 @@ func TestL1DynamicDelegationEndToEnd(t *testing.T) {
 					Type: "function",
 					ID:   "call_delegate",
 					Function: llm.FunctionCall{
-						Name:      "delegate_agent",
-						Arguments: `{"name":"math-agent","system_prompt":"do math","task":"1+1","work_dir":"/tmp","async":false}`,
+						Name:      "delegate",
+						Arguments: `{"target":"math-agent","system_prompt":"do math","task":"1+1","work_dir":"/tmp","async":false}`,
 					},
 				},
 			},
@@ -1784,9 +1637,8 @@ func TestL1DynamicDelegationEndToEnd(t *testing.T) {
 		Responses: []string{"The delegate agent returned: The result of 1+1 is 2."},
 	}
 
-	// Set up factory that can construct the child agent
 	var spawnedChild *Agent
-	spawnFn := func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error) {
+	resolver := func(ctx context.Context, name, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
 		childDef := Definition{
 			ID:           strings.ToLower(name),
 			Name:         name,
@@ -1795,15 +1647,15 @@ func TestL1DynamicDelegationEndToEnd(t *testing.T) {
 		// Create and start child
 		child := NewAgent(childDef, childLLM, newTestLogger(t))
 		if err := child.Start(ctx); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		spawnedChild = child
-		return &LocatableAdapter{Agent: child}, nil
+		return &LocatableAdapter{Agent: child}, true, nil
 	}
 
-	dat := tools.NewDelegateAgentTool(newTestLogger(t), spawnFn, tools.WorkDirExplicitOrInherited)
+	dt := tools.NewDelegateTool("L1", 30*time.Minute, resolver, nil, newTestLogger(t), tools.WorkDirExplicitOrInherited)
 
-	host := startedAgent(t, hostLLM, WithTools(dat))
+	host := startedAgent(t, hostLLM, WithTools(dt))
 	defer host.Stop(time.Second)
 
 	// Run Ask

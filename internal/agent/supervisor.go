@@ -236,52 +236,48 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 	if l2.tools == nil {
 		return
 	}
-	for _, tmpl := range allTemplates {
-		if tmpl.IsLeader || tmpl.Group == "" {
-			continue
-		}
-		tmpl := tmpl // capture loop variable
-		l2.SetDelegateSpawnFn(tmpl.ID, func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
-			freshTmpl, ok := s.factory.ResolveTemplate(ctx, tmpl.ID)
-			if !ok {
-				freshTmpl = tmpl
-			}
-			child, err := s.spawnInheritedChild(ctx, freshTmpl)
-			if err != nil {
-				return nil, err
-			}
-			return &reapableAdapter{
-				LocatableAdapter: &LocatableAdapter{Agent: child},
-				supervisor:       s,
-			}, nil
-		})
-	}
+	if t, ok := l2.tools.Get("delegate"); ok {
+		if dt, ok2 := t.(*tools.DelegateTool); ok2 {
+			dt.LocateOrSpawn = func(ctx context.Context, targetName, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
+				if loc, ok := s.factory.Registry().LocateIdleInWorkDir(targetName, s.Agent().WorkDir); ok {
+					return loc, false, nil
+				}
 
-	// Wire the generic delegate_agent tool if it exists on the leader
-	if t, ok := l2.tools.Get("delegate_agent"); ok {
-		if dat, ok2 := t.(*tools.DelegateAgentTool); ok2 {
-			dat.SpawnFn = func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error) {
 				var tmpl AgentTemplate
 				var ok bool
+				var baseAgentName string
+				var skillDir string
+
+				if skillID != "" && dt.SkillInstructionsLook != nil {
+					if inst, agentName, sDir, okSkill := dt.SkillInstructionsLook(skillID); okSkill {
+						baseAgentName = agentName
+						skillDir = sDir
+						if inst != "" {
+							if systemPrompt != "" {
+								systemPrompt = systemPrompt + "\n\n# Skill Execution Instructions\n" + inst
+							} else {
+								systemPrompt = "# Skill Execution Instructions\n" + inst
+							}
+						}
+					}
+				}
 
 				if skillDir != "" {
-					tmpl, ok = LoadSkillAgentTemplate(skillDir, name)
+					tmpl, ok = LoadSkillAgentTemplate(skillDir, targetName)
 					if !ok && baseAgentName != "" {
 						tmpl, ok = LoadSkillAgentTemplate(skillDir, baseAgentName)
 					}
 				}
-
 				if !ok && baseAgentName != "" {
 					tmpl, ok = s.factory.ResolveTemplate(ctx, baseAgentName)
 				}
-
 				if !ok {
-					tmpl, ok = s.factory.ResolveTemplate(ctx, name)
+					tmpl, ok = s.factory.ResolveTemplate(ctx, targetName)
 				}
 
-				tmpl.ID = strings.ToLower(name)
-				tmpl.Name = name
-				tmpl.IsLeader = false // All dynamically delegated agents are L3 workers
+				tmpl.ID = strings.ToLower(targetName)
+				tmpl.Name = targetName
+				tmpl.IsLeader = false
 
 				if ok {
 					if systemPrompt != "" {
@@ -292,7 +288,7 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 						}
 					}
 				} else {
-					tmpl.Description = "Dynamic skill agent"
+					tmpl.Description = "Dynamic worker agent"
 					tmpl.SystemPrompt = systemPrompt
 				}
 
@@ -302,12 +298,12 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 
 				child, err := s.spawnInheritedChild(ctx, tmpl)
 				if err != nil {
-					return nil, err
+					return nil, false, err
 				}
 				return &reapableAdapter{
 					LocatableAdapter: &LocatableAdapter{Agent: child},
 					supervisor:       s,
-				}, nil
+				}, true, nil
 			}
 		}
 	}

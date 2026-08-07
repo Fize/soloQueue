@@ -11,14 +11,14 @@ import (
 )
 
 func TestDelegateTool_PreferredTimeout_Explicit(t *testing.T) {
-	dt := NewDelegateTool("leader", "desc", 20*time.Minute, nil, nil, WorkDirInheritOnly)
+	dt := NewDelegateTool("leader", 20*time.Minute, nil, nil, nil, WorkDirInheritOnly)
 	if got := dt.PreferredTimeout(); got != 20*time.Minute {
 		t.Errorf("PreferredTimeout() = %v, want 20m", got)
 	}
 }
 
 func TestDelegateTool_PreferredTimeout_Default(t *testing.T) {
-	dt := NewDelegateTool("leader", "desc", 0, nil, nil, WorkDirInheritOnly)
+	dt := NewDelegateTool("leader", 0, nil, nil, nil, WorkDirInheritOnly)
 	if got := dt.PreferredTimeout(); got != DelegateDefaultTimeout {
 		t.Errorf("PreferredTimeout() = %v, want DelegateDefaultTimeout (%v)", got, DelegateDefaultTimeout)
 	}
@@ -27,14 +27,14 @@ func TestDelegateTool_PreferredTimeout_Default(t *testing.T) {
 func TestDelegateTool_PreferredTimeout_Capped(t *testing.T) {
 	// PreferredTimeout returns the raw dt.Timeout / DelegateDefaultTimeout;
 	// the actual capping to DelegateMaxTimeout happens inside Execute/ExecuteAsync.
-	dt := NewDelegateTool("leader", "desc", 99*time.Minute, nil, nil, WorkDirInheritOnly)
+	dt := NewDelegateTool("leader", 99*time.Minute, nil, nil, nil, WorkDirInheritOnly)
 	if got := dt.PreferredTimeout(); got != 99*time.Minute {
 		t.Errorf("PreferredTimeout() = %v, want 99m (uncapped)", got)
 	}
 }
 
 func TestDelegateTool_InheritOnlySchemaAndResolution(t *testing.T) {
-	dt := NewDelegateTool("worker", "desc", time.Minute, nil, nil, WorkDirInheritOnly)
+	dt := NewDelegateTool("worker", time.Minute, nil, nil, nil, WorkDirInheritOnly)
 	if strings.Contains(string(dt.Parameters()), "work_dir") {
 		t.Fatal("inherit-only schema must not expose work_dir")
 	}
@@ -50,7 +50,7 @@ func TestDelegateTool_InheritOnlySchemaAndResolution(t *testing.T) {
 }
 
 func TestDelegateTool_ExplicitOrInheritedResolution(t *testing.T) {
-	dt := NewDelegateTool("leader", "desc", time.Minute, nil, nil, WorkDirExplicitOrInherited)
+	dt := NewDelegateTool("leader", time.Minute, nil, nil, nil, WorkDirExplicitOrInherited)
 	if !strings.Contains(string(dt.Parameters()), "work_dir") {
 		t.Fatal("explicit schema should expose optional work_dir")
 	}

@@ -548,22 +548,68 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		}
 	}
 
-	// 2b. L2 leader: inject delegate tools for same-group L3 workers + project-level agents
+	// 2b. L2 leader / Top-level agent: inject single unified delegate tool
 	if tmpl.IsLeader {
-		// Inject the generic delegate_agent tool for dynamic L3 delegation
-		dat := tools.NewDelegateAgentTool(f.log, func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error) {
+		workDirPolicy := tools.WorkDirInheritOnly
+		if tmpl.Group == "" {
+			workDirPolicy = tools.WorkDirExplicitOrInherited
+		}
+
+		delegateResolver := func(ctx context.Context, targetName, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
+			if loc, ok := f.registry.LocateIdleInWorkDir(targetName, effectiveWorkDir); ok {
+				return loc, false, nil
+			}
+
+			if peerTmpl, ok := findLeaderTemplate(templates, targetName); ok && peerTmpl.ID != tmpl.ID {
+				child, _, err := f.Create(ctx, peerTmpl, effectiveWorkDir)
+				if err != nil {
+					return nil, false, fmt.Errorf("spawn peer leader %q: %w", targetName, err)
+				}
+				peerSv := NewSupervisor(child, f, f.log)
+				peerSv.WireSpawnFns(templatesSlice(templates))
+				peerSv.SetGroup(peerTmpl.Group)
+				return NewSelfReapableAdapter(child, peerSv), true, nil
+			}
+
+			for _, peer := range visibleWorkers(templates, tmpl, projRes.agents) {
+				if strings.EqualFold(peer.ID, targetName) {
+					freshTmpl, ok := f.ResolveTemplate(ctx, peer.ID)
+					if !ok {
+						freshTmpl = peer
+					}
+					child, _, err := f.Create(ctx, freshTmpl, workDir)
+					if err != nil {
+						return nil, false, err
+					}
+					return &LocatableAdapter{Agent: child}, true, nil
+				}
+			}
+
 			var childTmpl AgentTemplate
 			var ok bool
+			var baseAgentName string
+			var skillDir string
 
-			// 1. Try loading matching agent template from the skill's agents directory
+			if skillID != "" && mergedSkillReg != nil {
+				if s, okSkill := mergedSkillReg.GetSkill(skillID); okSkill {
+					baseAgentName = s.Agent
+					skillDir = s.Dir
+					if s.Instructions != "" {
+						if systemPrompt != "" {
+							systemPrompt = systemPrompt + "\n\n# Skill Execution Instructions\n" + s.Instructions
+						} else {
+							systemPrompt = "# Skill Execution Instructions\n" + s.Instructions
+						}
+					}
+				}
+			}
+
 			if skillDir != "" {
-				childTmpl, ok = LoadSkillAgentTemplate(skillDir, name)
+				childTmpl, ok = LoadSkillAgentTemplate(skillDir, targetName)
 				if !ok && baseAgentName != "" {
 					childTmpl, ok = LoadSkillAgentTemplate(skillDir, baseAgentName)
 				}
 			}
-
-			// 2. Fallback to global templates registry
 			if !ok && baseAgentName != "" {
 				if t, ok2 := templates[strings.ToLower(baseAgentName)]; ok2 {
 					childTmpl = t
@@ -571,19 +617,17 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 				}
 			}
 			if !ok {
-				if t, ok2 := templates[strings.ToLower(name)]; ok2 {
+				if t, ok2 := templates[strings.ToLower(targetName)]; ok2 {
 					childTmpl = t
 					ok = true
 				}
 			}
 
-			// Configure template fields
-			childTmpl.ID = strings.ToLower(name)
-			childTmpl.Name = name
-			childTmpl.IsLeader = false // All dynamically delegated agents are L3 workers
+			childTmpl.ID = strings.ToLower(targetName)
+			childTmpl.Name = targetName
+			childTmpl.IsLeader = false
 
 			if ok {
-				// Combine base agent's system prompt with skill instructions / custom prompt
 				if systemPrompt != "" {
 					if childTmpl.SystemPrompt != "" {
 						childTmpl.SystemPrompt = childTmpl.SystemPrompt + "\n\n# Skill/Custom execution logic:\n" + systemPrompt
@@ -592,7 +636,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 					}
 				}
 			} else {
-				childTmpl.Description = "Dynamic skill agent"
+				childTmpl.Description = "Dynamic worker agent"
 				childTmpl.SystemPrompt = systemPrompt
 			}
 
@@ -602,73 +646,19 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 
 			child, _, err := f.Create(ctx, childTmpl, workDir)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
-			return &LocatableAdapter{Agent: child}, nil
-		}, tools.WorkDirInheritOnly)
-		dat.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
+			return &LocatableAdapter{Agent: child}, true, nil
+		}
+
+		dt := tools.NewDelegateTool(tmpl.ID, 25*time.Minute, delegateResolver, f.registry, f.log, workDirPolicy)
+		dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 			if s, ok := mergedSkillReg.GetSkill(skillID); ok {
 				return s.Instructions, s.Agent, s.Dir, true
 			}
 			return "", "", "", false
 		}
-		allTools = append(allTools, dat)
-
-		for _, peer := range visibleWorkers(templates, tmpl, projRes.agents) {
-			peer := peer // capture loop variable
-			dt := tools.NewDelegateTool(peer.ID, peer.Description, 25*time.Minute, nil, f.log, tools.WorkDirInheritOnly)
-			dt.SpawnFn = func(ctx context.Context, task string, wd string) (iface.Locatable, error) {
-				freshTmpl, ok := f.ResolveTemplate(ctx, peer.ID)
-				if !ok {
-					freshTmpl = peer
-				}
-				child, _, err := f.Create(ctx, freshTmpl, wd)
-				if err != nil {
-					return nil, err
-				}
-				return &LocatableAdapter{Agent: child}, nil
-			}
-			allTools = append(allTools, dt)
-		}
-
-		// 2c. L2 leader: inject horizontal collaboration tool (request_team_help)
-		// Only inject if other teams exist, to avoid giving the LLM meaningless tools in single-team scenarios.
-		hasPeerTeams := false
-		for _, t := range templates {
-			if t.IsLeader && t.ID != tmpl.ID {
-				hasPeerTeams = true
-				break
-			}
-		}
-		if hasPeerTeams {
-			// locateOrSpawn: only reuse an idle peer leader from the same project.
-			locateOrSpawn := func(ctx context.Context, teamName string) (iface.Locatable, bool, error) {
-				if loc, ok := f.registry.LocateIdleInWorkDir(teamName, effectiveWorkDir); ok {
-					return loc, false, nil
-				}
-				// No idle instance found → spawn a new peer leader
-				peerTmpl, ok := findLeaderTemplate(templates, teamName)
-				if !ok {
-					return nil, false, fmt.Errorf("peer leader %q not found", teamName)
-				}
-				child, _, err := f.Create(ctx, peerTmpl, effectiveWorkDir)
-				if err != nil {
-					return nil, false, fmt.Errorf("spawn peer leader %q: %w", teamName, err)
-				}
-				// The newly spawned peer leader needs its own supervisor to manage its L3 children
-				peerSv := NewSupervisor(child, f, f.log)
-				peerSv.WireSpawnFns(templatesSlice(templates))
-				peerSv.SetGroup(peerTmpl.Group)
-				return NewSelfReapableAdapter(child, peerSv), true, nil
-			}
-			// reap: for spawned new instances, OnDelegationDone is already handled by SelfReapableAdapter
-			// No additional reap needed here (DoneNotifier path already covers it).
-			helpTool := tools.NewRequestTeamHelpTool(tmpl.ID, locateOrSpawn, nil, 25*time.Minute)
-			if f.log != nil {
-				helpTool.SetLogger(f.log)
-			}
-			allTools = append(allTools, helpTool)
-		}
+		allTools = append(allTools, dt)
 	}
 
 	var skillList []*skill.Skill
