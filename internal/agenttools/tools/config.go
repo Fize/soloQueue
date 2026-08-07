@@ -198,8 +198,6 @@ func Build(cfg Config) []Tool {
 		newGlobTool(cfg),
 		newWriteFileTool(cfg),
 		newReplaceTool(cfg),
-		newMultiReplaceTool(cfg),
-		newMultiWriteTool(cfg),
 		newHTTPFetchTool(cfg),
 		newShellExecTool(cfg),
 		newWebSearchTool(cfg),
