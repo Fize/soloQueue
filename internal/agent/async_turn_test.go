@@ -1594,7 +1594,7 @@ func TestFactoryCronToolScopes(t *testing.T) {
 	reg := NewRegistry(newTestLogger(t))
 	f := NewDefaultFactory(reg, &agenttest.FakeLLM{}, cfg, newTestLogger(t))
 
-	cronToolNames := []string{"create_cron_job", "list_cron_jobs", "update_cron_job", "delete_cron_job"}
+	cronToolNames := []string{"manage_cron"}
 
 	// Interactive L2 leaders can manage jobs owned by their own team.
 	l2Tmpl := AgentTemplate{ID: "engineering-leader", Name: "Engineering", IsLeader: true, Group: "engineering"}
