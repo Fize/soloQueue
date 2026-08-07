@@ -88,8 +88,19 @@ function SegmentViewInner({
         />
       )
     case 'tool_call':
-      if (segment.name.startsWith('delegate_')) {
-        const teamName = segment.name.substring(9).replace(/_/g, ' ')
+      if (segment.name === 'delegate' || segment.name.startsWith('delegate_')) {
+        let teamName = 'agent'
+        if (segment.name.startsWith('delegate_')) {
+          teamName = segment.name.substring(9).replace(/_/g, ' ')
+        } else {
+          try {
+            const parsed = JSON.parse(segment.args)
+            if (parsed.target) teamName = parsed.target
+          } catch {
+            const match = segment.args.match(/"target"\s*:\s*"([^"]+)"/)
+            if (match && match[1]) teamName = match[1]
+          }
+        }
         return (
           <DelegationCard
             name={teamName}

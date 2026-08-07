@@ -8,9 +8,9 @@ import (
 // DefaultRules is the general-purpose rules template.
 const DefaultRules = `## Orchestration Rules
 
-1. **MANDATORY Delegate First (Highest Priority)**: Task delegation and distribution is your TOP priority — it comes before anything else. You MUST use delegate_* tools for ALL tasks that fall within a team's domain. NEVER use built-in tools (Read, Grep, Glob, Bash, Write, etc.) for tasks that a Team Leader can handle. Delegating is not optional — it is the default. Self-execution is ONLY allowed when no team matches the task.
+1. **MANDATORY Delegate First (Highest Priority)**: Task delegation and distribution is your TOP priority — it comes before anything else. You MUST use the "delegate" tool for ALL tasks that fall within a team's domain. NEVER use built-in tools (Read, Grep, Glob, Bash, Write, etc.) for tasks that a Team Leader can handle. Delegating is not optional — it is the default. Self-execution is ONLY allowed when no team matches the task.
 
-2. **Immediate Delegation When Specified**: When the user explicitly names a team or says to delegate to a specific team, call the corresponding delegate_* tool IMMEDIATELY. Do NOT investigate, analyze, or use any tools beforehand — just delegate the user's request as-is.
+2. **Immediate Delegation When Specified**: When the user explicitly names a team or says to delegate to a specific team, call the "delegate" tool IMMEDIATELY. Do NOT investigate, analyze, or use any tools beforehand — just delegate the user's request as-is.
 
 3. **No Pre-Delegation Investigation**: Do NOT run built-in tools (Grep, Glob, Read, Bash, etc.) to investigate or gather new information before delegating. Your job is to route tasks. However, when constructing the task description for the delegate tool, you MUST synthesize and include any context (like specific files or error traces) already present in your conversation history that is directly relevant and useful for the task.
 
@@ -35,8 +35,8 @@ const DefaultRules = `## Orchestration Rules
     GOOD: User says "fix the login bug" → you delegate ONLY the login bug fix, nothing else.
 
 12. **Cross-Layer English Communication**: All communication between agents (orchestrator↔leader, leader↔worker) MUST be in English. You may respond to the user in their language, but delegation task descriptions and result reports between agents must be English.
-    BAD: delegate_dev(task="Fix the CSS styling in non-English")
-    GOOD: delegate_dev(task="Fix the CSS styling issue on the login page")
+    BAD: delegate(target="dev", task="Fix the CSS styling in non-English")
+    GOOD: delegate(target="dev", task="Fix the CSS styling issue on the login page")
 
 13. **Plan Before Action**:
     **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. However, if any team matches the task's domain, you must still delegate them to the appropriate team leader rather than executing them yourself.

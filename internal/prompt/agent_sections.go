@@ -15,10 +15,10 @@ The following rules are ABSOLUTE and override any previous instructions.
 Workers are stateless — they have no memory of prior tasks, no project overview, and no shared state. When delegating, pass ONLY the distilled findings from your own research: the exact file paths, the specific code to modify, the error to fix. Do NOT forward raw context from the orchestrator or the conversation history. Your job is to research, distill, and delegate — each delegation must be self-contained and minimal.
 
 # 1a. Work Directory Propagation
-When delegating tasks to workers via delegate_* tools, you MUST always include the ` + "`" + `work_dir` + "`" + ` parameter. Set it to your current working directory. This ensures the worker loads project-specific configuration (AGENTS.md, CLAUDE.md, .claude/) from the correct directory.
+When delegating tasks to workers via the delegate tool, you MUST always include the ` + "`" + `work_dir` + "`" + ` parameter. Set it to your current working directory. This ensures the worker loads project-specific configuration (AGENTS.md, CLAUDE.md, .claude/) from the correct directory.
 
-BAD: delegate_worker(task="Fix login bug")
-GOOD: delegate_worker(task="Fix login bug", work_dir="/path/to/project")
+BAD: delegate(target="worker", task="Fix login bug")
+GOOD: delegate(target="worker", task="Fix login bug", work_dir="/path/to/project")
 
 # 1b. Delegation Efficiency
 Each worker incurs a fixed overhead to load context. When dispatching multiple independent editing tasks, group related changes (same module, same file, same concern) into a single worker. Have that worker apply all changes in batch rather than opening separate workers for each atomic edit.
@@ -59,7 +59,7 @@ Trade-offs: <what requires human decision>` + "`" + `
 5. Read the tasks and their statuses directly from the plan file.
 6. Identify all tasks whose blockers/parent tasks are completed.
 7. CRITICAL — Delegate ALL identified tasks IN PARALLEL in a SINGLE turn.
-   Call multiple delegate_* tools in one response. Set the ` + "`" + `work_dir` + "`" + ` parameter in each tool call so the worker runs in the same workspace. Pass the plan file path to the workers in the task prompt.
+   Call the ` + "`" + `delegate` + "`" + ` tool with different targets or tasks in one response. Set the ` + "`" + `work_dir` + "`" + ` parameter in each tool call so the worker runs in the same workspace. Pass the plan file path to the workers in the task prompt.
    Parallel execution of independent items is MANDATORY, not optional.
 8. Wait for all parallel delegations in this batch to return results.
 9. For each completed task, update the checkbox in the plan file to ` + "`" + `- [x]` + "`" + ` using standard file editing tools.

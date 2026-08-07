@@ -133,7 +133,7 @@ function groupStreamSegments(segments: Segment[]): GroupedStreamItem[] {
 
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]
-    if (seg.type === 'tool_call' && (seg.name.startsWith('delegate_') || seg.name === 'request_team_help')) {
+    if (seg.type === 'tool_call' && (seg.name === 'delegate' || seg.name.startsWith('delegate_') || seg.name === 'request_team_help')) {
       currentGroup.push({ segment: seg, index: i })
     } else {
       flush()

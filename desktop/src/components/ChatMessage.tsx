@@ -340,7 +340,7 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
 
     const isDelegation =
       seg.type === 'delegation' || 
-      (seg.type === 'tool_call' && (seg.name.startsWith('delegate_') || seg.name === 'request_team_help'))
+      (seg.type === 'tool_call' && (seg.name === 'delegate' || seg.name.startsWith('delegate_') || seg.name === 'request_team_help'))
 
     if (isDelegation) {
       flushWorked()
