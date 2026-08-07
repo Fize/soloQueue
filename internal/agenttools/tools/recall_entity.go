@@ -16,7 +16,7 @@ type recallEntityTool struct {
 }
 
 func newRecallEntityTool(cfg Config) *recallEntityTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &recallEntityTool{cfg: cfg, logger: cfg.Logger}
 }
 

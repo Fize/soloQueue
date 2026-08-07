@@ -35,7 +35,7 @@ type fileReadTool struct {
 }
 
 func newFileReadTool(cfg Config) *fileReadTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &fileReadTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -100,7 +100,7 @@ func (t *fileReadTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", err
 	}
 
-	res, err := t.cfg.Runtime.ReadFile(ctx, abs, ReadFileOptions{
+	res, err := t.cfg.Executor.ReadFile(ctx, abs, ReadFileOptions{
 		MaxSize: ReadToolMaxBytes,
 	})
 	if err != nil {

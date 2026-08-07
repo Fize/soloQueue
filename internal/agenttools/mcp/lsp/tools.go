@@ -584,7 +584,7 @@ func (t *LSPTool) doRenameSymbol(ctx context.Context, c *Client, uri string, pos
 
 	for fileURI, fileEdits := range edit.Changes {
 		filePath := uriToPath(fileURI)
-		contentResult, err := c.runtime.ReadFile(ctx, filePath, tools.ReadFileOptions{MaxSize: 64 << 20})
+		contentResult, err := c.executor.ReadFile(ctx, filePath, tools.ReadFileOptions{MaxSize: 64 << 20})
 		if err != nil {
 			t.log.Error(logger.CatMCP, "failed to read file for rename", "file", filePath, "err", err.Error())
 			return formatError("rename_symbol", fmt.Errorf("read %s: %w", filePath, err)), nil
@@ -596,7 +596,7 @@ func (t *LSPTool) doRenameSymbol(ctx context.Context, c *Client, uri string, pos
 			return formatError("rename_symbol", fmt.Errorf("apply edits to %s: %w", filePath, err)), nil
 		}
 
-		if _, err := c.runtime.WriteFile(ctx, filePath, []byte(newContent), tools.WriteFileOptions{
+		if _, err := c.executor.WriteFile(ctx, filePath, []byte(newContent), tools.WriteFileOptions{
 			Overwrite: true,
 			MaxSize:   64 << 20,
 		}); err != nil {
@@ -706,7 +706,7 @@ func (t *LSPTool) doGetCodeItem(ctx context.Context, c *Client, uri string, name
 	}
 
 	filePath := uriToPath(uri)
-	contentResult, err := c.runtime.ReadFile(ctx, filePath, tools.ReadFileOptions{MaxSize: 64 << 20})
+	contentResult, err := c.executor.ReadFile(ctx, filePath, tools.ReadFileOptions{MaxSize: 64 << 20})
 	if err != nil {
 		return formatError("get_code_item", err), nil
 	}
@@ -775,7 +775,7 @@ func (t *LSPTool) doGotoDefinitionByName(ctx context.Context, c *Client, query s
 		}
 
 		defPath := uriToPath(defURI)
-		contentResult, err := c.runtime.ReadFile(ctx, defPath, tools.ReadFileOptions{MaxSize: 64 << 20})
+		contentResult, err := c.executor.ReadFile(ctx, defPath, tools.ReadFileOptions{MaxSize: 64 << 20})
 		var previewText string
 		var previewLine int
 		if err == nil {
@@ -861,7 +861,7 @@ func (t *LSPTool) doFormatFile(ctx context.Context, c *Client, uri string, tabSi
 	}
 
 	filePath := uriToPath(uri)
-	contentResult, err := c.runtime.ReadFile(ctx, filePath, tools.ReadFileOptions{MaxSize: 64 << 20})
+	contentResult, err := c.executor.ReadFile(ctx, filePath, tools.ReadFileOptions{MaxSize: 64 << 20})
 	if err != nil {
 		t.log.Error(logger.CatMCP, "failed to read file for format", "file", filePath, "err", err.Error())
 		return formatError("format_file", fmt.Errorf("read %s: %w", filePath, err)), nil
@@ -873,7 +873,7 @@ func (t *LSPTool) doFormatFile(ctx context.Context, c *Client, uri string, tabSi
 		return formatError("format_file", fmt.Errorf("apply edits to %s: %w", filePath, err)), nil
 	}
 
-	if _, err := c.runtime.WriteFile(ctx, filePath, []byte(newContent), tools.WriteFileOptions{
+	if _, err := c.executor.WriteFile(ctx, filePath, []byte(newContent), tools.WriteFileOptions{
 		Overwrite: true,
 		MaxSize:   64 << 20,
 	}); err != nil {

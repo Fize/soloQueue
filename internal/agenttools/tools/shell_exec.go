@@ -53,7 +53,7 @@ type shellExecTool struct {
 }
 
 func newShellExecTool(cfg Config) *shellExecTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	t := &shellExecTool{cfg: cfg, logger: cfg.Logger}
 	for _, r := range cfg.ShellBlockRegexes {
 		re, err := regexp.Compile(r)
@@ -182,8 +182,8 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	}
 
 	cmdToRun := a.Command
-	if useRTK || t.cfg.Runtime.Type() == RuntimeSandbox {
-		rewritten := rewriteCommand(ctx, t.cfg.Runtime, cmdToRun)
+	if useRTK {
+		rewritten := rewriteCommand(ctx, t.cfg.Executor, cmdToRun)
 		if rewritten != cmdToRun {
 			if t.logger != nil {
 				t.logger.InfoContext(ctx, logger.CatTool, "shell: rewritten by rtk",
@@ -208,7 +208,7 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	if wd == "" && t.cfg.WorkDir != "" {
 		wd = t.cfg.WorkDir
 	}
-	res, err := t.cfg.Runtime.RunCommand(ctx, cmdToRun, RunCommandOptions{
+	res, err := t.cfg.Executor.RunCommand(ctx, cmdToRun, RunCommandOptions{
 		Stdin:            a.Stdin,
 		MaxOutput:        maxOut,
 		WorkingDirectory: wd,
@@ -242,8 +242,8 @@ func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error)
 	return string(b), nil
 }
 
-func rewriteCommand(ctx context.Context, runtime ToolRuntime, cmd string) string {
-	if runtime == nil || (!useRTK && runtime.Type() != RuntimeSandbox) {
+func rewriteCommand(ctx context.Context, executor *Executor, cmd string) string {
+	if executor == nil || !useRTK {
 		return cmd
 	}
 
@@ -251,7 +251,7 @@ func rewriteCommand(ctx context.Context, runtime ToolRuntime, cmd string) string
 	rewriteCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
-	process, err := runtime.StartProcess(rewriteCtx, ProcessSpec{
+	process, err := executor.StartProcess(rewriteCtx, ProcessSpec{
 		Command: "rtk",
 		Args:    []string{"rewrite", cmd},
 	})

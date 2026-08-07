@@ -175,7 +175,7 @@ func (t *imageTool) executeGenerate(ctx context.Context, a imageArgs) (string, e
 		return "", fmt.Errorf("build submit request: %w", err)
 	}
 
-	respBody, err := doPost(ctx, t.cfg.Runtime, url, body, headers)
+	respBody, err := doPost(ctx, t.cfg.Executor, url, body, headers)
 	if err != nil {
 		return "", fmt.Errorf("submit request: %w", err)
 	}
@@ -240,7 +240,7 @@ func (t *imageTool) executeEdit(ctx context.Context, a imageArgs) (string, error
 		return "", fmt.Errorf("build submit request: %w", err)
 	}
 
-	respBody, err := doPost(ctx, t.cfg.Runtime, url, body, headers)
+	respBody, err := doPost(ctx, t.cfg.Executor, url, body, headers)
 	if err != nil {
 		return "", fmt.Errorf("submit request: %w", err)
 	}
@@ -266,7 +266,7 @@ func (t *imageTool) pollJob(ctx context.Context, model *ImgModelCfg, prov imageP
 			return "", fmt.Errorf("build query request: %w", err)
 		}
 
-		respBody, err := doPost(ctx, t.cfg.Runtime, url, body, headers)
+		respBody, err := doPost(ctx, t.cfg.Executor, url, body, headers)
 		if err != nil {
 			if t.logger != nil {
 				t.logger.WarnContext(ctx, logger.CatTool, "image_tool: query failed", "model", model.ID, "job_id", jobID, "err", err.Error())
@@ -287,7 +287,7 @@ func (t *imageTool) pollJob(ctx context.Context, model *ImgModelCfg, prov imageP
 			if t.logger != nil {
 				t.logger.InfoContext(ctx, logger.CatTool, "image_tool: completed", "model", model.ID, "job_id", jobID, "num_urls", len(urls))
 			}
-			localPaths := saveImages(ctx, t.cfg.Runtime, urls, t.logger)
+			localPaths := saveImages(ctx, t.cfg.Executor, urls, t.logger)
 			r := imageResult{
 				Model:         model.ID,
 				Status:        "completed",

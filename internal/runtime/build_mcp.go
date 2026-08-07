@@ -68,7 +68,7 @@ func (bc *buildContext) buildMCP() {
 		mcpMgr = mcp.NewManagerWithPolicy(
 			mcpLoader,
 			mcp.NewPolicyStore(bc.sharedDB),
-			bc.runtimeMgr,
+			bc.executor,
 			bc.log,
 		)
 	}
@@ -77,7 +77,7 @@ func (bc *buildContext) buildMCP() {
 
 	// ── LSP MCP (built-in LSP-based MCP) ─────────────────────────────────────
 	rootPath, _ := os.Getwd()
-	lspMgr := lsp.NewManagerWithRuntimeManager(rootPath, bc.runtimeMgr, bc.log)
+	lspMgr := lsp.NewManagerWithExecutor(rootPath, bc.executor, bc.log)
 	defs := lsp.BuiltinServers()
 
 	// Apply user overrides from settings if present.

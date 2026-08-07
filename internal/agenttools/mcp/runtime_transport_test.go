@@ -20,7 +20,7 @@ func TestRuntimeTransportPreservesMCPStdioProtocol(t *testing.T) {
 		Transport: "stdio",
 		Enabled:   true,
 	}
-	client := NewClientWithRuntime(cfg, tools.NewHostRuntime(), t.TempDir(), nil)
+	client := NewClientWithExecutor(cfg, tools.NewExecutor(), t.TempDir(), nil)
 	ctx := context.Background()
 	if err := client.Connect(ctx); err != nil {
 		t.Fatal(err)

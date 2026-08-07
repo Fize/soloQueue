@@ -16,7 +16,7 @@ type memoryTimelineTool struct {
 }
 
 func newMemoryTimelineTool(cfg Config) *memoryTimelineTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &memoryTimelineTool{cfg: cfg, logger: cfg.Logger}
 }
 

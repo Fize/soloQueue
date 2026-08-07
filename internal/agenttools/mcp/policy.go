@@ -82,7 +82,7 @@ func (s *PolicyStore) Effective(ctx context.Context, scope string, cfg ServerCon
 	scope = NormalizePolicyScope(scope)
 	digest := DefinitionDigest(cfg)
 	fallback := Policy{
-		Scope: scope, ServerName: cfg.Name, Runtime: tools.RuntimeSandbox,
+		Scope: scope, ServerName: cfg.Name, Runtime: "host",
 		State: PolicyNeedsReview, DefinitionDigest: digest,
 	}
 	if s == nil || s.db == nil {
@@ -105,9 +105,8 @@ func (s *PolicyStore) Effective(ctx context.Context, scope string, cfg ServerCon
 		}
 		return Policy{}, err
 	}
-	if policy.Runtime != tools.RuntimeHost && policy.Runtime != tools.RuntimeSandbox {
-		policy.Runtime = tools.RuntimeSandbox
-		policy.State = PolicyNeedsReview
+	if policy.Runtime == "" {
+		policy.Runtime = "host"
 	}
 	if policy.DefinitionDigest != digest {
 		policy.State = PolicyNeedsReview
@@ -127,8 +126,8 @@ func (s *PolicyStore) Approve(
 	if s == nil || s.db == nil {
 		return Policy{}, fmt.Errorf("MCP policy store unavailable")
 	}
-	if runtime != tools.RuntimeHost && runtime != tools.RuntimeSandbox {
-		return Policy{}, fmt.Errorf("invalid MCP runtime %q", runtime)
+	if runtime == "" {
+		runtime = "host"
 	}
 	scope = NormalizePolicyScope(scope)
 	digest := DefinitionDigest(cfg)
@@ -181,6 +180,6 @@ func (s *PolicyStore) CountApprovedHost(ctx context.Context) (int, error) {
 	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM mcp_policies
 		WHERE state = ? AND runtime = ?
-	`, PolicyApproved, tools.RuntimeHost).Scan(&count)
+	`, PolicyApproved, "host").Scan(&count)
 	return count, err
 }

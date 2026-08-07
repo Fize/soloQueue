@@ -9,12 +9,6 @@ import (
 
 // ToToolsConfig converts config.ToolsConfig to tools.Config.
 func (tc ToolsConfig) ToToolsConfig() tools.Config {
-	return tc.ToToolsConfigWithSandbox(SandboxConfig{})
-}
-
-// ToToolsConfigWithSandbox converts config.ToolsConfig and config.SandboxConfig to tools.Config.
-func (tc ToolsConfig) ToToolsConfigWithSandbox(sandbox SandboxConfig) tools.Config {
-	runtimeType := sandbox.RuntimeType()
 	tavilyKey := tc.TavilyAPIKey
 	if tavilyKey == "" {
 		tavilyKey = os.Getenv(tc.TavilyAPIKeyEnv)
@@ -42,28 +36,6 @@ func (tc ToolsConfig) ToToolsConfigWithSandbox(sandbox SandboxConfig) tools.Conf
 		TavilyAPIKey:     tavilyKey,
 
 		ImageModels: toImgModelCfgs(tc.ImageModels),
-
-		RuntimeType:    runtimeType,
-		SandboxEnabled: runtimeType == tools.RuntimeSandbox,
-	}
-}
-
-// RuntimeType normalizes the new Host/Sandbox field with the legacy enabled
-// boolean. Invalid values fail closed to Host at config conversion; validation
-// reports them before production startup.
-func (c SandboxConfig) RuntimeType() tools.RuntimeType {
-	switch c.Runtime {
-	case string(tools.RuntimeSandbox):
-		return tools.RuntimeSandbox
-	case string(tools.RuntimeHost):
-		return tools.RuntimeHost
-	case "":
-		if c.Enabled {
-			return tools.RuntimeSandbox
-		}
-		return tools.RuntimeHost
-	default:
-		return tools.RuntimeHost
 	}
 }
 

@@ -21,7 +21,7 @@ type Manager struct {
 	mu           sync.RWMutex
 	log          *logger.Logger
 	policies     *PolicyStore
-	runtimeMgr   *tools.RuntimeManager
+	executor     *tools.Executor
 }
 
 // NewManager creates a new Manager.
@@ -30,8 +30,8 @@ func NewManager(loader *Loader, log *logger.Logger) *Manager {
 }
 
 // NewManagerWithPolicy creates the production manager. mcp.json remains the
-// server definition source; runtime approval is resolved separately.
-func NewManagerWithPolicy(loader *Loader, policies *PolicyStore, runtimeMgr *tools.RuntimeManager, log *logger.Logger) *Manager {
+// server definition source.
+func NewManagerWithPolicy(loader *Loader, policies *PolicyStore, executor *tools.Executor, log *logger.Logger) *Manager {
 	return &Manager{
 		loader:       loader,
 		clients:      make(map[string]*Client),
@@ -39,7 +39,7 @@ func NewManagerWithPolicy(loader *Loader, policies *PolicyStore, runtimeMgr *too
 		virtualTools: make(map[string]func() []tools.Tool),
 		log:          log,
 		policies:     policies,
-		runtimeMgr:   runtimeMgr,
+		executor:     executor,
 	}
 }
 
@@ -131,7 +131,10 @@ func (m *Manager) GetToolsWithOverride(ctx context.Context, serverName string, o
 		return nil
 	}
 
-	runtime := tools.ToolRuntime(tools.NewHostRuntime())
+	executor := m.executor
+	if executor == nil {
+		executor = tools.NewExecutor()
+	}
 	if m.policies != nil {
 		policy, err := m.policies.Effective(ctx, scope, *serverCfg)
 		if err != nil || policy.State != PolicyApproved {
@@ -140,29 +143,16 @@ func (m *Manager) GetToolsWithOverride(ctx context.Context, serverName string, o
 				if err != nil {
 					fields = append(fields, "err", err.Error())
 				} else {
-					fields = append(fields, "state", policy.State, "runtime", policy.Runtime)
+					fields = append(fields, "state", policy.State)
 				}
 				m.log.Warn(logger.CatMCP, "MCP policy is not approved", fields...)
 			}
 			m.toolMap[instanceKey] = nil
 			return nil
 		}
-		if m.runtimeMgr == nil {
-			m.toolMap[instanceKey] = nil
-			return nil
-		}
-		runtime = m.runtimeMgr.ViewForPolicy(
-			policy.Runtime,
-			"mcp:"+scope+":"+serverName,
-			workDir,
-			"",
-			policy.NetworkEnabled,
-		)
-	} else if m.runtimeMgr != nil {
-		runtime = m.runtimeMgr.ViewOwned("mcp-legacy:"+serverName, workDir, "")
 	}
 
-	client := NewClientWithRuntime(*serverCfg, runtime, workDir, m.log)
+	client := NewClientWithExecutor(*serverCfg, executor, workDir, m.log)
 	if err := client.Connect(ctx); err != nil {
 		if m.log != nil {
 			m.log.Error(logger.CatMCP, "failed to connect to MCP server",
@@ -273,15 +263,7 @@ func (m *Manager) HostExceptionCount() int {
 			return count
 		}
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	count := 0
-	for _, client := range m.clients {
-		if client.RuntimeType() == tools.RuntimeHost {
-			count++
-		}
-	}
-	return count
+	return 0
 }
 
 // Shutdown disconnects all MCP clients.

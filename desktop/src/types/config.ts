@@ -209,24 +209,6 @@ export interface SpeechConfig {
   modelDir: string;  // "" = ~/.soloqueue/models
 }
 
-export interface SandboxConfig {
-  runtime: 'host' | 'sandbox';
-  backend?: string;
-  network_enabled: boolean;
-  enabled: boolean;
-}
-
-export interface SandboxRuntimeStatus {
-  desired_runtime: 'host' | 'sandbox';
-  state: 'disabled' | 'idle' | 'starting' | 'ready' | 'failed' | 'draining';
-  backend?: string;
-  workspace?: string;
-  isolation_complete: boolean;
-  host_exceptions: number;
-  network_enabled: boolean;
-  last_error?: string;
-}
-
 export interface SpeechStatus {
   enabled: boolean;
   model: string;
@@ -256,7 +238,6 @@ export interface AppConfig {
   session: SessionConfig;
   log: LogConfig;
   tools: ToolsConfig;
-  sandbox?: SandboxConfig;
   providers: LLMProvider[];
   models: LLMModel[];
   embedding: EmbeddingConfig;

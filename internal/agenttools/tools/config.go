@@ -4,10 +4,8 @@
 //   - All tools are "configuration-driven value objects": main.go creates a Config
 //     at startup and calls Build(cfg), returning a []Tool that can be passed directly
 //     to agent.WithTools.
-//   - Business tools use a flat layout (one .go file per tool plus a *_test.go file);
-//     sandbox execution backend resides in subpackage tools/sandbox.
-//   - Shared configuration and helpers (sandbox checks, atomic write) are centralized in
-//     exec.go and helpers.go.
+//   - Business tools use a flat layout (one .go file per tool plus a *_test.go file).
+//   - Shared configuration and helpers are centralized in exec.go and helpers.go.
 //   - Tool Execute always returns a JSON string (easy for the LLM to parse) or a structured error;
 //     the agent layer formats errors as "error: ..." and sends them back to the LLM without
 //     interrupting the loop.
@@ -103,18 +101,9 @@ type Config struct {
 	// Logger is an optional logger instance (nil disables logging).
 	Logger *logger.Logger
 
-	// ── Sandbox executor ──────────────────────────────────────────────
-	// Runtime is the execution boundary for all model-controlled process,
-	// filesystem and network operations.
-	Runtime ToolRuntime
-
-	// RuntimeManager provides hot-reloadable Host/Sandbox selection. Build
-	// creates a workspace-scoped view from it when Runtime is nil.
-	RuntimeManager *RuntimeManager
-
-	// Sandbox is the deprecated host-executor field retained for focused tests
-	// and callers compiled against the previous API. New code uses Runtime.
-	Sandbox *Sandbox
+	// ── Executor ──────────────────────────────────────────────────────
+	// Executor is the direct execution engine for process, filesystem, and network ops.
+	Executor *Executor
 
 	// ── Work directory ────────────────────────────────────────────
 	// WorkDir is the agent's working directory for tool execution.
@@ -140,6 +129,7 @@ type Config struct {
 	// TeamStore is the project/team/agent persistence store.
 	// When non-nil, resolve_project and related tools are registered.
 	TeamStore *store.Store
+
 	// ── Cron tasks ───────────────────────────────────────────────────
 	CronStore     *cron.DBStore
 	CronScheduler *cron.Scheduler
@@ -148,10 +138,6 @@ type Config struct {
 	// ── Image generation ─────────────────────────────────────
 	// ImageModels lists image generation models. If any model has Enabled set, the ImageGenerate tool is registered.
 	ImageModels []ImgModelCfg
-
-	// ── Docker Sandbox ───────────────────────────────────────
-	RuntimeType    RuntimeType
-	SandboxEnabled bool
 }
 
 // ImgModelCfg contains runtime image model configuration.
@@ -173,30 +159,21 @@ type ImgModelCfg struct {
 
 // ─── Build ────────────────────────────────────────────────────────────────
 
-// ensureSandbox resolves the ToolRuntime without creating backend resources.
-// The historical name is retained to avoid a broad constructor churn.
-func ensureSandbox(cfg *Config) {
-	if cfg.Runtime == nil {
-		switch {
-		case cfg.RuntimeManager != nil:
-			cfg.Runtime = cfg.RuntimeManager.View(cfg.WorkDir, cfg.PlanDir)
-		case cfg.Sandbox != nil:
-			cfg.Runtime = cfg.Sandbox
-		default:
-			cfg.Runtime = NewHostRuntime()
-		}
+// ensureExecutor ensures that Executor is initialized and logged.
+func ensureExecutor(cfg *Config) {
+	if cfg.Executor == nil {
+		cfg.Executor = NewExecutor()
 	}
-	if host, ok := cfg.Runtime.(*Sandbox); ok && host.log == nil && cfg.Logger != nil {
-		host.SetLogger(cfg.Logger)
+	if cfg.Logger != nil {
+		cfg.Executor.SetLogger(cfg.Logger)
 	}
 }
 
 // Build returns all tools enabled for the current Config.
 //
 // The returned slice preserves declaration order (useful for debugging).
-// If cfg.Sandbox is nil, it is injected automatically.
 func Build(cfg Config) []Tool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	tools := []Tool{
 		newFileReadTool(cfg),
 		newGrepTool(cfg),
@@ -233,8 +210,6 @@ func Build(cfg Config) []Tool {
 // ─── Default Config ─────────────────────────────────────────────────────
 
 // DefaultConfig returns a set of recommended defaults that main.go can override.
-//
-// The values come from plan §5.3 and are safe for most local-development scenarios.
 func DefaultConfig() Config {
 	return Config{
 		MaxFileSize:  1 << 20,

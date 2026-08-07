@@ -19,7 +19,7 @@ type manageCronTool struct {
 }
 
 func newManageCronTool(cfg Config) *manageCronTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &manageCronTool{cfg: cfg, logger: cfg.Logger}
 }
 

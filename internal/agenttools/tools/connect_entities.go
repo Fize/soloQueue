@@ -16,7 +16,7 @@ type connectEntitiesTool struct {
 }
 
 func newConnectEntitiesTool(cfg Config) *connectEntitiesTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &connectEntitiesTool{cfg: cfg, logger: cfg.Logger}
 }
 

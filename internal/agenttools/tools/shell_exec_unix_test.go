@@ -253,7 +253,7 @@ func TestShell_RewriteCommand(t *testing.T) {
 	defer func() { useRTK = oldUseRTK }()
 
 	cmd := "git status"
-	hostRuntime := NewHostRuntime()
+	hostRuntime := NewExecutor()
 	rewritten := rewriteCommand(context.Background(), hostRuntime, cmd)
 	if rewritten != cmd {
 		t.Errorf("expected no rewrite when useRTK is false, got: %q", rewritten)

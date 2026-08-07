@@ -17,7 +17,7 @@ type kgIndexTool struct {
 }
 
 func newKGIndexTool(cfg Config) *kgIndexTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &kgIndexTool{cfg: cfg, logger: cfg.Logger}
 }
 

@@ -15,7 +15,7 @@ type consolidateMemoriesTool struct {
 }
 
 func newConsolidateMemoriesTool(cfg Config) *consolidateMemoriesTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &consolidateMemoriesTool{cfg: cfg, logger: cfg.Logger}
 }
 

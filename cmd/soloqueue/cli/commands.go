@@ -237,7 +237,6 @@ func ServeCmd(version string) *cobra.Command {
 				server.WithTemplates(rt.AllTemplates),
 				server.WithGroupsDir(filepath.Join(workDir, "groups")),
 				server.WithToolsConfig(&rt.ToolsCfg),
-				server.WithRuntimeManager(rt.RuntimeManager),
 				server.WithSkillRegistry(rt.SkillRegistry),
 				server.WithSkillDirs(map[string]string{"user": filepath.Join(workDir, "skills")}),
 				server.WithAgentsDir(filepath.Join(workDir, "agents")),

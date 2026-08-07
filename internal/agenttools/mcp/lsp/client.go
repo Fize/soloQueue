@@ -24,7 +24,7 @@ type Client struct {
 	command   string
 	args      []string
 	workDir   string
-	runtime   tools.ToolRuntime
+	executor  *tools.Executor
 	process   tools.Process
 	stdin     io.WriteCloser
 	transport *transport
@@ -44,29 +44,28 @@ type Client struct {
 
 // NewClient creates a new LSP client. Command and args are the LSP server binary.
 func NewClient(id, languageID, rootURI, command string, args []string, log *logger.Logger) *Client {
-	return NewClientWithRuntime(id, languageID, rootURI, command, args, uriToPath(rootURI), tools.NewHostRuntime(), log)
+	return NewClientWithExecutor(id, languageID, rootURI, command, args, uriToPath(rootURI), tools.NewExecutor(), log)
 }
 
-// NewClientWithRuntime creates an LSP client whose process is launched through
-// the selected Host/Sandbox runtime.
-func NewClientWithRuntime(
+// NewClientWithExecutor creates an LSP client whose process is launched on the host via Executor.
+func NewClientWithExecutor(
 	id, languageID, rootURI, command string,
 	args []string,
 	workDir string,
-	runtime tools.ToolRuntime,
+	executor *tools.Executor,
 	log *logger.Logger,
 ) *Client {
-	if runtime == nil {
-		runtime = tools.NewHostRuntime()
+	if executor == nil {
+		executor = tools.NewExecutor()
 	}
 	return &Client{
 		id:         id,
 		languageID: languageID,
 		rootURI:    rootURI,
 		command:    command,
-		args:       append([]string(nil), args...),
+		args:       args,
 		workDir:    workDir,
-		runtime:    runtime,
+		executor:   executor,
 		pending:    make(map[int64]chan *Response),
 		shutdown:   make(chan struct{}),
 		done:       make(chan struct{}),
@@ -74,15 +73,18 @@ func NewClientWithRuntime(
 	}
 }
 
-// Start launches the LSP server process and initializes the connection.
+// Start launches the LSP subprocess and sends initialize request.
 func (c *Client) Start(ctx context.Context) error {
-	process, err := c.runtime.StartProcess(ctx, tools.ProcessSpec{
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	process, err := c.executor.StartProcess(ctx, tools.ProcessSpec{
 		Command:          c.command,
 		Args:             c.args,
 		WorkingDirectory: c.workDir,
 	})
 	if err != nil {
-		return fmt.Errorf("start %s server %q in %s runtime: %w", c.id, c.command, c.runtime.Type(), err)
+		return fmt.Errorf("start %s server %q: %w", c.id, c.command, err)
 	}
 	c.process = process
 	c.stdin = process.Stdin()
@@ -101,8 +103,7 @@ func (c *Client) Start(ctx context.Context) error {
 
 	if c.log != nil {
 		c.log.Info(logger.CatMCP, "LSP server started",
-			"server", c.id, "command", c.command, "root", c.rootURI,
-			"runtime", c.runtime.Type(), "backend", c.runtime.BackendName())
+			"server", c.id, "command", c.command, "root", c.rootURI)
 	}
 	return nil
 }
@@ -144,7 +145,7 @@ func (c *Client) Stop() {
 	}
 
 	if c.log != nil {
-		c.log.Info(logger.CatMCP, "LSP server stopped", "server", c.id, "runtime", c.runtime.Type())
+		c.log.Info(logger.CatMCP, "LSP server stopped", "server", c.id)
 	}
 }
 

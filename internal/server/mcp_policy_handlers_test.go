@@ -36,8 +36,8 @@ func TestMCPPolicyHandlersRequireExplicitHostApprovalAndInvalidateChanges(t *tes
 	}); err != nil {
 		t.Fatal(err)
 	}
-	runtimeManager := tools.NewRuntimeManager(tools.RuntimeSandbox, nil)
-	manager := mcp.NewManagerWithPolicy(loader, mcp.NewPolicyStore(db), runtimeManager, nil)
+	executor := tools.NewExecutor()
+	manager := mcp.NewManagerWithPolicy(loader, mcp.NewPolicyStore(db), executor, nil)
 	mux := NewMux(dir, nil, WithMCPLoader(loader), WithMCPManager(manager))
 
 	request := newLocalhostRequest(http.MethodGet, "/api/mcp/policies?scope=global", nil)

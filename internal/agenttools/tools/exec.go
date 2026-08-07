@@ -8,30 +8,87 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools/sandbox"
 )
 
-// ─── RunCommand ─────────────────────────────────────────────────────────────
+// RuntimeType represents execution runtime mode.
+type RuntimeType = string
+
+const (
+	RuntimeHost    RuntimeType = "host"
+	RuntimeSandbox RuntimeType = "sandbox"
+)
+
+// ToolRuntime is an alias to Executor for compatibility.
+type ToolRuntime = Executor
+
+// NewHostRuntime creates a new Executor instance.
+func NewHostRuntime() *Executor {
+	return NewExecutor()
+}
 
 // RunCommandOptions contains command execution options.
-type RunCommandOptions = sandbox.RunCommandOptions
+type RunCommandOptions struct {
+	Timeout          time.Duration
+	Stdin            string
+	MaxOutput        int64
+	WorkingDirectory string
+}
 
 // RunCommandResult contains the result of a command execution.
-type RunCommandResult = sandbox.RunCommandResult
+type RunCommandResult struct {
+	ExitCode  int
+	Stdout    []byte
+	Stderr    []byte
+	Truncated bool
+}
 
-// ─── ReadFile ───────────────────────────────────────────────────────────────
+// ProcessSpec describes a long-lived process without shell interpolation.
+type ProcessSpec struct {
+	Command          string
+	Args             []string
+	Env              map[string]string
+	WorkingDirectory string
+}
+
+// Process is a cancellable long-lived process.
+type Process interface {
+	Stdin() io.WriteCloser
+	Stdout() io.Reader
+	Stderr() io.Reader
+	Wait() error
+	Kill() error
+}
+
+type hostProcess struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout io.Reader
+	stderr io.Reader
+}
+
+func (p *hostProcess) Stdin() io.WriteCloser { return p.stdin }
+func (p *hostProcess) Stdout() io.Reader     { return p.stdout }
+func (p *hostProcess) Stderr() io.Reader     { return p.stderr }
+func (p *hostProcess) Wait() error           { return p.cmd.Wait() }
+func (p *hostProcess) Kill() error {
+	if p.cmd.Process == nil {
+		return nil
+	}
+	return killRuntimeProcess(p.cmd)
+}
 
 // ReadFileOptions configures file reading limits.
 type ReadFileOptions struct {
-	// 0 means no limit.
 	MaxSize int64
 }
 
@@ -40,23 +97,16 @@ type ReadFileResult struct {
 	Data []byte
 }
 
-// ─── WriteFile ──────────────────────────────────────────────────────────────
-
 // WriteFileOptions configures file writing permissions and limits.
 type WriteFileOptions struct {
-	// If false and the file exists, an error is returned.
 	Overwrite bool
-	// 0 means no limit.
-	MaxSize int64
+	MaxSize   int64
 }
 
 // WriteFileResult holds the file write operation metadata.
 type WriteFileResult struct {
-	// Created is true if the target path did not previously exist.
 	Created bool
 }
-
-// ─── Stat ───────────────────────────────────────────────────────────────────
 
 // FileInfo contains file metadata.
 type FileInfo struct {
@@ -64,26 +114,17 @@ type FileInfo struct {
 	IsDir bool
 }
 
-// ─── Glob ───────────────────────────────────────────────────────────────────
-
 // GlobOptions contains glob matching options.
 type GlobOptions struct {
-	// MaxItems is the maximum number of results to return. 0 means no limit.
 	MaxItems int
-	// Timeout is the timeout for a single glob operation. 0 means use the parent context deadline.
-	Timeout time.Duration
+	Timeout  time.Duration
 }
 
-// ─── Grep ───────────────────────────────────────────────────────────────────
-
+// GrepOptions contains text search options.
 type GrepOptions struct {
-	// MaxMatches is the maximum number of matches to return. 0 means no limit.
-	MaxMatches int
-	// MaxLineLen is the maximum line length before truncation. 0 means no truncation.
-	MaxLineLen int
-	// GlobPattern is an optional filename filter pattern such as "*.go".
-	GlobPattern string
-	// IncludeIgnored controls whether dependency/hidden dirs (node_modules, vendor, .git, etc.) are searched.
+	MaxMatches     int
+	MaxLineLen     int
+	GlobPattern    string
 	IncludeIgnored bool
 }
 
@@ -103,19 +144,12 @@ type GrepMatch struct {
 	Content string
 }
 
-// ─── HTTP ───────────────────────────────────────────────────────────────────
-
 // HTTPOptions contains HTTP request options.
 type HTTPOptions struct {
-	// Timeout is the request timeout. 0 means no limit.
-	Timeout time.Duration
-	// MaxBody is the maximum response body size. 0 means no limit.
-	MaxBody int64
-	// Headers contains custom request headers.
-	Headers map[string]string
-	// ContentType is the Content-Type for POST requests.
-	ContentType string
-	// BlockPrivate controls whether private or loopback addresses are blocked.
+	Timeout      time.Duration
+	MaxBody      int64
+	Headers      map[string]string
+	ContentType  string
 	BlockPrivate bool
 }
 
@@ -125,43 +159,86 @@ type HTTPResponse struct {
 	Body       []byte
 }
 
-// ─── Sandbox ────────────────────────────────────────────────────────────────
+// ─── Executor ───────────────────────────────────────────────────────────────
 
-// Sandbox is the direct execution backend for all tool operations.
+// Executor is the direct execution engine for all tool operations.
 // It provides local filesystem and network access for shell commands,
-// file I/O, globbing, grep, and HTTP requests.
-type Sandbox struct {
-	log          *logger.Logger
-	dockerRunner *sandbox.DockerRunner
+// process management, file I/O, globbing, grep, and HTTP requests.
+type Executor struct {
+	log        *logger.Logger
+	HTTPPostFn func(ctx context.Context, rawURL string, body string, opts HTTPOptions) (HTTPResponse, error)
 }
 
-// NewSandbox creates the local executor.
-func NewSandbox() *Sandbox {
-	return &Sandbox{}
+// NewExecutor creates the local executor.
+func NewExecutor() *Executor {
+	return &Executor{}
 }
+
+// NewSandbox is a compatibility constructor alias for NewExecutor.
+func NewSandbox() *Executor {
+	return NewExecutor()
+}
+
+// Sandbox is a type alias for Executor to maintain backwards compatibility.
+type Sandbox = Executor
 
 // SetLogger sets the logger; nil disables logging.
-func (s *Sandbox) SetLogger(l *logger.Logger) {
-	s.log = l
+func (e *Executor) SetLogger(l *logger.Logger) {
+	e.log = l
 }
 
-// SetDockerRunner sets the DockerRunner instance for sandbox execution.
-func (s *Sandbox) SetDockerRunner(r *sandbox.DockerRunner) {
-	s.dockerRunner = r
+// StartProcess starts a long-lived process.
+func (e *Executor) StartProcess(ctx context.Context, spec ProcessSpec) (Process, error) {
+	if strings.TrimSpace(spec.Command) == "" {
+		return nil, fmt.Errorf("%w: empty process command", ErrInvalidArgs)
+	}
+	cmd := exec.CommandContext(ctx, spec.Command, spec.Args...)
+	if spec.WorkingDirectory != "" {
+		cmd.Dir = filepath.Clean(spec.WorkingDirectory)
+	}
+	envMap := minimalHostEnvironment()
+	for key, value := range spec.Env {
+		envMap[key] = value
+	}
+	cmd.Env = environmentList(envMap)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	configureRuntimeProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &hostProcess{cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr}, nil
 }
 
-// DockerRunner returns the current DockerRunner instance.
-func (s *Sandbox) DockerRunner() *sandbox.DockerRunner {
-	return s.dockerRunner
+// ExportFile returns the path if valid, or an error if it's a directory or missing.
+func (e *Executor) ExportFile(ctx context.Context, path string) (string, error) {
+	info, err := e.Stat(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir {
+		return "", fmt.Errorf("path is a directory, not a file: %s", path)
+	}
+	return path, nil
 }
 
 // ─── ReadFile ───────────────────────────────────────────────────────────────
 
-func (s *Sandbox) ReadFile(ctx context.Context, path string, opts ReadFileOptions) (ReadFileResult, error) {
+func (e *Executor) ReadFile(ctx context.Context, path string, opts ReadFileOptions) (ReadFileResult, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: read file failed", err, "path", path)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: read file failed", err, "path", path)
 		}
 		return ReadFileResult{}, err
 	}
@@ -188,8 +265,8 @@ func (s *Sandbox) ReadFile(ctx context.Context, path string, opts ReadFileOption
 	select {
 	case res := <-resultCh:
 		if res.err != nil {
-			if s.log != nil {
-				s.log.LogError(ctx, logger.CatTool, "exec: read file failed", res.err, "path", path)
+			if e.log != nil {
+				e.log.LogError(ctx, logger.CatTool, "exec: read file failed", res.err, "path", path)
 			}
 			return ReadFileResult{}, res.err
 		}
@@ -201,7 +278,7 @@ func (s *Sandbox) ReadFile(ctx context.Context, path string, opts ReadFileOption
 
 // ─── WriteFile ──────────────────────────────────────────────────────────────
 
-func (s *Sandbox) WriteFile(ctx context.Context, path string, data []byte, opts WriteFileOptions) (WriteFileResult, error) {
+func (e *Executor) WriteFile(ctx context.Context, path string, data []byte, opts WriteFileOptions) (WriteFileResult, error) {
 	if opts.MaxSize > 0 && int64(len(data)) > opts.MaxSize {
 		return WriteFileResult{}, fmt.Errorf("write too large: %d bytes > %d", len(data), opts.MaxSize)
 	}
@@ -225,8 +302,8 @@ func (s *Sandbox) WriteFile(ctx context.Context, path string, data []byte, opts 
 
 	tmp, err := os.CreateTemp(dir, ".soloqueue-tmp-*")
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
 		}
 		return WriteFileResult{}, fmt.Errorf("create tmp: %w", err)
 	}
@@ -247,23 +324,23 @@ func (s *Sandbox) WriteFile(ctx context.Context, path string, data []byte, opts 
 	if _, err = tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
 		}
 		return WriteFileResult{}, fmt.Errorf("write tmp: %w", err)
 	}
 	if err = tmp.Sync(); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
 		}
 		return WriteFileResult{}, fmt.Errorf("sync tmp: %w", err)
 	}
 	if err = tmp.Close(); err != nil {
 		_ = os.Remove(tmpName)
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
 		}
 		return WriteFileResult{}, fmt.Errorf("close tmp: %w", err)
 	}
@@ -274,8 +351,8 @@ func (s *Sandbox) WriteFile(ctx context.Context, path string, data []byte, opts 
 	}
 
 	if err = os.Rename(tmpName, path); err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: write file failed", err, "path", path)
 		}
 		return WriteFileResult{}, fmt.Errorf("rename tmp -> target: %w", err)
 	}
@@ -285,19 +362,19 @@ func (s *Sandbox) WriteFile(ctx context.Context, path string, data []byte, opts 
 
 // ─── Stat ───────────────────────────────────────────────────────────────────
 
-func (s *Sandbox) Stat(ctx context.Context, path string) (FileInfo, error) {
+func (e *Executor) Stat(ctx context.Context, path string) (FileInfo, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: stat failed", err, "path", path)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: stat failed", err, "path", path)
 		}
 		return FileInfo{}, err
 	}
 	return FileInfo{Size: fi.Size(), IsDir: fi.IsDir()}, nil
 }
 
-// MkdirAll creates a directory tree in HostRuntime.
-func (s *Sandbox) MkdirAll(ctx context.Context, path string) error {
+// MkdirAll creates a directory tree on the host.
+func (e *Executor) MkdirAll(ctx context.Context, path string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -306,7 +383,7 @@ func (s *Sandbox) MkdirAll(ctx context.Context, path string) error {
 
 // ─── Glob ───────────────────────────────────────────────────────────────────
 
-func (s *Sandbox) Glob(ctx context.Context, dir string, pattern string, opts GlobOptions) ([]string, error) {
+func (e *Executor) Glob(ctx context.Context, dir string, pattern string, opts GlobOptions) ([]string, error) {
 	maxItems := opts.MaxItems
 	if maxItems <= 0 {
 		maxItems = 10000
@@ -338,8 +415,8 @@ func (s *Sandbox) Glob(ctx context.Context, dir string, pattern string, opts Glo
 	}
 
 	if res.err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: glob failed", res.err, "dir", dir, "pattern", pattern)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: glob failed", res.err, "dir", dir, "pattern", pattern)
 		}
 		return nil, res.err
 	}
@@ -359,11 +436,11 @@ func (s *Sandbox) Glob(ctx context.Context, dir string, pattern string, opts Glo
 
 // ─── Grep ───────────────────────────────────────────────────────────────────
 
-func (s *Sandbox) Grep(ctx context.Context, dir string, pattern string, opts GrepOptions) ([]GrepMatch, error) {
+func (e *Executor) Grep(ctx context.Context, dir string, pattern string, opts GrepOptions) ([]GrepMatch, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: grep failed", err, "dir", dir, "pattern", pattern)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: grep failed", err, "dir", dir, "pattern", pattern)
 		}
 		return nil, fmt.Errorf("invalid pattern: %w", err)
 	}
@@ -459,8 +536,8 @@ func (s *Sandbox) Grep(ctx context.Context, dir string, pattern string, opts Gre
 	})
 
 	if walkErr != nil && walkErr != fs.SkipAll {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: grep walk failed", walkErr, "dir", dir, "pattern", pattern)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: grep walk failed", walkErr, "dir", dir, "pattern", pattern)
 		}
 		return nil, walkErr
 	}
@@ -469,7 +546,7 @@ func (s *Sandbox) Grep(ctx context.Context, dir string, pattern string, opts Gre
 
 // ─── HTTPGet ────────────────────────────────────────────────────────────────
 
-func (s *Sandbox) HTTPGet(ctx context.Context, rawURL string, opts HTTPOptions) (HTTPResponse, error) {
+func (e *Executor) HTTPGet(ctx context.Context, rawURL string, opts HTTPOptions) (HTTPResponse, error) {
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
@@ -483,8 +560,8 @@ func (s *Sandbox) HTTPGet(ctx context.Context, rawURL string, opts HTTPOptions) 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: http get failed", err, "url", rawURL)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: http get failed", err, "url", rawURL)
 		}
 		return HTTPResponse{}, err
 	}
@@ -495,8 +572,8 @@ func (s *Sandbox) HTTPGet(ctx context.Context, rawURL string, opts HTTPOptions) 
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: http get failed", err, "url", rawURL)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: http get failed", err, "url", rawURL)
 		}
 		return HTTPResponse{}, err
 	}
@@ -504,8 +581,8 @@ func (s *Sandbox) HTTPGet(ctx context.Context, rawURL string, opts HTTPOptions) 
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: http get read body failed", err, "url", rawURL)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: http get read body failed", err, "url", rawURL)
 		}
 		return HTTPResponse{}, err
 	}
@@ -518,7 +595,11 @@ func (s *Sandbox) HTTPGet(ctx context.Context, rawURL string, opts HTTPOptions) 
 
 // ─── HTTPPost ───────────────────────────────────────────────────────────────
 
-func (s *Sandbox) HTTPPost(ctx context.Context, rawURL string, body string, opts HTTPOptions) (HTTPResponse, error) {
+func (e *Executor) HTTPPost(ctx context.Context, rawURL string, body string, opts HTTPOptions) (HTTPResponse, error) {
+	if e != nil && e.HTTPPostFn != nil {
+		return e.HTTPPostFn(ctx, rawURL, body, opts)
+	}
+
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
@@ -532,8 +613,8 @@ func (s *Sandbox) HTTPPost(ctx context.Context, rawURL string, body string, opts
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(body))
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: http post failed", err, "url", rawURL)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: http post failed", err, "url", rawURL)
 		}
 		return HTTPResponse{}, err
 	}
@@ -547,8 +628,8 @@ func (s *Sandbox) HTTPPost(ctx context.Context, rawURL string, body string, opts
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: http post failed", err, "url", rawURL)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: http post failed", err, "url", rawURL)
 		}
 		return HTTPResponse{}, err
 	}
@@ -556,8 +637,8 @@ func (s *Sandbox) HTTPPost(ctx context.Context, rawURL string, body string, opts
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: http post read body failed", err, "url", rawURL)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: http post read body failed", err, "url", rawURL)
 		}
 		return HTTPResponse{}, err
 	}
@@ -569,6 +650,33 @@ func (s *Sandbox) HTTPPost(ctx context.Context, rawURL string, body string, opts
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
+
+func minimalHostEnvironment() map[string]string {
+	keys := []string{
+		"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
+		"SystemRoot", "ComSpec", "PATHEXT",
+	}
+	env := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := os.LookupEnv(key); ok {
+			env[key] = value
+		}
+	}
+	return env
+}
+
+func environmentList(env map[string]string) []string {
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, key+"="+env[key])
+	}
+	return out
+}
 
 // limitedWriterExec is a truncating writer.
 type limitedWriterExec struct {

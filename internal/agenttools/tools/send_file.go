@@ -20,7 +20,7 @@ type sendFileTool struct {
 }
 
 func newSendFileTool(cfg Config) *sendFileTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &sendFileTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -87,7 +87,7 @@ func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) 
 			return "", err
 		}
 
-		exported, err := t.cfg.Runtime.ExportFile(ctx, abs)
+		exported, err := t.cfg.Executor.ExportFile(ctx, abs)
 		if err != nil {
 			return "", fmt.Errorf("failed to export file %s: %v", abs, err)
 		}
