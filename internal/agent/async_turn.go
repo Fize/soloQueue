@@ -428,7 +428,7 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	// Emit ToolExecDoneEvent for each asynchronous delegated tool, allowing the frontend to mark
 	// the tool_call segment created by ToolExecStartEvent as complete.
 	for i, tc := range turn.toolCalls {
-		if !strings.HasPrefix(tc.Function.Name, "delegate_") {
+		if tc.Function.Name != "delegate" && !strings.HasPrefix(tc.Function.Name, "delegate_") {
 			continue
 		}
 		result := ""
@@ -552,7 +552,7 @@ func formatDelegationCompleted(toolCalls []llm.ToolCall, results []string) strin
 	sb.WriteString("[Delegation Completed]\n\n")
 	hasResults := false
 	for i, tc := range toolCalls {
-		if !strings.HasPrefix(tc.Function.Name, "delegate_") {
+		if tc.Function.Name != "delegate" && !strings.HasPrefix(tc.Function.Name, "delegate_") {
 			continue
 		}
 		result := ""

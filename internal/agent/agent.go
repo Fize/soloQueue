@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -287,21 +286,13 @@ func (a *Agent) SetConfirmStore(store SessionConfirmStore) {
 // leaderID. This is used after Supervisor creation to wire L2→L3 delegation
 // through the Supervisor so spawned L3 children are tracked.
 //
-// Returns true if a DelegateTool with that name was found and updated.
+// SetDelegateSpawnFn checks if the delegate tool is registered on this agent.
 func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Context, task string, workDir string) (iface.Locatable, error)) bool {
 	if a.tools == nil {
 		return false
 	}
-	t, ok := a.tools.Get("delegate_" + strings.ReplaceAll(leaderID, " ", "_"))
-	if !ok {
-		return false
-	}
-	dt, ok := t.(*tools.DelegateTool)
-	if !ok {
-		return false
-	}
-	dt.SpawnFn = spawnFn
-	return true
+	_, ok := a.tools.Get("delegate")
+	return ok
 }
 
 // SetSystemPrompt replaces the agent's system prompt.

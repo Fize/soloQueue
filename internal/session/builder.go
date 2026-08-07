@@ -131,17 +131,10 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				if sv.Group() == group {
 					sv.AdoptChild(ag)
 					l2 := sv.Agent()
-					// Wire spawn fn on existing delegate tool, or create one
-					// for newly added workers not known when L2 was created.
-					if !l2.SetDelegateSpawnFn(name, sv.SpawnFnFor(tmpl)) {
-						dt := tools.NewDelegateTool(name, tmpl.Description,
-							25*time.Minute, nil, sessLog, tools.WorkDirInheritOnly)
-						dt.SpawnFn = sv.SpawnFnFor(tmpl)
-						if err := l2.RegisterTool(dt); err != nil {
-							sessLog.Warn(logger.CatActor,
-								"auto-reload: register delegate tool failed",
-								"name", name, "err", err.Error())
-						}
+					if l2.HasTool("delegate") {
+						sessLog.Info(logger.CatActor, "auto-reload: worker adopted & delegate tool active",
+							"name", name, "group", group)
+						return
 					}
 					sessLog.Info(logger.CatActor, "auto-reload: worker adopted & spawn fn wired",
 						"name", name, "group", group)
@@ -158,20 +151,6 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	}
 
 	allTools := tools.WithFallbackPrefix(baseTools)
-	for _, l := range b.RT.Leaders {
-		var leaderTmpl agent.AgentTemplate
-		found := false
-		for i := range b.RT.AllTemplates {
-			if b.RT.AllTemplates[i].IsLeader && strings.EqualFold(b.RT.AllTemplates[i].ID, l.Name) {
-				leaderTmpl = b.RT.AllTemplates[i]
-				found = true
-				break
-			}
-		}
-		if found {
-			allTools = append(allTools, b.newL1LeaderDelegateTool(sessLog, l, leaderTmpl))
-		}
-	}
 
 	// Add inspect_agent tool for L1 to query all agent status
 	inspectTool := tools.NewInspectAgentTool(agent.RegistryInspectQuery(b.RT.AgentRegistry))
@@ -249,10 +228,30 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		allTools = append(allTools, skillTool)
 	}
 
-	// Inject the generic delegate_agent tool for L1 dynamic L3 delegation
-	dat := tools.NewDelegateAgentTool(sessLog, func(ctx context.Context, name, systemPrompt, modelID, task, workDir string, baseAgentName string, skillDir string) (iface.Locatable, error) {
+	// Inject unified delegate tool for L1 agent
+	delegateResolver := func(ctx context.Context, name, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
+		if loc, ok := b.RT.AgentRegistry.LocateIdleInWorkDir(name, workDir); ok {
+			return loc, false, nil
+		}
+
 		var tmpl agent.AgentTemplate
 		var ok bool
+		var baseAgentName string
+		var skillDir string
+
+		if skillID != "" && b.RT.SkillRegistry != nil {
+			if s, okSkill := b.RT.SkillRegistry.GetSkill(skillID); okSkill {
+				baseAgentName = s.Agent
+				skillDir = s.Dir
+				if s.Instructions != "" {
+					if systemPrompt != "" {
+						systemPrompt = systemPrompt + "\n\n# Skill Execution Instructions\n" + s.Instructions
+					} else {
+						systemPrompt = "# Skill Execution Instructions\n" + s.Instructions
+					}
+				}
+			}
+		}
 
 		if skillDir != "" {
 			tmpl, ok = agent.LoadSkillAgentTemplate(skillDir, name)
@@ -283,7 +282,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 
 		tmpl.ID = strings.ToLower(name)
 		tmpl.Name = name
-		tmpl.IsLeader = false // All dynamically delegated agents are L3 workers
+		tmpl.IsLeader = false
 
 		if ok {
 			if systemPrompt != "" {
@@ -294,7 +293,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				}
 			}
 		} else {
-			tmpl.Description = "Dynamic skill agent"
+			tmpl.Description = "Dynamic worker agent"
 			tmpl.SystemPrompt = systemPrompt
 		}
 
@@ -304,7 +303,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 
 		child, _, err := b.RT.AgentFactory.Create(ctx, tmpl, workDir)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		sv := agent.NewSupervisor(child, b.RT.AgentFactory, sessLog)
 		sv.WireSpawnFns(b.RT.AllTemplates)
@@ -312,15 +311,17 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 
 		return agent.NewSelfReapableAdapterWithCleanup(child, sv, func() {
 			b.RT.RemoveSupervisor(sv)
-		}), nil
-	}, tools.WorkDirExplicitOrInherited)
-	dat.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
+		}), true, nil
+	}
+
+	dt := tools.NewDelegateTool("L1", 30*time.Minute, delegateResolver, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited)
+	dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if s, ok := b.RT.SkillRegistry.GetSkill(skillID); ok {
 			return s.Instructions, s.Agent, s.Dir, true
 		}
 		return "", "", "", false
 	}
-	allTools = append(allTools, dat)
+	allTools = append(allTools, dt)
 
 	// MCP tools for L1: register tools from agent.mcpServers whitelist.
 	if b.RT.MCPManager != nil {
@@ -405,31 +406,8 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				"name", name, "err", err.Error())
 		}
 
-		spawnFn := func(ctx context.Context, task string, projectDir string) (iface.Locatable, error) {
-			// Prefer an idle instance to enable parallel delegation.
-			if loc, ok := b.RT.AgentRegistry.LocateIdle(name); ok {
-				return loc, nil
-			}
-			// Fallback: any instance (even if busy).
-			if loc, ok := b.RT.AgentRegistry.Locate(name); ok {
-				return loc, nil
-			}
-			return nil, fmt.Errorf("leader %q not found in registry", name)
-		}
-
-		// The L1 agent may already have a delegate tool for this leader from the
-		// startup catalog. Update it in place instead of leaking a new supervisor
-		// after duplicate registration fails.
-		if a.SetDelegateSpawnFn(name, spawnFn) {
+		if a.HasTool("delegate") {
 			return
-		}
-
-		dt := tools.NewDelegateTool(name, name+" team leader", 30*time.Minute, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited)
-		dt.SpawnFn = spawnFn
-		if err := a.RegisterTool(dt); err != nil {
-			cleanupSupervisor(sv)
-			sessLog.Error(logger.CatActor, "register delegate tool for new leader failed",
-				"leader", name, "err", err.Error())
 		}
 	}
 
@@ -636,67 +614,8 @@ func (b *Builder) ReconcileL1TeamCatalog(sess *Session, systemPrompt string) err
 		return ErrSessionBusy
 	}
 
-	b.RT.CfgMu.RLock()
-	leaders := append([]prompt.LeaderInfo(nil), b.RT.Leaders...)
-	templates := append([]agent.AgentTemplate(nil), b.RT.AllTemplates...)
-	b.RT.CfgMu.RUnlock()
-
 	sess.ContextWindow().ReplacePrimarySystem(systemPrompt)
-	for _, leader := range leaders {
-		toolName := "delegate_" + strings.ReplaceAll(leader.Name, " ", "_")
-		if sess.Agent.HasTool(toolName) {
-			continue
-		}
-		for _, tmpl := range templates {
-			if !tmpl.IsLeader || !strings.EqualFold(tmpl.ID, leader.Name) {
-				continue
-			}
-			if err := sess.Agent.RegisterTool(b.newL1LeaderDelegateTool(sess.logger, leader, tmpl)); err != nil {
-				return err
-			}
-			break
-		}
-	}
 	return nil
-}
-
-func (b *Builder) newL1LeaderDelegateTool(sessLog *logger.Logger, leader prompt.LeaderInfo, leaderTmpl agent.AgentTemplate) *tools.DelegateTool {
-	dt := tools.NewDelegateTool(leader.Name, leader.Description, 30*time.Minute, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited)
-	dt.SpawnFn = func(ctx context.Context, task string, projectDir string) (iface.Locatable, error) {
-		if loc, ok := b.RT.AgentRegistry.LocateIdleInWorkDir(leader.Name, projectDir); ok {
-			return loc, nil
-		}
-		// Resolve fresh template from factory at runtime (hot-reload support)
-		freshTmpl, ok := b.RT.AgentFactory.ResolveTemplate(ctx, leader.Name)
-		if !ok {
-			freshTmpl = leaderTmpl // fallback to captured
-		}
-		child, _, err := b.RT.AgentFactory.Create(ctx, freshTmpl, projectDir)
-		if err != nil {
-			return nil, fmt.Errorf("spawn leader %q: %w", leader.Name, err)
-		}
-
-		sv := agent.NewSupervisor(child, b.RT.AgentFactory, sessLog)
-		b.RT.CfgMu.RLock()
-		templates := append([]agent.AgentTemplate(nil), b.RT.AllTemplates...)
-		b.RT.CfgMu.RUnlock()
-		sv.WireSpawnFns(templates)
-		sv.SetGroup(leaderTmpl.Group)
-		b.RT.AddSupervisor(sv)
-
-		if err := child.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
-			sessLog.Warn(logger.CatActor, "register inspect_agent for leader failed",
-				"name", leader.Name, "err", err.Error())
-		}
-		sessLog.Info(logger.CatActor, "dynamic L2 supervisor created",
-			"instance_id", child.InstanceID,
-			"name", leader.Name,
-		)
-		return agent.NewSelfReapableAdapterWithCleanup(child, sv, func() {
-			b.RT.RemoveSupervisor(sv)
-		}), nil
-	}
-	return dt
 }
 
 // BuildFactory constructs the AgentFactory function used by SessionManager.

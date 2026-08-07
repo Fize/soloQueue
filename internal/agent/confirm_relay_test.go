@@ -26,6 +26,7 @@ type confirmBubbleFixture struct {
 
 func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 	reg := NewRegistry(nil)
+	tmpDir := t.TempDir()
 
 	// L3 agent: has a confirmable tool
 	l3LLM := &agenttest.FakeLLM{
@@ -49,6 +50,7 @@ func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 		nil,
 		WithTools(confirmTool),
 	)
+	l3Agent.WorkDir = tmpDir
 	if err := l3Agent.Start(context.Background()); err != nil {
 		t.Fatalf("failed to start L3: %v", err)
 	}
@@ -64,23 +66,20 @@ func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 				llm.ToolCallDelta{
 					Index:     0,
 					ID:        "call_1",
-					Name:      "delegate_l3",
-					Arguments: `{"task":"invoke dangerous op"}`,
+					Name:      "delegate",
+					Arguments: `{"target":"l3","task":"invoke dangerous op"}`,
 				},
 			},
 		},
 	}
-	delegateTool := &tools.DelegateTool{
-		LeaderID: "l3",
-		Desc:     "L3 team leader",
-		Locator:  reg,
-	}
+	delegateTool := tools.NewDelegateTool("l2", 5*time.Minute, nil, reg, nil, tools.WorkDirExplicitOrInherited)
 	l2Agent := NewAgent(
 		Definition{ID: "l2"},
 		l2LLM,
 		nil,
 		WithTools(delegateTool),
 	)
+	l2Agent.WorkDir = tmpDir
 	if err := l2Agent.Start(context.Background()); err != nil {
 		t.Fatalf("failed to start L2: %v", err)
 	}
@@ -96,23 +95,20 @@ func setupConfirmBubbleFixture(t *testing.T) *confirmBubbleFixture {
 				llm.ToolCallDelta{
 					Index:     0,
 					ID:        "call_1",
-					Name:      "delegate_l2",
-					Arguments: `{"task":"delegate to L2"}`,
+					Name:      "delegate",
+					Arguments: `{"target":"l2","task":"delegate to L2"}`,
 				},
 			},
 		},
 	}
-	delegateTool2 := &tools.DelegateTool{
-		LeaderID: "l2",
-		Desc:     "L2 team leader",
-		Locator:  reg,
-	}
+	delegateTool2 := tools.NewDelegateTool("l1", 5*time.Minute, nil, reg, nil, tools.WorkDirExplicitOrInherited)
 	l1Agent := NewAgent(
 		Definition{ID: "l1"},
 		l1LLM,
 		nil,
 		WithTools(delegateTool2),
 	)
+	l1Agent.WorkDir = tmpDir
 	if err := l1Agent.Start(context.Background()); err != nil {
 		t.Fatalf("failed to start L1: %v", err)
 	}
