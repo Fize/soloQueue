@@ -128,7 +128,9 @@ type Config struct {
 
 	// ── Long-term memory ──────────────────────────────────────────────
 	// MemoryEngine is the long-term memory engine (nil means disabled).
-	// Remember / RecallMemory and related memory tools only take effect when non-nil.
+	// Standard agents use Remember / RecallMemory for text RAG.
+	// Knowledge Graph (KG) operations are used programmatically by the Simulation Engine
+	// via the Go API rather than exposing LLM tool calls.
 	MemoryEngine *engine.Engine
 
 	// ── Team store ──────────────────────────────────────────────────────
@@ -204,15 +206,6 @@ func Build(cfg Config) []Tool {
 		newRememberTool(cfg),
 		newRecallMemoryTool(cfg),
 		newSendFileTool(cfg),
-	}
-	if cfg.MemoryEngine != nil {
-		tools = append(tools,
-			newKGIndexTool(cfg),
-			newRecallEntityTool(cfg),
-			newConnectEntitiesTool(cfg),
-			newMemoryTimelineTool(cfg),
-			newConsolidateMemoriesTool(cfg),
-		)
 	}
 	if cfg.TeamStore != nil {
 		tools = append(tools, newResolveProjectTool(cfg))
