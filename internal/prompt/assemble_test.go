@@ -139,6 +139,50 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 	}
 }
 
+func TestAssembleWithXML_ContainsExecutionModes(t *testing.T) {
+	result := assembleWithXML(
+		"profile content",
+		"user context",
+		"",
+		"",
+		"routing table",
+		"team management",
+		"rules content",
+		"/home/user/.soloqueue/plan",
+		"/home/user/.soloqueue",
+		"/home/user/.soloqueue/explore",
+		nil,
+		nil,
+	)
+
+	if !strings.Contains(result, "<execution_modes>") {
+		t.Error("execution_modes section should be present")
+	}
+	if !strings.Contains(result, "</execution_modes>") {
+		t.Error("execution_modes section should be closed")
+	}
+	// The execution modes block must be appended after exploration_artifacts
+	// (append-only placement so the earlier system prompt prefix stays stable).
+	artifactsIdx := strings.Index(result, "</exploration_artifacts>")
+	modesIdx := strings.Index(result, "<execution_modes>")
+	if artifactsIdx < 0 || modesIdx < 0 || modesIdx < artifactsIdx {
+		t.Error("execution_modes should be appended after exploration_artifacts")
+	}
+	// Key behavioral directives must be present.
+	for _, want := range []string{
+		"FACING USER",
+		"DELEGATING",
+		"EDITING",
+		"Do not poll or sleep waiting for results",
+		"Preserve pre-existing uncommitted changes",
+		"lead with the outcome or the answer",
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("execution_modes should mention %q", want)
+		}
+	}
+}
+
 func TestAssembleWithXML_MCPServers(t *testing.T) {
 	result := assembleWithXML(
 		"profile content",
