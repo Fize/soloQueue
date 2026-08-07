@@ -35,7 +35,7 @@ type replaceTool struct {
 }
 
 func newReplaceTool(cfg Config) *replaceTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &replaceTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -94,7 +94,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	readRes, err := t.cfg.Runtime.ReadFile(ctx, abs, ReadFileOptions{
+	readRes, err := t.cfg.Executor.ReadFile(ctx, abs, ReadFileOptions{
 		MaxSize: t.cfg.MaxFileSize,
 	})
 	if err != nil {
@@ -119,7 +119,7 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", fmt.Errorf("%w: result %d bytes > %d", ErrContentTooLarge, len(after), t.cfg.MaxWriteSize)
 	}
 
-	if _, werr := t.cfg.Runtime.WriteFile(ctx, abs, []byte(after), WriteFileOptions{
+	if _, werr := t.cfg.Executor.WriteFile(ctx, abs, []byte(after), WriteFileOptions{
 		Overwrite: true,
 		MaxSize:   t.cfg.MaxWriteSize,
 	}); werr != nil {

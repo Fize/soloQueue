@@ -34,7 +34,7 @@ type webSearchTool struct {
 }
 
 func newWebSearchTool(cfg Config) *webSearchTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &webSearchTool{
 		cfg:    cfg,
 		logger: cfg.Logger,
@@ -135,7 +135,7 @@ func (t *webSearchTool) ddgSearch(ctx context.Context, query string, maxResults 
 	form := url.Values{}
 	form.Set("q", query)
 
-	httpResp, err := t.cfg.Runtime.HTTPPost(ctx, "https://lite.duckduckgo.com/lite/",
+	httpResp, err := t.cfg.Executor.HTTPPost(ctx, "https://lite.duckduckgo.com/lite/",
 		form.Encode(),
 		HTTPOptions{
 			Timeout:     t.cfg.WebSearchTimeout,
@@ -166,7 +166,7 @@ func (t *webSearchTool) tavilySearch(ctx context.Context, query string, maxResul
 		return nil, err
 	}
 
-	httpResp, err := t.cfg.Runtime.HTTPPost(ctx, "https://api.tavily.com/search",
+	httpResp, err := t.cfg.Executor.HTTPPost(ctx, "https://api.tavily.com/search",
 		string(body),
 		HTTPOptions{
 			Timeout:     t.cfg.WebSearchTimeout,

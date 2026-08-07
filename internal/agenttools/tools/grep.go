@@ -35,7 +35,7 @@ type grepTool struct {
 }
 
 func newGrepTool(cfg Config) *grepTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &grepTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -104,7 +104,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		return "", err
 	}
 
-	fi, err := t.cfg.Runtime.Stat(ctx, absDir)
+	fi, err := t.cfg.Executor.Stat(ctx, absDir)
 	if err != nil {
 		return "", err
 	}
@@ -121,7 +121,7 @@ func (t *grepTool) Execute(ctx context.Context, raw string) (string, error) {
 		maxLine = 500
 	}
 
-	grepMatches, err := t.cfg.Runtime.Grep(ctx, absDir, a.Pattern, GrepOptions{
+	grepMatches, err := t.cfg.Executor.Grep(ctx, absDir, a.Pattern, GrepOptions{
 		MaxMatches:     maxMatches,
 		MaxLineLen:     maxLine,
 		GlobPattern:    a.Glob,

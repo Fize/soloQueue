@@ -38,7 +38,7 @@ func setupResolveProjectTool(t *testing.T) (*resolveProjectTool, func()) {
 
 	cfg := Config{
 		TeamStore: ts,
-		Runtime:   NewHostRuntime(),
+		Executor:  NewExecutor(),
 	}
 	tool := newResolveProjectTool(cfg)
 
@@ -171,7 +171,7 @@ func TestResolveProjectTool_Execute(t *testing.T) {
 
 		cfg := Config{
 			TeamStore: ts,
-			Runtime:   NewHostRuntime(),
+			Executor:  NewExecutor(),
 		}
 		t2 := newResolveProjectTool(cfg)
 

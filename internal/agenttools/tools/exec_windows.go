@@ -15,10 +15,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
-func (s *Sandbox) RunCommand(ctx context.Context, cmd string, opts RunCommandOptions) (RunCommandResult, error) {
-	if s.dockerRunner != nil {
-		return s.dockerRunner.RunCommand(ctx, cmd, opts)
-	}
+func (e *Executor) RunCommand(ctx context.Context, cmd string, opts RunCommandOptions) (RunCommandResult, error) {
 
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -93,8 +90,8 @@ func (s *Sandbox) RunCommand(ctx context.Context, cmd string, opts RunCommandOpt
 			res.ExitCode = ee.ExitCode()
 			return res, nil
 		}
-		if s.log != nil {
-			s.log.LogError(ctx, logger.CatTool, "exec: run command failed", err, "command", cmd)
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: run command failed", err, "command", cmd)
 		}
 		return res, err
 	}

@@ -8,60 +8,24 @@ import (
 	"time"
 )
 
-// stubRuntime is a test double for ToolRuntime. Only HTTPPost has behavior:
-// it records the request and returns a preset response. Everything else is a
-// zero-value no-op.
-type stubRuntime struct {
-	response HTTPResponse
-
-	postURL  string
-	postBody string
-	postOpts HTTPOptions
-}
-
-var _ ToolRuntime = (*stubRuntime)(nil)
-
-func (s *stubRuntime) Type() RuntimeType   { return RuntimeHost }
-func (s *stubRuntime) BackendName() string { return "stub" }
-func (s *stubRuntime) RunCommand(context.Context, string, RunCommandOptions) (RunCommandResult, error) {
-	return RunCommandResult{}, nil
-}
-func (s *stubRuntime) StartProcess(context.Context, ProcessSpec) (Process, error) { return nil, nil }
-func (s *stubRuntime) ReadFile(context.Context, string, ReadFileOptions) (ReadFileResult, error) {
-	return ReadFileResult{}, nil
-}
-func (s *stubRuntime) WriteFile(context.Context, string, []byte, WriteFileOptions) (WriteFileResult, error) {
-	return WriteFileResult{}, nil
-}
-func (s *stubRuntime) MkdirAll(context.Context, string) error { return nil }
-func (s *stubRuntime) Stat(context.Context, string) (FileInfo, error) {
-	return FileInfo{}, nil
-}
-func (s *stubRuntime) Glob(context.Context, string, string, GlobOptions) ([]string, error) {
-	return nil, nil
-}
-func (s *stubRuntime) Grep(context.Context, string, string, GrepOptions) ([]GrepMatch, error) {
-	return nil, nil
-}
-func (s *stubRuntime) HTTPGet(context.Context, string, HTTPOptions) (HTTPResponse, error) {
-	return HTTPResponse{}, nil
-}
-func (s *stubRuntime) HTTPPost(_ context.Context, rawURL, body string, opts HTTPOptions) (HTTPResponse, error) {
-	s.postURL = rawURL
-	s.postBody = body
-	s.postOpts = opts
-	return s.response, nil
-}
-func (s *stubRuntime) ExportFile(context.Context, string) (string, error) { return "", nil }
 
 const tavilyResponseJSON = `{"query":"golang errgroup","results":[{"title":"errgroup package - Go Packages","url":"https://pkg.go.dev/golang.org/x/sync/errgroup","content":"Package errgroup provides synchronization, error propagation, and Context cancellation.","score":0.98}]}`
 
 func TestWebSearch_UsesTavilyWhenKeySet(t *testing.T) {
-	stub := &stubRuntime{response: HTTPResponse{StatusCode: 200, Body: []byte(tavilyResponseJSON)}}
+	var postURL, postBody string
+	var postOpts HTTPOptions
+	exec := &Executor{
+		HTTPPostFn: func(_ context.Context, rawURL, body string, opts HTTPOptions) (HTTPResponse, error) {
+			postURL = rawURL
+			postBody = body
+			postOpts = opts
+			return HTTPResponse{StatusCode: 200, Body: []byte(tavilyResponseJSON)}, nil
+		},
+	}
 	tool := newWebSearchTool(Config{
 		WebSearchTimeout: 2 * time.Second,
 		TavilyAPIKey:     "tvly-test-123",
-		Runtime:          stub,
+		Executor:         exec,
 	})
 
 	out, err := tool.Execute(context.Background(), `{"query":"golang errgroup"}`)
@@ -69,14 +33,14 @@ func TestWebSearch_UsesTavilyWhenKeySet(t *testing.T) {
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	if stub.postURL != "https://api.tavily.com/search" {
-		t.Errorf("postURL = %q, want https://api.tavily.com/search", stub.postURL)
+	if postURL != "https://api.tavily.com/search" {
+		t.Errorf("postURL = %q, want https://api.tavily.com/search", postURL)
 	}
-	if got := stub.postOpts.Headers["Authorization"]; got != "Bearer tvly-test-123" {
+	if got := postOpts.Headers["Authorization"]; got != "Bearer tvly-test-123" {
 		t.Errorf("Authorization header = %q, want Bearer tvly-test-123", got)
 	}
-	if !strings.Contains(stub.postBody, "golang errgroup") {
-		t.Errorf("postBody = %q, want it to contain query %q", stub.postBody, "golang errgroup")
+	if !strings.Contains(postBody, "golang errgroup") {
+		t.Errorf("postBody = %q, want it to contain query %q", postBody, "golang errgroup")
 	}
 
 	var parsed struct {
@@ -133,10 +97,19 @@ const ddgLiteHTML = `<!DOCTYPE HTML>
 // TestWebSearch_UsesDDGWhenNoKey locks in the fallback branch: without a
 // Tavily API key the tool must POST to DuckDuckGo Lite and parse its HTML.
 func TestWebSearch_UsesDDGWhenNoKey(t *testing.T) {
-	stub := &stubRuntime{response: HTTPResponse{StatusCode: 200, Body: []byte(ddgLiteHTML)}}
+	var postURL, postBody string
+	var postOpts HTTPOptions
+	exec := &Executor{
+		HTTPPostFn: func(_ context.Context, rawURL, body string, opts HTTPOptions) (HTTPResponse, error) {
+			postURL = rawURL
+			postBody = body
+			postOpts = opts
+			return HTTPResponse{StatusCode: 200, Body: []byte(ddgLiteHTML)}, nil
+		},
+	}
 	tool := newWebSearchTool(Config{
 		WebSearchTimeout: 2 * time.Second,
-		Runtime:          stub,
+		Executor:         exec,
 	})
 
 	out, err := tool.Execute(context.Background(), `{"query":"golang errgroup"}`)
@@ -144,14 +117,14 @@ func TestWebSearch_UsesDDGWhenNoKey(t *testing.T) {
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	if stub.postURL != "https://lite.duckduckgo.com/lite/" {
-		t.Errorf("postURL = %q, want https://lite.duckduckgo.com/lite/", stub.postURL)
+	if postURL != "https://lite.duckduckgo.com/lite/" {
+		t.Errorf("postURL = %q, want https://lite.duckduckgo.com/lite/", postURL)
 	}
-	if stub.postOpts.ContentType != "application/x-www-form-urlencoded" {
-		t.Errorf("ContentType = %q, want application/x-www-form-urlencoded", stub.postOpts.ContentType)
+	if postOpts.ContentType != "application/x-www-form-urlencoded" {
+		t.Errorf("ContentType = %q, want application/x-www-form-urlencoded", postOpts.ContentType)
 	}
-	if !strings.Contains(stub.postBody, "q=golang+errgroup") {
-		t.Errorf("postBody = %q, want it to contain url-encoded query %q", stub.postBody, "q=golang+errgroup")
+	if !strings.Contains(postBody, "q=golang+errgroup") {
+		t.Errorf("postBody = %q, want it to contain url-encoded query %q", postBody, "q=golang+errgroup")
 	}
 
 	var parsed webSearchResult

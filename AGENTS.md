@@ -149,7 +149,7 @@ internal/agent/         actor-model agent (LLM + tool loop + mailbox)
 internal/agenttools/    agent tools subsystem (native tools, mcp, lsp, skill)
 internal/agenttools/mcp MCP server manager + config (includes lsp subpackage)
 internal/agenttools/skill Claude Code-compatible skill system
-internal/agenttools/tools native tool implementations + sandbox execution backend
+internal/agenttools/tools native tool implementations + tool execution engine
 internal/channel/       shared channel contracts plus QQ and WeChat implementations
 internal/config/        hot-reload config (YAML schema + settings)
 internal/cron/          cron-based scheduled task execution
@@ -168,7 +168,6 @@ internal/memory/timeline/     append-only JSONL event sourcing
 internal/prompt/        prompt assembly, templates, team management
 internal/router/        L0-L3 task classification & model routing
 internal/runtime/       shared dependency container (Stack, built once)
-internal/sandbox/       Docker-based tool execution sandbox
 internal/server/        REST + WebSocket HTTP router (chi/v5)
 internal/session/       session manager (single active, inFlight atomic CAS)
 internal/simulation/    Generative Agents simulation engine
@@ -177,7 +176,6 @@ internal/team/store/    filesystem-backed team & agent persistence
 internal/workflow/      YAML DAG workflow engine (v1) with outcome routing + bounded loops
 desktop/                Electron app (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
 portal/                 Lightweight web portal (React 19 + Vite + TailwindCSS v4, embedded in Go binary)
-sandbox/                Docker-based tool execution sandbox (Dockerfile)
 skills/                 Bundled skill definitions, copied into embedded dist at build time
 ```
 

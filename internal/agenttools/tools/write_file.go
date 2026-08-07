@@ -31,7 +31,7 @@ type writeFileTool struct {
 }
 
 func newWriteFileTool(cfg Config) *writeFileTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &writeFileTool{cfg: cfg, logger: cfg.Logger}
 }
 
@@ -111,11 +111,11 @@ func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwr
 
 	// Check whether the parent directory exists
 	dir := filepath.Dir(abs)
-	fi, err := cfg.Runtime.Stat(ctx, dir)
+	fi, err := cfg.Executor.Stat(ctx, dir)
 	if err != nil || !fi.IsDir {
 		// If the target path is under PlanDir, auto-create intermediate directories
 		if cfg.PlanDir != "" && strings.HasPrefix(abs, cfg.PlanDir+string(filepath.Separator)) {
-			if mkdirErr := cfg.Runtime.MkdirAll(ctx, dir); mkdirErr != nil {
+			if mkdirErr := cfg.Executor.MkdirAll(ctx, dir); mkdirErr != nil {
 				return "", fmt.Errorf("auto-create plan dir %s: %w", dir, mkdirErr)
 			}
 		} else {
@@ -123,7 +123,7 @@ func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwr
 		}
 	}
 
-	wr, err := cfg.Runtime.WriteFile(ctx, abs, []byte(content), WriteFileOptions{
+	wr, err := cfg.Executor.WriteFile(ctx, abs, []byte(content), WriteFileOptions{
 		Overwrite: overwrite,
 		MaxSize:   cfg.MaxWriteSize,
 	})

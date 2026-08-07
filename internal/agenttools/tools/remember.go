@@ -19,7 +19,7 @@ type rememberTool struct {
 }
 
 func newRememberTool(cfg Config) *rememberTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &rememberTool{cfg: cfg, logger: cfg.Logger}
 }
 

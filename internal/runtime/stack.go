@@ -2,7 +2,6 @@
 package runtime
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"sync"
@@ -37,7 +36,7 @@ type Stack struct {
 	FastModelProviderID string // fast/classifier model provider, used by persona reflection
 	FastModelID         string // fast/classifier model ID
 	ToolsCfg            tools.Config
-	RuntimeManager      *tools.RuntimeManager
+	Executor            *tools.Executor
 	DefaultModel        *config.LLMModel
 	Settings            *config.GlobalService
 	Log                 *logger.Logger
@@ -198,11 +197,7 @@ func (s *Stack) Shutdown() {
 	if s.LSPManager != nil {
 		s.LSPManager.Shutdown()
 	}
-	if s.RuntimeManager != nil {
-		if err := s.RuntimeManager.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: sandbox runtime shutdown failed: %v\n", err)
-		}
-	}
+
 	// Close the shared SQLite DB last so any flush performed by the stores
 	// above (e.g. future scheduled writes) can still reach disk.
 	if s.SharedDB != nil {
@@ -319,21 +314,6 @@ func (s *Stack) OnConfigChange() error {
 	defer s.CfgMu.Unlock()
 
 	settings := s.Settings.Get()
-	runtimeChanged := false
-	if s.RuntimeManager != nil {
-		nextRuntime := settings.Sandbox.RuntimeType()
-		runtimeChanged = s.RuntimeManager.Desired() != nextRuntime ||
-			s.RuntimeManager.NetworkEnabled() != settings.Sandbox.NetworkEnabled
-		if err := s.RuntimeManager.SetDesired(nextRuntime); err != nil {
-			return fmt.Errorf("update sandbox runtime: %w", err)
-		}
-		s.RuntimeManager.SetNetworkEnabled(settings.Sandbox.NetworkEnabled)
-	}
-	if runtimeChanged && s.LSPManager != nil {
-		if err := s.LSPManager.Restart(context.Background()); err != nil {
-			return fmt.Errorf("restart LSP runtime: %w", err)
-		}
-	}
 	clients := make(map[string]agent.LLMClient)
 
 	for _, prov := range settings.Providers {
@@ -375,13 +355,13 @@ func (s *Stack) OnConfigChange() error {
 	}
 
 	// Update tools config dynamically, preserving runtime dependencies and fields
-	newToolsCfg := settings.Tools.ToToolsConfigWithSandbox(settings.Sandbox)
+	newToolsCfg := settings.Tools.ToToolsConfig()
 	newToolsCfg.MemoryEngine = s.ToolsCfg.MemoryEngine
 	newToolsCfg.PlanDir = s.ToolsCfg.PlanDir
 	newToolsCfg.CronStore = s.ToolsCfg.CronStore
 	newToolsCfg.CronScheduler = s.ToolsCfg.CronScheduler
 	newToolsCfg.Logger = s.ToolsCfg.Logger
-	newToolsCfg.RuntimeManager = s.RuntimeManager
+	newToolsCfg.Executor = s.Executor
 	newToolsCfg.WorkDir = s.ToolsCfg.WorkDir
 
 	s.ToolsCfg = newToolsCfg

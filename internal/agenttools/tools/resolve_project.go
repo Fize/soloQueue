@@ -10,12 +10,12 @@ import (
 )
 
 type resolveProjectTool struct {
-	store   *store.Store
-	runtime ToolRuntime
+	store    *store.Store
+	executor *Executor
 }
 
 func newResolveProjectTool(cfg Config) *resolveProjectTool {
-	return &resolveProjectTool{store: cfg.TeamStore, runtime: cfg.Runtime}
+	return &resolveProjectTool{store: cfg.TeamStore, executor: cfg.Executor}
 }
 
 func (resolveProjectTool) Name() string { return "resolve_project" }
@@ -90,7 +90,7 @@ func (t *resolveProjectTool) Execute(ctx context.Context, raw string) (string, e
 	}
 	absPath = filepath.Clean(absPath)
 
-	_, statErr := t.runtime.Stat(ctx, absPath)
+	_, statErr := t.executor.Stat(ctx, absPath)
 	exists := statErr == nil
 
 	res := resolveProjectResult{

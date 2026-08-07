@@ -11,10 +11,10 @@ import (
 // buildAgentInfra initializes the Agent Registry, Factory, Compactor, and Task Router.
 func (bc *buildContext) buildAgentInfra() {
 	// Initialize tools configuration
-	toolsCfg := bc.settings.Tools.ToToolsConfigWithSandbox(bc.settings.Sandbox)
+	toolsCfg := bc.settings.Tools.ToToolsConfig()
 	toolsCfg.MemoryEngine = bc.memoryEngine
 	toolsCfg.PlanDir = bc.planDir
-	toolsCfg.RuntimeManager = bc.runtimeMgr
+	toolsCfg.Executor = bc.executor
 	bc.toolsCfg = toolsCfg
 
 	// ── Agent Registry + Factory ──────────────────────────────────────────────

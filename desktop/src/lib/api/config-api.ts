@@ -5,8 +5,6 @@ import type {
   ModelRoutesConfig,
   SessionConfig,
   ToolsConfig,
-  SandboxConfig,
-  SandboxRuntimeStatus,
   EmbeddingConfig,
   QQBotConfig,
   WeChatAccountView,
@@ -121,23 +119,6 @@ export async function updateToolsConfig(
     method: "PUT",
     body: JSON.stringify(data),
   });
-}
-
-export async function getSandboxConfig(): Promise<SandboxConfig> {
-  return request<SandboxConfig>("/config/sandbox");
-}
-
-export async function updateSandboxConfig(
-  data: SandboxConfig,
-): Promise<SandboxConfig> {
-  return request<SandboxConfig>("/config/sandbox", {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
-}
-
-export async function getSandboxRuntimeStatus(): Promise<SandboxRuntimeStatus> {
-  return request<SandboxRuntimeStatus>("/config/sandbox/status");
 }
 
 export async function getQQBotsConfig(): Promise<QQBotConfig[]> {

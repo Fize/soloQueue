@@ -15,15 +15,15 @@ import (
 type runtimeTransport struct {
 	*transport.Stdio
 
-	runtime tools.ToolRuntime
-	spec    tools.ProcessSpec
+	executor *tools.Executor
+	spec     tools.ProcessSpec
 
 	mu      sync.Mutex
 	process tools.Process
 }
 
-func newRuntimeTransport(runtime tools.ToolRuntime, spec tools.ProcessSpec) *runtimeTransport {
-	return &runtimeTransport{runtime: runtime, spec: spec}
+func newRuntimeTransport(executor *tools.Executor, spec tools.ProcessSpec) *runtimeTransport {
+	return &runtimeTransport{executor: executor, spec: spec}
 }
 
 func (t *runtimeTransport) Start(ctx context.Context) error {
@@ -33,7 +33,7 @@ func (t *runtimeTransport) Start(ctx context.Context) error {
 		return nil
 	}
 
-	process, err := t.runtime.StartProcess(ctx, t.spec)
+	process, err := t.executor.StartProcess(ctx, t.spec)
 	if err != nil {
 		return err
 	}

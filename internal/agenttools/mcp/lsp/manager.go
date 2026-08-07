@@ -22,7 +22,7 @@ type Manager struct {
 
 	extToServer map[string]string // extension -> server ID
 	rootURI     string
-	runtimeFor  func(string) tools.ToolRuntime
+	executor    *tools.Executor
 
 	mu      sync.RWMutex
 	log     *logger.Logger
@@ -51,30 +51,14 @@ func (m *Manager) resolveRootPath(ctx context.Context, filePath string) string {
 
 // NewManager creates a new LSP manager.
 func NewManager(rootPath string, log *logger.Logger) *Manager {
-	return NewManagerWithRuntime(rootPath, tools.NewHostRuntime(), log)
+	return NewManagerWithExecutor(rootPath, tools.NewExecutor(), log)
 }
 
-// NewManagerWithRuntime creates an LSP manager whose server processes and
-// document reads stay inside the selected Host/Sandbox execution boundary.
-func NewManagerWithRuntime(rootPath string, runtime tools.ToolRuntime, log *logger.Logger) *Manager {
-	if runtime == nil {
-		runtime = tools.NewHostRuntime()
+// NewManagerWithExecutor creates an LSP manager.
+func NewManagerWithExecutor(rootPath string, executor *tools.Executor, log *logger.Logger) *Manager {
+	if executor == nil {
+		executor = tools.NewExecutor()
 	}
-	return newManager(rootPath, func(string) tools.ToolRuntime { return runtime }, log)
-}
-
-// NewManagerWithRuntimeManager creates a project-aware LSP manager. Each root
-// gets a separately scoped SandboxBackend when sandbox mode is active.
-func NewManagerWithRuntimeManager(rootPath string, runtimeManager *tools.RuntimeManager, log *logger.Logger) *Manager {
-	if runtimeManager == nil {
-		return NewManager(rootPath, log)
-	}
-	return newManager(rootPath, func(root string) tools.ToolRuntime {
-		return runtimeManager.ViewOwned("lsp", root, "")
-	}, log)
-}
-
-func newManager(rootPath string, runtimeFor func(string) tools.ToolRuntime, log *logger.Logger) *Manager {
 	return &Manager{
 		servers:     make(map[string]*Client),
 		defs:        make(map[string]ServerDef),
@@ -82,7 +66,7 @@ func newManager(rootPath string, runtimeFor func(string) tools.ToolRuntime, log 
 		unavailable: make(map[string]string),
 		extToServer: make(map[string]string),
 		rootURI:     PathToURI(rootPath),
-		runtimeFor:  runtimeFor,
+		executor:    executor,
 		log:         log,
 	}
 }
@@ -263,7 +247,7 @@ func (m *Manager) ensureOpen(client *Client, filePath, uri string) error {
 		return nil
 	}
 
-	content, err := client.runtime.ReadFile(context.Background(), filePath, tools.ReadFileOptions{})
+	content, err := client.executor.ReadFile(context.Background(), filePath, tools.ReadFileOptions{})
 	if err != nil {
 		return fmt.Errorf("read file %q: %w", filePath, err)
 	}
@@ -291,7 +275,7 @@ func (m *Manager) NotifyFileChanged(filePath string) error {
 		return nil
 	}
 
-	content, err := doc.client.runtime.ReadFile(context.Background(), filePath, tools.ReadFileOptions{})
+	content, err := doc.client.executor.ReadFile(context.Background(), filePath, tools.ReadFileOptions{})
 	if err != nil {
 		return err
 	}
@@ -349,11 +333,7 @@ func (m *Manager) startClient(ctx context.Context, serverID string, rootURI stri
 	rootPath := uriToPath(rootURI)
 
 	// Resolve the actual binary path. A custom Resolve func handles venv / node_modules.
-	runtime := m.runtimeFor(rootPath)
-	command := def.Command
-	if runtime.Type() == tools.RuntimeHost {
-		command = resolveCommand(def, rootPath)
-	}
+	command := resolveCommand(def, rootPath)
 	if command == "" {
 		// Mark unavailable so clientForFile doesn't retry on every call.
 		m.unavailable[serverID] = def.InstallHint
@@ -368,7 +348,7 @@ func (m *Manager) startClient(ctx context.Context, serverID string, rootURI stri
 		langID = def.Languages[0]
 	}
 
-	client := NewClientWithRuntime(def.ID, langID, rootURI, command, def.Args, rootPath, runtime, m.log)
+	client := NewClientWithExecutor(def.ID, langID, rootURI, command, def.Args, rootPath, m.executor, m.log)
 	if err := client.Start(ctx); err != nil {
 		return err
 	}
@@ -385,9 +365,8 @@ func (m *Manager) startClient(ctx context.Context, serverID string, rootURI stri
 func (m *Manager) scanWorkspaceExtensions(ctx context.Context) map[string]bool {
 	rootPath := uriToPath(m.rootURI)
 	exts := make(map[string]bool)
-	runtime := m.runtimeFor(rootPath)
 
-	paths, err := runtime.Glob(ctx, rootPath, "**/*", tools.GlobOptions{MaxItems: 5000})
+	paths, err := m.executor.Glob(ctx, rootPath, "**/*", tools.GlobOptions{MaxItems: 5000})
 	if err != nil {
 		if m.log != nil {
 			m.log.Warn(logger.CatMCP, "LSP workspace scan failed", "root", rootPath, "err", err.Error())

@@ -275,7 +275,7 @@ func init() {
 	imgDir = artifactDir
 }
 
-func saveImages(ctx context.Context, exec ToolRuntime, urls []string, log *logger.Logger) []string {
+func saveImages(ctx context.Context, exec *Executor, urls []string, log *logger.Logger) []string {
 	var paths []string
 	for i, url := range urls {
 		fname := urlBaseName(url, i+1)
@@ -297,13 +297,13 @@ func saveImages(ctx context.Context, exec ToolRuntime, urls []string, log *logge
 	return paths
 }
 
-func saveEditedImage(ctx context.Context, exec ToolRuntime, url string, log *logger.Logger) []string {
+func saveEditedImage(ctx context.Context, exec *Executor, url string, log *logger.Logger) []string {
 	fname := urlBaseName(url, 1)
 	fpath := filepath.Join(artifactDir, fname)
 
 	if err := downloadTo(ctx, exec, url, fpath); err != nil {
 		if log != nil {
-			log.WarnContext(ctx, logger.CatTool, "image_edit: save failed",
+			log.InfoContext(ctx, logger.CatTool, "image_edit: save failed",
 				"url", url, "path", fpath, "err", err.Error())
 		}
 		return nil
@@ -336,7 +336,7 @@ func urlBaseName(rawURL string, seq int) string {
 	return fmt.Sprintf("%s_%d%s", nameNoExt, seq, ext)
 }
 
-func downloadTo(ctx context.Context, exec ToolRuntime, url, fpath string) error {
+func downloadTo(ctx context.Context, exec *Executor, url, fpath string) error {
 	if err := exec.MkdirAll(ctx, filepath.Dir(fpath)); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -356,7 +356,7 @@ func downloadTo(ctx context.Context, exec ToolRuntime, url, fpath string) error 
 	return nil
 }
 
-func doPost(ctx context.Context, exec ToolRuntime, url string, body string, headers map[string]string) ([]byte, error) {
+func doPost(ctx context.Context, exec *Executor, url string, body string, headers map[string]string) ([]byte, error) {
 	resp, err := exec.HTTPPost(ctx, url, body, HTTPOptions{Headers: headers, MaxBody: 64 << 10})
 	if err != nil {
 		return nil, fmt.Errorf("http post %s: %w", url, err)

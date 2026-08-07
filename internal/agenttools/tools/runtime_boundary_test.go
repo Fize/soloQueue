@@ -7,14 +7,13 @@ import (
 	"testing"
 )
 
-func TestModelToolsDoNotBypassToolRuntime(t *testing.T) {
+func TestModelToolsDoNotBypassExecutor(t *testing.T) {
 	t.Parallel()
 
 	allowHostRuntime := map[string]bool{
 		"exec.go":                    true,
 		"exec_unix.go":               true,
 		"exec_windows.go":            true,
-		"runtime.go":                 true,
 		"runtime_process_unix.go":    true,
 		"runtime_process_windows.go": true,
 	}

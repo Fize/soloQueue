@@ -37,7 +37,7 @@ type httpFetchTool struct {
 }
 
 func newHTTPFetchTool(cfg Config) *httpFetchTool {
-	ensureSandbox(&cfg)
+	ensureExecutor(&cfg)
 	return &httpFetchTool{
 		cfg:    cfg,
 		logger: cfg.Logger,
@@ -159,7 +159,7 @@ func (t *httpFetchTool) Execute(ctx context.Context, raw string) (string, error)
 		maxBody = 5 << 20
 	}
 
-	httpResp, err := t.cfg.Runtime.HTTPGet(ctx, a.URL, HTTPOptions{
+	httpResp, err := t.cfg.Executor.HTTPGet(ctx, a.URL, HTTPOptions{
 		Timeout:      t.cfg.HTTPTimeout,
 		MaxBody:      maxBody,
 		Headers:      a.Headers,
