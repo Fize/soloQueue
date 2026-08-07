@@ -985,6 +985,13 @@ func (s *Session) FlushMemory(ctx context.Context) {
 
 	var latest time.Time
 	groups := groupPayloadByDate(filtered)
+
+	var parts []string
+	for _, g := range groups {
+		parts = append(parts, formatPayloadForMemory(g.msgs))
+	}
+	s.runPersonaReflection(ctx, strings.Join(parts, "\n"))
+
 	for _, g := range groups {
 		text := formatPayloadForMemory(g.msgs)
 		s.memoryHook(ctx, text, g.date)
