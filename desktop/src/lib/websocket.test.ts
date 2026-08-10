@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { wsManager } from './websocket'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useConnectionStore } from '@/stores/connectionStore'
+import { useChatStore } from '@/stores/chatStore'
 
 // Track the last mock WebSocket instance so tests can simulate events
 let mockWSServer: WSInstance | null = null
@@ -16,8 +17,10 @@ interface WSInstance {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   useRuntimeStore.setState({ status: null, connectionStatus: 'disconnected' })
   useConnectionStore.setState({ mode: 'local', remoteUrl: '', username: '', password: '' })
+  useChatStore.setState({ activeRequests: {}, routeSessions: {}, streamingSessions: {} })
   wsManager.disconnect()
   mockWSServer = null
 
@@ -70,6 +73,113 @@ function simulateMessage(data: unknown) {
 }
 
 describe('websocket', () => {
+  it('does not reuse route metadata from a different runtime request', async () => {
+    useChatStore.setState({
+      routeSessions: {
+        l1: {
+          requestId: 'req-old',
+          sessionId: 'l1',
+          taskLevel: 'research',
+          modelId: 'old-model',
+        },
+      },
+    })
+
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'state',
+      runtime: {
+        phase: 'processing',
+        prompt_tokens: 0,
+        output_tokens: 0,
+        cache_hit_tokens: 0,
+        cache_miss_tokens: 0,
+        context_pct: 0,
+        current_tokens: 0,
+        max_tokens: 0,
+        current_iter: 0,
+        content_deltas: 0,
+        active_delegations: 0,
+        total_agents: 1,
+        running_agents: 1,
+        idle_agents: 0,
+        total_errors: 0,
+        http_addr: ':8765',
+        agent_streams: {},
+        sessions: {
+          l1: {
+            session_id: 'l1',
+            request_id: 'req-new',
+            state: 'streaming',
+            revision: 1,
+            ctxwin_used: 0,
+            ctxwin_limit: 0,
+            delegating: false,
+          },
+        },
+      },
+    })
+
+    expect(useChatStore.getState().routeSessions.l1).toMatchObject({
+      requestId: 'req-new',
+      sessionId: 'l1',
+      taskLevel: '',
+      modelId: '',
+    })
+  })
+
+  it('clears a persisted route when a refreshed session is already idle', async () => {
+    const route = {
+      requestId: 'req-completed',
+      sessionId: 'l1',
+      taskLevel: 'engineering',
+      modelId: 'completed-model',
+    }
+    localStorage.setItem('soloqueue_active_chat_routes', JSON.stringify({ l1: route }))
+    useChatStore.setState({ routeSessions: { l1: route }, streamingSessions: {} })
+
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'state',
+      runtime: {
+        phase: 'idle',
+        prompt_tokens: 0,
+        output_tokens: 0,
+        cache_hit_tokens: 0,
+        cache_miss_tokens: 0,
+        context_pct: 0,
+        current_tokens: 0,
+        max_tokens: 0,
+        current_iter: 0,
+        content_deltas: 0,
+        active_delegations: 0,
+        total_agents: 1,
+        running_agents: 0,
+        idle_agents: 1,
+        total_errors: 0,
+        http_addr: ':8765',
+        agent_streams: {},
+        sessions: {
+          l1: {
+            session_id: 'l1',
+            state: 'idle',
+            revision: 1,
+            ctxwin_used: 0,
+            ctxwin_limit: 0,
+            delegating: false,
+          },
+        },
+      },
+    })
+
+    expect(useChatStore.getState().routeSessions.l1).toBeUndefined()
+    expect(localStorage.getItem('soloqueue_active_chat_routes')).toBeNull()
+  })
+
   it('connect opens WebSocket and sets connected status', async () => {
     // connect() is async — fire onopen after it returns
     const connectPromise = wsManager.connect()

@@ -372,18 +372,19 @@ class WebSocketManager {
               chat.setDelegating(runtime.delegating, sessionId)
               if (runtime.request_id) {
                 const existing = chat.routeSessions[sessionId]
+                const sameRequest = existing?.requestId === runtime.request_id
                 const route = {
                   requestId: runtime.request_id,
                   sessionId,
-                  taskLevel: existing?.taskLevel || '',
-                  modelId: existing?.modelId || '',
-                  providerId: existing?.providerId,
-                  agentInstanceId: existing?.agentInstanceId,
+                  taskLevel: sameRequest ? existing?.taskLevel || '' : '',
+                  modelId: sameRequest ? existing?.modelId || '' : '',
+                  providerId: sameRequest ? existing?.providerId : undefined,
+                  agentInstanceId: sameRequest ? existing?.agentInstanceId : undefined,
                 }
                 chat.updateRequestRoute(runtime.request_id, route)
                 chat.setRoute(route)
               }
-            } else if (wasActive && !hasActiveRequests) {
+            } else if (!hasActiveRequests && (wasActive || chat.routeSessions[sessionId])) {
               chat.setStreaming(false, sessionId)
               chat.setDelegating(false, sessionId)
               const requestId = chat.routeSessions[sessionId]?.requestId
