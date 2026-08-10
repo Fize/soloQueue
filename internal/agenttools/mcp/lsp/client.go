@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // DefaultTimeout is the default timeout for LSP requests.
@@ -75,9 +75,6 @@ func NewClientWithExecutor(
 
 // Start launches the LSP subprocess and sends initialize request.
 func (c *Client) Start(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	process, err := c.executor.StartProcess(ctx, tools.ProcessSpec{
 		Command:          c.command,
 		Args:             c.args,
@@ -86,9 +83,13 @@ func (c *Client) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("start %s server %q: %w", c.id, c.command, err)
 	}
+	// Publish the process before starting the reader goroutines. Keep this
+	// critical section narrow: initialize calls call, which also uses c.mu.
+	c.mu.Lock()
 	c.process = process
 	c.stdin = process.Stdin()
 	c.transport = newTransport(process.Stdout(), process.Stdin())
+	c.mu.Unlock()
 
 	go c.readLoop()
 	go c.drainStderr(process.Stderr())
