@@ -70,6 +70,45 @@ interface ChatState {
 }
 
 const PAGE_SIZE = 30 // number of messages to load per page
+const ACTIVE_CHAT_ROUTES_STORAGE_KEY = 'soloqueue_active_chat_routes'
+
+function isPersistedChatRoute(value: unknown, sessionId: string): value is ChatRouteInfo {
+  if (!value || typeof value !== 'object') return false
+  const route = value as Partial<ChatRouteInfo>
+  return (
+    route.sessionId === sessionId &&
+    typeof route.requestId === 'string' &&
+    typeof route.taskLevel === 'string' &&
+    typeof route.modelId === 'string'
+  )
+}
+
+function loadActiveChatRoutes(): Record<string, ChatRouteInfo> {
+  const raw = localStorage.getItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY)
+  if (!raw) return {}
+
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([sessionId, route]) =>
+        isPersistedChatRoute(route, sessionId)
+      )
+    ) as Record<string, ChatRouteInfo>
+  } catch {
+    return {}
+  }
+}
+
+function persistActiveChatRoutes(routes: Record<string, ChatRouteInfo | undefined>) {
+  const activeRoutes = Object.fromEntries(Object.entries(routes).filter(([, route]) => route))
+  if (Object.keys(activeRoutes).length === 0) {
+    localStorage.removeItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY)
+    return
+  }
+  localStorage.setItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY, JSON.stringify(activeRoutes))
+}
 
 // Coalesce concurrent loadSessions() calls (e.g. App.tsx auto-retry effect
 // AND SessionTree mount AND focus/visibility handler all firing in the same
@@ -85,7 +124,7 @@ export const useChatStore = create<ChatState>((set) => ({
   streamingSessions: {},
   systemCommandSessions: {},
   delegatingSessions: {},
-  routeSessions: {},
+  routeSessions: loadActiveChatRoutes(),
   titleGenerated: {},
   historyLoading: {},
   historyHasMore: {},
@@ -175,6 +214,7 @@ export const useChatStore = create<ChatState>((set) => ({
         const activeRequests = Object.fromEntries(
           Object.entries(s.activeRequests).filter(([, request]) => request.sessionId !== id)
         )
+        persistActiveChatRoutes(restRoutes)
         return {
           sessions: s.sessions.filter((sess) => sess.id !== id),
           activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
@@ -538,23 +578,28 @@ export const useChatStore = create<ChatState>((set) => ({
       }
     }),
   setRoute: (route: ChatRouteInfo) =>
-    set((s) => ({
-      routeSessions: {
+    set((s) => {
+      const routeSessions = {
         ...s.routeSessions,
         [route.sessionId]: route,
-      },
-      sessions: route.agentInstanceId
+      }
+      persistActiveChatRoutes(routeSessions)
+      return {
+        routeSessions,
+        sessions: route.agentInstanceId
         ? s.sessions.map((session) =>
             session.id === route.sessionId && session.agent_instance_id !== route.agentInstanceId
               ? { ...session, agent_instance_id: route.agentInstanceId }
               : session
           )
         : s.sessions,
-    })),
+      }
+    }),
   clearRoute: (sessionId: string, requestId: string) =>
     set((s) => {
       if (s.routeSessions[sessionId]?.requestId !== requestId) return s
       const { [sessionId]: _route, ...routeSessions } = s.routeSessions
+      persistActiveChatRoutes(routeSessions)
       return { routeSessions }
     }),
 

@@ -12,6 +12,7 @@ vi.mock('@/lib/api', () => ({
 }))
 
 beforeEach(() => {
+  localStorage.clear()
   useChatStore.setState({
     sessions: [],
     activeSessionId: null,
@@ -42,15 +43,41 @@ describe('chatStore', () => {
       agentInstanceId: 'agent-instance',
     }
 
+    useChatStore.getState().setRoute({
+      requestId: 'req-old',
+      sessionId: 'l2:s1',
+      taskLevel: 'general',
+      modelId: 'old-model',
+    })
     useChatStore.getState().setRoute(route)
     expect(useChatStore.getState().routeSessions['l2:s1']).toEqual(route)
     expect(useChatStore.getState().sessions[0].agent_instance_id).toBe('agent-instance')
+    expect(JSON.parse(localStorage.getItem('soloqueue_active_chat_routes') || '{}')).toEqual({
+      'l2:s1': route,
+    })
 
     useChatStore.getState().clearRoute('l2:s1', 'req-old')
     expect(useChatStore.getState().routeSessions['l2:s1']).toEqual(route)
 
     useChatStore.getState().clearRoute('l2:s1', 'req-new')
     expect(useChatStore.getState().routeSessions['l2:s1']).toBeUndefined()
+    expect(localStorage.getItem('soloqueue_active_chat_routes')).toBeNull()
+  })
+
+  it('restores the active route after the store is reinitialized', async () => {
+    const route = {
+      requestId: 'req-refresh',
+      sessionId: 'l1',
+      taskLevel: 'engineering',
+      modelId: 'deepseek-v4-flash-202605',
+    }
+
+    useChatStore.getState().setRoute(route)
+
+    vi.resetModules()
+    const { useChatStore: reloadedStore } = await import('./chatStore')
+
+    expect(reloadedStore.getState().routeSessions.l1).toEqual(route)
   })
 
   it('updateToolCallResult updates tool call segment done state in any assistant message', () => {
@@ -392,6 +419,13 @@ describe('chatStore', () => {
 
   it('deleteL2Session cleanup is complete for streaming and helper session maps', async () => {
     const sid = 'l2:delete-test-123'
+    const route = {
+      requestId: 'r1',
+      sessionId: sid,
+      taskLevel: 'engineering',
+      modelId: 'routed-model',
+    }
+    localStorage.setItem('soloqueue_active_chat_routes', JSON.stringify({ [sid]: route }))
     useChatStore.setState({
       sessions: [{ id: sid, type: 'l2', name: 'Delete test', createdAt: '' }],
       activeSessionId: sid,
@@ -399,7 +433,7 @@ describe('chatStore', () => {
       streamingSessions: { [sid]: true },
       systemCommandSessions: { [sid]: true },
       delegatingSessions: { [sid]: true },
-      routeSessions: { [sid]: { requestId: 'r1', sessionId: sid } },
+      routeSessions: { [sid]: route },
     })
 
     await useChatStore.getState().deleteL2Session(sid)
@@ -410,5 +444,6 @@ describe('chatStore', () => {
     expect(state.streamingSessions[sid]).toBeUndefined()
     expect(state.systemCommandSessions[sid]).toBeUndefined()
     expect(state.delegatingSessions[sid]).toBeUndefined()
+    expect(localStorage.getItem('soloqueue_active_chat_routes')).toBeNull()
   })
 })
