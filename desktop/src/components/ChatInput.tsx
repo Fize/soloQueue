@@ -410,9 +410,15 @@ export function ChatInput({
       return
     }
 
-    // Keep the current text/attachments as the session draft while a request
-    // is active. Desktop does not enqueue a second request.
-    if (streaming || processing) return
+    // Management commands mutate session state and must not be queued behind
+    // an active request. Ordinary text follows the session's queue semantics.
+    const normalizedText = rawText.toLowerCase()
+    if (
+      (streaming || processing) &&
+      (normalizedText === '/clear' || normalizedText === '/compact')
+    ) {
+      return
+    }
 
     // Replace @displayLabel → absolute path before sending to LLM
     let text = rawText

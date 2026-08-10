@@ -92,4 +92,33 @@ describe('ChatInput workspace selector', () => {
       undefined,
     )
   })
+
+  it('submits ordinary text while a session is streaming', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    renderInput({ onSend, streaming: true, processing: true })
+
+    await user.type(screen.getByPlaceholderText('Ask anything...'), 'Follow up{enter}')
+
+    expect(onSend).toHaveBeenCalledWith(
+      'Follow up',
+      undefined,
+      'dev',
+      undefined,
+      undefined,
+    )
+  })
+
+  it('keeps clear and compact commands local while a session is active', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    renderInput({ onSend, streaming: true, processing: true })
+    const input = screen.getByPlaceholderText('Ask anything...')
+
+    await user.type(input, '/clear{enter}')
+    await user.clear(input)
+    await user.type(input, '/compact{enter}')
+
+    expect(onSend).not.toHaveBeenCalled()
+  })
 })

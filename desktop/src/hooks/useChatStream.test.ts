@@ -96,11 +96,11 @@ describe('useChatStream', () => {
     expect(sendMsg.type).toBe('chat_send')
     expect(sendMsg.prompt).toBe('keep this draft')
 
-    // User message + assistant placeholder appended.
+    // Only the user message is appended. The bot does not create an assistant
+    // reply for a queued prompt, so Desktop should not invent one either.
     const msgs = useChatStore.getState().messages['l2:session-A']
-    expect(msgs.length).toBe(2)
+    expect(msgs.length).toBe(1)
     expect(msgs[0].role).toBe('user')
-    expect(msgs[1].role).toBe('assistant')
 
     // Simulate the server replying chat_queued.
     const registerCall = vi.mocked(wsManager.registerChat).mock.calls[0]
@@ -109,17 +109,17 @@ describe('useChatStream', () => {
       handler.onQueued?.({ error: 'session is busy; message queued' })
     })
 
-    // The assistant placeholder shows the queued status.
+    // The queued acknowledgement is transport state only; it does not become
+    // an assistant message in the conversation.
     const after = useChatStore.getState().messages['l2:session-A']
-    expect(after[1].segments).toEqual([
-      { type: 'content', text: 'session is busy; message queued' },
-    ])
+    expect(after).toHaveLength(1)
+    expect(after[0].role).toBe('user')
 
     // The in-flight request's streaming state must NOT be cleared.
     expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(true)
   })
 
-  it('routes stream chunks to the assistant placeholder created for that request', async () => {
+  it('creates the assistant message when that request first streams output', async () => {
     const { result } = renderHook(() => useChatStream())
 
     await act(async () => {
@@ -129,23 +129,17 @@ describe('useChatStream', () => {
     const registerCall = vi.mocked(wsManager.registerChat).mock.calls[0]
     const handler = registerCall[1]
     const messagesBefore = useChatStore.getState().messages['l2:session-A']
-    const target = messagesBefore.find((message) => message.role === 'assistant')!
+    expect(messagesBefore.filter((message) => message.role === 'assistant')).toHaveLength(0)
 
     act(() => {
-      useChatStore.getState().addMessage('l2:session-A', {
-        id: 'newer-assistant',
-        role: 'assistant',
-        timestamp: '',
-        segments: [],
-      })
       handler.onChunk?.('owned response')
     })
 
     const messagesAfter = useChatStore.getState().messages['l2:session-A']
-    expect(messagesAfter.find((message) => message.id === target.id)?.segments).toEqual([
+    const assistant = messagesAfter.find((message) => message.role === 'assistant')
+    expect(assistant?.segments).toEqual([
       { type: 'content', text: 'owned response' },
     ])
-    expect(messagesAfter.find((message) => message.id === 'newer-assistant')?.segments).toEqual([])
   })
 
   it('keeps L1 requests independent when one completes or is cancelled', async () => {

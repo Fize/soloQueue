@@ -161,14 +161,21 @@ export function useChatStream() {
         setRoute(initialRoute)
       }
 
-      // Add empty assistant message placeholder.
-      const asstId = `msg-${Date.now() + 1}`
-      addMessage(sid, {
-        id: asstId,
-        role: 'assistant',
-        segments: [],
-        timestamp: new Date().toISOString(),
-      })
+      // Create the assistant message only after the session produces output.
+      // A queued prompt has no assistant response yet, matching Bot behavior.
+      let asstId: string | undefined
+      const ensureAssistantMessage = () => {
+        if (!asstId) {
+          asstId = `msg-${Date.now() + 1}`
+          addMessage(sid, {
+            id: asstId,
+            role: 'assistant',
+            segments: [],
+            timestamp: new Date().toISOString(),
+          })
+        }
+        return asstId
+      }
 
       if (ownsSessionState) {
         setStreaming(true, sid)
@@ -233,18 +240,19 @@ export function useChatStream() {
           setRoute(route)
         },
         onChunk: (delta) => {
+          const assistantId = ensureAssistantMessage()
           if (isCompact) {
-            appendAssistantCompact(sid, asstId, delta)
+            appendAssistantCompact(sid, assistantId, delta)
           } else {
-            appendAssistantContent(sid, asstId, delta)
+            appendAssistantContent(sid, assistantId, delta)
           }
           if (shouldGenTitle) finalContent += delta
         },
         onReasoning: (delta) => {
-          appendAssistantThinking(sid, asstId, delta)
+          appendAssistantThinking(sid, ensureAssistantMessage(), delta)
         },
         onToolStart: (data) => {
-          updateAssistantSegment(sid, asstId, {
+          updateAssistantSegment(sid, ensureAssistantMessage(), {
             type: 'tool_call',
             callId: data.call_id,
             name: data.name,
@@ -264,7 +272,7 @@ export function useChatStream() {
         },
         onToolConfirm: (data) => {
           updateRequestStatus(requestId, 'waiting-confirm')
-          updateAssistantSegment(sid, asstId, {
+          updateAssistantSegment(sid, ensureAssistantMessage(), {
             type: 'tool_confirm',
             callId: data.call_id,
             name: data.name,
@@ -293,20 +301,15 @@ export function useChatStream() {
           // timestamps that fail to match backend timestamps during operations like deletion.
           useChatStore.getState().loadHistory(sid)
         },
-        onQueued: (data) => {
+        onQueued: () => {
           // The session is serial: the server accepted the message into its
           // pending queue and will inject it before the agent's next LLM
-          // call. Show the queued status on the assistant placeholder.
-          updateAssistantSegment(sid, asstId, {
-            type: 'content',
-            text:
-              data.error || '⏳ Message queued — it will be processed in the current task turn.',
-          })
+          // call. Keep only the user message until output is produced.
           updateRequestStatus(requestId, 'queued')
           finishRequest()
         },
         onError: (error) => {
-          updateAssistantSegment(sid, asstId, { type: 'error', text: error })
+          updateAssistantSegment(sid, ensureAssistantMessage(), { type: 'error', text: error })
           finishRequest()
           useChatStore.getState().loadHistory(sid)
         },
