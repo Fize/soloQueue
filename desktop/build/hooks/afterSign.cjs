@@ -1,6 +1,116 @@
-const { execFileSync } = require('child_process')
+const { spawnSync } = require('child_process')
 const path = require('path')
 const fs = require('fs')
+
+const SIGNING_IDENTITY = 'SoloQueue Code Signing'
+const APP_IDENTIFIER = 'com.soloqueue'
+const BACKEND_IDENTIFIER = 'com.soloqueue.backend'
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    ...options
+  })
+
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || '').trim()
+    throw new Error(`${path.basename(command)} failed: ${detail || `exit ${result.status}`}`)
+  }
+
+  return `${result.stdout || ''}${result.stderr || ''}`.trim()
+}
+
+function normalizeFingerprint(value) {
+  return value.replaceAll(':', '').trim().toLowerCase()
+}
+
+function readPinnedFingerprint() {
+  const pinPath = path.join(__dirname, '..', 'macos-signing-cert.sha256')
+  if (!fs.existsSync(pinPath)) {
+    throw new Error(`Pinned signing certificate fingerprint not found: ${pinPath}`)
+  }
+
+  const fingerprint = normalizeFingerprint(fs.readFileSync(pinPath, 'utf8'))
+  if (!/^[0-9a-f]{64}$/.test(fingerprint)) {
+    throw new Error(`Invalid pinned signing certificate fingerprint: ${pinPath}`)
+  }
+  return fingerprint
+}
+
+function verifyKeychainIdentity(expectedFingerprint) {
+  const identities = run('/usr/bin/security', ['find-identity', '-v', '-p', 'codesigning'])
+  const matches = identities.split('\n').filter((line) => {
+    const match = line.match(/"([^"]+)"/)
+    return match?.[1] === SIGNING_IDENTITY
+  })
+
+  if (matches.length !== 1) {
+    throw new Error(
+      `Expected exactly one valid "${SIGNING_IDENTITY}" identity, found ${matches.length}`
+    )
+  }
+
+  const certificate = run('/usr/bin/security', [
+    'find-certificate',
+    '-c',
+    SIGNING_IDENTITY,
+    '-p'
+  ])
+  const fingerprintOutput = run(
+    '/usr/bin/openssl',
+    ['x509', '-noout', '-fingerprint', '-sha256'],
+    { input: certificate }
+  )
+  const fingerprint = normalizeFingerprint(fingerprintOutput.split('=').at(-1) || '')
+
+  if (fingerprint !== expectedFingerprint) {
+    throw new Error(
+      `Signing certificate fingerprint mismatch: expected ${expectedFingerprint}, got ${fingerprint}`
+    )
+  }
+  const sha1Output = run(
+    '/usr/bin/openssl',
+    ['x509', '-noout', '-fingerprint', '-sha1'],
+    { input: certificate }
+  )
+  const sha1 = normalizeFingerprint(sha1Output.split('=').at(-1) || '')
+  if (!/^[0-9a-f]{40}$/.test(sha1)) {
+    throw new Error(`Invalid SHA-1 fingerprint resolved for ${SIGNING_IDENTITY}`)
+  }
+  return sha1
+}
+
+function verifySignedTarget(targetPath, expectedIdentifier, expectedCertificateSha1) {
+  const info = run('/usr/bin/codesign', ['-dvvv', targetPath])
+  if (info.includes('Signature=adhoc') || /flags=.*\badhoc\b/.test(info)) {
+    throw new Error(`Ad-hoc signature rejected: ${targetPath}`)
+  }
+  if (!info.includes(`Identifier=${expectedIdentifier}`)) {
+    throw new Error(`Expected identifier ${expectedIdentifier}: ${targetPath}`)
+  }
+
+  run('/usr/bin/codesign', [
+    '--verify',
+    '--strict',
+    `-R=identifier "${expectedIdentifier}" and certificate root = H"${expectedCertificateSha1}"`,
+    targetPath
+  ])
+
+  const requirement = run('/usr/bin/codesign', ['-d', '-r-', targetPath])
+  if (requirement.includes('designated => cdhash')) {
+    throw new Error(`cdhash-only designated requirement rejected: ${targetPath}`)
+  }
+  if (!requirement.includes(`identifier "${expectedIdentifier}"`)) {
+    throw new Error(`Unstable designated requirement for ${targetPath}: ${requirement}`)
+  }
+  if (!requirement.toLowerCase().includes(`certificate root = h"${expectedCertificateSha1}"`)) {
+    throw new Error(`Pinned certificate requirement not found: ${targetPath}`)
+  }
+  if (!requirement.includes('anchor') && !requirement.includes('certificate')) {
+    throw new Error(`Certificate-based designated requirement not found: ${targetPath}`)
+  }
+}
 
 exports.default = async function afterSign(context) {
   const { electronPlatformName, appOutDir, packager } = context
@@ -8,36 +118,20 @@ exports.default = async function afterSign(context) {
 
   const appName = packager.appInfo.productFilename
   const appPath = path.join(appOutDir, `${appName}.app`)
-  const entitlements = path.join(__dirname, '..', 'entitlements.mac.plist')
+  const backendPath = path.join(appPath, 'Contents', 'Resources', 'soloqueue')
 
   if (!fs.existsSync(appPath)) {
-    console.warn(`[afterSign] App not found: ${appPath}, skipping ad-hoc signing`)
-    return
+    throw new Error(`Signed application not found: ${appPath}`)
+  }
+  if (!fs.existsSync(backendPath)) {
+    throw new Error(`Signed backend not found: ${backendPath}`)
   }
 
-  console.log(`[afterSign] Running deep ad-hoc signing on ${appPath}...`)
-  // --deep signs all nested binaries recursively
-  // --sign - runs ad-hoc signing
-  // --force overwrites any existing signature
-  execFileSync(
-    'codesign',
-    [
-      '--force',
-      '--deep',
-      '--sign',
-      '-',
-      '--entitlements',
-      entitlements,
-      appPath
-    ],
-    { stdio: 'inherit' }
-  )
+  const expectedFingerprint = readPinnedFingerprint()
+  const expectedCertificateSha1 = verifyKeychainIdentity(expectedFingerprint)
+  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath])
+  verifySignedTarget(appPath, APP_IDENTIFIER, expectedCertificateSha1)
+  verifySignedTarget(backendPath, BACKEND_IDENTIFIER, expectedCertificateSha1)
 
-  // Verify code signature is valid and self-consistent
-  console.log('[afterSign] Verifying code signature...')
-  execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], {
-    stdio: 'inherit'
-  })
-
-  console.log('[afterSign] Ad-hoc signing complete')
+  console.log(`[afterSign] Verified fixed identity ${SIGNING_IDENTITY} (${expectedFingerprint})`)
 }

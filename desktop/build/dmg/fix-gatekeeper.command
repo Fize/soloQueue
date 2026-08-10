@@ -1,9 +1,9 @@
 #!/bin/bash
 # Double-click this script to fix the "SoloQueue.app is damaged and cannot be opened" error on macOS.
 #
-# Reason: SoloQueue uses an ad-hoc code signature. macOS flags non-notarized apps copied or
-# downloaded from the internet with a "quarantine" attribute and refuses to run them.
-# This script removes the quarantine attribute so you can run the app normally.
+# Reason: SoloQueue uses a fixed self-signed certificate but is not Apple-notarized. macOS may
+# quarantine copies downloaded from the internet. This script only removes that quarantine
+# attribute; it does not approve Accessibility, Automation, Full Disk Access, or other TCC access.
 
 set -e
 

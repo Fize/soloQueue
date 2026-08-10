@@ -1,5 +1,5 @@
 {
-  "appId": "com.xiaobaitu.soloqueue",
+  "appId": "com.soloqueue",
   "productName": "SoloQueue",
   "directories": {
     "output": "dist-desktop"
@@ -21,9 +21,11 @@
   "mac": {
     "target": "dmg",
     "category": "public.app-category.developer-tools",
-    "identity": null,
+    "identity": "SoloQueue Code Signing",
+    "forceCodeSigning": true,
     "hardenedRuntime": false,
     "gatekeeperAssess": false,
+    "signIgnore": "Contents/Resources/soloqueue$",
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.plist"
   },
@@ -48,6 +50,7 @@
       }
     ]
   },
+  "afterPack": "build/hooks/afterPack.cjs",
   "afterSign": "build/hooks/afterSign.cjs",
   "win": {
     "target": "nsis"
