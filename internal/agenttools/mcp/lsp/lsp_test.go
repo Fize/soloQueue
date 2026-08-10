@@ -1,11 +1,18 @@
 package lsp
 
 import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 type stopTestProcess struct {
@@ -43,6 +50,102 @@ func TestClientStopKillsUninitializedProcessBeforeWaiting(t *testing.T) {
 	default:
 		t.Fatal("Stop returned without killing the uninitialized process")
 	}
+}
+
+func TestClientStartInitializesWithoutHoldingClientMutex(t *testing.T) {
+	workDir := t.TempDir()
+	client := NewClientWithExecutor(
+		"test-lsp",
+		"go",
+		PathToURI(workDir),
+		os.Args[0],
+		[]string{"-test.run=TestLSPHelperProcess", "--"},
+		workDir,
+		tools.NewExecutor(),
+		nil,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	started := make(chan error, 1)
+	go func() { started <- client.Start(ctx) }()
+
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatalf("Client.Start returned error: %v", err)
+		}
+		client.Stop()
+	case <-time.After(3 * time.Second):
+		if client.process != nil {
+			_ = client.process.Kill()
+		}
+		t.Fatal("Client.Start blocked while initializing the LSP server")
+	}
+}
+
+func TestLSPHelperProcess(t *testing.T) {
+	for _, arg := range os.Args {
+		if arg != "--" {
+			continue
+		}
+		reader := bufio.NewReader(os.Stdin)
+		for {
+			body, err := readLSPHelperMessage(reader)
+			if err != nil {
+				return
+			}
+			var request struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+			}
+			if err := json.Unmarshal(body, &request); err != nil || len(request.ID) == 0 {
+				if request.Method == "exit" {
+					return
+				}
+				continue
+			}
+
+			result := map[string]any{}
+			if request.Method == "initialize" {
+				result = map[string]any{
+					"capabilities": map[string]any{},
+					"serverInfo":   map[string]any{"name": "test-lsp", "version": "1.0.0"},
+				}
+			}
+			response, _ := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request.ID,
+				"result":  result,
+			})
+			fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n%s", len(response), response)
+		}
+	}
+}
+
+func readLSPHelperMessage(reader *bufio.Reader) ([]byte, error) {
+	contentLength := 0
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			break
+		}
+		if strings.HasPrefix(line, "Content-Length:") {
+			if _, err := fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(line, "Content-Length:")), "%d", &contentLength); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if contentLength <= 0 {
+		return nil, fmt.Errorf("invalid content length %d", contentLength)
+	}
+	body := make([]byte, contentLength)
+	_, err := io.ReadFull(reader, body)
+	return body, err
 }
 
 func TestBuiltinServers_NotEmpty(t *testing.T) {
