@@ -1,9 +1,11 @@
 # Configuration reference
 
-SoloQueue loads settings from settings.yaml in the active work directory.
-The default work directory is ~/.soloqueue/; SOLOQUEUE_WORK_DIR overrides it.
-Compiled defaults are loaded first and settings.yaml overrides them. The
-settings service watches the file and hot-reloads supported changes.
+> 中文：[配置参考](../zh/reference/configuration.md)
+
+I load settings from settings.yaml in the active work directory. My default
+work directory is ~/.soloqueue/; SOLOQUEUE_WORK_DIR overrides it. I load
+compiled defaults first and let settings.yaml override them. The settings
+service watches the file and hot-reloads supported changes.
 
 ## Minimal provider setup
 
@@ -37,8 +39,8 @@ model_routes:
   fallback: deepseek:deepseek-v4-flash-thinking
 ~~~
 
-Use api_key_env instead of api_key when possible. A route value is
-provider:model, and both IDs must refer to enabled entries.
+I use api_key_env instead of api_key when possible. I use provider:model as a
+route value, and both IDs must refer to enabled entries.
 
 ## Top-level sections
 
@@ -67,15 +69,15 @@ auth:
   password: replace-with-a-long-random-password
 ~~~
 
-The equivalent environment variables are SOLOQUEUE_AUTH_USER and
-SOLOQUEUE_AUTH_PASSWORD. See [Remote access](../operations/remote-access.md).
+I can use the equivalent environment variables SOLOQUEUE_AUTH_USER and
+SOLOQUEUE_AUTH_PASSWORD. I document them in [Remote access](../operations/remote-access.md).
 
 ## Tool policy
 
-The tools section includes read and write limits, HTTP allowed hosts and
+I use the tools section for read and write limits, HTTP allowed hosts and
 private-network blocking, shell block and confirmation regexes, shell output
 limits, web-search timeout, and image model credentials. Zero or empty values
-may mean “use the compiled default”; check the current schema before relying
+may mean “use the compiled default”; I check the current schema before relying
 on a boundary for a new deployment.
 
 ## MCP file
@@ -86,6 +88,6 @@ fields. See [Skills and MCP](../guides/skills-and-mcp.md).
 
 ## Editing safely
 
-Prefer the Settings screens for supported fields. When editing YAML directly,
-keep a backup, preserve provider/model IDs, and watch the server log for
-reload or validation errors. Treat settings.yaml as a secret-bearing file.
+I prefer the Settings screens for supported fields. When I edit YAML directly,
+I keep a backup, preserve provider/model IDs, and watch the server log for
+reload or validation errors. I treat settings.yaml as a secret-bearing file.

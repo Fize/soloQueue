@@ -1,7 +1,9 @@
 # Timeline and replay
 
-The timeline subsystem lives under internal/memory/timeline. It records
-append-only JSONL events for sessions, tools, delegation, routing, and
+> 中文：[Timeline 与回放](zh/timeline.md)
+
+I keep the timeline subsystem under internal/memory/timeline. I use it to
+record append-only JSONL events for sessions, tools, delegation, routing, and
 workflow-related activity.
 
 ## Invariants
@@ -14,10 +16,10 @@ workflow-related activity.
 
 ## Why it matters
 
-The live WebSocket stream is optimized for the current UI. The timeline is
-durable evidence for restart recovery, replay, and diagnosis. It can contain
-prompts, paths, tool arguments, and provider output, so protect it like source
-data.
+I optimize the live WebSocket stream for the current UI, while I use the
+timeline as durable evidence for restart recovery, replay, and diagnosis. It
+can contain prompts, paths, tool arguments, and provider output, so I protect
+it like source data.
 
-See [Data, logs, and backup](operations/data-and-backup.md) for retention and
+I use [Data, logs, and backup](operations/data-and-backup.md) for retention and
 [Memory](memory.md) for the relationship with summaries and long-term recall.

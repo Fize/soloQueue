@@ -1,10 +1,12 @@
 # Architecture
 
-The current architecture overview moved to
-[architecture/overview.md](architecture/overview.md). This file remains as a
+> 中文：[架构](zh/architecture.md)
+
+I moved the current architecture overview to
+[architecture/overview.md](architecture/overview.md). I keep this file as a
 stable link for older bookmarks.
 
-The current product boundary is local-first: a Go server owns runtime state and
-an Electron desktop client or embedded portal consumes its HTTP and WebSocket
-interfaces. The repository-level [AGENTS.md](../AGENTS.md) is the tactical
-maintainer reference for package paths and build commands.
+I define the current product boundary as local-first: a Go server owns runtime
+state and an Electron desktop client or embedded portal consumes its HTTP and
+WebSocket interfaces. I use the repository-level [AGENTS.md](../AGENTS.md) as
+the tactical maintainer reference for package paths and build commands.

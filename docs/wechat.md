@@ -1,22 +1,24 @@
 # WeChat iLink
 
-SoloQueue connects to personal WeChat accounts through Tencent's official
-iLink Bot API. The integration is an optional channel bridge, not a separate
-agent runtime.
+> 中文：[微信 iLink](zh/wechat.md)
+
+I connect personal WeChat accounts through Tencent's official iLink Bot API.
+I treat the integration as an optional channel bridge, not a separate agent
+runtime.
 
 ## Login
 
-Stop another SoloQueue process using the same account, then run:
+I stop another SoloQueue process using the same account, then run:
 
 ~~~bash
 soloqueue wechat login --id personal --name "Personal WeChat"
 ~~~
 
-The command prints a QR-code URL, polls the login status, asks for a
-verification code when required, and writes the confirmed credential to
+I use the command to print a QR-code URL, poll the login status, ask for a
+verification code when required, and write the confirmed credential to
 settings.yaml. The same flow is available under Settings → Channels.
 
-To bind directly to an L2 agent:
+I bind directly to an L2 agent with:
 
 ~~~bash
 soloqueue wechat login --id personal --bind-type l2 --bind-agent agent-id
@@ -38,27 +40,27 @@ wechat_bots:
     whitelist: []
 ~~~
 
-The settings API exposes sanitized account views; keep the source
+I use the settings API for sanitized account views; I keep the source
 settings.yaml private because it contains credentials.
 
 ## Supported scope
 
-- QR authorization, redirects, pairing and verification states.
-- Multiple configured accounts.
-- Long-poll text intake and text replies.
-- Voice messages when the upstream includes a server-side transcript.
-- L1 or dedicated L2 binding and optional allowlists.
-- Typing activity while a response is running.
+- I support QR authorization, redirects, pairing and verification states.
+- I support multiple configured accounts.
+- I support long-poll text intake and text replies.
+- I support voice messages when the upstream includes a server-side transcript.
+- I support L1 or dedicated L2 binding and optional allowlists.
+- I show typing activity while a response is running.
 
-The current integration does not provide encrypted CDN media transfer,
+I do not currently provide encrypted CDN media transfer,
 proactive cron delivery, or a bundled speech-to-text engine for media-only
 voice.
 
 ## Operational limits
 
-iLink can be rate-limited, interrupted, changed, or terminated upstream. The
-current cursor is in process, so a restart can affect update continuity. Cron
-notifications and long-running replies are best-effort; use the Web UI for
-definitive results.
+I expect iLink to be rate-limited, interrupted, changed, or terminated upstream.
+I keep the current cursor in process, so a restart can affect update continuity.
+I treat Cron notifications and long-running replies as best-effort and use the
+Web UI for definitive results.
 
-See [Channels](guides/channels.md) for the common channel contract.
+I use [Channels](guides/channels.md) for the common channel contract.

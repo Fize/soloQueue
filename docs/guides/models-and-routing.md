@@ -1,7 +1,9 @@
 # Models and routing
 
-SoloQueue routes requests by work nature, not by a difficulty ladder. The
-current task types are:
+> 中文：[模型与路由](../zh/guides/models-and-routing.md)
+
+I route requests by work nature, not by a difficulty ladder. I currently use
+these task types:
 
 | Task type | Typical requests |
 | --- | --- |
@@ -11,17 +13,17 @@ current task types are:
 
 ## Configure providers and models
 
-Open Settings → Models to add an OpenAI-compatible provider, register its
-models, and enable the entries you want to use. Provider credentials can be
-entered in settings or supplied through an environment variable.
+I open Settings → Models to add an OpenAI-compatible provider, register its
+models, and enable the entries I want to use. I enter provider credentials in
+settings or supply them through an environment variable.
 
-Each model has a local ID, provider ID, optional API model name, context window,
-generation settings, and thinking settings. The route reference format is
-provider:model.
+Every model I configure has a local ID, provider ID, optional API model name,
+context window, generation settings, and thinking settings. I use provider:model
+as the route reference format.
 
 ## Configure task routes
 
-The model route section maps task types to models:
+My model route section maps task types to models:
 
 ~~~yaml
 model_routes:
@@ -32,17 +34,17 @@ model_routes:
   fallback: deepseek:deepseek-v4-flash
 ~~~
 
-The local fast-track classifier recognizes obvious code, command, traceback,
-and research patterns without an extra model call. Ambiguous input can use the
-configured classifier model. If a selected route is unavailable, the fallback
-route is used and the UI records that resolution.
+My local fast-track classifier recognizes obvious code, command, traceback, and
+research patterns without an extra model call. For ambiguous input, I can use
+the configured classifier model. If a selected route is unavailable, I use the
+fallback route and the UI records that resolution.
 
 ## Check a resolution
 
-The active request indicator in Chat shows the resolved task type and model
-when available. Usage and routing history are available under Stats. If the
-resolution is unexpected, inspect the previous request in the same session:
-follow-up prompts retain task context so a conversation does not change
+I use the active request indicator in Chat to see the resolved task type and model
+when available. I use Stats to inspect usage and routing history. If the
+resolution is unexpected, I inspect the previous request in the same session:
+follow-up prompts retain task context so my conversation does not change
 behavior arbitrarily between turns.
 
 ## Model setup checklist

@@ -1,5 +1,9 @@
 # Feature guides
 
+> 中文：[功能指南](../zh/guides/README.md)
+
+I organize my feature guides by the way I use SoloQueue:
+
 - [Projects and sessions](projects-and-sessions.md)
 - [Teams and agents](teams-and-agents.md)
 - [Models and routing](models-and-routing.md)
