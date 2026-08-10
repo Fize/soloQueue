@@ -1,30 +1,39 @@
 # macOS Fixed Self-Signing (Maintainer Reference)
 
-This document is for maintainers packaging a local macOS build. It is not an
-end-user installation guide and does not provide Apple Developer ID signing or
-notarization.
+I use this document when I package a local macOS build. I do not treat it as an
+end-user installation guide, and it does not provide Apple Developer ID
+signing or notarization.
 
-SoloQueue uses the fixed application identifier `com.soloqueue` and a fixed self-signed identity named `SoloQueue Code Signing`. This is a controlled-distribution setup, not Apple notarization.
+中文：[macOS 固定自签名](zh/macos-signing.md)
+
+I use the fixed application identifier `com.soloqueue` and a fixed self-signed
+identity named `SoloQueue Code Signing`. I treat this as a controlled-
+distribution setup, not Apple notarization.
 
 ## First-Time Setup
 
-Run:
+I run:
 
 ```bash
 make setup-macos-signing
 ```
 
-The setup opens hidden macOS password dialogs. Choose a password with at least 12 characters and store it in a separate password manager. The script creates:
+I see the setup open hidden macOS password dialogs. I choose a password with at
+least 12 characters and store it in a separate password manager. The script
+creates:
 
-- An identity in the current user's login Keychain.
-- An encrypted private-key backup at `~/Documents/SoloQueue Signing Backup/SoloQueue-Code-Signing.p12`.
-- A public certificate and public SHA-256 fingerprint in the same backup directory.
+- I create an identity in the current user's login Keychain.
+- I create an encrypted private-key backup at `~/Documents/SoloQueue Signing Backup/SoloQueue-Code-Signing.p12`.
+- I create a public certificate and public SHA-256 fingerprint in the same backup directory.
 
-The PKCS#12 file contains the private key. Never commit it, send it with the application, or store its password beside it.
+I treat the PKCS#12 file as a private-key container. I never commit it, send it
+with the application, or store its password beside it.
 
-After initial creation, copy the public fingerprint from the backup directory into `desktop/build/macos-signing-cert.sha256` and commit only that fingerprint file. A normal package build fails until the pin exists.
+After initial creation, I copy the public fingerprint from the backup directory
+into `desktop/build/macos-signing-cert.sha256` and commit only that fingerprint
+file. I expect a normal package build to fail until the pin exists.
 
-Verify the installed identity:
+I verify the installed identity:
 
 ```bash
 make check-macos-signing
@@ -36,28 +45,35 @@ make check-macos-signing
 make package-desktop PLATFORM=mac
 ```
 
-Packaging fails if the fixed identity is unavailable, ambiguous, ad-hoc, or different from the pinned certificate. The packaged app, Electron helpers, and bundled Go backend are verified before the artifact is accepted.
+I expect packaging to fail if the fixed identity is unavailable, ambiguous,
+ad-hoc, or different from the pinned certificate. I verify the packaged app,
+Electron helpers, and bundled Go backend before accepting the artifact.
 
 ## Moving to Another Mac
 
-Do not generate a new certificate. A new certificate changes the macOS code identity and can require privacy permissions again.
+I do not generate a new certificate when moving to another Mac. A new
+certificate changes the macOS code identity and can require privacy permissions
+again.
 
-1. Copy `SoloQueue-Code-Signing.p12` to the new Mac through a trusted channel.
-2. Check out a SoloQueue revision containing the same `desktop/build/macos-signing-cert.sha256` pin.
-3. Run the restore command with an absolute path:
+1. I copy `SoloQueue-Code-Signing.p12` to the new Mac through a trusted channel.
+2. I check out a SoloQueue revision containing the same `desktop/build/macos-signing-cert.sha256` pin.
+3. I run the restore command with an absolute path:
 
    ```bash
    ./scripts/setup-macos-signing-cert.sh --restore "/absolute/path/SoloQueue-Code-Signing.p12"
    ```
 
-4. Enter the original backup password once in the hidden dialog. The restore process keeps the decrypted private key in memory and grants access only to `/usr/bin/codesign`.
-5. Run `make check-macos-signing` and then build the macOS package.
+4. I enter the original backup password once in the hidden dialog. I let the
+   restore process keep the decrypted private key in memory and grant access
+   only to `/usr/bin/codesign`.
+5. I run `make check-macos-signing` and then build the macOS package.
 
-The restore script validates the certificate name, code-signing usage, and SHA-256 fingerprint before changing the Keychain.
+I rely on the restore script to validate the certificate name, code-signing
+usage, and SHA-256 fingerprint before changing the Keychain.
 
 ## Upgrade Verification
 
-For two consecutive builds, compare:
+For two consecutive builds, I compare:
 
 ```bash
 codesign -d -r- "/path/to/old/SoloQueue.app"
@@ -65,13 +81,21 @@ codesign -d -r- "/path/to/new/SoloQueue.app"
 codesign -d -r- "/path/to/new/SoloQueue.app/Contents/Resources/soloqueue"
 ```
 
-The application requirements must keep `com.soloqueue`; the backend requirement must keep `com.soloqueue.backend`; neither requirement may be `cdhash`-only.
+I keep `com.soloqueue` in the application requirements and
+`com.soloqueue.backend` in the backend requirement; neither requirement may be
+`cdhash`-only.
 
-Changing from the former `com.xiaobaitu.soloqueue` identifier to `com.soloqueue` requires one final macOS privacy approval. The fixed identity protects continuity for later upgrades; it cannot silently grant TCC permissions.
+When I change from the former `com.xiaobaitu.soloqueue` identifier to
+`com.soloqueue`, I need one final macOS privacy approval. I use the fixed
+identity to protect continuity for later upgrades; it cannot silently grant TCC
+permissions.
 
 ## Recovery Limits
 
-- Losing either the PKCS#12 backup or its password makes the identity unrecoverable on another Mac.
+- If I lose either the PKCS#12 backup or its password, I cannot recover the
+  identity on another Mac.
 - Anyone who obtains both can sign code as this SoloQueue identity.
-- A compromised identity must be replaced, which intentionally breaks permission continuity.
-- Self-signed builds remain non-notarized and may require recipients to approve launch through macOS security controls.
+- If the identity is compromised, I replace it and intentionally break
+  permission continuity.
+- I treat self-signed builds as non-notarized and expect recipients to approve
+  launch through macOS security controls when required.

@@ -1,8 +1,10 @@
 # Configuration
 
-The user-facing configuration reference is
+> 中文：[配置](zh/config.md)
+
+I keep the user-facing configuration reference in
 [reference/configuration.md](reference/configuration.md).
 
-The active file is settings.yaml in the work directory (normally
-~/.soloqueue/). MCP servers use a separate ~/.soloqueue/mcp.json file. This
-legacy path is retained for links from earlier revisions.
+I keep the active settings.yaml in the work directory (normally ~/.soloqueue/).
+I keep MCP servers in a separate ~/.soloqueue/mcp.json file. I retain this
+legacy path for links from earlier revisions.

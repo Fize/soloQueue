@@ -1,36 +1,37 @@
 # Teams and agents
 
-Teams and agent templates are the reusable execution layer of SoloQueue. A
-team groups agents for a role or project; an agent template supplies the
-identity, model, tools, and instructions used when a session creates an agent.
+> 中文：[团队与 Agent](../zh/guides/teams-and-agents.md)
+
+I use teams and agent templates as SoloQueue's reusable execution layer. I use
+a team to group agents for a role or project, and an agent template to supply
+the identity, model, tools, and instructions used when I create an agent.
 
 ## Manage them in the UI
 
-Open Settings → Agents to inspect or edit agent definitions and teams. The
-chat and workflow editors use the same catalog, so an agent selected in the UI
+I open Settings → Agents to inspect or edit agent definitions and teams. The
+chat and workflow editors use the same catalog, so an agent I select in the UI
 must be available in that catalog.
 
 ## Manage them on disk
 
-The default work directory contains:
+I keep these directories in my default work directory:
 
 - agents/ — agent template files.
 - groups/ — team/group definitions.
 - persona/ — the active profile and related state.
 
-Agent templates use YAML frontmatter followed by Markdown instructions. Changes
-to these files are watched and can trigger a prompt/catalog rebuild while the
-server is running. Keep backups before making broad edits.
+I define agent templates with YAML frontmatter followed by Markdown
+instructions. SoloQueue watches these files and can trigger a prompt/catalog
+rebuild while the server is running. I keep backups before making broad edits.
 
 ## Delegation
 
-The primary session can delegate a bounded subtask to another agent. The
-supervisor tracks child lifecycle and returns the result to the parent
-conversation. Delegation is useful for parallel research, review, or a
-well-scoped implementation step; it does not remove the need to review the
-child's output.
+I can delegate a bounded subtask from my primary session to another agent. I
+use the supervisor to track child lifecycle and return the result to my parent
+conversation. I use delegation for parallel research, review, or a well-scoped
+implementation step; I still review the child's output.
 
-When writing an agent or team prompt, specify:
+When I write an agent or team prompt, I specify:
 
 - the goal and the files or project scope;
 - the expected evidence or output;
@@ -39,8 +40,8 @@ When writing an agent or team prompt, specify:
 
 ## Common failure modes
 
-- A workflow references an agent ID that is not in the catalog.
-- An agent has a valid template but no enabled provider/model.
-- A delegated task infers a different work directory from its parent.
-- A template change is valid on disk but the server has not completed its
-  reload; check the server log and refresh the UI.
+- I may see a workflow reference an agent ID that is not in the catalog.
+- I may see an agent with a valid template but no enabled provider/model.
+- I may see a delegated task infer a different work directory from its parent.
+- I may see a valid template change before the server completes its reload; I
+  check the server log and refresh the UI.

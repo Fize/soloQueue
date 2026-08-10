@@ -1,8 +1,10 @@
 # Projects and sessions
 
-SoloQueue keeps the agent runtime in one local work directory, while each
-project points the agent at a repository or other absolute filesystem path.
-This separation lets you reuse the same teams and models across projects.
+> 中文：[项目与会话](../zh/guides/projects-and-sessions.md)
+
+I keep the agent runtime in one local work directory, while I point each project
+at a repository or other absolute filesystem path. I use this separation to
+reuse the same teams and models across projects.
 
 ## Projects
 
@@ -10,34 +12,34 @@ This separation lets you reuse the same teams and models across projects.
 2. Add a project with a name and an absolute path.
 3. Select that project when starting a chat or creating a workflow run.
 
-The project path is execution scope, not just a label. Review it before
-allowing a write, shell, network, or delegated action.
+I treat the project path as execution scope, not just a label. I review it
+before allowing a write, shell, network, or delegated action.
 
 ## Chat sessions
 
 - **Chat** starts a normal project-aware conversation.
 - **Assistant** exposes the long-running primary assistant session.
-- The session tree lets you return to existing conversations.
-- A session can show the resolved task type and model for the active request.
+- The session tree lets me return to existing conversations.
+- I can see the resolved task type and model for the active request in a session.
 
-The server serializes work per session and streams progress to the desktop
-client over WebSocket. Restarting the server preserves durable history and
-local metadata, but in-memory authentication and active connections must be
-established again.
+I rely on the server to serialize work per session and stream progress to my
+desktop client over WebSocket. After restarting the server, I retain durable
+history and local metadata, but I must establish in-memory authentication and
+active connections again.
 
 ## Local workdir and project workdir
 
-The runtime work directory defaults to ~/.soloqueue/ and contains settings,
-agent/team files, SQLite, logs, memory, plans, and generated artifacts. A
-project path is separate and should normally be an existing directory that the
-agent is meant to inspect or modify.
+I use ~/.soloqueue/ as my default runtime work directory and keep settings,
+agent/team files, SQLite, logs, memory, plans, and generated artifacts there. I
+keep a project path separate and normally choose an existing directory that I
+intend the agent to inspect or modify.
 
-For delegated or workflow work, use an explicit project path. Do not rely on a
-model-generated path or a path under ~/.soloqueue/ when you mean a repository.
+For delegated or workflow work, I use an explicit project path. I do not rely
+on a model-generated path or a path under ~/.soloqueue/ when I mean a repository.
 
 ## Good session practice
 
-- Start with a read-only request to verify the selected project.
-- State the goal and acceptance criteria for a change.
-- Keep unrelated repositories in separate projects.
-- Inspect the final diff and any generated artifacts yourself.
+- I start with a read-only request to verify the selected project.
+- I state the goal and acceptance criteria for a change.
+- I keep unrelated repositories in separate projects.
+- I inspect the final diff and any generated artifacts myself.

@@ -1,13 +1,15 @@
 # MCP and LSP
 
-MCP configuration and policy are implemented under
-internal/agenttools/mcp. The user-facing setup is documented in
+> 中文：[MCP 与 LSP](zh/mcp.md)
+
+I keep MCP configuration and policy under internal/agenttools/mcp. I document
+the user-facing setup in
 [Skills, MCP, and LSP](guides/skills-and-mcp.md).
 
-The runtime supports the standard mcpServers map in ~/.soloqueue/mcp.json,
-stdio server processes, policy state, and built-in LSP-backed tools configured
-under lspmcp in settings.yaml.
+I use the standard mcpServers map in ~/.soloqueue/mcp.json, stdio server
+processes, policy state, and built-in LSP-backed tools configured under lspmcp
+in settings.yaml.
 
-MCP and language-server processes inherit the permissions and environment
-available to the SoloQueue server. Review commands, arguments, environment
+I run MCP and language-server processes with the permissions and environment
+available to my SoloQueue server. I review commands, arguments, environment
 variables, network access, and project scope before enabling them.

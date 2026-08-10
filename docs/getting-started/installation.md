@@ -1,7 +1,9 @@
 # Installation
 
-SoloQueue is currently distributed as source. A local build produces both the
-Go server and, when requested, the Electron desktop client.
+> 中文：[安装](../zh/getting-started/installation.md)
+
+I currently distribute SoloQueue as source. When I build it locally, I produce
+the Go server and, when needed, the Electron desktop client.
 
 ## Prerequisites
 
@@ -10,8 +12,8 @@ Go server and, when requested, the Electron desktop client.
 - Git.
 - An API key for at least one enabled LLM provider.
 
-The Makefile runs the required pnpm approve-builds and dependency install
-steps for the portal and desktop packages.
+I use the Makefile to run the required pnpm approve-builds and dependency
+install steps for the portal and desktop packages.
 
 ## Build the browser portal and server
 
@@ -21,23 +23,22 @@ cd soloQueue
 make build
 ~~~
 
-The command builds portal/, copies the result to
-internal/server/dist/, copies bundled skills, and creates the soloqueue
-binary at the repository root.
+I run this command to build portal/, copy the result to internal/server/dist/,
+copy bundled skills, and create the soloqueue binary at the repository root.
 
-Start it with:
+I start it with:
 
 ~~~bash
 export DEEPSEEK_API_KEY="your-api-key"
 ./soloqueue serve
 ~~~
 
-The default listener is 127.0.0.1:57647. Continue with
+I use 127.0.0.1:57647 by default. I continue with
 [First run](first-run.md).
 
 ## Run the desktop development client
 
-The desktop client and backend are separate development processes:
+I run the desktop client and backend as separate development processes:
 
 ~~~bash
 # Terminal 1
@@ -50,8 +51,8 @@ pnpm install
 pnpm dev
 ~~~
 
-The Vite server proxies /api and /ws to the backend on port 8765.
-make build-desktop creates the production web assets, while
+I use the Vite server to proxy /api and /ws to my backend on port 8765.
+I use make build-desktop to create the production web assets, while
 make package-desktop PLATFORM=mac (or win/linux) invokes Electron Builder.
 
 ## Build variants
@@ -65,11 +66,11 @@ make package-desktop PLATFORM=mac (or win/linux) invokes Electron Builder.
 | make build-all | Portal, Go binary, and desktop renderer |
 | make package-desktop PLATFORM=mac | macOS desktop package |
 
-macOS signing is a maintainer workflow documented in
-[macOS signing](../macos-signing.md). It does not provide Apple notarization.
+I document macOS signing as a maintainer workflow in
+[macOS signing](../macos-signing.md). I do not use it as Apple notarization.
 
 ## Source-development note
 
-go run ./cmd/soloqueue serve can start the backend without a fresh portal
-build, but the embedded browser UI will be blank if internal/server/dist/ is
-absent. Use make build-web first when you need the portal.
+I can start the backend with go run ./cmd/soloqueue serve without a fresh portal
+build, but my embedded browser UI will be blank if internal/server/dist/ is
+absent. I run make build-web first when I need the portal.

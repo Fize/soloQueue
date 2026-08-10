@@ -1,7 +1,10 @@
 # Architecture overview
 
-SoloQueue is a local-first application composed of a Go runtime, a React
-desktop console, and a lightweight React portal embedded in the Go binary.
+> 中文：[架构概览](../zh/architecture/overview.md)
+
+I built SoloQueue as a local-first application composed of a Go runtime, a
+React desktop console, and a lightweight React portal embedded in the Go
+binary.
 
 ~~~text
 Desktop / Portal
@@ -23,13 +26,13 @@ Session manager
 
 ## Process boundary
 
-The server is started by soloqueue serve. It builds one runtime Stack and
-shares its LLM clients, config service, team store, skill registry, MCP
-manager, memory subsystems, workflow runtime, and simulation engine with the
-session manager and HTTP handlers.
+I start the server with soloqueue serve. I build one runtime Stack and share
+my LLM clients, config service, team store, skill registry, MCP manager, memory
+subsystems, workflow runtime, and simulation engine with the session manager
+and HTTP handlers.
 
-The default listener is loopback. Remote requests pass through the auth
-middleware; localhost is intentionally treated differently. See
+I use a loopback listener by default. Remote requests pass through the auth
+middleware; I intentionally treat localhost differently. See
 [Remote access](../operations/remote-access.md).
 
 ## Runtime layers
@@ -50,30 +53,31 @@ middleware; localhost is intentionally treated differently. See
 
 ## Agent lifecycle
 
-An agent is a long-lived actor with a mailbox. A request enters a session,
-resolves a task type and model, runs a streamed tool loop, and returns events
-to the WebSocket client. One session request is active at a time; delegated
-work is tracked by a supervisor and can resume the parent through a priority
-mailbox.
+I model an agent as a long-lived actor with a mailbox. A request enters a
+session, resolves a task type and model, runs a streamed tool loop, and returns
+events to my WebSocket client. One session request is active at a time;
+delegated work is tracked by a supervisor and can resume the parent through a
+priority mailbox.
 
-Tool confirmations are emitted as events and resume the waiting request after
-the user chooses an action. The bypass flag changes this policy globally and
-must be treated as an operator decision.
+I emit tool confirmations as events and resume the waiting request after I
+choose an action. The bypass flag changes this policy globally, so I treat it
+as an operator decision.
 
 ## Persistence and observability
 
-SQLite stores shared configuration-backed records, teams, cron tasks, memory,
-and workflow run state. Timeline events are append-only JSONL. Rotating
-application and HTTP logs provide operational evidence. The Stats and
-workflow-run pages are views over these records; they do not replace reviewing
-the project filesystem or external provider logs.
+I store shared configuration-backed records, teams, cron tasks, memory, and
+workflow run state in SQLite. I write timeline events as append-only JSONL.
+Rotating application and HTTP logs provide operational evidence. I use the
+Stats and workflow-run pages as views over these records; I still review the
+project filesystem and external provider logs.
 
 ## Frontends
 
-- desktop/ is the Electron + React console for local and configured remote
+- I use desktop/ as the Electron + React console for local and configured remote
   connections.
-- portal/ is a lightweight React portal built into internal/server/dist/ and
-  served by the Go binary.
+- I use portal/ as a lightweight React portal built into internal/server/dist/
+  and served by the Go binary.
 
-The frontends use the same backend contracts. A desktop development server
-expects the backend on port 8765; the embedded portal defaults to port 57647.
+I make the frontends use the same backend contracts. My desktop development
+server expects the backend on port 8765; my embedded portal defaults to port
+57647.
