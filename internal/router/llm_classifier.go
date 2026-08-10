@@ -42,7 +42,7 @@ func (c *LLMClassifier) Classify(ctx context.Context, input ClassifyInput, histo
 	c.mu.RLock()
 	providerID, model := c.providerID, c.model
 	c.mu.RUnlock()
-	classCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	classCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	messages := []agent.LLMMessage{{Role: "system", Content: llmClassifierSystemPrompt}}

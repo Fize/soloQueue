@@ -181,4 +181,42 @@ describe('websocket', () => {
     wsManager.unregisterChat('req-route')
     expect(wsManager.hasChatHandler('req-route')).toBe(false)
   })
+
+  it('routes chat_accepted to the matching request handler', async () => {
+    const onAccepted = vi.fn()
+    wsManager.registerChat('req-accepted', { onAccepted })
+    await wsManager.connect()
+    simulateOpen()
+
+    const accepted = {
+      type: 'chat_accepted',
+      request_id: 'req-accepted',
+      session_id: 'l2:s1',
+    }
+    simulateMessage(accepted)
+
+    expect(onAccepted).toHaveBeenCalledWith(accepted)
+  })
+
+  it('reports chat_send as unsent when the socket is not open', () => {
+    const sent = wsManager.send({
+      type: 'chat_send',
+      request_id: 'req-disconnected',
+      session_id: 'l2:s1',
+      prompt: 'hello',
+    })
+
+    expect(sent).toBe(false)
+  })
+
+  it('reports a message-too-large close immediately to chat handlers', async () => {
+    const onClose = vi.fn()
+    wsManager.registerChat('req-too-large', { onClose })
+    await wsManager.connect()
+    simulateOpen()
+
+    mockWSServer?.onclose?.({ code: 1009, reason: 'Message Too Large' })
+
+    expect(onClose).toHaveBeenCalledWith(1009, false)
+  })
 })

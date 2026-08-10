@@ -42,6 +42,12 @@ export interface WSChatRoute {
   agent_instance_id?: string;
 }
 
+export interface WSChatAccepted {
+  type: "chat_accepted";
+  request_id: string;
+  session_id: string;
+}
+
 export interface WSToolStart {
   type: "tool_start";
   request_id: string;
@@ -145,6 +151,7 @@ export type WSMessage =
   | WSSimulationEventMessage
   | WSSimulationProgressMessage
   | WSChatRoute
+  | WSChatAccepted
   | WSChatChunk
   | WSReasoningChunk
   | WSToolStart

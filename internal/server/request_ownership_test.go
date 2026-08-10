@@ -9,11 +9,11 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
 // ─── Request Ownership Validation Tests (Phase 2) ─────────────────────────────
@@ -122,6 +122,18 @@ func TestBusySessionRejection(t *testing.T) {
 		SessionID: sessionID,
 		Prompt:    "first",
 	})
+	select {
+	case data := <-client.send:
+		var wsMsg WSMessage
+		if err := json.Unmarshal(data, &wsMsg); err != nil {
+			t.Fatalf("unmarshal accepted message: %v", err)
+		}
+		if wsMsg.Type != "chat_accepted" || wsMsg.RequestID != "req-first" || wsMsg.SessionID != sessionID {
+			t.Fatalf("first response = %#v, want chat_accepted", wsMsg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for chat_accepted message")
+	}
 
 	// Second request to the same (now busy) session.
 	h.handleChatSend(client, &ClientMessage{
