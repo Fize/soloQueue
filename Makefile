@@ -1,4 +1,4 @@
-.PHONY: help build build-web build-desktop build-all build-all-win build-go build-go-win build-win package-desktop package-desktop-win clean
+.PHONY: help build build-web build-desktop build-all build-all-win build-go build-go-win build-win package-desktop package-desktop-win setup-macos-signing check-macos-signing clean
 
 PLATFORM ?=
 GOOS =
@@ -63,6 +63,11 @@ package-desktop: build-all ## Package Electron desktop client binaries (specify 
 
 package-desktop-win: build-all-win ## Alias: full Windows build including desktop installer
 
+setup-macos-signing: ## Create the fixed macOS signing identity and encrypted local backup
+	./scripts/setup-macos-signing-cert.sh --create
+
+check-macos-signing: ## Verify the fixed macOS signing identity against the pinned fingerprint
+	./scripts/setup-macos-signing-cert.sh --check
+
 clean: ## Remove all build artifacts
 	rm -rf soloqueue soloqueue.exe desktop/dist desktop/dist-desktop portal/dist internal/server/dist
-
