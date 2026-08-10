@@ -27,6 +27,7 @@ beforeEach(() => {
     titleGenerated: {},
   })
   vi.clearAllMocks()
+  vi.mocked(wsManager.send).mockReturnValue(true)
 })
 
 describe('useChatStream', () => {
@@ -65,9 +66,9 @@ describe('useChatStream', () => {
       result.current.cancel()
     })
 
-    const cancelCall = vi.mocked(wsManager.send).mock.calls.find(
-      (c) => (c[0] as any).type === 'chat_cancel'
-    )
+    const cancelCall = vi
+      .mocked(wsManager.send)
+      .mock.calls.find((c) => (c[0] as any).type === 'chat_cancel')
     expect(cancelCall).toBeDefined()
     const cancelMsg = cancelCall![0] as any
 
@@ -174,5 +175,71 @@ describe('useChatStream', () => {
 
     expect(useChatStore.getState().activeRequests).toEqual({})
     expect(useChatStore.getState().streamingSessions.l1).toBe(false)
+  })
+
+  it('cleans up the optimistic request when the chat message is not sent', async () => {
+    vi.mocked(wsManager.send).mockReturnValue(false)
+    const { result } = renderHook(() => useChatStream())
+
+    await act(async () => {
+      await result.current.send('message while disconnected', undefined, 'l2:session-A')
+    })
+
+    expect(useChatStore.getState().activeRequests).toEqual({})
+    expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(false)
+    const messages = useChatStore.getState().messages['l2:session-A']
+    expect(messages.at(-1)?.segments).toEqual([
+      { type: 'error', text: 'Message was not sent because the connection is unavailable.' },
+    ])
+  })
+
+  it('keeps an acknowledged request alive across a message-too-large reconnect', async () => {
+    vi.mocked(wsManager.send).mockReturnValue(true)
+    const { result } = renderHook(() => useChatStream())
+
+    await act(async () => {
+      await result.current.send('request already accepted', undefined, 'l2:session-A')
+    })
+
+    const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
+    act(() => {
+      handler.onAccepted?.({ request_id: 'req-accepted', session_id: 'l2:session-A' })
+      handler.onClose?.(1009)
+    })
+
+    expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(1)
+    expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(true)
+  })
+
+  it('rejects an oversized prompt before sending it to the socket', async () => {
+    vi.mocked(wsManager.send).mockReturnValue(true)
+    const { result } = renderHook(() => useChatStream())
+
+    await act(async () => {
+      await result.current.send('a'.repeat(4 * 1024 * 1024 + 1), undefined, 'l2:session-A')
+    })
+
+    expect(wsManager.send).not.toHaveBeenCalled()
+    const messages = useChatStore.getState().messages['l2:session-A']
+    expect(messages.at(-1)?.segments).toEqual([
+      { type: 'error', text: 'Message is too large. Maximum prompt size is 4 MiB.' },
+    ])
+  })
+
+  it('rejects an oversized chat envelope before sending it to the socket', async () => {
+    vi.mocked(wsManager.send).mockReturnValue(true)
+    const { result } = renderHook(() => useChatStream())
+
+    await act(async () => {
+      await result.current.send('short prompt', undefined, 'l2:session-A', {
+        text: 'b'.repeat(8 * 1024 * 1024),
+      })
+    })
+
+    expect(wsManager.send).not.toHaveBeenCalled()
+    const messages = useChatStore.getState().messages['l2:session-A']
+    expect(messages.at(-1)?.segments).toEqual([
+      { type: 'error', text: 'Message is too large. Maximum WebSocket message size is 8 MiB.' },
+    ])
   })
 })

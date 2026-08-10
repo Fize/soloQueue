@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
@@ -44,6 +44,15 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			RequestID: msg.RequestID,
 			SessionID: sessionID,
 			Error:     "prompt cannot be empty",
+		})
+		return
+	}
+	if err := validateChatPrompt(msg.Prompt); err != nil {
+		client.sendJSON(WSMessage{
+			Type:      "chat_error",
+			RequestID: msg.RequestID,
+			SessionID: msg.SessionID,
+			Error:     err.Error(),
 		})
 		return
 	}
@@ -280,6 +289,11 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			h.finalizeRequest(sessionID, msg.RequestID)
 		}
 	}()
+	client.sendJSON(WSMessage{
+		Type:      "chat_accepted",
+		RequestID: msg.RequestID,
+		SessionID: sessionID,
+	})
 	h.NextSessionRevision(sessionID)
 	h.Notify()
 

@@ -2,11 +2,28 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
+
+const (
+	// Keep the envelope bounded independently from the model context window so a
+	// single remote message cannot consume unbounded server memory.
+	maxWSMessageBytes  int64 = 8 << 20
+	maxChatPromptBytes       = 4 << 20
+)
+
+func validateChatPrompt(prompt string) error {
+	if len(prompt) > maxChatPromptBytes {
+		return fmt.Errorf("message is too large: prompt limit is 4 MiB")
+	}
+	return nil
+}
 
 // ─── WebSocket Upgrader ─────────────────────────────────────────────────────
 
@@ -57,7 +74,7 @@ func (c *Client) readPump() {
 		c.conn.Close()
 	}()
 
-	c.conn.SetReadLimit(65536) // allow large prompt messages
+	c.conn.SetReadLimit(maxWSMessageBytes)
 	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -67,6 +84,11 @@ func (c *Client) readPump() {
 	for {
 		messageType, p, err := c.conn.ReadMessage()
 		if err != nil {
+			if errors.Is(err, websocket.ErrReadLimit) && c.hub != nil && c.hub.mux != nil && c.hub.mux.log != nil {
+				c.hub.mux.log.WarnContext(c.ctx, logger.CatApp, "websocket message rejected: too large",
+					"max_bytes", maxWSMessageBytes,
+				)
+			}
 			break
 		}
 

@@ -17,6 +17,7 @@ import { request } from '@/lib/api/core'
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
 
 export interface ChatHandler {
+  onAccepted?: (data: { request_id: string; session_id: string }) => void
   onRoute?: (data: {
     request_id: string
     session_id: string
@@ -53,7 +54,7 @@ export interface ChatHandler {
   }) => void
   onSessionName?: (name: string) => void
   onSessionPlans?: (plans: string[]) => void
-  onClose?: () => void
+  onClose?: (code?: number, final?: boolean) => void
 }
 
 type MessageHandler = {
@@ -137,23 +138,27 @@ class WebSocketManager {
       }
     }
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
+      const closeCode = event?.code
       this.stopPingInterval()
       if (!this.intentionalClose) {
+        if (closeCode === 1009) {
+          this.chatHandlers.forEach((h) => h.onClose?.(closeCode, false))
+        }
         // Transient close (network hiccup): give handlers a grace period to
         // survive a quick reconnect. If the WS doesn't reconnect within 8s,
         // notify handlers of the permanent close.
         this.setStatus('reconnecting')
         this.scheduleReconnect()
         const handlerCloseTimer = setTimeout(() => {
-          this.chatHandlers.forEach((h) => h.onClose?.())
+          this.chatHandlers.forEach((h) => h.onClose?.(closeCode, true))
           this.chatHandlers.clear()
         }, 8000)
         // Store so connect() can clear it on successful reconnect.
         ;(this as any)._handlerCloseTimer = handlerCloseTimer
       } else {
         this.setStatus('disconnected')
-        this.chatHandlers.forEach((h) => h.onClose?.())
+        this.chatHandlers.forEach((h) => h.onClose?.(closeCode, true))
         this.chatHandlers.clear()
       }
     }
@@ -200,16 +205,19 @@ class WebSocketManager {
     this.chatHandlers.delete(requestId)
   }
 
-  /** Send a message to the server. Queues if disconnected. */
-  send(msg: ClientMessage) {
+  /** Send a message to the server and report whether it was delivered or queued. */
+  send(msg: ClientMessage): boolean {
     const data = JSON.stringify(msg)
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(data)
+      return true
     } else {
       // Don't queue chat_send to prevent duplicate messages when reconnecting.
       if (msg.type !== 'chat_send') {
         this.pendingMessages.push(data)
+        return true
       }
+      return false
     }
   }
 
@@ -248,6 +256,11 @@ class WebSocketManager {
   private dispatch(msg: WSMessage) {
     // Chat streaming messages — route to request handler.
     switch (msg.type) {
+      case 'chat_accepted': {
+        const h = this.chatHandlers.get(msg.request_id)
+        h?.onAccepted?.(msg)
+        return
+      }
       case 'chat_route': {
         const h = this.chatHandlers.get(msg.request_id)
         h?.onRoute?.(msg)

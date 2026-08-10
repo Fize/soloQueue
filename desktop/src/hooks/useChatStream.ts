@@ -17,6 +17,9 @@ const SYSTEM_SLASH_COMMANDS = new Set([
   '/init',
 ])
 
+const MAX_CHAT_PROMPT_BYTES = 4 << 20
+const MAX_CHAT_ENVELOPE_BYTES = 8 << 20
+
 function isSystemSlashCommand(prompt: string): boolean {
   return SYSTEM_SLASH_COMMANDS.has(prompt.trim().toLowerCase())
 }
@@ -58,6 +61,26 @@ export function useChatStream() {
       const sid = sessionIdOverride || state.activeSessionId
       if (!sid || !prompt.trim()) return
 
+      if (new TextEncoder().encode(prompt).byteLength > MAX_CHAT_PROMPT_BYTES) {
+        const now = new Date().toISOString()
+        addMessage(sid, {
+          id: `msg-${Date.now()}`,
+          role: 'user',
+          segments: [{ type: 'content', text: prompt }],
+          timestamp: now,
+          files,
+        })
+        addMessage(sid, {
+          id: `msg-${Date.now() + 1}`,
+          role: 'assistant',
+          segments: [
+            { type: 'error', text: 'Message is too large. Maximum prompt size is 4 MiB.' },
+          ],
+          timestamp: now,
+        })
+        return
+      }
+
       const activeForSession = Object.values(state.activeRequests).filter(
         (request) => request.sessionId === sid
       )
@@ -98,6 +121,34 @@ export function useChatStream() {
       const isDesignMode = useRuntimeStore.getState().isDesignMode
 
       const requestId = generateRequestId()
+      const chatMessage = {
+        type: 'chat_send' as const,
+        request_id: requestId,
+        session_id: sid,
+        prompt,
+        files,
+        design_mode: isDesignMode,
+        selected_element: selectedElement,
+        active_design_file: activeDesignFile,
+        has_drawings: hasDrawings,
+      }
+      if (
+        new TextEncoder().encode(JSON.stringify(chatMessage)).byteLength > MAX_CHAT_ENVELOPE_BYTES
+      ) {
+        addMessage(sid, {
+          id: `msg-${Date.now() + 1}`,
+          role: 'assistant',
+          segments: [
+            {
+              type: 'error',
+              text: 'Message is too large. Maximum WebSocket message size is 8 MiB.',
+            },
+          ],
+          timestamp: new Date().toISOString(),
+        })
+        return
+      }
+
       const initialRoute = {
         requestId,
         sessionId: sid,
@@ -131,9 +182,18 @@ export function useChatStream() {
       let finalContent = ''
 
       let finished = false
+      let accepted = false
+      let ackTimer: ReturnType<typeof setTimeout> | null = null
+      const clearAckTimer = () => {
+        if (ackTimer !== null) {
+          clearTimeout(ackTimer)
+          ackTimer = null
+        }
+      }
       const finishRequest = () => {
         if (finished) return
         finished = true
+        clearAckTimer()
         removeRequest(requestId)
         const remaining = Object.values(useChatStore.getState().activeRequests).filter(
           (request) => request.sessionId === sid
@@ -152,7 +212,14 @@ export function useChatStream() {
       }
 
       const handler: ChatHandler = {
+        onAccepted: () => {
+          accepted = true
+          clearAckTimer()
+          updateRequestStatus(requestId, 'streaming')
+        },
         onRoute: (data) => {
+          accepted = true
+          clearAckTimer()
           updateRequestStatus(requestId, 'streaming')
           const route = {
             requestId: data.request_id,
@@ -233,8 +300,7 @@ export function useChatStream() {
           updateAssistantSegment(sid, asstId, {
             type: 'content',
             text:
-              data.error ||
-              '⏳ Message queued — it will be processed in the current task turn.',
+              data.error || '⏳ Message queued — it will be processed in the current task turn.',
           })
           updateRequestStatus(requestId, 'queued')
           finishRequest()
@@ -252,7 +318,8 @@ export function useChatStream() {
           setDelegating(false, sid)
           completeLastDelegation(sid, data.target_agent_id, data.duration_ms, data.result_content)
         },
-        onClose: () => {
+        onClose: (code, final) => {
+          if (code === 1009 && accepted && !final) return
           finishRequest()
           useChatStore.getState().loadHistory(sid)
         },
@@ -260,17 +327,16 @@ export function useChatStream() {
 
       wsManager.registerChat(requestId, handler)
 
-      wsManager.send({
-        type: 'chat_send',
-        request_id: requestId,
-        session_id: sid,
-        prompt,
-        files,
-        design_mode: isDesignMode,
-        selected_element: selectedElement,
-        active_design_file: activeDesignFile,
-        has_drawings: hasDrawings,
-      })
+      const sent = wsManager.send(chatMessage)
+      if (!sent) {
+        handler.onError?.('Message was not sent because the connection is unavailable.')
+        return
+      }
+      ackTimer = setTimeout(() => {
+        if (!accepted) {
+          handler.onError?.('Message was not acknowledged by the server.')
+        }
+      }, 10_000)
     },
     [
       addMessage,
@@ -300,9 +366,10 @@ export function useChatStream() {
     if (!sid) return
 
     const store = useChatStore.getState()
-    const requestId = Object.values(store.activeRequests)
-      .filter((request) => request.sessionId === sid)
-      .at(-1)?.requestId || store.routeSessions[sid]?.requestId
+    const requestId =
+      Object.values(store.activeRequests)
+        .filter((request) => request.sessionId === sid)
+        .at(-1)?.requestId || store.routeSessions[sid]?.requestId
     if (!requestId) return
 
     store.cancelRunningDelegations(sid)
