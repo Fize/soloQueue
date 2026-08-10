@@ -1,4 +1,7 @@
-# Workflow Editor Layout — Design
+# Workflow Editor Layout — Historical Design Note
+
+> This is an implementation record, not a user guide. For current behavior,
+> read [Workflows](../guides/workflows.md).
 
 ## Problem
 

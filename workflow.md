@@ -1,4 +1,9 @@
-# Workflow System Design
+# Workflow System Design — Historical Design Note
+
+> This repository-level document records an earlier design conversation. It is
+> not the current user documentation. Use [docs/README.md](docs/README.md) for
+> the current product and [docs/guides/workflows.md](docs/guides/workflows.md)
+> for the supported workflow user path.
 
 ## 1. 结论与 v1 定位
 
