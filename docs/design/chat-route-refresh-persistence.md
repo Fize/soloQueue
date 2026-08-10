@@ -1,4 +1,7 @@
-# Chat Route Refresh Persistence — Design
+# Chat Route Refresh Persistence — Historical Design Note
+
+> This is an implementation record, not a user guide. For current behavior,
+> start at [the documentation hub](../README.md).
 
 ## Problem
 

@@ -1,4 +1,8 @@
-# macOS Fixed Self-Signing
+# macOS Fixed Self-Signing (Maintainer Reference)
+
+This document is for maintainers packaging a local macOS build. It is not an
+end-user installation guide and does not provide Apple Developer ID signing or
+notarization.
 
 SoloQueue uses the fixed application identifier `com.soloqueue` and a fixed self-signed identity named `SoloQueue Code Signing`. This is a controlled-distribution setup, not Apple notarization.
 

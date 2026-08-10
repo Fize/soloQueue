@@ -1,50 +1,61 @@
-# SoloQueue Documentation
+# SoloQueue documentation
 
-Welcome to the SoloQueue documentation hub. This directory contains detailed architecture docs and design notes.
+SoloQueue is a local-first personal AI agent harness and multi-agent
+workspace. It began as the author's Harness Engineering learning project,
+was informed by OpenClaw, and is now used as a complete personal application.
+The documentation therefore distinguishes three audiences:
 
-## 📖 Architecture Docs
+- **Users**: install, configure, and operate the application.
+- **Maintainers**: understand the current runtime and distribution boundaries.
+- **Historical notes**: design records that explain why an earlier decision was
+  made; they are not a description of the current product.
 
-Detailed system design documents, organized by subsystem:
+## Start here
 
-| Document                                   | Description                                                                                 |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| [Architecture](architecture.md)            | Agent, LLM, Tool, Skill system architecture overview                                        |
-| [Configuration](config.md)                 | Config system, layered loading, hot-reload, type-safe access                                |
-| [Context Window](ctxwin.md)                | Token count calibration, middle-out JSON truncation, Turn-based FIFO sliding window         |
-| [Memory Engine](memory.md)                 | Short-term daily summaries, long-term BM25 + KG + optional vector engine, temporal tracking |
-| [Timeline](timeline.md)                    | Event-sourced append-only JSONL log, session replay, orphaned tool call repair              |
-| [Skill Store & Management](skill_store.md) | Centralized catalog, Git/Github clones, local symlinking, shadowing override pattern        |
+| Need | Document |
+| --- | --- |
+| Build from source | [Installation](getting-started/installation.md) |
+| Start the server and make the first request | [First run](getting-started/first-run.md) |
+| Complete a first project task | [First task](getting-started/first-task.md) |
+| Find a feature guide | [Guides](guides/) |
+| Run the service remotely or recover data | [Operations](operations/) |
+| See every supported config section | [Configuration reference](reference/configuration.md) |
+| See CLI commands and flags | [CLI reference](reference/cli.md) |
+| Understand the current runtime | [Architecture overview](architecture/overview.md) |
 
-## 🎯 Feature Docs
+## User guides
 
-| Document                  | Description                                                                               |
-| ------------------------- | ----------------------------------------------------------------------------------------- |
-| [Routing](routing.md)     | L0-L3 task classification system, fast track, hybrid sticky logic, explicit level locking |
-| [QQ Bot Client](qqbot.md) | WebSocket gateway loop, bridge active/passive reply queue, rate limiter, media uploads    |
-| [WeChat iLink](wechat.md)  | Official iLink QR login, long polling, channel abstraction, voice transcripts and text    |
-| [MCP & LSP](mcp.md)       | Model Context Protocol servers loading, LSP JSON-RPC tool binding                         |
+| Topic | Document |
+| --- | --- |
+| Projects, sessions, and local workspaces | [Projects and sessions](guides/projects-and-sessions.md) |
+| Teams and agent templates | [Teams and agents](guides/teams-and-agents.md) |
+| Providers, models, and routing | [Models and routing](guides/models-and-routing.md) |
+| YAML workflows and run history | [Workflows](guides/workflows.md) |
+| Cron and scheduled tasks | [Scheduled tasks](guides/scheduled-tasks.md) |
+| Skills, MCP, and LSP | [Skills and MCP](guides/skills-and-mcp.md) |
+| Memory and usage statistics | [Memory and stats](guides/memory-and-stats.md) |
+| QQ and WeChat channels | [Channels](guides/channels.md) |
 
-## 🎭 Role Definitions
+## Operations and reference
 
-The `roles/` directory contains sample agent persona definitions (soul profiles):
+- [Remote access](operations/remote-access.md)
+- [Data, logs, and backup](operations/data-and-backup.md)
+- [Security and permissions](operations/security-and-permissions.md)
+- [Troubleshooting](operations/troubleshooting.md)
+- [Configuration](reference/configuration.md)
+- [CLI](reference/cli.md)
+- [License](../LICENSE)
 
-- [Roles README](roles/README.md) - How to use and customize soul profiles
-- `hanli.md` - Han Li (protagonist of the cultivation novel "A Record of a Mortal's Journey to Immortality")
-- `jiyin.md` - Ancestor Ji Yin
-- `nangongwan.md` - Nangong Wan
-- `xuangu.md` - Venerable Xuan Gu
-- `yuanyao.md` - Yuan Yao
-- `ziling.md` - Zi Ling
+## Maintainer and architecture notes
 
-## 🔗 Quick Navigation
+- [Architecture overview](architecture/overview.md)
+- [Task routing](routing.md)
+- [Context windows](ctxwin.md)
+- [Memory subsystem](memory.md)
+- [Timeline and replay](timeline.md)
+- [MCP details](mcp.md)
+- [macOS signing](macos-signing.md) (maintainer-only; not an end-user install path)
 
-- [Back to Main README](../README.md)
-- [GitHub Repository](https://github.com/xiaobaitu/soloqueue)
-
----
-
-<div align="center">
-
-Need help? Please ask on [GitHub Discussions](https://github.com/xiaobaitu/soloqueue/discussions).
-
-</div>
+The files under `docs/plans/`, `docs/design/`, and the repository-level
+`workflow.md` are historical or implementation notes. They may contain an
+older design vocabulary and should not be used as user instructions.

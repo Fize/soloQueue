@@ -1,61 +1,42 @@
-# Task Routing & Classification
+# Task routing
 
-SoloQueue uses intelligent task classification to route user input to the appropriate processing model based on work nature (`general`, `engineering`, `research`).
+SoloQueue classifies requests by work nature:
 
-## Task Types (Work-Nature Taxonomy)
+| Task type | Meaning |
+| --- | --- |
+| general | Conversation, writing, translation, summarization |
+| engineering | Code, repositories, debugging, tests, deployment |
+| research | Search, current information, and source verification |
 
-| Task Type | Scope / Description | Typical Use Case |
-| --------- | ------------------- | ---------------- |
-| **`general`** | Q&A, writing, translation, summarizing | Conversation & general text tasks |
-| **`engineering`** | Code, repositories, debugging, tests, deployment | Technical & software development work |
-| **`research`** | Web search, current info, source verification | Information retrieval & research |
+## Resolution pipeline
 
-> Note: Routing classifies tasks by work nature, not by difficulty.
-
-## How It Works
-
-The classifier uses a **dual-channel** strategy:
-
-1. **Local Fast Track** (always first): Pattern-based rules (zero latency)
-   - Matches code blocks, stack traces, file paths, commands, search keywords
-   - Supports Chinese and English
-
-2. **LLM Fallback** (when uncertain): Lightweight classification call
-   - 2-second timeout
-   - Preserves previous task type on error or fallback
-
-The result determines which model and thinking parameters to apply for the execution turn.
-
-## Session Continuity
-
-The session remembers the `PreviousTaskType` of prior interactions to maintain classification context across follow-up prompts.
-
-## Architecture
-
-```
-User Prompt
+~~~text
+User prompt
     │
     ▼
-Session.AskStream()
-    │
-    └─ Router.Route(ctx, input, history)
-            │
-            ▼
-        Classifier.Classify()
-            │
-            ├─ Local FastTrack (pattern matching)
-            │
-            └─ LLM Fallback (if ambiguous)
-```
+Local fast-track patterns
+    │ obvious match ───────────────┐
+    │ ambiguous                     │
+    ▼                              ▼
+Configured classifier model    Task type
+    │                              │
+    └──────────────┬───────────────┘
+                   ▼
+       provider:model route + fallback
+~~~
 
-## Related Files
+Fast-track rules recognize common code, command, traceback, path, and research
+signals without an extra model call. Ambiguous prompts use the configured
+classifier when available. The previous task type remains available to
+preserve context for follow-up turns.
 
-| File | Purpose |
-| ---- | ------- |
-| `internal/tasktype/tasktype.go` | TaskType taxonomy definitions (`general`, `engineering`, `research`) |
-| `internal/router/models.go` | ClassifyInput & ClassificationResult structs |
-| `internal/router/fasttrack.go` | Pattern-based Local Classifier |
-| `internal/router/llm_classifier.go` | LLM semantic classifier fallback |
-| `internal/router/classifier.go` | Default classifier orchestrator |
-| `internal/router/router.go` | Router: task classification → model parameter resolution |
-| `internal/session/session.go` | Session level tracking & execution payload assembly |
+The route configuration lives in model_routes in settings.yaml. Route values
+use provider:model. If the selected provider or model is unavailable, the
+fallback route is used and the resolved state is exposed to the UI and stats.
+
+This taxonomy is deliberately different from a difficulty ladder. A simple
+engineering request is still engineering, and a complex conversation is still
+general.
+
+See [Models and routing](guides/models-and-routing.md) for configuration and
+[Architecture overview](architecture/overview.md) for the runtime boundary.

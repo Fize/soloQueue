@@ -1,4 +1,8 @@
-# Workflow v2 implementation
+# Workflow v2 implementation — Maintainer / Historical Note
+
+> The user-facing workflow contract is documented in
+> [Workflows](../guides/workflows.md). This file records implementation
+> decisions and compatibility details; it is not a quick-start guide.
 
 This implementation is the durable entry point for the built-in engineering
 quality loop and user-authored workflows.

@@ -1,79 +1,64 @@
-# WeChat iLink Integration
+# WeChat iLink
 
-SoloQueue can connect to personal WeChat accounts through Tencent's official iLink Bot API. The implementation follows the current `Tencent/openclaw-weixin` protocol rather than unofficial client hooks.
-
-## Supported scope
-
-- QR-code authorization, including IDC redirect and pairing-code states
-- Multiple configured accounts
-- Long-poll message intake with persisted in-process cursor progression
-- Text messages and voice messages that include a server-side transcript
-- Text replies with the inbound `context_token` and WeChat-compatible Markdown filtering
-- Long-running reply keepalive through `getconfig` and a 5-second `sendtyping` heartbeat
-- L1 or dedicated L2 agent binding
-- User allowlists and configuration hot reload
-- `/help`, `/cancel`, `/clear`, `/compact`, `/version`, and `/myid`
-
-Not yet implemented:
-
-- Encrypted CDN download/upload for images, files, video, and raw voice
-- WeChat proactive cron delivery (the current cron target schema is QQ-specific)
-- A bundled speech-to-text engine for media-only voice
+SoloQueue connects to personal WeChat accounts through Tencent's official
+iLink Bot API. The integration is an optional channel bridge, not a separate
+agent runtime.
 
 ## Login
 
-Stop the running server before changing the same account from another process, then run:
+Stop another SoloQueue process using the same account, then run:
 
-```bash
+~~~bash
 soloqueue wechat login --id personal --name "Personal WeChat"
-```
+~~~
 
-The same flow is available in Desktop → Settings → Channels. Credentials are written by the backend to `~/.soloqueue/settings.yaml` and are never returned to the renderer.
+The command prints a QR-code URL, polls the login status, asks for a
+verification code when required, and writes the confirmed credential to
+settings.yaml. The same flow is available under Settings → Channels.
 
-To bind the account directly to an L2 agent:
+To bind directly to an L2 agent:
 
-```bash
-soloqueue wechat login \
-  --id personal \
-  --bind-type l2 \
-  --bind-agent <agent-template-id>
-```
-
-The token is equivalent to a password. Keep `settings.yaml` private and do not commit it.
+~~~bash
+soloqueue wechat login --id personal --bind-type l2 --bind-agent agent-id
+~~~
 
 ## Configuration
 
-```yaml
+~~~yaml
 wechat_bots:
   - id: personal
     name: Personal WeChat
     enabled: true
-    bot_token: <issued by QR login>
-    bot_id: <issued by QR login>
+    bot_token: issued-by-qr-login
+    bot_id: issued-by-qr-login
     base_url: https://ilinkai.weixin.qq.com
     bot_agent: SoloQueue/0.1.0
     bind_type: l1
     whitelist_enabled: false
     whitelist: []
-```
+~~~
 
-Sanitized account views are available through `GET/PUT /api/config/wechat-bots/`. Tokens are never returned by the API.
+The settings API exposes sanitized account views; keep the source
+settings.yaml private because it contains credentials.
 
-## Channel architecture
+## Supported scope
 
-`internal/channel` owns transport-neutral messages, attachments, reply tokens, and session contracts. `internal/channel/qq` and `internal/channel/wechat` own protocol-specific behavior. New channels normalize inbound data into `channel.Message` and retain reply correlation in `ReplyToken`.
+- QR authorization, redirects, pairing and verification states.
+- Multiple configured accounts.
+- Long-poll text intake and text replies.
+- Voice messages when the upstream includes a server-side transcript.
+- L1 or dedicated L2 binding and optional allowlists.
+- Typing activity while a response is running.
 
-The reply token is intentionally opaque. For WeChat it carries `context_token`; for another channel it may be a message ID or thread token. This prevents future transports from leaking protocol types into the session package.
+The current integration does not provide encrypted CDN media transfer,
+proactive cron delivery, or a bundled speech-to-text engine for media-only
+voice.
 
-Channels may optionally implement `ResponseActivityStarter`. The shared text bridge starts this activity before asking the session and stops it before the final or error reply. WeChat uses the lifecycle to obtain a `typing_ticket`, send an immediate typing indicator, and refresh it every five seconds. A typing failure is logged and degrades to the normal reply path; it does not fail the agent request.
+## Operational limits
 
-## Operational considerations
+iLink can be rate-limited, interrupted, changed, or terminated upstream. The
+current cursor is in process, so a restart can affect update continuity. Cron
+notifications and long-running replies are best-effort; use the Web UI for
+definitive results.
 
-- iLink is controlled by Tencent and may be rate-limited, changed, interrupted, or terminated.
-- There is no history API; continuity depends on the `get_updates_buf` cursor during a running process.
-- The current cursor is not written to disk. After restart, the server starts with an empty cursor; upstream behavior should be monitored for duplicate delivery.
-- Voice messages with `voice_item.text` use the transcript immediately. Media-only voice is represented as an audio attachment and receives an explicit unsupported response until CDN decryption and ASR are configured.
-- iLink sends replies as TEXT items. The WeChat sender filters unsupported Markdown syntax; Markdown images must be sent as media items in a future outbound-media phase.
-- Each text reply includes a unique `client_id`. Logs record message age, response size, request duration, and return codes without recording the bot token, context token, typing ticket, or full user ID.
-
-Protocol references: [Tencent/openclaw-weixin](https://github.com/Tencent/openclaw-weixin), [official Chinese protocol README](https://github.com/Tencent/openclaw-weixin/blob/main/README.zh_CN.md), and the [original evaluation document](https://github.com/hao-ji-xing/openclaw-weixin/blob/main/weixin-bot-api.md).
+See [Channels](guides/channels.md) for the common channel contract.

@@ -1,97 +1,115 @@
 # SoloQueue
 
-**AI multi-agent collaboration platform** with hierarchical task routing, built with Go and React. Built for [DeepSeek](https://deepseek.com).
+**A local-first personal AI agent harness and multi-agent workspace.**
 
-## Quick Start
+SoloQueue is a complete application that grew out of the author's Harness
+Engineering learning and daily practice. Inspired by [OpenClaw](https://github.com/openclaw/openclaw),
+it explores how routing, delegation, tools, skills, memory, workflows,
+scheduled tasks, messaging channels, and observability can work together in
+one long-running personal agent system.
+
+SoloQueue is actively used by its author. It is useful for developers who want
+to study or operate a self-hosted agent harness, but it should currently be
+treated as an evolving personal project rather than a production-ready
+enterprise platform.
+
+## What SoloQueue is
+
+- A local-first runtime for persistent agent sessions.
+- A multi-agent workspace with teams, agent templates, delegation, and tool
+  confirmations.
+- A harness for experimenting with task routing, workflows, memory, skills,
+  MCP/LSP tools, scheduled tasks, and channel delivery.
+- A desktop console plus an embedded browser portal for local or controlled
+  remote use.
+
+## What it is not
+
+SoloQueue is not intended to replace mature terminal coding tools, and it is
+not currently positioned as a multi-tenant SaaS, enterprise security product,
+or compatibility clone of OpenClaw. Its value is the integrated harness and
+the experiments it makes observable.
+
+## Quick start from source
+
+### Prerequisites
+
+- Go 1.25.8 or newer in the 1.25 series.
+- Node.js with `pnpm` available on `PATH`.
+- An API key for the provider configured in `settings.yaml` (the defaults use
+  `DEEPSEEK_API_KEY`).
+
+### Build and run the embedded portal
 
 ```bash
-git clone https://github.com/xiaobaitu/soloqueue.git
-cd soloqueue
+git clone https://github.com/Fize/soloQueue.git
+cd soloQueue
 
-# Start server
-go run ./cmd/soloqueue serve --port 8765
-
-# Start web UI (separate terminal)
-cd web && pnpm install && pnpm dev
+make build
+export DEEPSEEK_API_KEY="your-api-key"
+./soloqueue serve
 ```
 
-Open `http://localhost:5173`.
+Open <http://127.0.0.1:57647>. The first start creates the local work
+directory and settings file under `~/.soloqueue/`.
 
-## Build
+`make build` builds the lightweight portal first and embeds it into the Go
+binary. Running `go run ./cmd/soloqueue serve` without a built portal is useful
+for backend development, but the browser UI will be empty until `make
+build-web` has been run.
+
+### Develop with the desktop console
+
+Use two terminals:
 
 ```bash
-make build        # pnpm build + copy dist + go build
-make build-web    # web UI only
-make build-go     # Go binary only
+# Terminal 1
+go run ./cmd/soloqueue serve --port 8765 --verbose
+
+# Terminal 2
+cd desktop
+pnpm approve-builds
+pnpm install
+pnpm dev
 ```
 
-## Test
+The desktop development server proxies API and WebSocket traffic to port
+`8765`. For a packaged desktop build, use `make build-all` or choose one
+platform, for example `make package-desktop PLATFORM=mac`.
+
+## Useful commands
 
 ```bash
-# Go
+./soloqueue version
+./soloqueue --help
+./soloqueue skills report
+./soloqueue memory audit
+./soloqueue memory cleanup              # plan only
+./soloqueue memory cleanup --apply      # backup, then apply the plan
+./soloqueue wechat login --id personal
+```
+
+## Documentation
+
+Start with the [user documentation hub](docs/README.md):
+
+- [Install and first run](docs/getting-started/installation.md)
+- [First useful task](docs/getting-started/first-task.md)
+- [Core feature guides](docs/guides/)
+- [Operations and security](docs/operations/)
+- [Configuration and CLI reference](docs/reference/)
+- [Architecture notes](docs/architecture/overview.md)
+
+## Testing
+
+```bash
 go test ./...
-
-# Web UI
-cd web && pnpm check && pnpm test
+cd desktop && pnpm test && pnpm build
 ```
 
-## Skills
-
-SoloQueue supports Claude Code–compatible skills: each skill is a `SKILL.md`
-file with YAML frontmatter (`name`, `description`, `allowed-tools`, …),
-installed under `~/.soloqueue/skills/<skill-id>/`. The agent lists every
-available skill in the Skill tool description; when a task matches, the model
-invokes the skill before using raw tools.
-
-### How many skills can I install?
-
-There is **no hard limit** — the listing always renders every visible skill in
-full. The cost is tokens: the skill index is part of the system prompt on every
-request.
-
-- **Estimated cost**: the bundled catalog of 47 skills renders to roughly
-  **6.4K characters ≈ 1.5K–2K tokens**, about **35 tokens per skill** on
-  average. Actual size varies with description length, so treat these as
-  estimates.
-- **Best practice**: keep **≤ 50 installed skills**. Beyond that, every
-  additional 10 skills adds roughly +350 tokens to every request and the model
-  has a harder time picking the right skill.
-- The listing is deterministic (invocation-count order, ID order for ties), so
-  the system prompt stays stable for prompt caching.
-
-Inspect never-invoked skills and weak descriptions with:
-
-```bash
-soloqueue skills report
-```
-
-## Token Optimization with RTK (Recommended)
-
-SoloQueue integrates with [RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk) to optimize tool executions and compress command outputs (e.g. `git`, test runners, linters, directory structures), reducing LLM token consumption by 60%–90%.
-
-### Installation
-
-We highly recommend installing RTK for your operating system:
-
-- **macOS (via Homebrew):**
-
-  ```bash
-  brew install rtk
-  ```
-
-- **Linux/macOS (via script):**
-
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
-  ```
-
-- **Windows:**
-  Follow the instructions in the [RTK README](https://github.com/rtk-ai/rtk#installation) or run SoloQueue in **WSL** with RTK installed.
-
-### How it works
-
-When SoloQueue starts up, it automatically detects if `rtk` is installed in the system's `PATH` and whether the system platform is supported (macOS/Linux). If so, SoloQueue will transparently route all command executions in the `Bash` tool through `rtk rewrite` to compress output before sending it to the LLM context. No extra configuration is needed.
+The repository is primarily source-distributed. Check the current build and
+test status before treating a revision as a release artifact.
 
 ## License
 
-MIT
+SoloQueue is released under the [MIT License](LICENSE).
