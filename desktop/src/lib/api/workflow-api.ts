@@ -17,8 +17,10 @@ export function getWorkflow(name: string) {
   return request<WorkflowDocumentResponse>(`${workflowPath(name)}/`)
 }
 
-export function createWorkflow(name: string, yaml: string) {
-  return request<WorkflowMeta>('/workflows/', { method: 'POST', body: JSON.stringify({ name, yaml }) })
+export function createWorkflow(name: string, yaml?: string) {
+  const body: { name: string; yaml?: string } = { name }
+  if (yaml?.trim()) body.yaml = yaml
+  return request<WorkflowMeta>('/workflows/', { method: 'POST', body: JSON.stringify(body) })
 }
 
 export function updateWorkflow(name: string, yaml: string) {
@@ -41,8 +43,11 @@ export function getWorkflowRun(name: string, runID: string) {
   return request<WorkflowRunDetail>(`${workflowPath(name)}/runs/${encodeURIComponent(runID)}/`)
 }
 
-export function startWorkflowRun(name: string, task: WorkflowTask) {
-	return request<{ run_id: string; status?: string }>(`${workflowPath(name)}/runs`, { method: 'POST', body: JSON.stringify({ task }) })
+export function startWorkflowRun(name: string, task: WorkflowTask, repository?: string) {
+	return request<{ run_id: string; status?: string }>(`${workflowPath(name)}/runs`, {
+		method: 'POST',
+		body: JSON.stringify({ task, ...(repository ? { repository } : {}) }),
+	})
 }
 
 export function cancelWorkflowRun(name: string, runID: string) {

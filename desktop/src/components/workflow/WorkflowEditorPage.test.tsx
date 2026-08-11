@@ -1,7 +1,12 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { vi } from 'vitest'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { fitGraphToViewport } from './DAGPreview'
-import { YAMLEditorView } from './WorkflowEditorPage'
+import { WorkflowRunDialog, YAMLEditorView } from './WorkflowEditorPage'
+
+vi.mock('@/lib/api/agent-api', () => ({
+  listProjects: vi.fn().mockResolvedValue([]),
+}))
 
 describe('YAMLEditorView', () => {
   it('gives the textarea field the available editor height', () => {
@@ -31,5 +36,31 @@ describe('fitGraphToViewport', () => {
       expect(point.y).toBeGreaterThanOrEqual(24)
       expect(point.y).toBeLessThanOrEqual(136)
     }
+  })
+})
+
+describe('WorkflowRunDialog', () => {
+  it('submits goal and acceptance criteria without requiring a project', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    const onOpenChange = vi.fn()
+
+    render(
+      <WorkflowRunDialog
+        open
+        running={false}
+        onOpenChange={onOpenChange}
+        onSubmit={onSubmit}
+      />
+    )
+
+    const fields = screen.getAllByRole('textbox')
+    fireEvent.change(fields[0], { target: { value: 'Review the release' } })
+    fireEvent.change(fields[1], { target: { value: 'All checks pass\nSummary is published' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+      goal: 'Review the release',
+      acceptance_criteria: ['All checks pass', 'Summary is published'],
+    }, undefined))
   })
 })

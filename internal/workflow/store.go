@@ -1,11 +1,14 @@
 package workflow
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Store manages workflow YAML files on disk.
@@ -74,38 +77,113 @@ func (s *Store) Save(name string, data []byte) (*WorkflowMeta, error) {
 	if pw.Name != name {
 		return nil, fmt.Errorf("workflow: name mismatch: YAML declares %q but request is %q", pw.Name, name)
 	}
+	if err := s.writeAtomic(name, data); err != nil {
+		return nil, err
+	}
+	return &WorkflowMeta{Name: pw.Name, Description: pw.Description, Version: pw.Version, Valid: true}, nil
+}
+
+// SaveDraft persists a syntactically valid but semantically incomplete workflow.
+// Drafts can be edited and saved, but are rejected by Load and therefore cannot
+// be executed until they pass strict workflow validation.
+func (s *Store) SaveDraft(name string, data []byte) (*WorkflowMeta, error) {
+	if int64(len(data)) > s.MaxFileBytes {
+		return nil, fmt.Errorf("workflow: file too large: %d bytes (max %d)", len(data), s.MaxFileBytes)
+	}
+	meta, err := s.inspect(name, data)
+	if err != nil {
+		return nil, err
+	}
+	if meta.Valid {
+		return nil, errors.New("workflow: draft is already valid; use Save")
+	}
+	if err := s.writeAtomic(name, data); err != nil {
+		return nil, err
+	}
+	return meta, nil
+}
+
+// CreateDraft returns and persists the minimal definition used by the create
+// flow. Users can fill in the graph from the editor before running it.
+func (s *Store) CreateDraft(name string) (*WorkflowMeta, error) {
+	if err := validateWorkflowName(name); err != nil {
+		return nil, err
+	}
+	data := []byte(fmt.Sprintf("name: %s\nversion: \"1\"\ndescription: \"\"\nagents: {}\nentry: []\nnodes: []\n", name))
+	return s.SaveDraft(name, data)
+}
+
+// Inspect returns metadata for valid workflows and editable drafts. It keeps
+// strict execution validation in Load while allowing the editor to open a
+// semantically incomplete definition.
+func (s *Store) Inspect(name string) (*WorkflowMeta, error) {
+	data, err := s.ReadRaw(name)
+	if err != nil {
+		return nil, err
+	}
+	return s.inspect(name, data)
+}
+
+func (s *Store) inspect(name string, data []byte) (*WorkflowMeta, error) {
+	if err := validateWorkflowName(name); err != nil {
+		return nil, err
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	var def WorkflowDef
+	if err := decoder.Decode(&def); err != nil {
+		return nil, fmt.Errorf("workflow: YAML parse error: %w", err)
+	}
+	if err := validateWorkflowName(def.Name); err != nil {
+		return nil, err
+	}
+	if def.Name != name {
+		return nil, fmt.Errorf("workflow: name mismatch: YAML declares %q but request is %q", def.Name, name)
+	}
+	meta := &WorkflowMeta{Name: def.Name, Description: def.Description, Version: def.Version}
+	if _, err := ParseWorkflow(data); err == nil {
+		meta.Valid = true
+		return meta, nil
+	} else {
+		meta.Draft = true
+		meta.Error = err.Error()
+	}
+	return meta, nil
+}
+
+func (s *Store) writeAtomic(name string, data []byte) error {
 	if err := s.EnsureDir(); err != nil {
-		return nil, fmt.Errorf("workflow: create store dir: %w", err)
+		return fmt.Errorf("workflow: create store dir: %w", err)
 	}
 	filePath := filepath.Join(s.Dir, name+".yaml")
 	if err := s.validatePath(filePath); err != nil {
-		return nil, err
+		return err
 	}
 	tmp, err := os.CreateTemp(s.Dir, "."+name+"-*.tmp")
 	if err != nil {
-		return nil, fmt.Errorf("workflow: create temp file: %w", err)
+		return fmt.Errorf("workflow: create temp file: %w", err)
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		return nil, fmt.Errorf("workflow: write temp file: %w", err)
+		return fmt.Errorf("workflow: write temp file: %w", err)
 	}
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
-		return nil, fmt.Errorf("workflow: chmod temp file: %w", err)
+		return fmt.Errorf("workflow: chmod temp file: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return nil, fmt.Errorf("workflow: sync temp file: %w", err)
+		return fmt.Errorf("workflow: sync temp file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return nil, fmt.Errorf("workflow: close temp file: %w", err)
+		return fmt.Errorf("workflow: close temp file: %w", err)
 	}
 	if err := os.Rename(tmpName, filePath); err != nil {
-		return nil, fmt.Errorf("workflow: replace definition: %w", err)
+		return fmt.Errorf("workflow: replace definition: %w", err)
 	}
-	return &WorkflowMeta{Name: pw.Name, Description: pw.Description, Version: pw.Version, Valid: true}, nil
+	return nil
 }
 
 // Delete removes one workflow definition. Active runs are intentionally not
@@ -178,14 +256,13 @@ func (s *Store) List() ([]WorkflowMeta, error) {
 
 		meta := WorkflowMeta{Name: name}
 
-		pw, err := s.Load(name)
+		inspected, err := s.Inspect(name)
 		if err != nil {
 			meta.Valid = false
 			meta.Error = err.Error()
 		} else {
-			meta.Valid = true
-			meta.Description = pw.Description
-			meta.Version = pw.Version
+			result = append(result, *inspected)
+			continue
 		}
 		result = append(result, meta)
 	}

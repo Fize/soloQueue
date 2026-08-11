@@ -9,6 +9,7 @@ import {
   useWorkflowStore,
 } from './workflowStore'
 import type { AgentResponse, GraphState } from '@/types'
+import { useConnectionStore } from '@/stores/connectionStore'
 
 // ─── Fixtures ───────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ const agents = {
 }
 
 let backendWorkflows: Record<string, string> = {}
+let backendDrafts = new Set<string>()
 
 function makeSimpleGraph(): GraphState {
   return {
@@ -77,6 +79,7 @@ function makeSimpleGraph(): GraphState {
 
 beforeEach(() => {
   backendWorkflows = {}
+  backendDrafts = new Set()
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     const method = init?.method || 'GET'
@@ -84,16 +87,21 @@ beforeEach(() => {
     const name = nameMatch ? decodeURIComponent(nameMatch[1]) : ''
     const body = init?.body ? JSON.parse(String(init.body)) : {}
     const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
-    if (url.endsWith('/api/workflows/') && method === 'GET') return json(Object.keys(backendWorkflows).map(name => ({ name, description: '', version: '1', valid: true })))
-    if (url.endsWith('/api/workflows/') && method === 'POST') { backendWorkflows[body.name] = body.yaml; return json({ name: body.name, description: '', version: '1', valid: true }, 201) }
+    if (url.endsWith('/api/workflows/') && method === 'GET') return json(Object.keys(backendWorkflows).map(name => ({ name, description: '', version: '1', valid: !backendDrafts.has(name), draft: backendDrafts.has(name) })))
+    if (url.endsWith('/api/workflows/') && method === 'POST') {
+      if (!body.yaml) backendDrafts.add(body.name)
+      backendWorkflows[body.name] = body.yaml || `name: ${body.name}\nversion: "1"\nagents: {}\nentry: []\nnodes: []\n`
+      return json({ name: body.name, description: '', version: '1', valid: !!body.yaml, draft: !body.yaml }, 201)
+    }
     if (url.endsWith('/api/workflows/validate') && method === 'POST') return body.yaml.startsWith('!!') ? json({ error: 'invalid YAML' }, 422) : json({ valid: true })
     if (name && method === 'GET') return backendWorkflows[name] ? json({ name, yaml: backendWorkflows[name], meta: { name, valid: true } }) : json({ error: 'not found' }, 404)
-    if (name && method === 'PUT') { backendWorkflows[name] = body.yaml; return json({ name, valid: true }) }
-    if (name && method === 'DELETE') { delete backendWorkflows[name]; return new Response(null, { status: 204 }) }
+    if (name && method === 'PUT') { backendWorkflows[name] = body.yaml; backendDrafts.delete(name); return json({ name, valid: true }) }
+    if (name && method === 'DELETE') { delete backendWorkflows[name]; backendDrafts.delete(name); return new Response(null, { status: 204 }) }
     return json({ error: 'not found' }, 404)
   })
 
   localStorage.clear()
+  useConnectionStore.setState({ backendReady: true, backendStatus: { running: true, pid: null, uptime: 0 } })
   useWorkflowStore.setState({
     workflowMetas: [],
     workflowMetasLoading: false,
@@ -102,6 +110,7 @@ beforeEach(() => {
     availableAgentsLoading: false,
     availableAgentsError: null,
     activeWorkflowName: null,
+    activeWorkflowMeta: null,
     activeWorkflowYAML: '',
     activeWorkflowGraph: { nodes: [], edges: [] },
     activeWorkflowEntryNodes: [],
@@ -524,6 +533,16 @@ describe('workflow agent references', () => {
 // ─── Store: CRUD operations ─────────────────────────────────────────────
 
 describe('workflowStore CRUD', () => {
+  it('creates a name-only workflow draft without a YAML payload', async () => {
+    const ok = await useWorkflowStore.getState().createWorkflow('name-only-draft')
+
+    expect(ok).toBe(true)
+    expect(backendWorkflows['name-only-draft']).toContain('agents: {}')
+    expect(useWorkflowStore.getState().workflowMetas).toContainEqual(
+      expect.objectContaining({ name: 'name-only-draft', draft: true, valid: false })
+    )
+  })
+
   it('creates workflow through the backend API', async () => {
     const store = useWorkflowStore.getState()
     const yaml = defaultYAMLTemplate('test-wf')

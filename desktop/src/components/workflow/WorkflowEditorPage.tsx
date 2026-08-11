@@ -1,8 +1,19 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Play, Save, CheckCircle2, AlertCircle, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Select } from '@/components/ui/select'
 import { useTranslation } from '@/lib/i18n'
 import { unknownAgentTemplates, useWorkflowStore } from '@/stores/workflowStore'
 import { useConnectionStore } from '@/stores/connectionStore'
@@ -12,6 +23,162 @@ import { VisualDAGEditor } from './VisualDAGEditor'
 import { DAGPreview } from './DAGPreview'
 import { BackendUnavailable } from '@/components/BackendUnavailable'
 import { cn } from '@/lib/utils'
+import { listProjects } from '@/lib/api/agent-api'
+import type { Project, WorkflowTask } from '@/types'
+
+interface WorkflowRunDialogProps {
+  open: boolean
+  running: boolean
+  onOpenChange: (open: boolean) => void
+  onSubmit: (task: WorkflowTask, repository?: string) => Promise<void>
+}
+
+export function WorkflowRunDialog({ open, running, onOpenChange, onSubmit }: WorkflowRunDialogProps) {
+  const { t } = useTranslation()
+  const [goal, setGoal] = useState('')
+  const [criteria, setCriteria] = useState('')
+  const [constraints, setConstraints] = useState('')
+  const [repository, setRepository] = useState('')
+  const [projects, setProjects] = useState<Project[]>([])
+  const [projectsLoading, setProjectsLoading] = useState(false)
+  const [projectsError, setProjectsError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true)
+    setProjectsError(null)
+    try {
+      setProjects(await listProjects())
+    } catch (err: any) {
+      setProjects([])
+      setProjectsError(err.message || t('workflow.projectsLoadFailed'))
+    } finally {
+      setProjectsLoading(false)
+    }
+  }, [t])
+
+  useEffect(() => {
+    if (!open) return
+    void Promise.resolve().then(() => loadProjects())
+  }, [open, loadProjects])
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault()
+    const normalizedGoal = goal.trim()
+    const acceptanceCriteria = criteria
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+    if (!normalizedGoal) {
+      setFormError(t('workflow.goalRequired'))
+      return
+    }
+    if (acceptanceCriteria.length === 0) {
+      setFormError(t('workflow.criteriaRequired'))
+      return
+    }
+    setFormError(null)
+    await onSubmit(
+      {
+        goal: normalizedGoal,
+        acceptance_criteria: acceptanceCriteria,
+        ...(constraints.trim()
+          ? {
+              constraints: constraints
+                .split(/\r?\n/)
+                .map((value) => value.trim())
+                .filter(Boolean),
+            }
+          : {}),
+      },
+      repository || undefined,
+    )
+  }
+
+  const projectOptions = [
+    { value: '', label: t('workflow.defaultWorkspace') },
+    ...projects.map((project) => ({ value: project.path, label: `${project.name} · ${project.path}` })),
+  ]
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('workflow.runDialogTitle')}</DialogTitle>
+          <DialogDescription>{t('workflow.runDialogDescription')}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            label={t('workflow.goal')}
+            required
+            autoFocus
+            value={goal}
+            onChange={(event) => setGoal(event.target.value)}
+            placeholder={t('workflow.goalPlaceholder')}
+          />
+          <Textarea
+            label={t('workflow.acceptanceCriteria')}
+            required
+            rows={4}
+            value={criteria}
+            onChange={(event) => setCriteria(event.target.value)}
+            placeholder={t('workflow.criteriaPlaceholder')}
+          />
+
+          <div className="space-y-1.5">
+            <Select
+              label={t('workflow.project')}
+              options={projectOptions}
+              value={repository}
+              onChange={setRepository}
+              placeholder={t('workflow.defaultWorkspace')}
+            />
+            <p className="text-[10px] text-muted-foreground">{t('workflow.projectHint')}</p>
+            {projectsLoading && (
+              <p className="text-[10px] text-muted-foreground">{t('common.loading')}</p>
+            )}
+            {projectsError && (
+              <div className="flex items-center justify-between gap-2 text-[10px] text-rose-500">
+                <span>{t('workflow.projectsLoadFailed')}</span>
+                <button
+                  type="button"
+                  onClick={() => void loadProjects()}
+                  className="underline underline-offset-2"
+                >
+                  {t('common.retry')}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <details className="rounded-lg border border-border/60 px-3 py-2">
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+              {t('workflow.advancedOptions')}
+            </summary>
+            <Textarea
+              className="mt-3"
+              rows={3}
+              value={constraints}
+              onChange={(event) => setConstraints(event.target.value)}
+              placeholder={t('workflow.constraintsPlaceholder')}
+            />
+          </details>
+
+          {formError && <p className="text-xs text-rose-500">{formError}</p>}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={running}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" variant="success" disabled={running}>
+              {running ? t('common.loading') : t('workflow.startRun')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 // ─── YAML Mode Layout ───────────────────────────────────────────────────
 
@@ -20,6 +187,7 @@ export function YAMLEditorView() {
   const {
     activeWorkflowYAML,
     activeWorkflowGraph,
+    activeWorkflowMeta,
     activeWorkflowValidationError,
     setYAML,
     validateWorkflow,
@@ -138,7 +306,9 @@ version: "1"
             />
           ) : (
             <div className="flex items-center justify-center h-full">
-              <p className="text-xs text-muted-foreground">{t('workflow.noWorkflowsYet')}</p>
+              <p className="max-w-xs text-center text-xs text-muted-foreground">
+                {activeWorkflowMeta?.draft ? t('workflow.draftEmptyHint') : t('workflow.noWorkflowsYet')}
+              </p>
             </div>
           )}
         </div>
@@ -199,6 +369,7 @@ export function WorkflowEditorPage() {
   const {
     activeWorkflowGraph,
     activeWorkflowAgents,
+    activeWorkflowMeta,
     activeWorkflowLoading,
     activeWorkflowLoadError,
     availableAgents,
@@ -214,6 +385,7 @@ export function WorkflowEditorPage() {
 
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
+  const [runDialogOpen, setRunDialogOpen] = useState(false)
 
   // Load workflow on mount
   useEffect(() => {
@@ -245,8 +417,11 @@ export function WorkflowEditorPage() {
   ])
 
   const invalidAgentTemplates = unknownAgentTemplates(activeWorkflowAgents, availableAgents)
+  const hasAgentReferences = Object.keys(activeWorkflowAgents).length > 0
   const agentDataBlocked =
-    availableAgentsLoading || !!availableAgentsError || invalidAgentTemplates.length > 0
+    hasAgentReferences &&
+    (availableAgentsLoading || !!availableAgentsError || invalidAgentTemplates.length > 0)
+  const workflowNotReady = !!activeWorkflowMeta && !activeWorkflowMeta.valid
 
   const nodeCount = activeWorkflowGraph.nodes.length
   const edgeCount = activeWorkflowGraph.edges.length
@@ -278,30 +453,27 @@ export function WorkflowEditorPage() {
     }
   }
 
-  const handleRun = async () => {
+  const handleRun = () => {
     if (!name) return
+    if (workflowNotReady) {
+      toast.error(activeWorkflowMeta?.error || t('workflow.draftCannotRun'))
+      return
+    }
     if (agentDataBlocked) {
       toast.error(t('workflow.unknownAgents', { names: invalidAgentTemplates.join(', ') || '—' }))
       return
     }
-    const goal = window.prompt('Workflow task goal')?.trim() || ''
-    if (!goal) {
-      toast.error('A task goal is required')
-      return
-    }
-    const criteria = (window.prompt('Acceptance criteria (one per line)') || '')
-      .split('\n')
-      .map((value) => value.trim())
-      .filter(Boolean)
-    if (criteria.length === 0) {
-      toast.error('At least one acceptance criterion is required')
-      return
-    }
+    setRunDialogOpen(true)
+  }
+
+  const handleRunSubmit = async (task: WorkflowTask, repository?: string) => {
+    if (!name) return
     setRunning(true)
     try {
-      const runId = await startRun(name, { goal, acceptance_criteria: criteria })
+      const runId = await startRun(name, task, repository)
       if (runId) {
         toast.success(t('workflow.runStarted'))
+        setRunDialogOpen(false)
         navigate(`/workflows/${name}/runs/${runId}`)
       } else {
         toast.error(t('workflow.runFailed'))
@@ -364,6 +536,7 @@ export function WorkflowEditorPage() {
               running ||
               activeWorkflowLoading ||
               !!activeWorkflowLoadError ||
+              workflowNotReady ||
               agentDataBlocked
             }
             className="flex items-center gap-1.5 rounded-lg bg-success hover:bg-success/90 disabled:bg-success/40 px-3 py-2 text-xs font-semibold text-success-foreground transition-all shadow-sm shadow-success/20 cursor-pointer disabled:cursor-not-allowed"
@@ -425,6 +598,21 @@ export function WorkflowEditorPage() {
             )}
           </div>
         </div>
+      )}
+
+      {!activeWorkflowLoading && !activeWorkflowLoadError && activeWorkflowMeta?.draft && (
+        <div className="shrink-0 border-b border-amber-500/25 bg-amber-500/8 px-4 py-2 text-[11px] text-amber-700 dark:text-amber-400">
+          {t('workflow.draftCannotRun')}
+        </div>
+      )}
+
+      {runDialogOpen && (
+        <WorkflowRunDialog
+          open
+          running={running}
+          onOpenChange={setRunDialogOpen}
+          onSubmit={handleRunSubmit}
+        />
       )}
 
       {/* Body — loading and errors must never masquerade as an empty editor. */}

@@ -26,14 +26,17 @@ export function WorkflowCard({
 }: WorkflowCardProps) {
   const { t } = useTranslation()
   const isValid = meta.valid
+  const isDraft = meta.draft === true
 
   return (
     <div
       onClick={onClick}
       className={`group relative flex flex-col gap-3 rounded-xl border bg-card/40 hover:bg-card/70 transition-all cursor-pointer px-5 py-4 ${
-        isValid
-          ? 'border-border hover:border-border/80'
-          : 'border-rose-500/20 hover:border-rose-500/30'
+          isValid
+            ? 'border-border hover:border-border/80'
+            : isDraft
+              ? 'border-amber-500/25 hover:border-amber-500/35'
+              : 'border-rose-500/20 hover:border-rose-500/30'
       }`}
     >
       {/* Top row: validation + name */}
@@ -42,17 +45,19 @@ export function WorkflowCard({
           {/* Validation dot */}
           <span
             className={`h-2 w-2 shrink-0 rounded-full ${
-              isValid ? 'bg-success' : 'bg-rose-500'
+              isValid ? 'bg-success' : isDraft ? 'bg-amber-500' : 'bg-rose-500'
             }`}
           />
           <span
             className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
               isValid
                 ? 'bg-success/10 text-success border border-success/25'
-                : 'bg-rose-500/10 text-rose-500 border border-rose-500/25'
+                : isDraft
+                  ? 'bg-amber-500/10 text-amber-600 border border-amber-500/25'
+                  : 'bg-rose-500/10 text-rose-500 border border-rose-500/25'
             }`}
           >
-            {isValid ? t('workflow.valid') : t('workflow.invalid')}
+            {isValid ? t('workflow.valid') : isDraft ? t('workflow.draft') : t('workflow.invalid')}
           </span>
         </div>
 

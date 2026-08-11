@@ -91,12 +91,12 @@ func (m *Mux) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
 		return
 	}
-	pw, err := m.workflowStore.Load(name)
+	meta, err := m.workflowStore.Inspect(name)
 	if err != nil {
-		m.writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
 		return
 	}
-	m.writeJSON(w, http.StatusOK, map[string]any{"name": name, "yaml": string(raw), "meta": workflow.WorkflowMeta{Name: pw.Name, Description: pw.Description, Version: pw.Version, Valid: true}})
+	m.writeJSON(w, http.StatusOK, map[string]any{"name": name, "yaml": string(raw), "meta": meta})
 }
 
 type workflowWriteRequest struct {
@@ -106,8 +106,8 @@ type workflowWriteRequest struct {
 
 func (m *Mux) decodeWorkflowWrite(w http.ResponseWriter, r *http.Request) (workflowWriteRequest, bool) {
 	var req workflowWriteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.YAML) == "" {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and yaml are required"})
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid workflow request"})
 		return workflowWriteRequest{}, false
 	}
 	return req, true
@@ -127,6 +127,15 @@ func (m *Mux) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := m.workflowStore.ReadRaw(req.Name); err == nil {
 		m.writeJSON(w, http.StatusConflict, map[string]string{"error": "workflow already exists"})
+		return
+	}
+	if strings.TrimSpace(req.YAML) == "" {
+		meta, err := m.workflowStore.CreateDraft(req.Name)
+		if err != nil {
+			m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
+			return
+		}
+		m.writeJSON(w, http.StatusCreated, meta)
 		return
 	}
 	if err := m.validateWorkflowAgentTemplates([]byte(req.YAML)); err != nil {
@@ -154,7 +163,15 @@ func (m *Mux) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if strings.TrimSpace(req.YAML) == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "yaml is required"})
+		return
+	}
 	if err := m.validateWorkflowAgentTemplates([]byte(req.YAML)); err != nil {
+		if draftMeta, draftErr := m.workflowStore.SaveDraft(name, []byte(req.YAML)); draftErr == nil {
+			m.writeJSON(w, http.StatusOK, draftMeta)
+			return
+		}
 		m.writeJSON(w, workflowStatus(err), map[string]string{"error": err.Error()})
 		return
 	}
@@ -183,6 +200,10 @@ func (m *Mux) handleValidateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	req, ok := m.decodeWorkflowWrite(w, r)
 	if !ok {
+		return
+	}
+	if strings.TrimSpace(req.YAML) == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "yaml is required"})
 		return
 	}
 	if err := m.validateWorkflowAgentTemplates([]byte(req.YAML)); err != nil {
