@@ -89,6 +89,52 @@ func TestWorkflowDefinitionAPI(t *testing.T) {
 	}
 }
 
+func TestWorkflowDraftCreationWithNameOnly(t *testing.T) {
+	mux := newWorkflowTestMux(t)
+	create := newLocalhostRequest(
+		http.MethodPost,
+		"/api/workflows/",
+		strings.NewReader(`{"name":"draft-workflow"}`),
+	)
+	create.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, create)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create draft status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"draft":true`) {
+		t.Fatalf("create draft response does not identify a draft: %s", rec.Body.String())
+	}
+
+	get := newLocalhostRequest(http.MethodGet, "/api/workflows/draft-workflow/", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, get)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get draft status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"draft":true`) {
+		t.Fatalf("get draft response does not identify a draft: %s", rec.Body.String())
+	}
+
+	update := newLocalhostRequest(http.MethodPut, "/api/workflows/draft-workflow/", strings.NewReader(`{"name":"draft-workflow","yaml":"name: draft-workflow\nversion: \"1\"\ndescription: saved draft\nagents: {}\nentry: []\nnodes: []\n"}`))
+	update.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, update)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save draft status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"draft":true`) {
+		t.Fatalf("save draft response does not identify a draft: %s", rec.Body.String())
+	}
+
+	run := newLocalhostRequest(http.MethodPost, "/api/workflows/draft-workflow/runs", strings.NewReader(`{"task":{"goal":"try draft","acceptance_criteria":["should not run"]}}`))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, run)
+	if rec.Code == http.StatusAccepted {
+		t.Fatalf("draft workflow unexpectedly started: %s", rec.Body.String())
+	}
+}
+
 func TestWorkflowDefinitionRejectsMissingAgentTemplate(t *testing.T) {
 	mux := newWorkflowTestMux(t)
 	mux.templates = []agent.AgentTemplate{{ID: "existing-agent"}}

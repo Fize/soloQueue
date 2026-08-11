@@ -599,6 +599,7 @@ interface WorkflowState {
 
   // Active workflow editor state
   activeWorkflowName: string | null
+  activeWorkflowMeta: WorkflowMeta | null
   activeWorkflowYAML: string
   activeWorkflowGraph: GraphState
   activeWorkflowEntryNodes: string[]
@@ -628,7 +629,7 @@ interface WorkflowState {
   setYAML: (yaml: string) => void
 
   // CRUD operations
-  createWorkflow: (name: string, yaml: string) => Promise<boolean>
+  createWorkflow: (name: string, yaml?: string) => Promise<boolean>
   updateWorkflow: (name: string) => Promise<boolean>
   deleteWorkflow: (name: string) => Promise<boolean>
   validateWorkflow: () => Promise<{ valid: boolean; error?: string }>
@@ -645,7 +646,7 @@ interface WorkflowState {
   clearActiveRunDetail: () => void
 
   // Run controls
-  startRun: (workflowName: string, task: WorkflowTask) => Promise<string | null>
+  startRun: (workflowName: string, task: WorkflowTask, repository?: string) => Promise<string | null>
   cancelRun: (workflowName: string, runId: string) => Promise<void>
   pauseRun: (workflowName: string, runId: string, mode?: 'graceful' | 'force') => Promise<void>
   resumeRun: (workflowName: string, runId: string, allowDirty?: boolean) => Promise<void>
@@ -725,6 +726,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   activeWorkflowName: null,
+  activeWorkflowMeta: null,
   activeWorkflowYAML: '',
   activeWorkflowGraph: { nodes: [], edges: [] },
   activeWorkflowEntryNodes: [],
@@ -740,6 +742,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   setActiveWorkflow: async (name: string) => {
     set({
       activeWorkflowName: name,
+      activeWorkflowMeta: null,
       activeWorkflowValidationError: null,
       activeWorkflowLoadError: null,
       activeWorkflowLoading: true,
@@ -748,11 +751,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       activeWorkflowAgents: {},
     })
     try {
-      const { yaml } = await getWorkflow(name)
+      const { yaml, meta } = await getWorkflow(name)
       const parsed = yamlToGraph(yaml)
       if (!parsed) throw new Error('Unable to parse workflow definition')
       set({
         activeWorkflowYAML: yaml,
+        activeWorkflowMeta: meta,
         activeWorkflowGraph: parsed.graph,
         activeWorkflowEntryNodes: parsed.entryNodes,
         activeWorkflowAgents: parsed.agents,
@@ -962,7 +966,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const state = get()
       const yaml = state.activeWorkflowYAML
 
-      await updateWorkflowRequest(name, yaml)
+      const meta = await updateWorkflowRequest(name, yaml)
+      set({ activeWorkflowMeta: meta })
       await get().fetchWorkflowMetas()
       return true
     } catch {
@@ -1022,9 +1027,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   clearActiveRunDetail: () => set({ activeRunDetail: null }),
 
-  startRun: async (workflowName, task) => {
+  startRun: async (workflowName, task, repository) => {
     try {
-      const data = await startWorkflowRun(workflowName, task)
+      const data = await startWorkflowRun(workflowName, task, repository)
       return data.run_id || null
     } catch { /* handled by caller */ }
     return null

@@ -4,17 +4,11 @@ import { Plus, AlertCircle, Loader2, X, Workflow, Clock, RefreshCw } from 'lucid
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/lib/i18n'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { cn } from '@/lib/utils'
-import {
-  defaultYAMLTemplate,
-  unknownAgentTemplates,
-  useWorkflowStore,
-  yamlToGraph,
-} from '@/stores/workflowStore'
+import { useWorkflowStore } from '@/stores/workflowStore'
 import { WorkflowCard } from './WorkflowCard'
 import { WorkflowRunCard } from './WorkflowRunCard'
 import { BackendUnavailable } from '@/components/BackendUnavailable'
@@ -30,18 +24,8 @@ interface CreateSheetProps {
 function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
-  const [yaml, setYaml] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [selectedAgent, setSelectedAgent] = useState('')
-  const { availableAgents, availableAgentsLoading, availableAgentsError, fetchAvailableAgents } =
-    useWorkflowStore()
-
-  useEffect(() => {
-    if (open) void fetchAvailableAgents()
-  }, [open, fetchAvailableAgents])
-
-  const effectiveSelectedAgent = selectedAgent || availableAgents[0]?.id || ''
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -49,14 +33,8 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
     try {
       setCreating(true)
       setCreateError(null)
-      const workflowYaml = yaml.trim() || defaultYAMLTemplate(name.trim(), effectiveSelectedAgent)
-      const parsed = yamlToGraph(workflowYaml)
-      const unknownAgents = parsed ? unknownAgentTemplates(parsed.agents, availableAgents) : []
-      if (!parsed || unknownAgents.length > 0) {
-        throw new Error(t('workflow.unknownAgents', { names: unknownAgents.join(', ') || '—' }))
-      }
       const store = useWorkflowStore.getState()
-      const success = await store.createWorkflow(name.trim(), workflowYaml)
+      const success = await store.createWorkflow(name.trim())
       if (success) {
         toast.success(t('workflow.createSuccess'))
         onCreated(name.trim())
@@ -96,7 +74,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
             <div>
               <h2 className="text-sm font-semibold text-foreground">{t('workflow.newWorkflow')}</h2>
               <p className="text-[10px] text-muted-foreground font-mono">
-                {t('workflow.fromYAML')}
+                {t('workflow.createHint')}
               </p>
             </div>
           </div>
@@ -113,7 +91,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
         {/* Sheet Body */}
         <div className="flex-1 overflow-y-auto p-6">
           <p className="mb-5 text-xs text-muted-foreground leading-relaxed">
-            {t('workflow.description')}
+            {t('workflow.createDescription')}
           </p>
 
           <form id="create-workflow-form" onSubmit={handleSubmit} className="space-y-4">
@@ -124,66 +102,12 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
               </label>
               <Input
                 required
+                autoFocus
                 placeholder="my-workflow"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="font-mono text-xs"
               />
-            </div>
-
-            {/* Existing agent — the workflow may only reference DB-backed agents. */}
-            <div>
-              <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-1.5">
-                {t('workflow.startAgent')}
-              </label>
-              <select
-                value={effectiveSelectedAgent}
-                onChange={(event) => setSelectedAgent(event.target.value)}
-                disabled={availableAgentsLoading || availableAgents.length === 0}
-                className="flex h-9 w-full rounded-lg border border-input bg-card px-3 text-xs text-foreground disabled:opacity-50"
-              >
-                {availableAgents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                    {agent.team_name ? ` · ${agent.team_name}` : ''}
-                  </option>
-                ))}
-              </select>
-              {availableAgentsLoading && (
-                <span className="mt-1 block text-[10px] text-muted-foreground">
-                  {t('common.loading')}
-                </span>
-              )}
-              {!availableAgentsLoading && availableAgentsError && (
-                <span className="mt-1 block text-[10px] text-rose-500">
-                  {t('workflow.agentsLoadFailed')}
-                </span>
-              )}
-              {!availableAgentsLoading && !availableAgentsError && availableAgents.length === 0 && (
-                <span className="mt-1 block text-[10px] text-rose-500">
-                  {t('workflow.noAgentsAvailable')}
-                </span>
-              )}
-            </div>
-
-            {/* Optional YAML */}
-            <div>
-              <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider font-mono mb-1.5">
-                YAML {t('common.preview')}
-              </label>
-              <Textarea
-                rows={16}
-                placeholder={defaultYAMLTemplate(
-                  name || 'my-workflow',
-                  effectiveSelectedAgent || undefined
-                )}
-                value={yaml}
-                onChange={(e) => setYaml(e.target.value)}
-                className="resize-none font-mono text-xs"
-              />
-              <span className="text-[10px] text-muted-foreground/50 font-mono mt-1">
-                {t('workflow.fromYAML')}
-              </span>
             </div>
 
             {/* Error */}
@@ -201,9 +125,7 @@ function CreateSheet({ open, onClose, onCreated }: CreateSheetProps) {
           <button
             type="submit"
             form="create-workflow-form"
-            disabled={
-              creating || !name.trim() || availableAgentsLoading || availableAgents.length === 0
-            }
+            disabled={creating || !name.trim()}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary hover:bg-primary/90 disabled:bg-primary/40 px-4 py-3 text-sm font-semibold text-primary-foreground transition-all shadow-lg shadow-primary/20 cursor-pointer disabled:cursor-not-allowed"
           >
             {creating ? (

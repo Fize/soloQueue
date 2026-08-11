@@ -7,6 +7,7 @@ export interface WorkflowMeta {
   description: string
   version: string
   valid: boolean
+  draft?: boolean
   error?: string
 }
 

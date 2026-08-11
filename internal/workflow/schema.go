@@ -364,5 +364,6 @@ type WorkflowMeta struct {
 	Description string `json:"description"`
 	Version     string `json:"version"`
 	Valid       bool   `json:"valid"`
+	Draft       bool   `json:"draft"`
 	Error       string `json:"error,omitempty"`
 }
