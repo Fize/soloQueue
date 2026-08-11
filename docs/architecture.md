@@ -1,12 +1,76 @@
-# Architecture
+# Architecture & Design
 
-> 中文：[架构](zh/architecture.md)
+English | [简体中文](zh/architecture.md)
 
-I moved the current architecture overview to
-[architecture/overview.md](architecture/overview.md). I keep this file as a
-stable link for older bookmarks.
+This document provides a technical overview of SoloQueue's internal architecture, process boundaries, memory engine, task routing, and platform integrations.
 
-I define the current product boundary as local-first: a Go server owns runtime
-state and an Electron desktop client or embedded portal consumes its HTTP and
-WebSocket interfaces. I use the repository-level [AGENTS.md](../AGENTS.md) as
-the tactical maintainer reference for package paths and build commands.
+---
+
+## 1. Process Boundary & Layering
+
+SoloQueue is structured as a local-first application comprising a Go backend server, an Electron desktop client (`desktop/`), and an embedded web portal (`portal/` built into `internal/server/dist/`).
+
+```text
+Desktop / Portal Client
+       │ HTTP + WebSocket
+       ▼
+HTTP Server & Auth Middleware (internal/server)
+       │
+       ▼
+Session Manager (internal/session)
+       │
+       ├── Agent Actor Loop & Supervisors (internal/agent)
+       │       ├── Task Router & Model Clients (internal/router, internal/llm)
+       │       ├── Native Tools, Skills, MCP/LSP (internal/agenttools)
+       │       └── Tool Confirmation Interlock
+       ├── Workflow, Cron & Simulation Runtimes (internal/workflow, internal/cron)
+       ├── Channel Bridges (internal/channel/qq, internal/channel/wechat)
+       └── Memory, Timeline, SQLite DB & Logger (internal/infra, internal/memory)
+```
+
+The server constructs a shared dependency container (`runtime.Stack`) at startup. Shared subsystems—LLM clients, tool registries, memory engines, SQLite databases, and channel handlers—are injected into the session manager and HTTP endpoints.
+
+---
+
+## 2. Task Router (`internal/router`)
+
+Prompts are classified into work categories (`general`, `engineering`, `research`) to select optimal model configurations:
+
+1. **Local Fast-Track Classifier**: Evaluates input against high-confidence structural patterns (code blocks, stack tracebacks, path mentions, terminal commands).
+2. **LLM Classifier Fallback**: If pattern matching is ambiguous, a lightweight LLM call classifies the prompt.
+3. **Session Context Continuity**: Follow-up turns retain task classification context to prevent abrupt model route switching within a conversation turn.
+
+---
+
+## 3. Context Window & Compaction (`internal/memory/ctxwin`)
+
+The context manager protects context window budgets while preserving vital information:
+
+- **Token Counting**: Uses model-specific tokenizers to calculate payload size.
+- **Dual Waterline Compaction**: Triggers summarization of historical turns when token consumption breaches upper thresholds.
+- **Payload Sanitization**: Filters orphaned tool-call/result pairs before dispatching payloads to external LLM APIs to prevent HTTP 400 errors.
+
+---
+
+## 4. Memory Subsystem (`internal/memory`)
+
+SoloQueue separates ephemeral context from durable search and audit logs:
+
+- **Short-Term Memory (`internal/memory/conversation`)**: Stores LLM-generated conversation summaries written during context window compaction.
+- **Long-Term Memory (`internal/memory/engine`)**: Pure Go hybrid search engine combining SQLite FTS5 BM25 search with an in-process Knowledge Graph. Optional vector search fuses embeddings when an external provider is configured (disabled by default for zero external dependencies).
+- **Timeline (`internal/memory/timeline`)**: Append-only JSONL event stream recording granular tool calls, session state changes, routing resolutions, and agent delegation events. Excludes raw system prompts to protect user privacy.
+
+---
+
+## 5. Channel Integration Architecture (`internal/channel`)
+
+Channel bridges normalize external messaging protocols into the internal session event stream:
+
+- **QQ Bot (`internal/channel/qq`)**: Implements Tencent Bot Gateway protocol. Handles passive response windows and queues active outbound message bursts.
+- **WeChat iLink (`internal/channel/wechat`)**: Connects through Tencent's official iLink Bot API. Supports long-poll update streams, QR login pairing, and typing state keepalives.
+
+---
+
+## 6. Maintainer Notes: macOS Code Signing
+
+For local macOS package builds, SoloQueue provides fixed self-signing scripts (`make setup-macos-signing`). The script generates a dedicated self-signed identity (`SoloQueue Code Signing`) in the login Keychain and pins its public SHA-256 fingerprint in `desktop/build/macos-signing-cert.sha256`. This maintains application identity continuity across local macOS updates without requiring Apple Developer ID notarization.
