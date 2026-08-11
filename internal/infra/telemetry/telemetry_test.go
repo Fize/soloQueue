@@ -2,15 +2,37 @@ package telemetry_test
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
+
+type usageLLM struct {
+	response *agent.LLMResponse
+	err      error
+}
+
+func (l *usageLLM) Chat(context.Context, agent.LLMRequest) (*agent.LLMResponse, error) {
+	return l.response, l.err
+}
+
+func (l *usageLLM) ChatStream(context.Context, agent.LLMRequest) (<-chan llm.Event, error) {
+	if l.err != nil {
+		return nil, l.err
+	}
+	ch := make(chan llm.Event, 1)
+	ch <- llm.Event{Type: llm.EventDone, FinishReason: l.response.FinishReason, Usage: &l.response.Usage}
+	close(ch)
+	return ch, nil
+}
 
 func TestWithTelemetryContext_RoundTrip(t *testing.T) {
 	ctx := telemetry.WithTelemetryContext(context.Background(), "team-a", telemetry.UsageChat)
@@ -30,6 +52,25 @@ func TestTelemetryFromContext_Empty(t *testing.T) {
 	}
 	if utype != "" {
 		t.Errorf("usageType = %q, want empty", utype)
+	}
+}
+
+func TestTelemetryMetadata_RoundTrip(t *testing.T) {
+	ctx := telemetry.WithTelemetryContext(context.Background(), "team-a", telemetry.UsageChat)
+	ctx = telemetry.WithTelemetryMetadata(ctx, telemetry.Metadata{
+		RequestID: "request-1",
+		SessionID: "session-1",
+		RunID:     "run-1",
+		AgentID:   "agent-1",
+		Origin:    telemetry.OriginDesktop,
+		TaskType:  "engineering",
+	})
+	got := telemetry.MetadataFromContext(ctx)
+	if got.TeamID != "team-a" || got.UsageType != telemetry.UsageChat {
+		t.Fatalf("base metadata = %+v", got)
+	}
+	if got.RequestID != "request-1" || got.Origin != telemetry.OriginDesktop || got.TaskType != "engineering" {
+		t.Fatalf("correlation metadata = %+v", got)
 	}
 }
 
@@ -163,4 +204,79 @@ func TestTelemetryClient_logUsageAsync_EmptyUsageType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
+}
+
+func TestTelemetryClient_RecordsSuccessfulCall(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "telemetry.db"))
+	if err != nil {
+		t.Fatalf("open in-memory db: %v", err)
+	}
+	defer database.Close()
+
+	inner := &usageLLM{response: &agent.LLMResponse{
+		FinishReason: llm.FinishStop,
+		Usage: llm.Usage{
+			PromptTokens:          100,
+			CompletionTokens:      50,
+			TotalTokens:           150,
+			ReasoningTokens:       20,
+			PromptCacheHitTokens:  80,
+			PromptCacheMissTokens: 20,
+		},
+	}}
+	client := telemetry.NewTelemetryClient(inner, database)
+	ctx := telemetry.WithTelemetryContext(context.Background(), "team-a", telemetry.UsageChat)
+	ctx = telemetry.WithTelemetryMetadata(ctx, telemetry.Metadata{
+		RequestID: "request-1",
+		Origin:    telemetry.OriginDesktop,
+		TaskType:  "engineering",
+	})
+	if _, err := client.Chat(ctx, agent.LLMRequest{ProviderID: "provider-a", Model: "model-a"}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	rows := waitForMetrics(t, database, 1)
+	got := rows[0]
+	if got.Status != telemetry.StatusSuccess || got.ReasoningTokens != 20 {
+		t.Fatalf("metric = %+v", got)
+	}
+	if got.RequestID != "request-1" || got.Origin != telemetry.OriginDesktop || got.TaskType != "engineering" {
+		t.Fatalf("metadata = %+v", got)
+	}
+	if got.ProviderID != "provider-a" || got.ModelID != "model-a" {
+		t.Fatalf("model identity = %+v", got)
+	}
+}
+
+func TestTelemetryClient_RecordsFailedCall(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "telemetry.db"))
+	if err != nil {
+		t.Fatalf("open in-memory db: %v", err)
+	}
+	defer database.Close()
+
+	client := telemetry.NewTelemetryClient(&usageLLM{err: errors.New("provider unavailable")}, database)
+	_, _ = client.Chat(context.Background(), agent.LLMRequest{ProviderID: "provider-a", Model: "model-a"})
+
+	rows := waitForMetrics(t, database, 1)
+	if rows[0].Status != telemetry.StatusError || rows[0].ErrorCode == "" {
+		t.Fatalf("failed metric = %+v", rows[0])
+	}
+}
+
+func waitForMetrics(t *testing.T, database *db.DB, want int) []db.LLMCallMetric {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		rows, err := database.ListLLMCallMetrics(context.Background(), time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+		if err != nil {
+			t.Fatalf("ListLLMCallMetrics: %v", err)
+		}
+		if len(rows) >= want {
+			return rows
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d metrics", want)
+	return nil
 }

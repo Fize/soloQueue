@@ -2,8 +2,12 @@ package telemetry
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
@@ -26,9 +30,12 @@ func NewTelemetryClient(inner agent.LLMClient, db *db.DB) *TelemetryClient {
 
 // Chat calls the underlying client's Chat method and logs the final usage upon completion.
 func (c *TelemetryClient) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResponse, error) {
+	startedAt := time.Now().UTC()
 	resp, err := c.inner.Chat(ctx, req)
-	if err == nil && resp != nil {
-		c.logUsageAsync(ctx, req, resp.Usage)
+	if err != nil {
+		c.logCallAsync(ctx, req, startedAt, nil, "", err)
+	} else if resp != nil {
+		c.logCallAsync(ctx, req, startedAt, &resp.Usage, string(resp.FinishReason), nil)
 	}
 	return resp, err
 }
@@ -36,8 +43,10 @@ func (c *TelemetryClient) Chat(ctx context.Context, req agent.LLMRequest) (*agen
 // ChatStream calls the underlying client's ChatStream method and intercepts the EventDone
 // or EventError to extract and log the token usage.
 func (c *TelemetryClient) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan llm.Event, error) {
+	startedAt := time.Now().UTC()
 	innerChan, err := c.inner.ChatStream(ctx, req)
 	if err != nil {
+		c.logCallAsync(ctx, req, startedAt, nil, "", err)
 		return nil, err
 	}
 
@@ -45,44 +54,101 @@ func (c *TelemetryClient) ChatStream(ctx context.Context, req agent.LLMRequest) 
 
 	go func() {
 		defer close(outChan)
+		terminalLogged := false
 		for event := range innerChan {
 			outChan <- event
-			if event.Type == llm.EventDone && event.Usage != nil {
-				c.logUsageAsync(ctx, req, *event.Usage)
+			if event.Type == llm.EventDone {
+				c.logCallAsync(ctx, req, startedAt, event.Usage, string(event.FinishReason), nil)
+				terminalLogged = true
+			} else if event.Type == llm.EventError {
+				eventErr := event.Err
+				if eventErr == nil {
+					eventErr = errors.New("stream returned an error event")
+				}
+				c.logCallAsync(ctx, req, startedAt, event.Usage, string(event.FinishReason), eventErr)
+				terminalLogged = true
 			}
+		}
+		if !terminalLogged {
+			c.logCallAsync(ctx, req, startedAt, nil, "", errors.New("stream ended without terminal event"))
 		}
 	}()
 
 	return outChan, nil
 }
 
-func (c *TelemetryClient) logUsageAsync(ctx context.Context, req agent.LLMRequest, usage llm.Usage) {
+func (c *TelemetryClient) logCallAsync(
+	ctx context.Context,
+	req agent.LLMRequest,
+	startedAt time.Time,
+	usage *llm.Usage,
+	finishReason string,
+	callErr error,
+) {
 	if c.db == nil {
 		return
 	}
 
-	teamID, usageType := TelemetryFromContext(ctx)
-	if usageType == "" {
-		usageType = "unknown"
+	metadata := MetadataFromContext(ctx)
+	finishedAt := time.Now().UTC()
+	status, errorCode := classifyCallError(callErr)
+	metric := db.LLMCallMetric{
+		CallID:       uuid.NewString(),
+		RequestID:    metadata.RequestID,
+		SessionID:    metadata.SessionID,
+		RunID:        metadata.RunID,
+		AgentID:      metadata.AgentID,
+		TeamID:       metadata.TeamID,
+		Origin:       valueOrUnknown(metadata.Origin),
+		UsageType:    valueOrUnknown(metadata.UsageType),
+		TaskType:     valueOrUnknown(metadata.TaskType),
+		ProviderID:   req.ProviderID,
+		ModelID:      req.Model,
+		StartedAt:    startedAt,
+		FinishedAt:   finishedAt,
+		Status:       status,
+		FinishReason: finishReason,
+		ErrorCode:    errorCode,
+		DurationMS:   finishedAt.Sub(startedAt).Milliseconds(),
 	}
-
-	modelName := req.Model
-	if req.ProviderID != "" && !strings.HasPrefix(req.Model, req.ProviderID+"/") {
-		modelName = req.ProviderID + "/" + req.Model
+	if strings.HasPrefix(metric.ModelID, metric.ProviderID+"/") && metric.ProviderID != "" {
+		metric.ModelID = strings.TrimPrefix(metric.ModelID, metric.ProviderID+"/")
+	}
+	if usage != nil {
+		metric.PromptTokens = usage.PromptTokens
+		metric.CompletionTokens = usage.CompletionTokens
+		metric.ReasoningTokens = usage.ReasoningTokens
+		metric.TotalTokens = usage.TotalTokens
+		metric.CacheHitTokens = usage.PromptCacheHitTokens
+		metric.CacheMissTokens = usage.PromptCacheMissTokens
 	}
 
 	bgCtx := context.Background()
 	go func() {
-		_ = c.db.InsertTokenUsage(
-			bgCtx,
-			usageType,
-			teamID,
-			modelName,
-			usage.PromptTokens,
-			usage.CompletionTokens,
-			usage.TotalTokens,
-			usage.PromptCacheHitTokens,
-			usage.PromptCacheMissTokens,
-		)
+		_ = c.db.InsertLLMCallMetric(bgCtx, metric)
 	}()
+}
+
+func classifyCallError(err error) (string, string) {
+	if err == nil {
+		return StatusSuccess, ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return StatusTimeout, "context_deadline_exceeded"
+	}
+	if errors.Is(err, context.Canceled) {
+		return StatusCancelled, "context_cancelled"
+	}
+	var apiErr *llm.APIError
+	if errors.As(err, &apiErr) {
+		return StatusError, fmt.Sprintf("provider_http_%d", apiErr.StatusCode)
+	}
+	return StatusError, "llm_call_failed"
+}
+
+func valueOrUnknown(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }

@@ -125,6 +125,9 @@ const translations = {
       completionCol: 'Completion',
       cacheCol: 'Cache Hit',
       totalCol: 'Total',
+      requests: 'Requests',
+      p95Latency: 'P95 Latency',
+      updated: 'Updated',
     },
     modal: {
       state: 'State',
@@ -276,6 +279,9 @@ const translations = {
       completionCol: '输出',
       cacheCol: '缓存命中',
       totalCol: '总计',
+      requests: '请求数',
+      p95Latency: 'P95 延迟',
+      updated: '更新于',
     },
     modal: {
       state: '状态',

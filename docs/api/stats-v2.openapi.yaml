@@ -1,0 +1,766 @@
+openapi: 3.0.3
+info:
+  title: SoloQueue Usage Statistics API
+  version: 2.1.0
+  description: |
+    Read-only analytics endpoints for the Desktop usage dashboard and the
+    lightweight Portal summary. All timestamps are RFC 3339 UTC instants.
+    Calendar bucketing uses the requested IANA timezone.
+servers:
+  - url: /
+tags:
+  - name: Statistics
+    description: Aggregated and event-level usage analytics.
+security:
+  - basicAuth: []
+  - {}
+paths:
+  /api/stats/v2/overview:
+    get:
+      tags: [Statistics]
+      operationId: getStatsOverview
+      summary: Get summary metrics, comparison deltas, trend series, and insights
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Timezone"
+        - $ref: "#/components/parameters/TeamID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/UsageType"
+        - $ref: "#/components/parameters/TaskType"
+        - $ref: "#/components/parameters/ProviderID"
+        - $ref: "#/components/parameters/ModelID"
+        - $ref: "#/components/parameters/Status"
+      responses:
+        "200":
+          description: Overview statistics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverviewResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/stats/v2/breakdowns:
+    get:
+      tags: [Statistics]
+      operationId: getStatsBreakdowns
+      summary: Group usage metrics by one selected dimension
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Timezone"
+        - $ref: "#/components/parameters/TeamID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/UsageType"
+        - $ref: "#/components/parameters/TaskType"
+        - $ref: "#/components/parameters/ProviderID"
+        - $ref: "#/components/parameters/ModelID"
+        - $ref: "#/components/parameters/Status"
+        - name: dimension
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [usage_type, model, task_type, origin, team, status]
+      responses:
+        "200":
+          description: Metrics grouped by the requested dimension.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BreakdownResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/stats/v2/events:
+    get:
+      tags: [Statistics]
+      operationId: listStatsEvents
+      summary: List usage events using stable cursor pagination
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Timezone"
+        - $ref: "#/components/parameters/TeamID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/UsageType"
+        - $ref: "#/components/parameters/TaskType"
+        - $ref: "#/components/parameters/ProviderID"
+        - $ref: "#/components/parameters/ModelID"
+        - $ref: "#/components/parameters/Status"
+        - name: cursor
+          in: query
+          description: Opaque cursor returned by the previous page.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A page of usage events ordered newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/stats/v2/filters:
+    get:
+      tags: [Statistics]
+      operationId: getStatsFilters
+      summary: Get available filter values for the selected time range
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Timezone"
+      responses:
+        "200":
+          description: Available dimensions derived from stored usage data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FiltersResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/stats/v2/activity:
+    get:
+      tags: [Statistics]
+      operationId: getStatsActivity
+      summary: Get daily activity for the calendar heatmap
+      parameters:
+        - $ref: "#/components/parameters/Timezone"
+        - $ref: "#/components/parameters/TeamID"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/UsageType"
+        - $ref: "#/components/parameters/TaskType"
+        - $ref: "#/components/parameters/ProviderID"
+        - $ref: "#/components/parameters/ModelID"
+        - $ref: "#/components/parameters/Status"
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 730
+            default: 365
+      responses:
+        "200":
+          description: Daily activity totals ending on the current local date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Required for remote access; localhost may use the existing local bypass.
+  parameters:
+    From:
+      name: from
+      in: query
+      description: Inclusive RFC 3339 UTC instant. Defaults to 30 days before `to`.
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      description: Exclusive RFC 3339 UTC instant. Defaults to the current instant.
+      schema:
+        type: string
+        format: date-time
+    Timezone:
+      name: timezone
+      in: query
+      description: IANA timezone used for calendar buckets and labels.
+      schema:
+        type: string
+        default: UTC
+        example: Asia/Shanghai
+    TeamID:
+      name: team_id
+      in: query
+      schema:
+        type: string
+    Origin:
+      name: origin
+      in: query
+      schema:
+        type: string
+        enum:
+          [
+            desktop,
+            portal,
+            api,
+            qq,
+            wechat,
+            cron,
+            workflow,
+            simulation,
+            unknown,
+          ]
+    UsageType:
+      name: usage_type
+      in: query
+      schema:
+        type: string
+        enum: [chat, router, compactor, memory, simulation, unknown]
+    TaskType:
+      name: task_type
+      in: query
+      schema:
+        type: string
+        enum: [general, engineering, research, unknown]
+    ProviderID:
+      name: provider_id
+      in: query
+      schema:
+        type: string
+    ModelID:
+      name: model_id
+      in: query
+      schema:
+        type: string
+    Status:
+      name: status
+      in: query
+      schema:
+        type: string
+        enum: [success, error, cancelled, timeout, unknown]
+  responses:
+    BadRequest:
+      description: Invalid query parameters.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            data: null
+            error: "invalid_time_range: from must be earlier than to"
+    InternalError:
+      description: Statistics could not be calculated.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            data: null
+            error: "stats_query_failed: failed to query usage metrics"
+    Unavailable:
+      description: Statistics storage is not available.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            data: null
+            error: "stats_unavailable: usage metrics storage is not configured"
+  schemas:
+    StatsMeta:
+      type: object
+      required:
+        [generated_at, data_from, data_to, timezone, bucket_size, coverage]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        data_from:
+          type: string
+          format: date-time
+        data_to:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+        bucket_size:
+          type: string
+          enum: [hour, day, week, none]
+        coverage:
+          $ref: "#/components/schemas/Coverage"
+    Coverage:
+      type: object
+      required:
+        - total_rows
+        - legacy_rows
+        - cache_coverage_pct
+        - reasoning_coverage_pct
+      properties:
+        total_rows:
+          type: integer
+          format: int64
+          minimum: 0
+        legacy_rows:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_coverage_pct:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+        reasoning_coverage_pct:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+    UsageMetrics:
+      type: object
+      required:
+        - total_tokens
+        - prompt_tokens
+        - completion_tokens
+        - reasoning_tokens
+        - cache_hit_tokens
+        - cache_miss_tokens
+        - request_count
+        - success_count
+        - error_count
+        - cancelled_count
+        - timeout_count
+        - success_rate
+        - cache_hit_rate
+      properties:
+        total_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        prompt_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        completion_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        reasoning_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_hit_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_miss_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        request_count:
+          type: integer
+          format: int64
+          minimum: 0
+        success_count:
+          type: integer
+          format: int64
+          minimum: 0
+        error_count:
+          type: integer
+          format: int64
+          minimum: 0
+        cancelled_count:
+          type: integer
+          format: int64
+          minimum: 0
+        timeout_count:
+          type: integer
+          format: int64
+          minimum: 0
+        success_rate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        cache_hit_rate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        p95_duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+    MetricDelta:
+      type: object
+      required: [current, previous]
+      properties:
+        current:
+          type: number
+          format: double
+        previous:
+          type: number
+          format: double
+        change_pct:
+          type: number
+          format: double
+          nullable: true
+          description: Null when the previous value is zero.
+    SeriesPoint:
+      type: object
+      required: [start, end, metrics]
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        metrics:
+          $ref: "#/components/schemas/UsageMetrics"
+    Insight:
+      type: object
+      required: [id, severity, title, detail]
+      properties:
+        id:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        title:
+          type: string
+        detail:
+          type: string
+        metric:
+          type: string
+          nullable: true
+        change_pct:
+          type: number
+          format: double
+          nullable: true
+    OverviewData:
+      type: object
+      required: [meta, summary, comparison, series, insights]
+      properties:
+        meta:
+          $ref: "#/components/schemas/StatsMeta"
+        summary:
+          $ref: "#/components/schemas/UsageMetrics"
+        comparison:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/MetricDelta"
+        series:
+          type: array
+          maxItems: 120
+          items:
+            $ref: "#/components/schemas/SeriesPoint"
+        insights:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/Insight"
+    OverviewResponse:
+      type: object
+      required: [data, error]
+      properties:
+        data:
+          $ref: "#/components/schemas/OverviewData"
+        error:
+          type: string
+          nullable: true
+    BreakdownItem:
+      type: object
+      required: [key, label, metrics]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        metrics:
+          $ref: "#/components/schemas/UsageMetrics"
+    BreakdownData:
+      type: object
+      required: [meta, dimension, items]
+      properties:
+        meta:
+          $ref: "#/components/schemas/StatsMeta"
+        dimension:
+          type: string
+          enum: [usage_type, model, task_type, origin, team, status]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BreakdownItem"
+    BreakdownResponse:
+      type: object
+      required: [data, error]
+      properties:
+        data:
+          $ref: "#/components/schemas/BreakdownData"
+        error:
+          type: string
+          nullable: true
+    LLMCallMetric:
+      type: object
+      required:
+        - call_id
+        - origin
+        - usage_type
+        - task_type
+        - provider_id
+        - model_id
+        - started_at
+        - finished_at
+        - status
+        - retry_count
+        - duration_ms
+        - prompt_tokens
+        - completion_tokens
+        - reasoning_tokens
+        - total_tokens
+        - cache_hit_tokens
+        - cache_miss_tokens
+        - legacy
+      properties:
+        call_id:
+          type: string
+        request_id:
+          type: string
+          nullable: true
+        session_id:
+          type: string
+          nullable: true
+        run_id:
+          type: string
+          nullable: true
+        agent_id:
+          type: string
+          nullable: true
+        team_id:
+          type: string
+          nullable: true
+        origin:
+          type: string
+          enum:
+            [
+              desktop,
+              portal,
+              api,
+              qq,
+              wechat,
+              cron,
+              workflow,
+              simulation,
+              unknown,
+            ]
+        usage_type:
+          type: string
+          enum: [chat, router, compactor, memory, simulation, unknown]
+        task_type:
+          type: string
+          enum: [general, engineering, research, unknown]
+        provider_id:
+          type: string
+        model_id:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [success, error, cancelled, timeout, unknown]
+        finish_reason:
+          type: string
+          nullable: true
+        error_code:
+          type: string
+          nullable: true
+        retry_count:
+          type: integer
+          minimum: 0
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        prompt_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        completion_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        reasoning_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        total_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_hit_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_miss_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        legacy:
+          type: boolean
+          description: True when the row was adapted from the legacy usage table.
+    EventsData:
+      type: object
+      required: [meta, items]
+      properties:
+        meta:
+          $ref: "#/components/schemas/StatsMeta"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LLMCallMetric"
+        next_cursor:
+          type: string
+          nullable: true
+    EventsResponse:
+      type: object
+      required: [data, error]
+      properties:
+        data:
+          $ref: "#/components/schemas/EventsData"
+        error:
+          type: string
+          nullable: true
+    FilterOption:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+    FiltersData:
+      type: object
+      required:
+        - meta
+        - teams
+        - origins
+        - usage_types
+        - task_types
+        - providers
+        - models
+        - statuses
+      properties:
+        meta:
+          $ref: "#/components/schemas/StatsMeta"
+        teams:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilterOption"
+        origins:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilterOption"
+        usage_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilterOption"
+        task_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilterOption"
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilterOption"
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilterOption"
+        statuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilterOption"
+    FiltersResponse:
+      type: object
+      required: [data, error]
+      properties:
+        data:
+          $ref: "#/components/schemas/FiltersData"
+        error:
+          type: string
+          nullable: true
+    ActivityPoint:
+      type: object
+      required: [date, total_tokens, request_count, level]
+      properties:
+        date:
+          type: string
+          format: date
+        total_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        request_count:
+          type: integer
+          format: int64
+          minimum: 0
+        level:
+          type: integer
+          minimum: 0
+          maximum: 4
+    ActivityData:
+      type: object
+      required: [meta, active_days, total_tokens, points]
+      properties:
+        meta:
+          $ref: "#/components/schemas/StatsMeta"
+        active_days:
+          type: integer
+          minimum: 0
+        total_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityPoint"
+    ActivityResponse:
+      type: object
+      required: [data, error]
+      properties:
+        data:
+          $ref: "#/components/schemas/ActivityData"
+        error:
+          type: string
+          nullable: true
+    ErrorResponse:
+      type: object
+      required: [data, error]
+      properties:
+        data:
+          type: object
+          nullable: true
+        error:
+          type: string
