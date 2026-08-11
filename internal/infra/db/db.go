@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 15
+const schemaVersion = 17
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -285,6 +285,55 @@ CREATE TABLE IF NOT EXISTS usage_metrics (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_metrics_timestamp ON usage_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_usage_metrics_team ON usage_metrics(team_id, usage_type);
+
+-- llm_call_metrics (request-level telemetry; legacy usage_metrics remains readable)
+CREATE TABLE IF NOT EXISTS llm_call_metrics (
+	call_id TEXT PRIMARY KEY,
+	request_id TEXT NOT NULL DEFAULT '',
+	session_id TEXT NOT NULL DEFAULT '',
+	run_id TEXT NOT NULL DEFAULT '',
+	agent_id TEXT NOT NULL DEFAULT '',
+	team_id TEXT NOT NULL DEFAULT '',
+	origin TEXT NOT NULL DEFAULT 'unknown',
+	usage_type TEXT NOT NULL DEFAULT 'unknown',
+	task_type TEXT NOT NULL DEFAULT 'unknown',
+	provider_id TEXT NOT NULL DEFAULT '',
+	model_id TEXT NOT NULL DEFAULT '',
+	started_at TEXT NOT NULL,
+	finished_at TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'unknown',
+	finish_reason TEXT NOT NULL DEFAULT '',
+	error_code TEXT NOT NULL DEFAULT '',
+	retry_count INTEGER NOT NULL DEFAULT 0,
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	prompt_tokens INTEGER NOT NULL DEFAULT 0,
+	completion_tokens INTEGER NOT NULL DEFAULT 0,
+	reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+	total_tokens INTEGER NOT NULL DEFAULT 0,
+	cache_hit_tokens INTEGER NOT NULL DEFAULT 0,
+	cache_miss_tokens INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_llm_call_metrics_finished ON llm_call_metrics(finished_at DESC, call_id DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_call_metrics_dimensions ON llm_call_metrics(team_id, origin, usage_type, task_type, status);
+CREATE INDEX IF NOT EXISTS idx_llm_call_metrics_model ON llm_call_metrics(provider_id, model_id);
+
+-- route_decisions_v2 keeps routing diagnostics separate from token telemetry.
+CREATE TABLE IF NOT EXISTS route_decisions_v2 (
+	decision_id TEXT PRIMARY KEY,
+	request_id TEXT NOT NULL DEFAULT '',
+	session_id TEXT NOT NULL DEFAULT '',
+	run_id TEXT NOT NULL DEFAULT '',
+	team_id TEXT NOT NULL DEFAULT '',
+	task_type TEXT NOT NULL DEFAULT 'unknown',
+	provider_id TEXT NOT NULL DEFAULT '',
+	model_id TEXT NOT NULL DEFAULT '',
+	classification_source TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'success',
+	decided_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_route_decisions_v2_decided ON route_decisions_v2(decided_at DESC);
+CREATE INDEX IF NOT EXISTS idx_route_decisions_v2_dimensions ON route_decisions_v2(team_id, task_type, classification_source, status);
 
 -- classifier_decisions (fast-track vs LLM comparison for optimization)
 CREATE TABLE IF NOT EXISTS classifier_decisions (
@@ -881,6 +930,72 @@ func (d *DB) migrate() error {
 		if _, err := tx.Exec(`ALTER TABLE mcp_policies ADD COLUMN network_enabled INTEGER NOT NULL DEFAULT 0`); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("migrate mcp_policies network capability: %w", err)
+		}
+	}
+
+	// v17: usage analytics intentionally excludes pricing. Rebuild databases
+	// created by v16 so future telemetry cannot retain cost information.
+	hasEstimatedCost, err := tableHasColumn(tx, "llm_call_metrics", "estimated_cost_microusd")
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("inspect llm_call_metrics estimated cost column: %w", err)
+	}
+	if hasEstimatedCost {
+		if _, err := tx.Exec(`
+			DROP INDEX IF EXISTS idx_llm_call_metrics_finished;
+			DROP INDEX IF EXISTS idx_llm_call_metrics_dimensions;
+			DROP INDEX IF EXISTS idx_llm_call_metrics_model;
+			ALTER TABLE llm_call_metrics RENAME TO llm_call_metrics_v16;
+			CREATE TABLE llm_call_metrics (
+				call_id TEXT PRIMARY KEY,
+				request_id TEXT NOT NULL DEFAULT '',
+				session_id TEXT NOT NULL DEFAULT '',
+				run_id TEXT NOT NULL DEFAULT '',
+				agent_id TEXT NOT NULL DEFAULT '',
+				team_id TEXT NOT NULL DEFAULT '',
+				origin TEXT NOT NULL DEFAULT 'unknown',
+				usage_type TEXT NOT NULL DEFAULT 'unknown',
+				task_type TEXT NOT NULL DEFAULT 'unknown',
+				provider_id TEXT NOT NULL DEFAULT '',
+				model_id TEXT NOT NULL DEFAULT '',
+				started_at TEXT NOT NULL,
+				finished_at TEXT NOT NULL,
+				status TEXT NOT NULL DEFAULT 'unknown',
+				finish_reason TEXT NOT NULL DEFAULT '',
+				error_code TEXT NOT NULL DEFAULT '',
+				retry_count INTEGER NOT NULL DEFAULT 0,
+				duration_ms INTEGER NOT NULL DEFAULT 0,
+				prompt_tokens INTEGER NOT NULL DEFAULT 0,
+				completion_tokens INTEGER NOT NULL DEFAULT 0,
+				reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+				total_tokens INTEGER NOT NULL DEFAULT 0,
+				cache_hit_tokens INTEGER NOT NULL DEFAULT 0,
+				cache_miss_tokens INTEGER NOT NULL DEFAULT 0,
+				created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+			INSERT INTO llm_call_metrics (
+				call_id, request_id, session_id, run_id, agent_id, team_id,
+				origin, usage_type, task_type, provider_id, model_id,
+				started_at, finished_at, status, finish_reason, error_code,
+				retry_count, duration_ms, prompt_tokens, completion_tokens,
+				reasoning_tokens, total_tokens, cache_hit_tokens, cache_miss_tokens,
+				created_at
+			)
+			SELECT
+				call_id, request_id, session_id, run_id, agent_id, team_id,
+				origin, usage_type, task_type, provider_id, model_id,
+				started_at, finished_at, status, finish_reason, error_code,
+				retry_count, duration_ms, prompt_tokens, completion_tokens,
+				reasoning_tokens, total_tokens, cache_hit_tokens, cache_miss_tokens,
+				created_at
+			FROM llm_call_metrics_v16;
+			DROP TABLE llm_call_metrics_v16;
+			CREATE INDEX idx_llm_call_metrics_finished ON llm_call_metrics(finished_at DESC, call_id DESC);
+			CREATE INDEX idx_llm_call_metrics_dimensions ON llm_call_metrics(team_id, origin, usage_type, task_type, status);
+			CREATE INDEX idx_llm_call_metrics_model ON llm_call_metrics(provider_id, model_id);
+		`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("remove llm_call_metrics estimated cost column: %w", err)
 		}
 	}
 

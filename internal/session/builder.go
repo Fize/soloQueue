@@ -8,11 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
@@ -642,7 +644,7 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 		// On error the level is "Unknown" and source is "error" — still
 		// valuable for diagnosing classifier failures.
 		if rt.SharedDB != nil {
-			teamID, _ := telemetry.TelemetryFromContext(ctx)
+			metadata := telemetry.MetadataFromContext(ctx)
 			bgCtx := context.Background()
 
 			level := decision.TaskType.String()
@@ -655,10 +657,27 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 				_ = rt.SharedDB.InsertRouterClassification(
 					bgCtx,
 					telemetry.UsageRouter, // usageType
-					teamID,
+					metadata.TeamID,
 					level,
 					source,
 				)
+				status := telemetry.StatusSuccess
+				if err != nil {
+					status = telemetry.StatusError
+				}
+				_ = rt.SharedDB.InsertRouteDecisionMetric(bgCtx, db.RouteDecisionMetric{
+					DecisionID:           uuid.NewString(),
+					RequestID:            metadata.RequestID,
+					SessionID:            metadata.SessionID,
+					RunID:                metadata.RunID,
+					TeamID:               metadata.TeamID,
+					TaskType:             level,
+					ProviderID:           decision.ProviderID,
+					ModelID:              decision.ModelID,
+					ClassificationSource: source,
+					Status:               status,
+					DecidedAt:            time.Now().UTC(),
+				})
 			}()
 		}
 

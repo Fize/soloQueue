@@ -1,518 +1,801 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  LineChart,
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  Database,
+  Gauge,
+  RefreshCw,
+  Sparkles,
+  Zap,
+} from 'lucide-react'
+import {
+  CartesianGrid,
+  Legend,
   Line,
-  BarChart,
-  Bar,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  Legend,
-  ResponsiveContainer,
 } from 'recharts'
-import { getTokenStats, getRouterStats, getStatTeams, type TokenStat, type RouterStat } from '@/lib/api'
-import { getClassifierStats, type ClassifierStat } from '@/lib/api'
-import { ActivityHeatmap, type ActivityDay } from '@/components/ActivityHeatmap'
-import { TrendingUp, GitCommitHorizontal } from 'lucide-react'
-import { Select } from '@/components/ui/select'
-import { GlassCard } from '@/components/ui/glass-card'
-import { useTranslation } from '@/lib/i18n'
 
-const DATE_FMT = (d: Date) => {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+import { ActivityHeatmap, type ActivityDay } from '@/components/ActivityHeatmap'
+import { GlassCard } from '@/components/ui/glass-card'
+import { Select } from '@/components/ui/select'
+import {
+  getStatsActivity,
+  getStatsBreakdown,
+  getStatsEvents,
+  getStatsFilters,
+  getStatsOverview,
+  type StatsActivity,
+  type StatsBreakdown,
+  type StatsDimension,
+  type StatsEvent,
+  type StatsEvents,
+  type StatsFilters,
+  type StatsMetrics,
+  type StatsOverview,
+  type StatsQuery,
+} from '@/lib/api/stats-api'
+import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
+
+type RangeKey = '24h' | '7d' | '30d' | 'custom'
+type TrendMetric = 'tokens' | 'calls' | 'errors' | 'latency'
+
+interface DashboardFilters {
+  team: string
+  origin: string
+  usageType: string
+  taskType: string
+  model: string
+  status: string
 }
 
-type RangeOffset = { from: Date; to: Date }
+const EMPTY_FILTERS: DashboardFilters = {
+  team: '',
+  origin: '',
+  usageType: '',
+  taskType: '',
+  model: '',
+  status: '',
+}
 
-const PRESETS = [
-  { labelKey: 'stats.presetAll' as const, suggestedTimeframe: '', offset: (): RangeOffset | null => null },
-  { labelKey: 'stats.presetToday' as const, suggestedTimeframe: 'hourly', offset: (): RangeOffset | null => {
-    const now = new Date()
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    return { from: start, to: now }
-  }},
-  { labelKey: 'stats.preset24h' as const, suggestedTimeframe: 'hourly', offset: (): RangeOffset | null => {
-    const now = new Date()
-    return { from: new Date(now.getTime() - 24 * 3600_000), to: now }
-  }},
-  { labelKey: 'stats.preset3d' as const, suggestedTimeframe: 'hourly', offset: (): RangeOffset | null => {
-    const now = new Date()
-    return { from: new Date(now.getTime() - 3 * 24 * 3600_000), to: now }
-  }},
-  { labelKey: 'stats.preset7d' as const, suggestedTimeframe: 'daily', offset: (): RangeOffset | null => {
-    const now = new Date()
-    return { from: new Date(now.getTime() - 7 * 24 * 3600_000), to: now }
-  }},
-  { labelKey: 'stats.preset30d' as const, suggestedTimeframe: 'daily', offset: (): RangeOffset | null => {
-    const now = new Date()
-    return { from: new Date(now.getTime() - 30 * 24 * 3600_000), to: now }
-  }},
+const RANGE_HOURS: Record<Exclude<RangeKey, 'custom'>, number> = {
+  '24h': 24,
+  '7d': 24 * 7,
+  '30d': 24 * 30,
+}
+
+const BREAKDOWN_DIMENSIONS: StatsDimension[] = [
+  'model',
+  'usage_type',
+  'task_type',
+  'origin',
+  'status',
 ]
 
-const DEFAULT_PRESETS: Record<string, string> = {
-  minutely: 'stats.preset24h',
-  hourly: 'stats.presetToday',
-  daily: 'stats.preset30d',
+function initialRange(): RangeKey {
+  const value = new URLSearchParams(window.location.search).get('stats_range')
+  return value === '24h' || value === '7d' || value === 'custom' ? value : '30d'
 }
 
-function toInputVal(dateStr: string) {
-  return dateStr.replace(' ', 'T').slice(0, 16)
+function rangeToQuery(range: RangeKey, customFrom: string, customTo: string) {
+  const now = new Date()
+  if (range === 'custom' && customFrom && customTo) {
+    return { from: new Date(customFrom).toISOString(), to: new Date(customTo).toISOString() }
+  }
+  const hours = range === 'custom' ? RANGE_HOURS['30d'] : RANGE_HOURS[range]
+  return { from: new Date(now.getTime() - hours * 3_600_000).toISOString(), to: now.toISOString() }
 }
 
-function alignToBucket(d: Date, timeframe: string): Date {
-  const a = new Date(d)
-  a.setSeconds(0, 0)
-  if (timeframe === 'minutely') {
-    return a
-  }
-  a.setMinutes(0)
-  if (timeframe === 'hourly') {
-    return a
-  }
-  a.setHours(0)
-  if (timeframe === 'daily') {
-    return a
-  }
-  if (timeframe === 'weekly') {
-    const dow = a.getDay() || 7
-    a.setDate(a.getDate() - dow + 1)
-    return a
-  }
-  if (timeframe === 'monthly') {
-    a.setDate(1)
-    return a
-  }
-  return a
+function formatCompact(value: number): string {
+  return Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(
+    value
+  )
 }
 
-function generateBuckets(timeframe: string, from: Date, to: Date): string[] {
-  const buckets: string[] = []
-  const cur = alignToBucket(from, timeframe)
-  const end = to
-  while (cur <= end) {
-    buckets.push(DATE_FMT(cur))
-    if (timeframe === 'minutely') cur.setMinutes(cur.getMinutes() + 1)
-    else if (timeframe === 'hourly') cur.setHours(cur.getHours() + 1)
-    else if (timeframe === 'daily') cur.setDate(cur.getDate() + 1)
-    else if (timeframe === 'weekly') cur.setDate(cur.getDate() + 7)
-    else if (timeframe === 'monthly') cur.setMonth(cur.getMonth() + 1)
-    else break
-  }
-  return buckets
+function formatDuration(value: number | null): string {
+  if (value === null) return 'N/A'
+  if (value < 1000) return `${value} ms`
+  return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} s`
 }
 
-/* ── custom tooltip ─────────────────────────────────────────── */
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`
+}
 
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
+function formatDelta(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—'
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`
+}
+
+function metricValue(metrics: StatsMetrics, metric: TrendMetric): number {
+  switch (metric) {
+    case 'calls':
+      return metrics.request_count
+    case 'errors':
+      return metrics.error_count + metrics.timeout_count
+    case 'latency':
+      return metrics.p95_duration_ms ?? 0
+    default:
+      return metrics.total_tokens
+  }
+}
+
+function chartLabel(value: string, bucketSize: string, timezone: string): string {
+  const date = new Date(value)
+  const options: Intl.DateTimeFormatOptions =
+    bucketSize === 'hour'
+      ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: timezone }
+      : { month: 'short', day: 'numeric', timeZone: timezone }
+  return new Intl.DateTimeFormat(undefined, options).format(date)
+}
+
+function KpiCard({
+  label,
+  value,
+  delta,
+  icon,
+  hint,
+}: {
+  label: string
+  value: string
+  delta?: number | null
+  icon: React.ReactNode
+  hint?: string
+}) {
   return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-md">
-      <p className="text-[11px] font-mono text-muted-foreground mb-1">{label}</p>
-      {payload.map((p: any, i: number) => (
-        <div key={i} className="flex items-center gap-2 text-[11px]">
-          <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
-          <span className="text-muted-foreground">{p.name}:</span>
-          <span className="font-mono font-semibold text-foreground tabular-nums">
-            {typeof p.value === 'number' ? p.value.toLocaleString() : p.value}
-          </span>
+    <GlassCard variant="flat" className="min-w-0 p-4" data-testid="stats-kpi">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {label}
+          </p>
+          <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground tabular-nums">
+            {value}
+          </p>
         </div>
-      ))}
+        <span className="rounded-lg border border-border/70 bg-muted/40 p-2 text-primary">
+          {icon}
+        </span>
+      </div>
+      <div className="mt-2 min-h-4 text-[11px] text-muted-foreground">
+        {delta !== undefined ? (
+          <span className={cn(delta !== null && delta > 0 && 'text-amber-500')}>
+            {formatDelta(delta)} {hint}
+          </span>
+        ) : (
+          hint
+        )}
+      </div>
+    </GlassCard>
+  )
+}
+
+function BreakdownList({ title, data }: { title: string; data?: StatsBreakdown }) {
+  const maximum = Math.max(...(data?.items.map((item) => item.metrics.total_tokens) ?? [0]), 1)
+  return (
+    <GlassCard variant="flat" className="p-4">
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <div className="mt-4 space-y-3">
+        {data?.items.slice(0, 6).map((item) => (
+          <div key={item.key}>
+            <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+              <span className="truncate text-foreground" title={item.label}>
+                {item.label}
+              </span>
+              <span className="shrink-0 font-mono text-muted-foreground tabular-nums">
+                {formatCompact(item.metrics.total_tokens)}
+              </span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary/80"
+                style={{ width: `${Math.max((item.metrics.total_tokens / maximum) * 100, 2)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+        {(!data || data.items.length === 0) && (
+          <p className="py-8 text-center text-xs text-muted-foreground">
+            No data for this selection.
+          </p>
+        )}
+      </div>
+    </GlassCard>
+  )
+}
+
+function EventTable({ events }: { events: StatsEvent[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px] text-left text-xs">
+        <thead className="border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground">
+          <tr>
+            <th className="px-3 py-2 font-medium">Time</th>
+            <th className="px-3 py-2 font-medium">Model</th>
+            <th className="px-3 py-2 font-medium">Context</th>
+            <th className="px-3 py-2 font-medium">Status</th>
+            <th className="px-3 py-2 text-right font-medium">Tokens</th>
+            <th className="px-3 py-2 text-right font-medium">Duration</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/70">
+          {events.map((event) => (
+            <tr key={event.call_id} className="hover:bg-muted/30">
+              <td className="whitespace-nowrap px-3 py-2.5 font-mono text-muted-foreground">
+                {new Date(event.finished_at).toLocaleString()}
+              </td>
+              <td className="max-w-[220px] truncate px-3 py-2.5 text-foreground">
+                {event.provider_id ? `${event.provider_id}/` : ''}
+                {event.model_id || 'Unknown'}
+              </td>
+              <td className="px-3 py-2.5 text-muted-foreground">
+                {event.origin} · {event.usage_type} · {event.task_type}
+              </td>
+              <td className="px-3 py-2.5">
+                <span
+                  className={cn(
+                    'inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                    event.status === 'success'
+                      ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
+                      : event.status === 'unknown'
+                        ? 'border-border bg-muted text-muted-foreground'
+                        : 'border-destructive/20 bg-destructive/10 text-destructive'
+                  )}
+                >
+                  {event.legacy ? 'Legacy' : event.status}
+                </span>
+              </td>
+              <td className="px-3 py-2.5 text-right font-mono tabular-nums">
+                {event.total_tokens.toLocaleString()}
+              </td>
+              <td className="px-3 py-2.5 text-right font-mono text-muted-foreground tabular-nums">
+                {event.legacy ? 'N/A' : formatDuration(event.duration_ms)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
 
-/* ── main component ────────────────────────────────────────── */
-
 export function StatsTab() {
-  const [timeframe, setTimeframe] = useState('daily')
-  const [teamFilter, setTeamFilter] = useState('all')
-  const [tokenStats, setTokenStats] = useState<TokenStat[]>([])
-  const [routerStats, setRouterStats] = useState<RouterStat[]>([])
-  const [classifierStats, setClassifierStats] = useState<ClassifierStat[]>([])
-  const [teams, setTeams] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const { t } = useTranslation()
+  const [range, setRange] = useState<RangeKey>(initialRange)
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [filters, setFilters] = useState<DashboardFilters>(() => ({
+    ...EMPTY_FILTERS,
+    team: new URLSearchParams(window.location.search).get('stats_team') || '',
+  }))
+  const [options, setOptions] = useState<StatsFilters | null>(null)
+  const [overview, setOverview] = useState<StatsOverview | null>(null)
+  const [breakdowns, setBreakdowns] = useState<Partial<Record<StatsDimension, StatsBreakdown>>>({})
+  const [activity, setActivity] = useState<ActivityDay[]>([])
+  const [events, setEvents] = useState<StatsEvent[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>('tokens')
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
+  const [partialError, setPartialError] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
-  const [activePreset, setActivePreset] = useState('')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
-  const mounted = useRef(false)
+  const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', [])
+  const rangeValues = useMemo(
+    () => rangeToQuery(range, customFrom, customTo),
+    [range, customFrom, customTo]
+  )
+  const query = useMemo<StatsQuery>(
+    () => ({
+      ...rangeValues,
+      timezone,
+      team_id: filters.team || undefined,
+      origin: filters.origin || undefined,
+      usage_type: filters.usageType || undefined,
+      task_type: filters.taskType || undefined,
+      model_id: filters.model || undefined,
+      status: filters.status || undefined,
+    }),
+    [rangeValues, timezone, filters]
+  )
 
-  const applyPreset = useCallback((key: string) => {
-    setActivePreset(key)
-    const preset = PRESETS.find(p => p.labelKey === key)
-    if (!preset) return
-    if (preset.suggestedTimeframe) {
-      setTimeframe(preset.suggestedTimeframe)
-    }
-    const range = preset.offset()
-    if (!range) {
-      setFromDate('')
-      setToDate('')
-      return
-    }
-    setFromDate(DATE_FMT(range.from))
-    setToDate(DATE_FMT(range.to))
-  }, [])
-
-  const handleCustomFrom = useCallback((val: string) => {
-    setActivePreset('')
-    const d = val ? new Date(val) : new Date(0)
-    setFromDate(isNaN(d.getTime()) ? '' : DATE_FMT(d))
-  }, [])
-
-  const handleCustomTo = useCallback((val: string) => {
-    setActivePreset('')
-    const d = val ? new Date(val) : new Date(0)
-    setToDate(isNaN(d.getTime()) ? '' : DATE_FMT(d))
-  }, [])
-
-  useEffect(() => {
-    if (mounted.current) return
-    mounted.current = true
-    applyPreset(DEFAULT_PRESETS[timeframe] || 'stats.preset30d')
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    const fetchData = async () => {
-      setLoading(true); setError('')
-      try {
-        const teamParam = teamFilter === 'all' ? undefined : teamFilter
-        const [tokenData, routerData, classifierData, teamsData] = await Promise.all([
-          getTokenStats(timeframe, teamParam, fromDate || undefined, toDate || undefined),
-          getRouterStats(timeframe, teamParam, fromDate || undefined, toDate || undefined),
-          getClassifierStats(timeframe, fromDate || undefined, toDate || undefined),
-          getStatTeams(),
-        ])
-        if (!active) return
-        setTokenStats(tokenData || [])
-        setRouterStats(routerData || [])
-        setClassifierStats(classifierData || [])
-        setTeams(teamsData || [])
-      } catch (err: any) {
-        if (active) setError(err.message || t('common.error'))
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
-    fetchData()
-    return () => { active = false }
-  }, [timeframe, teamFilter, fromDate, toDate, t])
-
-  const tokenChartData = useMemo(() => {
-    const grouped = new Map<string, { period: string; prompt: number; completion: number; cache: number }>()
-    for (const row of tokenStats) {
-      const p = row.period
-      if (!grouped.has(p)) grouped.set(p, { period: p, prompt: 0, completion: 0, cache: 0 })
-      const g = grouped.get(p)!
-      g.prompt += row.prompt_tokens
-      g.completion += row.completion_tokens
-      g.cache += row.cache_hit_tokens
-    }
-    if (fromDate && toDate) {
-      const fromD = new Date(fromDate.replace(' ', 'T'))
-      const toD = new Date(toDate.replace(' ', 'T'))
-      const buckets = generateBuckets(timeframe, fromD, toD)
-      for (const b of buckets) {
-        if (!grouped.has(b)) grouped.set(b, { period: b, prompt: 0, completion: 0, cache: 0 })
-      }
-    }
-    return Array.from(grouped.values()).sort((a, b) => a.period.localeCompare(b.period))
-  }, [tokenStats, timeframe, fromDate, toDate])
-
-  const routerChartData = useMemo(() => {
-    const grouped = new Map<string, { period: string; local: number; remote: number; error: number }>()
-    for (const row of routerStats) {
-      const p = row.period
-      if (!grouped.has(p)) grouped.set(p, { period: p, local: 0, remote: 0, error: 0 })
-      const g = grouped.get(p)!
-      if (row.classification_source === 'local') {
-        g.local += row.count
-      } else if (row.classification_source === 'local-fallback' || row.classification_source === 'error') {
-        g.error += row.count
-      } else {
-        g.remote += row.count
-      }
-    }
-    if (fromDate && toDate) {
-      const fromD = new Date(fromDate.replace(' ', 'T'))
-      const toD = new Date(toDate.replace(' ', 'T'))
-      const buckets = generateBuckets(timeframe, fromD, toD)
-      for (const b of buckets) {
-        if (!grouped.has(b)) grouped.set(b, { period: b, local: 0, remote: 0, error: 0 })
-      }
-    }
-    return Array.from(grouped.values()).sort((a, b) => a.period.localeCompare(b.period))
-  }, [routerStats, timeframe, fromDate, toDate])
-
-  const classifierChartData = useMemo(() => {
-    return classifierStats.map(s => ({
-      period: s.period,
-      ft: s.ft_count,
-      llm: s.llm_count,
-      error: s.llm_error_count,
-      agreed: s.agreed_count,
-      total: s.total_count,
-      agreement: s.llm_count > 0 ? Math.round((s.agreed_count / s.llm_count) * 100) : 0,
-      avgFtConf: s.avg_ft_conf,
-      avgLlmConf: s.avg_llm_conf,
-    })).sort((a, b) => a.period.localeCompare(b.period))
-  }, [classifierStats])
-
-  const [heatmapData, setHeatmapData] = useState<ActivityDay[]>([])
-  const [heatmapLoading, setHeatmapLoading] = useState(true)
+  const refresh = useCallback(() => setRefreshKey((value) => value + 1), [])
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    params.set('stats_range', range)
+    if (filters.team) params.set('stats_team', filters.team)
+    else params.delete('stats_team')
+    window.history.replaceState(null, '', `${window.location.pathname}?${params}`)
+  }, [range, filters.team])
+
+  useEffect(() => {
+    const controller = new AbortController()
     let active = true
     async function load() {
-      setHeatmapLoading(true)
+      setRefreshing(true)
+      setError('')
+      setPartialError(false)
       try {
-        const teamParam = teamFilter === 'all' ? undefined : teamFilter
-        const data = await getTokenStats('daily', teamParam)
+        const nextOverview = await getStatsOverview(query, controller.signal)
         if (!active) return
-        const grouped = new Map<string, number>()
-        for (const row of data) {
-          const date = row.period.split(' ')[0]
-          grouped.set(date, (grouped.get(date) || 0) + row.total_tokens)
-        }
-        const entries: ActivityDay[] = []
-        for (const [date, count] of grouped) entries.push({ date, count, level: 0 })
-        entries.sort((a, b) => a.date.localeCompare(b.date))
-        const counts = entries.map(e => e.count).filter(c => c > 0).sort((a, b) => a - b)
-        if (counts.length > 0) {
-          const q25 = counts[Math.floor(counts.length * 0.25)]
-          const q50 = counts[Math.floor(counts.length * 0.5)]
-          const q75 = counts[Math.floor(counts.length * 0.75)]
-          for (const e of entries) {
-            if (e.count === 0) e.level = 0
-            else if (e.count <= q25) e.level = 1
-            else if (e.count <= q50) e.level = 2
-            else if (e.count <= q75) e.level = 3
-            else e.level = 4
-          }
-        }
-        setHeatmapData(entries)
-      } catch { if (active) setHeatmapData([]) }
-      finally { if (active) setHeatmapLoading(false) }
-    }
-    load()
-    return () => { active = false }
-  }, [teamFilter])
+        setOverview(nextOverview)
 
-  const teamOptions = useMemo(() => {
-    const opts: { value: string; label: string }[] = [
-      { value: 'all', label: t('stats.allTeams') },
-      { value: '__solo__', label: t('stats.soloL1') },
-    ]
-    for (const t of teams) opts.push({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })
-    return opts
-  }, [teams, t])
-
-  const fmtLabel = (p: string) => {
-    const [date, time] = p.split(' ')
-    const parts = date.split('-')
-    const dateStr = parts.length === 3 ? `${parts[1]}/${parts[2]}` : p
-    if (time) {
-      const h = time.slice(0, 2), m = time.slice(3, 5)
-      if (m !== '00') return `${dateStr} ${h}:${m}`
-      if (h !== '00') return `${dateStr} ${h}:00`
+        const rangeOnly = { from: query.from, to: query.to, timezone: query.timezone }
+        const activityQuery = { ...query }
+        delete activityQuery.from
+        delete activityQuery.to
+        const results = await Promise.allSettled([
+          getStatsFilters(rangeOnly, controller.signal),
+          ...BREAKDOWN_DIMENSIONS.map((dimension) =>
+            getStatsBreakdown(dimension, query, controller.signal)
+          ),
+          getStatsActivity(activityQuery, 365, controller.signal),
+          getStatsEvents(query, undefined, 25, controller.signal),
+        ])
+        if (!active) return
+        const [filterResult, ...rest] = results
+        if (filterResult.status === 'fulfilled') setOptions(filterResult.value)
+        const nextBreakdowns: Partial<Record<StatsDimension, StatsBreakdown>> = {}
+        BREAKDOWN_DIMENSIONS.forEach((dimension, index) => {
+          const result = rest[index]
+          if (result.status === 'fulfilled')
+            nextBreakdowns[dimension] = result.value as StatsBreakdown
+        })
+        setBreakdowns(nextBreakdowns)
+        const activityResult = rest[BREAKDOWN_DIMENSIONS.length]
+        if (activityResult.status === 'fulfilled') {
+          const activityData = activityResult.value as StatsActivity
+          setActivity(
+            activityData.points
+              .filter((point) => point.request_count > 0)
+              .map((point) => ({ date: point.date, count: point.total_tokens, level: point.level }))
+          )
+        }
+        const eventsResult = rest[BREAKDOWN_DIMENSIONS.length + 1]
+        if (eventsResult.status === 'fulfilled') {
+          const eventData = eventsResult.value as StatsEvents
+          setEvents(eventData.items)
+          setNextCursor(eventData.next_cursor)
+        }
+        setPartialError(results.some((result) => result.status === 'rejected'))
+      } catch (reason) {
+        if (!active || controller.signal.aborted) return
+        setError(reason instanceof Error ? reason.message : t('common.error'))
+      } finally {
+        if (active) {
+          setLoading(false)
+          setRefreshing(false)
+        }
+      }
     }
-    return dateStr
+    void load()
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [query, refreshKey, t])
+
+  useEffect(() => {
+    const timer = window.setInterval(refresh, 60_000)
+    return () => window.clearInterval(timer)
+  }, [refresh])
+
+  const loadMore = async () => {
+    if (!nextCursor) return
+    try {
+      const page = await getStatsEvents(query, nextCursor, 25)
+      setEvents((current) => [...current, ...page.items])
+      setNextCursor(page.next_cursor)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t('common.error'))
+    }
   }
 
-  const fmtTick = (v: number) => {
-    if (v >= 1_000_000) return `${Number((v / 1_000_000).toFixed(1))}M`
-    if (v >= 1_000) return `${Number((v / 1_000).toFixed(1))}k`
-    return String(v)
+  const updateFilter = (key: keyof DashboardFilters, value: string) => {
+    setFilters((current) => ({ ...current, [key]: value }))
   }
+
+  const clearFilters = () => setFilters(EMPTY_FILTERS)
+  const hasFilters = Object.values(filters).some(Boolean)
+  const summary = overview?.summary
+  const chartData =
+    overview?.series.map((point) => ({
+      period: chartLabel(point.start, overview.meta.bucket_size, overview.meta.timezone),
+      value: metricValue(point.metrics, trendMetric),
+    })) ?? []
+
+  const optionList = (items: { value: string; label: string }[] | undefined, allLabel: string) => [
+    { value: '', label: allLabel },
+    ...(items ?? []),
+  ]
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-primary" />
-          {t('stats.title')}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {t('stats.title')}
-        </p>
-      </div>
+    <div className="space-y-5 pb-10">
+      <header className="flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
+              {t('stats.title')}
+            </h2>
+            {overview && overview.meta.coverage.legacy_rows > 0 && (
+              <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500">
+                {overview.meta.coverage.legacy_rows.toLocaleString()} legacy
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">{t('stats.subtitle')}</p>
+          {overview && (
+            <p className="mt-2 font-mono text-[10px] text-muted-foreground/70">
+              {t('stats.updated')} {new Date(overview.meta.generated_at).toLocaleTimeString()} ·{' '}
+              {overview.meta.timezone}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={refreshing}
+          className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+          {t('stats.refresh')}
+        </button>
+      </header>
 
-      <div className="inline-flex w-fit flex-wrap items-center gap-3 rounded-xl border border-border/70 bg-card/70 px-3 py-2 shadow-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">{t('stats.timeFrame')}</span>
-          <Select value={timeframe} onChange={setTimeframe} options={[
-            { value: 'minutely', label: t('stats.minutely') },
-            { value: 'hourly', label: t('stats.hourly') },
-            { value: 'daily', label: t('stats.daily') },
-            { value: 'weekly', label: t('stats.weekly') },
-            { value: 'monthly', label: t('stats.monthly') },
-          ]} className="w-[116px]" />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">{t('stats.teamFilter')}</span>
-          <Select value={teamFilter} onChange={setTeamFilter} options={teamOptions} className="w-[140px]" />
-        </div>
-        <span className="h-5 w-px bg-border/70" />
-        {PRESETS.map(p => (
-          <button
-            key={p.labelKey}
-            className={`px-2 py-1 text-xs rounded-md transition-colors ${
-              activePreset === p.labelKey
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-            onClick={() => applyPreset(p.labelKey)}
-          >
-            {t(p.labelKey as any)}
-          </button>
-        ))}
-        <span className="h-5 w-px bg-border/70" />
-        <div className="flex items-center gap-1.5">
-          <input
-            type="datetime-local"
-            key={`from-${fromDate}`}
-            value={fromDate ? toInputVal(fromDate) : ''}
-            onChange={e => handleCustomFrom(e.target.value)}
-            className="h-7 w-[160px] text-[11px] bg-muted/50 border border-border rounded-md px-1.5 text-foreground [color-scheme:dark]"
+      <section
+        aria-label="Statistics filters"
+        className="rounded-xl border border-border/70 bg-card/70 p-3"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {(['24h', '7d', '30d', 'custom'] as RangeKey[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={range === key}
+              onClick={() => setRange(key)}
+              className={cn(
+                'h-8 rounded-lg px-3 text-xs font-medium transition-colors',
+                range === key
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )}
+            >
+              {key === 'custom' ? t('stats.custom') : key}
+            </button>
+          ))}
+          <span className="mx-1 hidden h-5 w-px bg-border sm:block" />
+          <Select
+            value={filters.team}
+            onChange={(value) => updateFilter('team', value)}
+            options={optionList(options?.teams, t('stats.allTeams'))}
+            className="w-[150px]"
           />
-          <span className="text-[10px] text-muted-foreground">-</span>
-          <input
-            type="datetime-local"
-            key={`to-${toDate}`}
-            value={toDate ? toInputVal(toDate) : ''}
-            onChange={e => handleCustomTo(e.target.value)}
-            className="h-7 w-[160px] text-[11px] bg-muted/50 border border-border rounded-md px-1.5 text-foreground [color-scheme:dark]"
-          />
+          <details className="group relative">
+            <summary className="flex h-8 cursor-pointer list-none items-center rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+              {t('stats.moreFilters')}
+              {hasFilters ? ' ·' : ''}
+            </summary>
+            <div className="absolute right-0 z-20 mt-2 grid w-[440px] max-w-[80vw] grid-cols-2 gap-3 rounded-xl border border-border bg-card p-4 shadow-xl">
+              <Select
+                value={filters.origin}
+                onChange={(value) => updateFilter('origin', value)}
+                options={optionList(options?.origins, t('stats.allOrigins'))}
+              />
+              <Select
+                value={filters.usageType}
+                onChange={(value) => updateFilter('usageType', value)}
+                options={optionList(options?.usage_types, t('stats.allUsageTypes'))}
+              />
+              <Select
+                value={filters.taskType}
+                onChange={(value) => updateFilter('taskType', value)}
+                options={optionList(options?.task_types, t('stats.allTaskTypes'))}
+              />
+              <Select
+                value={filters.model}
+                onChange={(value) => updateFilter('model', value)}
+                options={optionList(options?.models, t('stats.allModels'))}
+              />
+              <Select
+                value={filters.status}
+                onChange={(value) => updateFilter('status', value)}
+                options={optionList(options?.statuses, t('stats.allStatuses'))}
+              />
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="h-8 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                {t('stats.clearFilters')}
+              </button>
+            </div>
+          </details>
+          {range === 'custom' && (
+            <div className="flex flex-wrap items-center gap-2 border-l border-border pl-3">
+              <input
+                aria-label="From"
+                type="datetime-local"
+                value={customFrom}
+                onChange={(event) => setCustomFrom(event.target.value)}
+                className="h-8 rounded-lg border border-border bg-muted/30 px-2 text-xs text-foreground"
+              />
+              <span className="text-xs text-muted-foreground">–</span>
+              <input
+                aria-label="To"
+                type="datetime-local"
+                value={customTo}
+                onChange={(event) => setCustomTo(event.target.value)}
+                className="h-8 rounded-lg border border-border bg-muted/30 px-2 text-xs text-foreground"
+              />
+            </div>
+          )}
         </div>
-      </div>
+      </section>
 
       {error && (
-        <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md border border-destructive/20">{error}</div>
-      )}
-
-      {/* Activity Heatmap */}
-      <GlassCard className="flex flex-col gap-3">
-        <div>
-          <h3 className="font-semibold text-foreground flex items-center gap-2">
-            <GitCommitHorizontal className="h-4 w-4 text-primary" />
-            {t('stats.activityHeatmap')}
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {t('stats.activityDesc')}
-          </p>
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={refresh}
+            className="font-medium underline underline-offset-2"
+          >
+            {t('stats.retry')}
+          </button>
         </div>
-        <ActivityHeatmap data={heatmapData} days={365} loading={heatmapLoading} />
-      </GlassCard>
-
-      {!loading && !error && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {/* Token Consumption */}
-          <GlassCard className="flex flex-col gap-4 min-h-[350px]">
-            <div>
-              <h3 className="font-semibold text-foreground">{t('stats.tokenConsumption')}</h3>
-            </div>
-            {tokenChartData.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-                {t('stats.noTokenData')}
-              </div>
-            ) : (
-              <div className="flex-1 h-[250px] text-muted-foreground">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={tokenChartData} margin={{ top: 10, right: 18, left: 8, bottom: 6 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" strokeOpacity={0.15} />
-                    <XAxis dataKey="period" tickFormatter={fmtLabel} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
-                    <YAxis width={56} tickFormatter={fmtTick} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
-                    <RechartsTooltip content={<ChartTooltip />} cursor={{ fill: 'currentColor', fillOpacity: 0.08 }} />
-                    <Legend wrapperStyle={{ fontSize: '12px' }} />
-                    <Bar dataKey="prompt" name={t('stats.prompt')} fill="var(--color-chart-1)" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="completion" name={t('stats.completion')} fill="var(--color-chart-2)" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="cache" name={t('stats.cacheHits')} fill="var(--color-chart-3)" radius={[3, 3, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </GlassCard>
-
-          {/* Router Classifications */}
-          <GlassCard className="flex flex-col gap-4 min-h-[350px]">
-            <div>
-              <h3 className="font-semibold text-foreground">{t('stats.routerClassifications')}</h3>
-            </div>
-            {routerChartData.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-                {t('stats.noRouterData')}
-              </div>
-            ) : (
-              <div className="flex-1 h-[250px] text-muted-foreground">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={routerChartData} margin={{ top: 10, right: 18, left: 8, bottom: 6 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" strokeOpacity={0.15} />
-                    <XAxis dataKey="period" tickFormatter={fmtLabel} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
-                    <YAxis width={44} tickFormatter={fmtTick} allowDecimals={false} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
-                    <RechartsTooltip content={<ChartTooltip />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
-                    <Legend wrapperStyle={{ fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="local" name={t('stats.local')} stroke="var(--color-chart-4)" strokeWidth={2} dot={routerChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="remote" name={t('stats.remote')} stroke="var(--color-chart-5)" strokeWidth={2} dot={routerChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="error" name={t('stats.error')} stroke="var(--color-destructive)" strokeWidth={2} dot={routerChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </GlassCard>
+      )}
+      {partialError && !error && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
+          <AlertTriangle className="h-3.5 w-3.5" /> {t('stats.partialData')}
         </div>
       )}
 
-      {/* Classifier Performance */}
-      {!loading && !error && classifierChartData.length > 0 && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <GlassCard className="flex flex-col gap-4 min-h-[350px]">
-            <div>
-              <h3 className="font-semibold text-foreground">{t('stats.classifierDecisions')}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">{t('stats.classifierDesc')}</p>
-            </div>
-            <div className="flex-1 h-[250px] text-muted-foreground">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={classifierChartData} margin={{ top: 10, right: 18, left: 8, bottom: 6 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" strokeOpacity={0.15} />
-                  <XAxis dataKey="period" tickFormatter={fmtLabel} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
-                  <YAxis width={44} tickFormatter={fmtTick} allowDecimals={false} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
-                  <RechartsTooltip content={<ChartTooltip />} cursor={{ fill: 'currentColor', fillOpacity: 0.08 }} />
-                  <Legend wrapperStyle={{ fontSize: '12px' }} />
-                  <Bar dataKey="ft" name={t('stats.ftOnly')} stackId="a" fill="var(--color-chart-4)" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="llm" name={t('stats.llmCall')} stackId="a" fill="var(--color-chart-2)" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="error" name={t('stats.llmError')} stackId="a" fill="var(--color-destructive)" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </GlassCard>
+      {loading && !overview ? (
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div
+              key={index}
+              className="h-28 animate-pulse rounded-xl border border-border bg-muted/30"
+            />
+          ))}
+        </div>
+      ) : overview && summary ? (
+        <>
+          {summary.request_count === 0 && (
+            <GlassCard variant="ghost" className="py-10 text-center">
+              <Database className="mx-auto h-6 w-6 text-muted-foreground" />
+              <p className="mt-3 text-sm font-medium text-foreground">{t('stats.emptyTitle')}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t('stats.emptyDesc')}</p>
+              {hasFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="mt-3 text-xs font-medium text-primary hover:underline"
+                >
+                  {t('stats.clearFilters')}
+                </button>
+              )}
+            </GlassCard>
+          )}
 
-          <GlassCard className="flex flex-col gap-4 min-h-[350px]">
-            <div>
-              <h3 className="font-semibold text-foreground">{t('stats.classifierAgreement')}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">{t('stats.agreementDesc')}</p>
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
+            <KpiCard
+              label={t('stats.totalTokens')}
+              value={formatCompact(summary.total_tokens)}
+              delta={overview.comparison.total_tokens?.change_pct}
+              hint={t('stats.vsPrevious')}
+              icon={<Zap className="h-4 w-4" />}
+            />
+            <KpiCard
+              label={t('stats.requests')}
+              value={summary.request_count.toLocaleString()}
+              delta={overview.comparison.request_count?.change_pct}
+              hint={t('stats.vsPrevious')}
+              icon={<Activity className="h-4 w-4" />}
+            />
+            <KpiCard
+              label={t('stats.successRate')}
+              value={
+                overview.meta.coverage.legacy_rows === overview.meta.coverage.total_rows
+                  ? 'N/A'
+                  : formatPercent(summary.success_rate)
+              }
+              hint={t('stats.knownCallsOnly')}
+              icon={<CheckCircle2 className="h-4 w-4" />}
+            />
+            <KpiCard
+              label={t('stats.p95Latency')}
+              value={formatDuration(summary.p95_duration_ms)}
+              delta={overview.comparison.p95_duration_ms?.change_pct}
+              hint={t('stats.lowerIsBetter')}
+              icon={<Clock3 className="h-4 w-4" />}
+            />
+            <KpiCard
+              label={t('stats.cacheHits')}
+              value={formatPercent(summary.cache_hit_rate)}
+              hint={`${overview.meta.coverage.cache_coverage_pct.toFixed(0)}% ${t('stats.coverage')}`}
+              icon={<Gauge className="h-4 w-4" />}
+            />
+          </div>
+
+          {overview.insights.length > 0 && (
+            <div className="grid gap-2 lg:grid-cols-2">
+              {overview.insights.map((insight) => (
+                <div
+                  key={insight.id}
+                  className={cn(
+                    'flex items-start gap-3 rounded-xl border px-4 py-3',
+                    insight.severity === 'critical' || insight.severity === 'warning'
+                      ? 'border-amber-500/20 bg-amber-500/10'
+                      : 'border-primary/20 bg-primary/5'
+                  )}
+                >
+                  <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">{insight.title}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{insight.detail}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex-1 h-[250px] text-muted-foreground">
+          )}
+
+          <GlassCard variant="flat" className="p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">{t('stats.trend')}</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t('stats.trendDesc')}</p>
+              </div>
+              <div className="flex rounded-lg bg-muted/50 p-1">
+                {(['tokens', 'calls', 'errors', 'latency'] as TrendMetric[]).map((metric) => (
+                  <button
+                    key={metric}
+                    type="button"
+                    onClick={() => setTrendMetric(metric)}
+                    className={cn(
+                      'rounded-md px-2.5 py-1 text-[11px] font-medium capitalize',
+                      trendMetric === metric
+                        ? 'bg-card text-foreground shadow-sm'
+                        : 'text-muted-foreground'
+                    )}
+                  >
+                    {t(`stats.${metric}` as 'stats.tokens')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4 h-[280px] text-muted-foreground">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={classifierChartData} margin={{ top: 10, right: 18, left: 8, bottom: 6 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" strokeOpacity={0.15} />
-                  <XAxis dataKey="period" tickFormatter={fmtLabel} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
-                  <YAxis domain={[0, 100]} width={44} tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 12, fill: 'currentColor' }} stroke="currentColor" tickLine={{ stroke: 'currentColor' }} axisLine={{ stroke: 'currentColor' }} />
-                  <RechartsTooltip content={<ChartTooltip />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
-                  <Legend wrapperStyle={{ fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="agreement" name={t('stats.agreement')} stroke="var(--color-chart-1)" strokeWidth={2} dot={classifierChartData.length > 24 ? false : { r: 3 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="avgFtConf" name={t('stats.avgFtConf')} stroke="var(--color-warning)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
-                  <Line type="monotone" dataKey="avgLlmConf" name={t('stats.avgLlmConf')} stroke="var(--color-chart-5)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+                <LineChart data={chartData} margin={{ top: 8, right: 12, left: 8, bottom: 0 }}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="currentColor"
+                    strokeOpacity={0.12}
+                  />
+                  <XAxis
+                    dataKey="period"
+                    tick={{ fontSize: 10, fill: 'currentColor' }}
+                    tickLine={false}
+                    axisLine={false}
+                    minTickGap={24}
+                  />
+                  <YAxis
+                    width={54}
+                    tickFormatter={formatCompact}
+                    tick={{ fontSize: 10, fill: 'currentColor' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <RechartsTooltip
+                    formatter={(value) => Number(value).toLocaleString()}
+                    contentStyle={{
+                      background: 'var(--color-card)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 10,
+                      fontSize: 12,
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    name={t(`stats.${trendMetric}` as 'stats.tokens')}
+                    stroke="var(--color-primary)"
+                    strokeWidth={2}
+                    dot={chartData.length < 20 ? { r: 2 } : false}
+                    activeDot={{ r: 4 }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </GlassCard>
-        </div>
-      )}
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            <BreakdownList title={t('stats.topModels')} data={breakdowns.model} />
+            <BreakdownList title={t('stats.usageTypes')} data={breakdowns.usage_type} />
+            <BreakdownList title={t('stats.taskTypes')} data={breakdowns.task_type} />
+            <BreakdownList title={t('stats.origins')} data={breakdowns.origin} />
+            <BreakdownList title={t('stats.reliability')} data={breakdowns.status} />
+            <GlassCard variant="flat" className="p-4">
+              <h3 className="text-sm font-semibold text-foreground">{t('stats.dataCoverage')}</h3>
+              <div className="mt-4 space-y-3 text-xs">
+                {[
+                  [t('stats.cache'), overview.meta.coverage.cache_coverage_pct],
+                  [t('stats.reasoning'), overview.meta.coverage.reasoning_coverage_pct],
+                ].map(([label, value]) => (
+                  <div key={String(label)}>
+                    <div className="mb-1 flex justify-between">
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="font-mono text-foreground">{Number(value).toFixed(0)}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary/70"
+                        style={{ width: `${value}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+          </div>
+
+          <details className="rounded-xl border border-border bg-card" open={false}>
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-foreground">
+              {t('stats.activityHeatmap')}{' '}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {t('stats.activityDesc')}
+              </span>
+            </summary>
+            <div className="border-t border-border p-4">
+              <ActivityHeatmap data={activity} days={365} />
+            </div>
+          </details>
+
+          <GlassCard variant="flat" size="none" className="overflow-hidden">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">{t('stats.recentCalls')}</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t('stats.recentCallsDesc')}</p>
+              </div>
+              <span className="text-[10px] text-muted-foreground">
+                {events.length} {t('stats.loaded')}
+              </span>
+            </div>
+            {events.length > 0 ? (
+              <EventTable events={events} />
+            ) : (
+              <p className="py-10 text-center text-xs text-muted-foreground">
+                {t('stats.noEvents')}
+              </p>
+            )}
+            {nextCursor && (
+              <div className="border-t border-border p-3 text-center">
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                >
+                  {t('stats.loadMore')}
+                </button>
+              </div>
+            )}
+          </GlassCard>
+        </>
+      ) : null}
     </div>
   )
 }

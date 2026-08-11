@@ -545,6 +545,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Get("/router", m.handleGetRouterStats)
 		r.Get("/classifier", m.handleGetClassifierStats)
 		r.Get("/teams", m.handleGetTeams)
+		r.Route("/v2", func(r chi.Router) {
+			r.Get("/overview", m.handleGetStatsV2Overview)
+			r.Get("/breakdowns", m.handleGetStatsV2Breakdowns)
+			r.Get("/events", m.handleGetStatsV2Events)
+			r.Get("/filters", m.handleGetStatsV2Filters)
+			r.Get("/activity", m.handleGetStatsV2Activity)
+		})
 	})
 
 	// MCP config routes
