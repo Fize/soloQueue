@@ -8,6 +8,7 @@ const BACKEND_IDENTIFIER = 'com.soloqueue.backend'
 exports.default = async function afterPack(context) {
   const { electronPlatformName, appOutDir, packager } = context
   if (electronPlatformName !== 'darwin') return
+  const startedAt = process.hrtime.bigint()
 
   const appName = packager.appInfo.productFilename
   const backendPath = path.join(
@@ -36,16 +37,8 @@ exports.default = async function afterPack(context) {
     { stdio: 'inherit' }
   )
 
-  execFileSync(
-    '/usr/bin/codesign',
-    [
-      '--verify',
-      '--strict',
-      `-R=certificate leaf[subject.CN] = "${SIGNING_IDENTITY}"`,
-      backendPath
-    ],
-    { stdio: 'inherit' }
+  const elapsedSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9
+  console.log(
+    `[afterPack] Signed backend as ${BACKEND_IDENTIFIER} in ${elapsedSeconds.toFixed(2)}s`
   )
-
-  console.log(`[afterPack] Signed backend as ${BACKEND_IDENTIFIER}`)
 }

@@ -1,4 +1,4 @@
-.PHONY: help build build-web build-desktop build-all build-all-win build-go build-go-win build-win package-desktop package-desktop-win setup-macos-signing check-macos-signing clean
+.PHONY: help build build-web build-desktop build-all build-all-win build-go build-go-win build-win package-desktop package-desktop-app repackage-desktop-app package-desktop-win setup-macos-signing check-macos-signing clean
 
 PLATFORM ?=
 GOOS =
@@ -60,6 +60,14 @@ build-go-win: ## Build Go binary for Windows only (assumes portal dist is alread
 
 package-desktop: build-all ## Package Electron desktop client binaries (specify platform via PLATFORM=mac|win|linux, defaults to current OS)
 	cd desktop && npx electron-builder build --config electron-builder.json $(PLATFORM_FLAGS)
+
+package-desktop-app: build-all ## Build and package the fixed-signed macOS app without creating a DMG
+	cd desktop && npx electron-builder build --config electron-builder.json --mac dir
+
+repackage-desktop-app: ## Repackage the fixed-signed macOS app from existing Go and Desktop build outputs
+	@test -x soloqueue || { echo "ERROR: soloqueue is missing; run 'make build-all' first"; exit 1; }
+	@test -f desktop/dist/index.html || { echo "ERROR: desktop/dist is missing; run 'make build-all' first"; exit 1; }
+	cd desktop && npx electron-builder build --config electron-builder.json --mac dir
 
 package-desktop-win: build-all-win ## Alias: full Windows build including desktop installer
 

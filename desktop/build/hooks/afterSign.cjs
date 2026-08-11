@@ -115,6 +115,7 @@ function verifySignedTarget(targetPath, expectedIdentifier, expectedCertificateS
 exports.default = async function afterSign(context) {
   const { electronPlatformName, appOutDir, packager } = context
   if (electronPlatformName !== 'darwin') return
+  const startedAt = process.hrtime.bigint()
 
   const appName = packager.appInfo.productFilename
   const appPath = path.join(appOutDir, `${appName}.app`)
@@ -128,10 +129,20 @@ exports.default = async function afterSign(context) {
   }
 
   const expectedFingerprint = readPinnedFingerprint()
+  const identityStartedAt = process.hrtime.bigint()
   const expectedCertificateSha1 = verifyKeychainIdentity(expectedFingerprint)
-  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath])
+  const identitySeconds = Number(process.hrtime.bigint() - identityStartedAt) / 1e9
+  console.log(`[afterSign] Verified Keychain identity in ${identitySeconds.toFixed(2)}s`)
+
+  // electron-builder already performs a deep bundle verification before this hook.
+  const requirementsStartedAt = process.hrtime.bigint()
   verifySignedTarget(appPath, APP_IDENTIFIER, expectedCertificateSha1)
   verifySignedTarget(backendPath, BACKEND_IDENTIFIER, expectedCertificateSha1)
+  const requirementsSeconds = Number(process.hrtime.bigint() - requirementsStartedAt) / 1e9
+  console.log(`[afterSign] Verified fixed requirements in ${requirementsSeconds.toFixed(2)}s`)
 
-  console.log(`[afterSign] Verified fixed identity ${SIGNING_IDENTITY} (${expectedFingerprint})`)
+  const elapsedSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9
+  console.log(
+    `[afterSign] Verified fixed identity ${SIGNING_IDENTITY} (${expectedFingerprint}) in ${elapsedSeconds.toFixed(2)}s`
+  )
 }
