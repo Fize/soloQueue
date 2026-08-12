@@ -20,19 +20,23 @@ type VoiceItem struct {
 type CDNMedia struct {
 	EncryptQueryParam string `json:"encrypt_query_param,omitempty"`
 	AESKey            string `json:"aes_key,omitempty"`
+	EncryptType       int    `json:"encrypt_type,omitempty"`
 }
 
 type ImageItem struct {
-	Media *CDNMedia `json:"media,omitempty"`
+	Media   *CDNMedia `json:"media,omitempty"`
+	MidSize int64     `json:"mid_size,omitempty"`
 }
 
 type VideoItem struct {
-	Media *CDNMedia `json:"media,omitempty"`
+	Media     *CDNMedia `json:"media,omitempty"`
+	VideoSize int64     `json:"video_size,omitempty"`
 }
 
 type FileItem struct {
 	Media    *CDNMedia `json:"media,omitempty"`
 	FileName string    `json:"file_name,omitempty"`
+	Len      string    `json:"len,omitempty"`
 }
 
 type MessageItem struct {
@@ -61,6 +65,12 @@ type APIResponse struct {
 	Ret     int    `json:"ret,omitempty"`
 	ErrCode int    `json:"errcode,omitempty"`
 	ErrMsg  string `json:"errmsg,omitempty"`
+}
+
+type GetUploadURLResponse struct {
+	APIResponse
+	UploadParam   string `json:"upload_param,omitempty"`
+	UploadFullURL string `json:"upload_full_url,omitempty"`
 }
 
 type GetConfigResponse struct {

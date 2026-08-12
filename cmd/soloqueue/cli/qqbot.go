@@ -92,6 +92,7 @@ func startQQBots(cfg *config.GlobalService, mgr *session.SessionManager, l2Store
 		}, mgr, l2Store, rt, workDir, qqLog, supervisorsFn, registry)
 
 		qqBridge := qqbot.NewSessionBridge(sessionProvider, qqAPI, qqLog,
+			qqbot.WithAccountID(qqCfg.AppID),
 			qqbot.WithVersion(version),
 			qqbot.WithMessageQueue(qqQueue),
 			qqbot.WithWhitelist(qqCfgBase.WhitelistEnabled, qqCfgBase.Whitelist),
@@ -169,16 +170,44 @@ func NewQQBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2S
 		if len(bridges) == 0 {
 			return fmt.Errorf("no active qq bridge available")
 		}
+		if msg.AccountID == "" && len(bridges) > 1 {
+			return fmt.Errorf("qq route metadata has no account id and multiple bridges are active")
+		}
 
 		var lastErr error
 		for _, b := range bridges {
+			if msg.AccountID != "" && b.AccountID() != msg.AccountID {
+				continue
+			}
 			err := b.SendActiveMessage(ctx, msg, qqbot.MsgTypeMarkdown, formatted)
 			if err == nil {
 				return nil
 			}
 			lastErr = err
 		}
-		return fmt.Errorf("all qq bridges failed to send, last error: %w", lastErr)
+		if lastErr == nil {
+			return fmt.Errorf("no active qq bridge for account %q", msg.AccountID)
+		}
+		return fmt.Errorf("qq bridge failed to send: %w", lastErr)
+	})
+	channel.RegisterMediaSenderFactory("qq", func(ctx context.Context, data []byte, media []channel.OutboundMedia) error {
+		var msg qqbot.QQMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return err
+		}
+		m.mu.Lock()
+		bridges := append([]*qqbot.SessionBridge(nil), m.bridges...)
+		m.mu.Unlock()
+		if msg.AccountID == "" && len(bridges) > 1 {
+			return fmt.Errorf("qq route metadata has no account id and multiple bridges are active")
+		}
+		for _, bridge := range bridges {
+			if msg.AccountID != "" && bridge.AccountID() != msg.AccountID {
+				continue
+			}
+			return bridge.SendMediaForMessage(ctx, msg, media)
+		}
+		return fmt.Errorf("no active qq bridge for account %q", msg.AccountID)
 	})
 
 	return m

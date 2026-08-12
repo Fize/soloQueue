@@ -21,6 +21,7 @@ type Attachment struct {
 	MIMEType   string
 	Name       string
 	Transcript string
+	Data       []byte `json:"-"`
 }
 
 // Message is the transport-neutral part of an inbound channel message.
@@ -50,6 +51,11 @@ type TextSender interface {
 	SendText(ctx context.Context, msg Message, text string) error
 }
 
+// MediaSender sends media using the immutable reply route carried by msg.
+type MediaSender interface {
+	SendMedia(ctx context.Context, msg Message, media []OutboundMedia) error
+}
+
 // ResponseActivityStarter optionally keeps a channel's reply window active
 // while the session is producing a response. Transports without this concept
 // only need to implement TextSender.
@@ -67,6 +73,7 @@ type TextFormatter interface {
 // ChatMeta carries channel source metadata through context for cron task creation.
 type ChatMeta struct {
 	Channel        string // "qq" | "wechat" | "" (web)
+	AccountID      string
 	UserID         string
 	ConversationID string
 }

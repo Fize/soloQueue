@@ -22,10 +22,10 @@ func (s *fakeSession) AskStream(_ context.Context, prompt string, _ OnIntermedia
 	s.prompt = prompt
 	return &AskStreamResult{Content: "reply"}, nil
 }
-func (*fakeSession) Clear(context.Context) error                                      { return nil }
-func (*fakeSession) Compact(context.Context) error                                    { return nil }
-func (*fakeSession) CancelCurrent(string) error                                       { return nil }
-func (*fakeSession) SaveUploadedFile(context.Context, string, []byte) (string, error) { return "", nil }
+func (*fakeSession) Clear(context.Context) error                                              { return nil }
+func (*fakeSession) Compact(context.Context) error                                            { return nil }
+func (*fakeSession) CancelCurrent(string) error                                               { return nil }
+func (*fakeSession) SaveUploadedFile(context.Context, string, []byte) (string, error)         { return "", nil }
 func (*fakeSession) SetChannelSenderData(string, []byte, func(context.Context, string) error) {}
 
 type fakeSender struct {
@@ -131,7 +131,7 @@ func TestTextBridgeEmptyEnabledWhitelistDeniesAll(t *testing.T) {
 	}
 }
 
-func TestTextBridgeMediaOnlyReturnsExplicitReply(t *testing.T) {
+func TestTextBridgeMediaOnlyReachesAgent(t *testing.T) {
 	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
 	sess := &fakeSession{}
 	sender := &fakeSender{}
@@ -141,7 +141,41 @@ func TestTextBridgeMediaOnlyReturnsExplicitReply(t *testing.T) {
 		UserID:      "u1",
 		Attachments: []Attachment{{Kind: AttachmentAudio, LocalPath: "/tmp/voice.wav"}},
 	})
-	if sess.prompt != "" || sender.text != mediaOnlyReply {
+	if sess.prompt == "" || sender.text != "reply" {
 		t.Fatalf("prompt=%q reply=%q", sess.prompt, sender.text)
+	}
+}
+
+type mediaFakeSession struct{ fakeSession }
+
+func (s *mediaFakeSession) AskStream(ctx context.Context, prompt string, fn OnIntermediateFunc) (*AskStreamResult, error) {
+	s.prompt = prompt
+	return &AskStreamResult{MediaList: []OutboundMedia{{Kind: MediaFile, Path: "/export/report.csv", FileName: "report.csv"}}}, nil
+}
+
+type mediaFakeSender struct {
+	fakeSender
+	mediaMessage Message
+	media        []OutboundMedia
+}
+
+func (s *mediaFakeSender) SendMedia(_ context.Context, msg Message, media []OutboundMedia) error {
+	s.mediaMessage = msg
+	s.media = append([]OutboundMedia(nil), media...)
+	return nil
+}
+
+func TestTextBridgeSendsMediaWithoutFinalTextOnOriginalRoute(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sess := &mediaFakeSession{}
+	sender := &mediaFakeSender{}
+	bridge := NewTextBridge(sess, sender, log, "1.0.0", false, nil)
+	msg := Message{Channel: "wechat", AccountID: "bot-a", ConversationID: "chat-a", UserID: "user-a", Text: "send", ReplyToken: "token-a"}
+	bridge.OnMessage(context.Background(), msg)
+	if len(sender.media) != 1 || sender.mediaMessage.AccountID != "bot-a" || sender.mediaMessage.ReplyToken != "token-a" {
+		t.Fatalf("media route=%#v media=%#v", sender.mediaMessage, sender.media)
+	}
+	if sender.text != "" {
+		t.Fatalf("unexpected text reply %q", sender.text)
 	}
 }

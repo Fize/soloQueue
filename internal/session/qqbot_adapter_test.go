@@ -2,15 +2,17 @@ package session
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
 // newTestLog creates a silent logger for adapter tests.
@@ -305,7 +307,41 @@ func TestConsumeAskStreamEvents_SendFileResult(t *testing.T) {
 	if len(result.MediaList) != 1 {
 		t.Errorf("expected 1 media item, got %d", len(result.MediaList))
 	}
-	if len(result.MediaList) > 0 && result.MediaList[0].FileType != 1 {
-		t.Errorf("FileType = %d, want 1 (image)", result.MediaList[0].FileType)
+	if len(result.MediaList) > 0 && result.MediaList[0].Kind != channel.MediaImage {
+		t.Errorf("Kind = %q, want image", result.MediaList[0].Kind)
+	}
+	if len(result.MediaList) > 0 && result.MediaList[0].Path != "/tmp/test.png" {
+		t.Errorf("Path = %q, want exported path", result.MediaList[0].Path)
+	}
+}
+
+func TestChannelTurnDoesNotEnterRouteLessPendingQueue(t *testing.T) {
+	testLog := newTestLog(t)
+	sess := &Session{logger: testLog, pending: &PendingQueue{}}
+	sess.inFlight.Store(1)
+	base := &channelAdapterBase{log: testLog}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	_, _, err := base.askChannelStream(ctx, sess, "from-qq")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := sess.pending.Len(); got != 0 {
+		t.Fatalf("route-less pending length = %d, want 0", got)
+	}
+}
+
+func TestSameChannelRoutePreservesPendingMerge(t *testing.T) {
+	testLog := newTestLog(t)
+	sess := &Session{logger: testLog, pending: &PendingQueue{}, channelRouteKey: "qq\x00bot\x00chat\x00user", channelRouteOwners: 1}
+	sess.inFlight.Store(1)
+	base := &channelAdapterBase{log: testLog}
+	ctx := channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{Channel: "qq", AccountID: "bot", ConversationID: "chat", UserID: "user"})
+	_, _, err := base.askChannelStream(ctx, sess, "follow-up")
+	if !errors.Is(err, ErrQueued) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := sess.pending.Len(); got != 1 {
+		t.Fatalf("pending length = %d, want 1", got)
 	}
 }

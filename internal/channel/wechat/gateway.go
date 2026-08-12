@@ -3,6 +3,8 @@ package wechat
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -63,16 +65,72 @@ func (g *Gateway) Run(ctx context.Context) error {
 			timeout = time.Duration(resp.LongPollingTimeoutMS+5000) * time.Millisecond
 		}
 		for _, msg := range resp.Messages {
-			if normalized, ok := g.normalize(msg); ok {
-				nctx := channel.ContextWithChatMeta(ctx, channel.ChatMeta{
-					Channel:        "wechat",
-					UserID:         normalized.UserID,
-					ConversationID: normalized.ConversationID,
-				})
-				go g.handler.OnMessage(nctx, normalized)
-			}
+			go g.dispatch(ctx, msg)
 		}
 	}
+}
+
+func (g *Gateway) dispatch(ctx context.Context, raw Message) {
+	normalized, ok := g.normalize(raw)
+	if !ok {
+		return
+	}
+	for i := range raw.ItemList {
+		media := mediaFromItem(raw.ItemList[i])
+		if media == nil {
+			continue
+		}
+		attachmentIndex := attachmentIndexForItem(raw.ItemList[:i+1]) - 1
+		if attachmentIndex < 0 || attachmentIndex >= len(normalized.Attachments) {
+			continue
+		}
+		data, err := g.client.DownloadMedia(ctx, *media)
+		if err != nil {
+			g.log.WarnContext(ctx, logger.CatApp, "wechat media download failed", "item", i+1, "err", err.Error())
+			continue
+		}
+		normalized.Attachments[attachmentIndex].Data = data
+		if normalized.Attachments[attachmentIndex].MIMEType == "" {
+			normalized.Attachments[attachmentIndex].MIMEType = http.DetectContentType(data)
+		}
+	}
+	nctx := channel.ContextWithChatMeta(ctx, channel.ChatMeta{
+		Channel: normalized.Channel, AccountID: normalized.AccountID,
+		UserID: normalized.UserID, ConversationID: normalized.ConversationID,
+	})
+	g.handler.OnMessage(nctx, normalized)
+}
+
+func mediaFromItem(item MessageItem) *CDNMedia {
+	switch item.Type {
+	case 2:
+		if item.ImageItem != nil {
+			return item.ImageItem.Media
+		}
+	case 3:
+		if item.VoiceItem != nil {
+			return item.VoiceItem.Media
+		}
+	case 4:
+		if item.FileItem != nil {
+			return item.FileItem.Media
+		}
+	case 5:
+		if item.VideoItem != nil {
+			return item.VideoItem.Media
+		}
+	}
+	return nil
+}
+
+func attachmentIndexForItem(items []MessageItem) int {
+	count := 0
+	for _, item := range items {
+		if item.Type >= 2 && item.Type <= 5 {
+			count++
+		}
+	}
+	return count
 }
 
 func (g *Gateway) Close() {
@@ -99,13 +157,13 @@ func (g *Gateway) normalize(msg Message) (channel.Message, bool) {
 		case 3:
 			if item.VoiceItem != nil {
 				transcript := strings.TrimSpace(item.VoiceItem.Text)
-				attachments = append(attachments, channel.Attachment{Kind: channel.AttachmentAudio, MIMEType: "audio/silk", Transcript: transcript})
+				attachments = append(attachments, channel.Attachment{Kind: channel.AttachmentAudio, MIMEType: "audio/silk", Name: fmt.Sprintf("voice-%d.silk", msg.MessageID), Transcript: transcript})
 				if transcript != "" {
 					parts = append(parts, transcript)
 				}
 			}
 		case 2:
-			attachments = append(attachments, channel.Attachment{Kind: channel.AttachmentImage})
+			attachments = append(attachments, channel.Attachment{Kind: channel.AttachmentImage, Name: fmt.Sprintf("image-%d.jpg", msg.MessageID)})
 		case 4:
 			attachment := channel.Attachment{Kind: channel.AttachmentFile}
 			if item.FileItem != nil {
@@ -113,7 +171,7 @@ func (g *Gateway) normalize(msg Message) (channel.Message, bool) {
 			}
 			attachments = append(attachments, attachment)
 		case 5:
-			attachments = append(attachments, channel.Attachment{Kind: channel.AttachmentVideo})
+			attachments = append(attachments, channel.Attachment{Kind: channel.AttachmentVideo, Name: fmt.Sprintf("video-%d.mp4", msg.MessageID)})
 		}
 	}
 	text := strings.TrimSpace(strings.Join(parts, "\n"))

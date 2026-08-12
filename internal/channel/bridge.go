@@ -3,21 +3,26 @@ package channel
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
+	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 const (
-	busyReply      = "Thinking, please try again later~"
-	errorReply     = "Sorry, an error occurred while processing your message: "
-	mediaOnlyReply = "Media-only messages are currently not supported. Please send text or voice messages."
+	busyReply  = "Thinking, please try again later~"
+	errorReply = "Sorry, an error occurred while processing your message: "
 )
 
 // TextBridge connects a text-capable channel to a SoloQueue session. Rich
@@ -29,7 +34,13 @@ type TextBridge struct {
 	version          string
 	whitelistEnabled bool
 	whitelist        map[string]struct{}
-	lastMsg          Message // latest message context for system notifications
+	transcribeVoice  func(context.Context, []byte) (string, error)
+}
+
+// SetVoiceTranscriber enables the existing local SILK ASR fallback for
+// channels whose server did not provide a voice transcript.
+func (b *TextBridge) SetVoiceTranscriber(fn func(context.Context, []byte) (string, error)) {
+	b.transcribeVoice = fn
 }
 
 func NewTextBridge(sess SessionProvider, sender TextSender, log *logger.Logger, version string, whitelistEnabled bool, whitelist []string) *TextBridge {
@@ -41,24 +52,38 @@ func NewTextBridge(sess SessionProvider, sender TextSender, log *logger.Logger, 
 }
 
 func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
-	b.lastMsg = msg
-
 	// Register channel sender for system notifications (cron, etc.).
-	if s, ok := b.sess.(interface{ SetChannelSenderData(string, []byte, func(context.Context, string) error) }); ok {
+	if s, ok := b.sess.(interface {
+		SetChannelSenderData(string, []byte, func(context.Context, string) error)
+	}); ok {
 		msgBytes, _ := json.Marshal(msg)
+		registeredMsg := msg
 		s.SetChannelSenderData(msg.Channel, msgBytes, func(ctx context.Context, text string) error {
-			return b.sender.SendText(ctx, b.lastMsg, text)
+			return b.sender.SendText(ctx, registeredMsg, text)
 		})
 		b.log.InfoContext(ctx, logger.CatApp, "bridge: channelSender registered with metadata",
 			"channel", msg.Channel,
 		)
-	} else if s, ok := b.sess.(interface{ SetChannelSender(string, func(context.Context, string) error) }); ok {
+	} else if s, ok := b.sess.(interface {
+		SetChannelSender(string, func(context.Context, string) error)
+	}); ok {
+		registeredMsg := msg
 		s.SetChannelSender(msg.Channel, func(ctx context.Context, text string) error {
-			return b.sender.SendText(ctx, b.lastMsg, text)
+			return b.sender.SendText(ctx, registeredMsg, text)
 		})
 		b.log.InfoContext(ctx, logger.CatApp, "bridge: channelSender registered",
 			"channel", msg.Channel,
 		)
+	}
+	if mediaSender, ok := b.sender.(MediaSender); ok {
+		if s, ok := b.sess.(interface {
+			SetChannelMediaSender(string, func(context.Context, []OutboundMedia) error)
+		}); ok {
+			registeredMsg := msg
+			s.SetChannelMediaSender(msg.Channel, func(ctx context.Context, media []OutboundMedia) error {
+				return mediaSender.SendMedia(ctx, registeredMsg, media)
+			})
+		}
 	}
 
 	if b.whitelistEnabled {
@@ -71,10 +96,8 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 	if b.handleCommand(ctx, msg) {
 		return
 	}
-	if strings.TrimSpace(msg.Text) == "" {
-		if len(msg.Attachments) > 0 {
-			b.send(ctx, msg, mediaOnlyReply)
-		}
+	prompt, ctx := b.preparePrompt(ctx, msg)
+	if strings.TrimSpace(prompt) == "" {
 		return
 	}
 
@@ -91,7 +114,7 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 	}
 	defer stopActivity()
 
-	result, err := b.sess.AskStream(ctx, msg.Text, func(ctx context.Context, content string) {
+	result, err := b.sess.AskStream(ctx, prompt, func(ctx context.Context, content string) {
 		if strings.TrimSpace(content) != "" {
 			b.send(ctx, msg, content)
 		}
@@ -109,8 +132,89 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 		}
 		return
 	}
-	if result != nil && strings.TrimSpace(result.Content) != "" {
-		b.send(ctx, msg, result.Content)
+	if result != nil {
+		if len(result.MediaList) > 0 {
+			mediaSender, ok := b.sender.(MediaSender)
+			if !ok {
+				b.log.WarnContext(ctx, logger.CatApp, "channel media sender unavailable", "channel", msg.Channel)
+			} else if err := mediaSender.SendMedia(ctx, msg, result.MediaList); err != nil {
+				b.log.WarnContext(ctx, logger.CatApp, "channel media reply failed", "channel", msg.Channel, "err", err.Error())
+			}
+		}
+		if strings.TrimSpace(result.Content) != "" {
+			b.send(ctx, msg, result.Content)
+		}
+	}
+}
+
+func (b *TextBridge) preparePrompt(ctx context.Context, msg Message) (string, context.Context) {
+	var prompt strings.Builder
+	prompt.WriteString(msg.Text)
+	var files []string
+	var images []llm.ImageContent
+	for i, attachment := range msg.Attachments {
+		if attachment.Kind == AttachmentAudio && strings.TrimSpace(attachment.Transcript) == "" && len(attachment.Data) > 0 && b.transcribeVoice != nil {
+			transcript, err := b.transcribeVoice(ctx, attachment.Data)
+			if err != nil {
+				b.log.WarnContext(ctx, logger.CatApp, "channel voice transcription failed", "channel", msg.Channel, "err", err.Error())
+			} else {
+				attachment.Transcript = strings.TrimSpace(transcript)
+			}
+		}
+		name := filepath.Base(strings.TrimSpace(attachment.Name))
+		if name == "." || name == "" {
+			name = fmt.Sprintf("attachment-%d%s", i+1, attachmentExtension(attachment))
+		}
+		localPath := attachment.LocalPath
+		if len(attachment.Data) > 0 {
+			var err error
+			localPath, err = b.sess.SaveUploadedFile(ctx, name, attachment.Data)
+			if err != nil {
+				b.log.WarnContext(ctx, logger.CatApp, "channel attachment save failed", "channel", msg.Channel, "name", name, "err", err.Error())
+				continue
+			}
+		}
+		if attachment.Kind == AttachmentImage && len(attachment.Data) > 0 {
+			mimeType := attachment.MIMEType
+			if mimeType == "" {
+				mimeType = http.DetectContentType(attachment.Data)
+			}
+			images = append(images, llm.ImageContent{Data: base64.StdEncoding.EncodeToString(attachment.Data), MimeType: mimeType})
+		}
+		if strings.TrimSpace(attachment.Transcript) != "" && !strings.Contains(msg.Text, attachment.Transcript) {
+			files = append(files, fmt.Sprintf("- Voice transcript: %s", attachment.Transcript))
+		}
+		if localPath != "" {
+			files = append(files, fmt.Sprintf("- Filename: %s\n  Saved path: %s", name, localPath))
+		} else if attachment.Transcript == "" {
+			files = append(files, fmt.Sprintf("- Attachment: %s (%s)", name, attachment.Kind))
+		}
+	}
+	if len(files) > 0 {
+		prompt.WriteString("\n\n[User uploaded attachments:\n")
+		prompt.WriteString(strings.Join(files, "\n"))
+		prompt.WriteString("\n]")
+	}
+	if len(images) > 0 {
+		ctx = context.WithValue(ctx, ctxwin.ImageContextKey, images)
+		prompt.WriteString("\n[User uploaded images, processed by visual recognition]")
+	}
+	return strings.TrimSpace(prompt.String()), ctx
+}
+
+func attachmentExtension(attachment Attachment) string {
+	if extensions, _ := mime.ExtensionsByType(attachment.MIMEType); len(extensions) > 0 {
+		return extensions[0]
+	}
+	switch attachment.Kind {
+	case AttachmentImage:
+		return ".jpg"
+	case AttachmentAudio:
+		return ".silk"
+	case AttachmentVideo:
+		return ".mp4"
+	default:
+		return ".bin"
 	}
 }
 
@@ -166,4 +270,3 @@ func (b *TextBridge) Send(ctx context.Context, msg Message, text string) error {
 	b.log.InfoContext(ctx, logger.CatApp, "channel reply sent", "channel", msg.Channel, "text_len", len(text), "duration_ms", time.Since(start).Milliseconds())
 	return nil
 }
-

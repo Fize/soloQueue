@@ -91,6 +91,19 @@ func TestSendFile_HappyURL(t *testing.T) {
 	}
 }
 
+func TestSendFile_HappyWechatMediaContext(t *testing.T) {
+	tool, _ := mkSendFileTool(t, 1024)
+	ctx := iface.ContextWithMediaDelivery(context.Background(), true)
+	out, err := tool.Execute(ctx, `{"url":"https://example.com/report.csv"}`)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var res sendFileResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Status != "success" || res.FileType != "file" {
+		t.Fatalf("result=%q err=%v", out, err)
+	}
+}
+
 func TestSendFile_HappyManualType(t *testing.T) {
 	tool, dir := mkSendFileTool(t, 1024)
 	path := filepath.Join(dir, "data.txt")

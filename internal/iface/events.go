@@ -208,6 +208,21 @@ func BypassConfirmFromContext(ctx context.Context) bool {
 
 type qbotCtxKey struct{}
 
+type mediaDeliveryCtxKey struct{}
+
+// ContextWithMediaDelivery marks a request as originating from a channel that
+// can deliver files produced by the SendFile tool.
+func ContextWithMediaDelivery(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, mediaDeliveryCtxKey{}, enabled)
+}
+
+// MediaDeliveryFromContext reports whether the current request has a bound
+// channel media delivery route.
+func MediaDeliveryFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(mediaDeliveryCtxKey{}).(bool)
+	return v
+}
+
 // ContextWithIsQBot injects the QQ Bot status into context.
 func ContextWithIsQBot(ctx context.Context, isQBot bool) context.Context {
 	return context.WithValue(ctx, qbotCtxKey{}, isQBot)

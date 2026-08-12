@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,6 +93,75 @@ func (b *channelAdapterBase) compactAndReap(ctx context.Context, sess *Session) 
 	return nil
 }
 
+// askChannelStream preserves the immutable channel route owned by the caller.
+// Same-route messages retain the existing pending-merge behavior; a different
+// route waits instead of entering Session.pending, whose string-only payload
+// cannot remember which bridge must deliver the eventual response.
+func (b *channelAdapterBase) askChannelStream(ctx context.Context, sess *Session, prompt string) (<-chan iface.AgentEvent, func(), error) {
+	route := channelRouteKey(ctx)
+	for {
+		sess.channelRouteMu.Lock()
+		if sess.channelRouteKey != "" && sess.channelRouteKey != route {
+			sess.channelRouteMu.Unlock()
+			timer := time.NewTimer(25 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, nil, ctx.Err()
+			case <-timer.C:
+			}
+			continue
+		}
+		sameRouteActive := sess.channelRouteKey == route && sess.channelRouteOwners > 0
+		if sess.channelRouteKey == "" {
+			sess.channelRouteKey = route
+		}
+		sess.channelRouteOwners++
+		sess.channelRouteMu.Unlock()
+
+		askCtx := ctx
+		if !sameRouteActive {
+			askCtx = WithRejectBusyQueue(ctx)
+		}
+		eventCh, err := sess.AskStream(askCtx, prompt)
+		if err != nil {
+			releaseChannelRoute(sess, route)
+			if errors.Is(err, ErrQueued) && !sameRouteActive {
+				timer := time.NewTimer(25 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return nil, nil, ctx.Err()
+				case <-timer.C:
+				}
+				continue
+			}
+			return nil, nil, err
+		}
+		return eventCh, func() { releaseChannelRoute(sess, route) }, nil
+	}
+}
+
+func channelRouteKey(ctx context.Context) string {
+	meta, ok := channel.ChatMetaFromContext(ctx)
+	if !ok {
+		return "channel"
+	}
+	return strings.Join([]string{meta.Channel, meta.AccountID, meta.ConversationID, meta.UserID}, "\x00")
+}
+
+func releaseChannelRoute(sess *Session, route string) {
+	sess.channelRouteMu.Lock()
+	defer sess.channelRouteMu.Unlock()
+	if sess.channelRouteKey != route || sess.channelRouteOwners == 0 {
+		return
+	}
+	sess.channelRouteOwners--
+	if sess.channelRouteOwners == 0 {
+		sess.channelRouteKey = ""
+	}
+}
+
 // consumeAskStreamEvents drains the event channel and builds the AskStreamResult.
 // This is the shared event loop used by both L1 and L2 channel adapters.
 func (b *channelAdapterBase) consumeAskStreamEvents(
@@ -141,36 +209,30 @@ func (b *channelAdapterBase) consumeAskStreamEvents(
 					imageURLs = append(imageURLs, urls...)
 					for _, url := range urls {
 						mediaList = append(mediaList, channel.PendingMedia{
-							FileType: 1,
-							URL:      url,
+							Kind: channel.MediaImage,
+							URL:  url,
 						})
 					}
 				}
 			} else if e.Name == "SendFile" && e.Result != "" {
 				res := parseSendFileResult(e.Result)
 				if res != nil {
-					ftype := 4
+					kind := channel.MediaFile
 					switch res.FileType {
 					case "image":
-						ftype = 1
+						kind = channel.MediaImage
 					case "video":
-						ftype = 2
+						kind = channel.MediaVideo
 					case "voice":
-						ftype = 3
+						kind = channel.MediaVoice
 					case "file":
-						ftype = 4
-					}
-					b64 := ""
-					if res.Path != "" {
-						if data, err := os.ReadFile(res.Path); err == nil {
-							b64 = base64.StdEncoding.EncodeToString(data)
-						}
+						kind = channel.MediaFile
 					}
 					mediaList = append(mediaList, channel.PendingMedia{
-						FileType:   ftype,
-						URL:        res.URL,
-						Base64Data: b64,
-						FileName:   res.FileName,
+						Kind:     kind,
+						Path:     res.Path,
+						URL:      res.URL,
+						FileName: res.FileName,
 					})
 				}
 			}
@@ -285,6 +347,11 @@ func (a *SessionAskAdapter) SetChannelSenderData(channelType string, metadata []
 	}
 }
 
+func (a *SessionAskAdapter) SetChannelMediaSender(channelType string, fn func(context.Context, []channel.OutboundMedia) error) {
+	if sess := a.mgr.Session(); sess != nil {
+		sess.SetChannelMediaSender(channelType, fn)
+	}
+}
 
 // AskStream implements channel.SessionProvider.
 func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
@@ -310,8 +377,9 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 	}
 
 	ctx = agent.WithBypassConfirmCtx(ctx)
+	ctx = iface.ContextWithMediaDelivery(ctx, true)
 
-	eventCh, err := sess.AskStream(ctx, prompt)
+	eventCh, releaseRoute, err := a.askChannelStream(ctx, sess, prompt)
 	if err != nil {
 		if errors.Is(err, ErrSessionBusy) {
 			return nil, channel.ErrSessionBusy
@@ -321,6 +389,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 		}
 		return nil, err
 	}
+	defer releaseRoute()
 
 	return a.consumeAskStreamEvents(ctx, sess, eventCh, onIntermediate)
 }
@@ -432,6 +501,12 @@ func (a *L2ChannelAdapter) SetChannelSenderData(channelType string, metadata []b
 	}
 }
 
+func (a *L2ChannelAdapter) SetChannelMediaSender(channelType string, fn func(context.Context, []channel.OutboundMedia) error) {
+	if sess, err := a.getSession(context.Background()); err == nil {
+		sess.SetChannelMediaSender(channelType, fn)
+		a.l2Store.SetChannelMediaSenderForGroup(a.bindAgent, channelType, fn)
+	}
+}
 
 // AskStream implements channel.SessionProvider.
 func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
@@ -457,8 +532,9 @@ func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onInter
 	}
 
 	ctx = agent.WithBypassConfirmCtx(ctx)
+	ctx = iface.ContextWithMediaDelivery(ctx, true)
 
-	eventCh, err := sess.AskStream(ctx, prompt)
+	eventCh, releaseRoute, err := a.askChannelStream(ctx, sess, prompt)
 	if err != nil {
 		if errors.Is(err, ErrSessionBusy) {
 			return nil, channel.ErrSessionBusy
@@ -468,6 +544,7 @@ func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onInter
 		}
 		return nil, err
 	}
+	defer releaseRoute()
 
 	return a.consumeAskStreamEvents(ctx, sess, eventCh, onIntermediate)
 }

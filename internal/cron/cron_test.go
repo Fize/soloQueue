@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // mockSession implements the Session interface for testing.
@@ -59,7 +60,8 @@ func (m *mockSession) SendViaChannel(ctx context.Context, text string) error {
 	}
 	return nil
 }
-func (m *mockSession) HasNotifyChannel() bool { return m.hasNotifyChannel }
+func (m *mockSession) SendMediaViaChannel(context.Context, []channel.OutboundMedia) error { return nil }
+func (m *mockSession) HasNotifyChannel() bool                                             { return m.hasNotifyChannel }
 
 type mockSessionManager struct {
 	session    Session
@@ -347,8 +349,8 @@ func TestParseSendFileMedia(t *testing.T) {
 	if result == nil {
 		t.Fatal("parseSendFileMedia returned nil")
 	}
-	if result.FileType != 1 {
-		t.Errorf("FileType = %d, want 1", result.FileType)
+	if result.Kind != channel.MediaImage {
+		t.Errorf("Kind = %q, want image", result.Kind)
 	}
 
 	if parseSendFileMedia("not json") != nil {

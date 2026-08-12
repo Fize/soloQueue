@@ -2,7 +2,6 @@ package cron
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	robfig "github.com/robfig/cron/v3"
 
+	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
@@ -36,6 +36,7 @@ type Session interface {
 	// SendViaChannel delivers a text notification through the session's bound
 	// channel bridge (QQ/WeChat).
 	SendViaChannel(ctx context.Context, text string) error
+	SendMediaViaChannel(ctx context.Context, media []channel.OutboundMedia) error
 }
 
 // SessionManager provides sessions for scheduled task execution.
@@ -52,12 +53,7 @@ type SessionManager interface {
 }
 
 // SendFileMedia holds metadata about a file the agent sent via the SendFile tool.
-type SendFileMedia struct {
-	FileType   int
-	URL        string
-	Base64Data string
-	FileName   string
-}
+type SendFileMedia = channel.OutboundMedia
 
 // ResolvedModel is the concrete model configuration for one scheduled run.
 type ResolvedModel struct {
@@ -481,6 +477,11 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	if status == "success" && result.replyText != "" {
 		l1Session.SendViaChannel(ctx, result.replyText)
 	}
+	if status == "success" && len(result.mediaFiles) > 0 {
+		if err := l1Session.SendMediaViaChannel(ctx, result.mediaFiles); err != nil {
+			s.logger.Warn(logger.CatApp, "cron: L1 media notification failed", "task_id", t.ID, "err", err)
+		}
+	}
 
 	if drainErr != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task drain error", "task_id", t.ID, "err", drainErr)
@@ -626,6 +627,11 @@ func (s *Scheduler) executeL2Task(t Task) {
 	// is not a fallback case: it is an operational delivery failure.
 	if status == "success" && replyText != "" {
 		s.deliverL2ResultViaChannel(ctx, t, l2Session, replyText)
+	}
+	if status == "success" && len(result.mediaFiles) > 0 && l2Session.HasNotifyChannel() {
+		if err := l2Session.SendMediaViaChannel(ctx, result.mediaFiles); err != nil {
+			s.logger.Warn(logger.CatApp, "cron: L2 media notification failed", "task_id", t.ID, "err", err)
+		}
 	}
 
 	if drainErr != nil {
@@ -1050,27 +1056,17 @@ func parseSendFileMedia(raw string) *SendFileMedia {
 		return nil
 	}
 
-	ftype := 4 // default file
+	kind := channel.MediaFile
 	switch r.FileType {
 	case "image":
-		ftype = 1
+		kind = channel.MediaImage
 	case "video":
-		ftype = 2
+		kind = channel.MediaVideo
 	case "voice":
-		ftype = 3
-	}
-
-	b64 := ""
-	if r.Path != "" {
-		if data, err := os.ReadFile(r.Path); err == nil {
-			b64 = base64.StdEncoding.EncodeToString(data)
-		}
+		kind = channel.MediaVoice
 	}
 
 	return &SendFileMedia{
-		FileType:   ftype,
-		URL:        r.URL,
-		Base64Data: b64,
-		FileName:   r.FileName,
+		Kind: kind, Path: r.Path, URL: r.URL, FileName: r.FileName,
 	}
 }
