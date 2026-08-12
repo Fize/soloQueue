@@ -25,6 +25,10 @@ func NewGraphStore(db *sql.DB, mu *sync.Mutex, log *logger.Logger) *GraphStore {
 
 // UpsertNode inserts or updates an entity node. Returns the node ID and whether it was new.
 func (g *GraphStore) UpsertNode(ctx context.Context, name, nodeType string, confidence float64) (int64, bool, error) {
+	return g.UpsertNodeOwned(ctx, OwnerL1, "", name, nodeType, confidence)
+}
+
+func (g *GraphStore) UpsertNodeOwned(ctx context.Context, ownerType, ownerID, name, nodeType string, confidence float64) (int64, bool, error) {
 	if confidence <= 0 {
 		confidence = 1.0
 	}
@@ -37,8 +41,8 @@ func (g *GraphStore) UpsertNode(ctx context.Context, name, nodeType string, conf
 	res, err := g.db.ExecContext(ctx,
 		`UPDATE kg_nodes SET mention_count = mention_count + 1, last_seen = ?,
 		 confidence = (confidence + ?) / 2.0, type = CASE WHEN type = 'entity' THEN ? ELSE type END
-		 WHERE LOWER(name) = LOWER(?)`,
-		now, confidence, nodeType, name,
+		 WHERE owner_type = ? AND owner_id = ? AND LOWER(name) = LOWER(?)`,
+		now, confidence, nodeType, ownerType, ownerID, name,
 	)
 	if err != nil {
 		return 0, false, fmt.Errorf("graph upsert node: %w", err)
@@ -47,15 +51,17 @@ func (g *GraphStore) UpsertNode(ctx context.Context, name, nodeType string, conf
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected > 0 {
 		var id int64
-		err := g.db.QueryRowContext(ctx, `SELECT id FROM kg_nodes WHERE LOWER(name) = LOWER(?)`, name).Scan(&id)
+		err := g.db.QueryRowContext(ctx,
+			`SELECT id FROM kg_nodes WHERE owner_type = ? AND owner_id = ? AND LOWER(name) = LOWER(?)`,
+			ownerType, ownerID, name).Scan(&id)
 		return id, false, err
 	}
 
 	// Insert new
 	result, err := g.db.ExecContext(ctx,
-		`INSERT INTO kg_nodes (name, type, mention_count, first_seen, last_seen, confidence)
-		 VALUES (?, ?, 1, ?, ?, ?)`,
-		name, nodeType, now, now, confidence,
+		`INSERT INTO kg_nodes (name, type, mention_count, first_seen, last_seen, confidence, owner_type, owner_id)
+		 VALUES (?, ?, 1, ?, ?, ?, ?, ?)`,
+		name, nodeType, now, now, confidence, ownerType, ownerID,
 	)
 	if err != nil {
 		return 0, false, fmt.Errorf("graph upsert node: %w", err)
@@ -66,10 +72,14 @@ func (g *GraphStore) UpsertNode(ctx context.Context, name, nodeType string, conf
 
 // GetNode returns a node by name.
 func (g *GraphStore) GetNode(ctx context.Context, name string) (*GraphNode, error) {
+	return g.GetNodeOwned(ctx, OwnerL1, "", name)
+}
+
+func (g *GraphStore) GetNodeOwned(ctx context.Context, ownerType, ownerID, name string) (*GraphNode, error) {
 	var n GraphNode
 	err := g.db.QueryRowContext(ctx,
 		`SELECT id, name, type, mention_count, first_seen, last_seen, confidence
-		 FROM kg_nodes WHERE name = ?`, name,
+		 FROM kg_nodes WHERE owner_type = ? AND owner_id = ? AND name = ?`, ownerType, ownerID, name,
 	).Scan(&n.ID, &n.Name, &n.Type, &n.MentionCount, &n.FirstSeen, &n.LastSeen, &n.Confidence)
 	if err != nil {
 		return nil, err
@@ -79,10 +89,14 @@ func (g *GraphStore) GetNode(ctx context.Context, name string) (*GraphNode, erro
 
 // GetNodeByID returns a node by its internal ID.
 func (g *GraphStore) GetNodeByID(ctx context.Context, id int64) (*GraphNode, error) {
+	return g.GetNodeByIDOwned(ctx, OwnerL1, "", id)
+}
+
+func (g *GraphStore) GetNodeByIDOwned(ctx context.Context, ownerType, ownerID string, id int64) (*GraphNode, error) {
 	var n GraphNode
 	err := g.db.QueryRowContext(ctx,
 		`SELECT id, name, type, mention_count, first_seen, last_seen, confidence
-		 FROM kg_nodes WHERE id = ?`, id,
+		 FROM kg_nodes WHERE owner_type = ? AND owner_id = ? AND id = ?`, ownerType, ownerID, id,
 	).Scan(&n.ID, &n.Name, &n.Type, &n.MentionCount, &n.FirstSeen, &n.LastSeen, &n.Confidence)
 	if err != nil {
 		return nil, err
@@ -93,6 +107,10 @@ func (g *GraphStore) GetNodeByID(ctx context.Context, id int64) (*GraphNode, err
 // UpsertEdge inserts or updates a relationship edge. On conflict (same source, target, rel_type),
 // the weight is averaged with the old weight.
 func (g *GraphStore) UpsertEdge(ctx context.Context, sourceID, targetID int64, relType string, weight float64, evidence, sourceHash, eventTime string, validFrom, validUntil string) error {
+	return g.UpsertEdgeOwned(ctx, OwnerL1, "", sourceID, targetID, relType, weight, evidence, sourceHash, eventTime, validFrom, validUntil)
+}
+
+func (g *GraphStore) UpsertEdgeOwned(ctx context.Context, ownerType, ownerID string, sourceID, targetID int64, relType string, weight float64, evidence, sourceHash, eventTime string, validFrom, validUntil string) error {
 	if weight <= 0 {
 		weight = 1.0
 	}
@@ -102,14 +120,14 @@ func (g *GraphStore) UpsertEdge(ctx context.Context, sourceID, targetID int64, r
 	defer g.mu.Unlock()
 
 	_, err := g.db.ExecContext(ctx,
-		`INSERT INTO kg_edges (source, target, rel_type, weight, evidence, source_hash, event_time, valid_from, valid_until, last_reinforced)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO kg_edges (source, target, rel_type, weight, evidence, source_hash, event_time, valid_from, valid_until, last_reinforced, owner_type, owner_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(source, target, rel_type) DO UPDATE SET
 		   weight = (weight + excluded.weight) / 2.0,
 		   evidence = excluded.evidence,
 		   source_hash = excluded.source_hash,
 		   last_reinforced = excluded.last_reinforced`,
-		sourceID, targetID, relType, weight, evidence, sourceHash, eventTime, validFrom, validUntil, now,
+		sourceID, targetID, relType, weight, evidence, sourceHash, eventTime, validFrom, validUntil, now, ownerType, ownerID,
 	)
 	if err != nil {
 		return fmt.Errorf("graph upsert edge: %w", err)
@@ -119,34 +137,42 @@ func (g *GraphStore) UpsertEdge(ctx context.Context, sourceID, targetID int64, r
 
 // GetEdgesFrom returns all outgoing edges from a node, excluding expired ones.
 func (g *GraphStore) GetEdgesFrom(ctx context.Context, nodeID int64, includeHistorical bool) ([]GraphEdge, error) {
+	return g.GetEdgesFromOwned(ctx, OwnerL1, "", nodeID, includeHistorical)
+}
+
+func (g *GraphStore) GetEdgesFromOwned(ctx context.Context, ownerType, ownerID string, nodeID int64, includeHistorical bool) ([]GraphEdge, error) {
 	query := `SELECT e.id, e.source, e.target, sn.name, tn.name, e.rel_type, e.weight, e.evidence,
 		e.source_hash, e.event_time, e.valid_from, e.valid_until
 		FROM kg_edges e
 		JOIN kg_nodes sn ON e.source = sn.id
 		JOIN kg_nodes tn ON e.target = tn.id
-		WHERE e.source = ?`
+		WHERE e.owner_type = ? AND e.owner_id = ? AND e.source = ?`
 	if !includeHistorical {
 		query += ` AND (e.valid_until IS NULL OR e.valid_until = '' OR e.valid_until > datetime('now'))`
 	}
 	query += ` ORDER BY e.weight DESC`
 
-	return g.queryEdges(ctx, query, nodeID)
+	return g.queryEdges(ctx, query, ownerType, ownerID, nodeID)
 }
 
 // GetEdgesTo returns all incoming edges to a node, excluding expired ones.
 func (g *GraphStore) GetEdgesTo(ctx context.Context, nodeID int64, includeHistorical bool) ([]GraphEdge, error) {
+	return g.GetEdgesToOwned(ctx, OwnerL1, "", nodeID, includeHistorical)
+}
+
+func (g *GraphStore) GetEdgesToOwned(ctx context.Context, ownerType, ownerID string, nodeID int64, includeHistorical bool) ([]GraphEdge, error) {
 	query := `SELECT e.id, e.source, e.target, sn.name, tn.name, e.rel_type, e.weight, e.evidence,
 		e.source_hash, e.event_time, e.valid_from, e.valid_until
 		FROM kg_edges e
 		JOIN kg_nodes sn ON e.source = sn.id
 		JOIN kg_nodes tn ON e.target = tn.id
-		WHERE e.target = ?`
+		WHERE e.owner_type = ? AND e.owner_id = ? AND e.target = ?`
 	if !includeHistorical {
 		query += ` AND (e.valid_until IS NULL OR e.valid_until = '' OR e.valid_until > datetime('now'))`
 	}
 	query += ` ORDER BY e.weight DESC`
 
-	return g.queryEdges(ctx, query, nodeID)
+	return g.queryEdges(ctx, query, ownerType, ownerID, nodeID)
 }
 
 // GetAllEdges returns all edges, optionally filtered to current-valid only.
@@ -314,21 +340,29 @@ func (g *GraphStore) ShortestPath(ctx context.Context, sourceName, targetName st
 
 // AddAlias registers an alias for a canonical entity name.
 func (g *GraphStore) AddAlias(ctx context.Context, alias, canonical string) error {
+	return g.AddAliasOwned(ctx, OwnerL1, "", alias, canonical)
+}
+
+func (g *GraphStore) AddAliasOwned(ctx context.Context, ownerType, ownerID, alias, canonical string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	_, err := g.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO kg_aliases (alias, canonical) VALUES (?, ?)`,
-		alias, canonical,
+		`INSERT OR IGNORE INTO kg_aliases (alias, canonical, owner_type, owner_id) VALUES (?, ?, ?, ?)`,
+		alias, canonical, ownerType, ownerID,
 	)
 	return err
 }
 
 // ResolveAlias resolves an alias to its canonical name. Returns the input unchanged if no alias exists.
 func (g *GraphStore) ResolveAlias(ctx context.Context, alias string) (string, error) {
+	return g.ResolveAliasOwned(ctx, OwnerL1, "", alias)
+}
+
+func (g *GraphStore) ResolveAliasOwned(ctx context.Context, ownerType, ownerID, alias string) (string, error) {
 	var canonical string
 	err := g.db.QueryRowContext(ctx,
-		`SELECT canonical FROM kg_aliases WHERE alias = ?`, alias,
+		`SELECT canonical FROM kg_aliases WHERE owner_type = ? AND owner_id = ? AND alias = ?`, ownerType, ownerID, alias,
 	).Scan(&canonical)
 	if err == sql.ErrNoRows {
 		return alias, nil
@@ -488,13 +522,17 @@ func (g *GraphStore) ListEntities(ctx context.Context, topN int) ([]GraphNode, e
 
 // SearchNodesByName finds entities whose name contains the given fragment.
 func (g *GraphStore) SearchNodesByName(ctx context.Context, fragment string, limit int) ([]GraphNode, error) {
+	return g.SearchNodesByNameOwned(ctx, OwnerL1, "", fragment, limit)
+}
+
+func (g *GraphStore) SearchNodesByNameOwned(ctx context.Context, ownerType, ownerID, fragment string, limit int) ([]GraphNode, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	rows, err := g.db.QueryContext(ctx,
 		`SELECT id, name, type, mention_count, first_seen, last_seen, confidence
-		 FROM kg_nodes WHERE name LIKE ? ORDER BY mention_count DESC LIMIT ?`,
-		"%"+fragment+"%", limit,
+		 FROM kg_nodes WHERE owner_type = ? AND owner_id = ? AND name LIKE ? ORDER BY mention_count DESC LIMIT ?`,
+		ownerType, ownerID, "%"+fragment+"%", limit,
 	)
 	if err != nil {
 		return nil, err

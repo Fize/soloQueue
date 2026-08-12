@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 // memoryTimelineTool lists memories chronologically.
@@ -50,8 +51,8 @@ func (t *memoryTimelineTool) Execute(ctx context.Context, raw string) (string, e
 		return "", err
 	}
 
-	if t.cfg.MemoryEngine == nil {
-		return "", fmt.Errorf("memory engine is not configured; check your settings")
+	if t.cfg.MemoryAccess == nil {
+		return "", fmt.Errorf("memory_not_configured")
 	}
 
 	var a memoryTimelineArgs
@@ -62,30 +63,33 @@ func (t *memoryTimelineTool) Execute(ctx context.Context, raw string) (string, e
 	if a.Limit <= 0 {
 		a.Limit = 50
 	}
-
-	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
-	entries, err := t.cfg.MemoryEngine.TimelineScoped(
-		ctx, a.From, a.To, a.Limit, scopeType, scopeID, true,
-	)
-	if err != nil {
-		return "", err
+	if a.Limit > 100 {
+		a.Limit = 100
 	}
-
-	if len(entries) == 0 {
-		return "No memories found in this date range.", nil
-	}
-
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Timeline (%d entries):\n\n", len(entries)))
-	for i, e := range entries {
-		b.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, e.Date, e.EventTime))
-		content := e.Content
-		if len(content) > 200 {
-			content = content[:200] + "..."
+	for _, value := range []string{a.From, a.To} {
+		if value != "" {
+			if _, err := time.Parse("2006-01-02", value); err != nil {
+				return "", fmt.Errorf("%w: dates must use YYYY-MM-DD", ErrInvalidArgs)
+			}
 		}
-		b.WriteString(fmt.Sprintf("   %s\n\n", content))
 	}
-	return b.String(), nil
+	if a.From != "" && a.To != "" && a.From > a.To {
+		return "", fmt.Errorf("%w: from must not be after to", ErrInvalidArgs)
+	}
+
+	entries, err := t.cfg.MemoryAccess.Timeline(ctx, a.From, a.To, a.Limit)
+	if err != nil {
+		return "", memoryToolError(ctx, err)
+	}
+
+	result, err := json.Marshal(struct {
+		Untrusted bool                 `json:"untrusted"`
+		Entries   []engine.MemoryEntry `json:"entries"`
+	}{Untrusted: true, Entries: entries})
+	if err != nil {
+		return "", fmt.Errorf("memory_unavailable")
+	}
+	return string(result), nil
 }
 
 var _ Tool = (*memoryTimelineTool)(nil)

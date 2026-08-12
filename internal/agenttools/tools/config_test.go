@@ -9,8 +9,8 @@ import (
 func TestBuild_AlwaysIncludesWebSearch(t *testing.T) {
 	cfg := DefaultConfig()
 	list := Build(cfg)
-	if len(list) != 11 {
-		t.Errorf("Build returned %d tools, want 11", len(list))
+	if len(list) != 9 {
+		t.Errorf("Build returned %d tools, want 9", len(list))
 	}
 	hasWebSearch := false
 	for _, tool := range list {
@@ -20,6 +20,11 @@ func TestBuild_AlwaysIncludesWebSearch(t *testing.T) {
 	}
 	if !hasWebSearch {
 		t.Errorf("WebSearch should always be included")
+	}
+	for _, tool := range list {
+		if tool.Name() == "Remember" || tool.Name() == "RecallMemory" {
+			t.Fatalf("unbound Build must not include memory tool %q", tool.Name())
+		}
 	}
 }
 

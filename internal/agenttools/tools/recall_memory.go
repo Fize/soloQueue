@@ -52,8 +52,8 @@ func (t *recallMemoryTool) Execute(ctx context.Context, raw string) (string, err
 		return "", err
 	}
 
-	if t.cfg.MemoryEngine == nil {
-		return "", fmt.Errorf("memory engine is not configured; check your settings")
+	if t.cfg.MemoryAccess == nil {
+		return "", fmt.Errorf("memory_not_configured")
 	}
 
 	var a recallMemoryArgs
@@ -63,24 +63,32 @@ func (t *recallMemoryTool) Execute(ctx context.Context, raw string) (string, err
 	if err := validateNotZeroLen("query", a.Query); err != nil {
 		return "", err
 	}
+	a.Query = strings.TrimSpace(a.Query)
+	if len([]rune(a.Query)) > 2000 || len(a.Entities) > 20 {
+		return "", fmt.Errorf("%w: memory query is too large", ErrInvalidArgs)
+	}
+	for _, entity := range a.Entities {
+		if len([]rune(strings.TrimSpace(entity))) > 200 {
+			return "", fmt.Errorf("%w: entity is too large", ErrInvalidArgs)
+		}
+	}
 
 	limit := a.Limit
 	if limit <= 0 {
 		limit = 10
 	}
+	if limit > 20 {
+		limit = 20
+	}
 
-	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
-	result, err := t.cfg.MemoryEngine.Search(ctx, engine.SearchQuery{
-		Text:                strings.TrimSpace(a.Query),
+	result, err := t.cfg.MemoryAccess.Search(ctx, engine.SearchQuery{
+		Text:                a.Query,
 		Entities:            a.Entities,
 		Limit:               limit,
 		IncludeGraphContext: len(a.Entities) > 0,
-		ScopeType:           scopeType,
-		ScopeID:             scopeID,
-		IncludeGlobal:       true,
 	})
 	if err != nil {
-		return "", err
+		return "", memoryToolError(ctx, err)
 	}
 
 	if t.logger != nil {
@@ -92,31 +100,16 @@ func (t *recallMemoryTool) Execute(ctx context.Context, raw string) (string, err
 		)
 	}
 
-	if len(result.Results) == 0 {
-		return "No relevant memories found.", nil
+	type safeResult struct {
+		Untrusted bool                  `json:"untrusted"`
+		Results   []engine.SearchResult `json:"results"`
+		Graph     []engine.GraphEdge    `json:"graph_edges,omitempty"`
 	}
-
-	// Format results for LLM consumption
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Found %d relevant memories:\n\n", len(result.Results)))
-	for i, r := range result.Results {
-		b.WriteString(fmt.Sprintf("%d. [%s] (score: %.2f, source: %s)\n", i+1, r.Date, r.Score, r.Source))
-		if r.EventTime != "" && r.EventTime != r.Date {
-			b.WriteString(fmt.Sprintf("   Event time: %s\n", r.EventTime))
-		}
-		b.WriteString(fmt.Sprintf("   %s\n\n", r.Content))
+	b, err := json.Marshal(safeResult{Untrusted: true, Results: result.Results, Graph: result.GraphEdges})
+	if err != nil {
+		return "", fmt.Errorf("memory_unavailable")
 	}
-
-	// Append graph context if available
-	if len(result.GraphEdges) > 0 {
-		b.WriteString("\n--- Knowledge Graph Context ---\n")
-		for _, e := range result.GraphEdges {
-			b.WriteString(fmt.Sprintf("- %s --[%s]--> %s (weight: %.2f)\n",
-				e.SourceName, e.RelType, e.TargetName, e.Weight))
-		}
-	}
-
-	return b.String(), nil
+	return string(b), nil
 }
 
 var _ Tool = (*recallMemoryTool)(nil)

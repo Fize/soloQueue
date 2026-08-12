@@ -5,6 +5,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,8 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/prompt"
+	"github.com/google/uuid"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
+	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,11 +23,12 @@ import (
 
 // Team represents a team (group) stored in groups/ directory.
 type Team struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	MemoryOwnerID string `json:"-"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 // Agent represents an agent (team member) stored in agents/ directory.
@@ -103,8 +106,18 @@ func (s *Store) CreateTeam(ctx context.Context, t *Team) error {
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("teamstore: team %q already exists", t.Name)
 	}
+	// Owner identity is server-generated and never accepted from callers.
+	ownerID, err := s.rotateMemoryOwnerID(ctx, t.Name)
+	if err != nil {
+		return err
+	}
+	t.MemoryOwnerID = ownerID
 
-	return s.writeTeamFile(path, t)
+	if err := s.writeTeamFile(path, t); err != nil {
+		s.rollbackMemoryOwner(ctx, t.Name, ownerID)
+		return err
+	}
+	return nil
 }
 
 // GetTeamByName retrieves a team by its unique name.
@@ -184,10 +197,192 @@ func (s *Store) UpdateTeam(ctx context.Context, name string, t *Team) error {
 		return err
 	}
 
+	ownerID, err := s.ensureMemoryOwnerLocked(ctx, name, path, existing)
+	if err != nil {
+		return err
+	}
 	existing.Description = t.Description
+	existing.MemoryOwnerID = ownerID
 	existing.UpdatedAt = time.Now().Format(time.RFC3339)
 
 	return s.writeTeamFile(path, existing)
+}
+
+// EnsureMemoryOwnerID returns the immutable UUID assigned to a group,
+// backfilling legacy group files before any L2 memory capability is issued.
+func (s *Store) EnsureMemoryOwnerID(ctx context.Context, name string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := getTeamFilePath(s.groupsDir, name)
+	info, err := os.Stat(path)
+	if err != nil {
+		foundPath, foundInfo, findErr := s.findFileCaseInsensitive(s.groupsDir, name)
+		if findErr != nil {
+			return "", fmt.Errorf("teamstore: team %q not found", name)
+		}
+		path, info = foundPath, foundInfo
+	}
+	team, err := parseTeamFile(path, info)
+	if err != nil {
+		return "", err
+	}
+	return s.ensureMemoryOwnerLocked(ctx, name, path, team)
+}
+
+func (s *Store) ensureMemoryOwnerLocked(ctx context.Context, name, path string, team *Team) (string, error) {
+	if s.db != nil {
+		var ownerID string
+		err := s.db.QueryRowContext(ctx,
+			`SELECT owner_id FROM team_memory_owners WHERE team_name = ?`, normalizedTeamName(name),
+		).Scan(&ownerID)
+		if err != nil && err != sql.ErrNoRows {
+			return "", fmt.Errorf("teamstore: read memory owner for team %q: %w", name, err)
+		}
+		if err == sql.ErrNoRows {
+			ownerID, err = s.insertMemoryOwner(ctx, name)
+			if err != nil {
+				return "", err
+			}
+		}
+		if !isCanonicalUUID(ownerID) {
+			return "", fmt.Errorf("teamstore: invalid authoritative memory owner for team %q", name)
+		}
+		if team.MemoryOwnerID != ownerID {
+			team.MemoryOwnerID = ownerID
+			team.UpdatedAt = time.Now().Format(time.RFC3339)
+			if err := s.writeTeamFile(path, team); err != nil {
+				return "", fmt.Errorf("teamstore: persist memory owner mirror for team %q: %w", name, err)
+			}
+		}
+		return ownerID, nil
+	}
+
+	// Filesystem-only stores are used by isolated tests and legacy embedders.
+	// Production always uses the SQLite mapping above as the authority.
+	if team.MemoryOwnerID != "" {
+		if !isCanonicalUUID(team.MemoryOwnerID) {
+			return "", fmt.Errorf("teamstore: invalid memory owner for team %q", name)
+		}
+		if duplicate, err := s.memoryOwnerUsedByOther(path, team.MemoryOwnerID); err != nil {
+			return "", err
+		} else if duplicate {
+			return "", fmt.Errorf("teamstore: duplicate memory owner for team %q", name)
+		}
+		return team.MemoryOwnerID, nil
+	}
+	ownerID, err := s.newFileMemoryOwnerID(path)
+	if err != nil {
+		return "", err
+	}
+	team.MemoryOwnerID = ownerID
+	team.UpdatedAt = time.Now().Format(time.RFC3339)
+	if err := s.writeTeamFile(path, team); err != nil {
+		return "", fmt.Errorf("teamstore: persist memory owner for team %q: %w", name, err)
+	}
+	return ownerID, nil
+}
+
+func (s *Store) memoryOwnerUsedByOther(currentPath, ownerID string) (bool, error) {
+	entries, err := os.ReadDir(s.groupsDir)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		path := filepath.Join(s.groupsDir, entry.Name())
+		if path == currentPath {
+			continue
+		}
+		gf, err := prompt.ParseGroupFile(path)
+		if err == nil && gf.Frontmatter.MemoryOwnerID == ownerID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *Store) newFileMemoryOwnerID(currentPath string) (string, error) {
+	for attempt := 0; attempt < 4; attempt++ {
+		ownerID := uuid.NewString()
+		duplicate, err := s.memoryOwnerUsedByOther(currentPath, ownerID)
+		if err != nil {
+			return "", err
+		}
+		if !duplicate {
+			return ownerID, nil
+		}
+	}
+	return "", fmt.Errorf("teamstore: could not allocate unique memory owner")
+}
+
+func (s *Store) rotateMemoryOwnerID(ctx context.Context, name string) (string, error) {
+	if s.db == nil {
+		return s.newFileMemoryOwnerID("")
+	}
+	key := normalizedTeamName(name)
+	for attempt := 0; attempt < 4; attempt++ {
+		ownerID := uuid.NewString()
+		s.db.WMu.Lock()
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO team_memory_owners (team_name, owner_id)
+			VALUES (?, ?)
+			ON CONFLICT(team_name) DO UPDATE SET
+				owner_id = excluded.owner_id,
+				updated_at = datetime('now')
+		`, key, ownerID)
+		s.db.WMu.Unlock()
+		if err == nil {
+			return ownerID, nil
+		}
+	}
+	return "", fmt.Errorf("teamstore: could not allocate authoritative memory owner for team %q", name)
+}
+
+func (s *Store) insertMemoryOwner(ctx context.Context, name string) (string, error) {
+	if s.db == nil {
+		return "", fmt.Errorf("teamstore: authoritative memory store is unavailable")
+	}
+	key := normalizedTeamName(name)
+	for attempt := 0; attempt < 4; attempt++ {
+		ownerID := uuid.NewString()
+		s.db.WMu.Lock()
+		_, err := s.db.ExecContext(ctx,
+			`INSERT INTO team_memory_owners (team_name, owner_id) VALUES (?, ?)`, key, ownerID)
+		s.db.WMu.Unlock()
+		if err == nil {
+			return ownerID, nil
+		}
+		var existing string
+		if readErr := s.db.QueryRowContext(ctx,
+			`SELECT owner_id FROM team_memory_owners WHERE team_name = ?`, key,
+		).Scan(&existing); readErr == nil {
+			return existing, nil
+		}
+	}
+	return "", fmt.Errorf("teamstore: could not allocate authoritative memory owner for team %q", name)
+}
+
+func (s *Store) rollbackMemoryOwner(ctx context.Context, name, ownerID string) {
+	if s.db == nil {
+		return
+	}
+	s.db.WMu.Lock()
+	_, _ = s.db.ExecContext(ctx,
+		`DELETE FROM team_memory_owners WHERE team_name = ? AND owner_id = ?`,
+		normalizedTeamName(name), ownerID)
+	s.db.WMu.Unlock()
+}
+
+func normalizedTeamName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func isCanonicalUUID(value string) bool {
+	parsed, err := uuid.Parse(value)
+	return err == nil && parsed.String() == strings.ToLower(value)
 }
 
 // DeleteTeam removes a team by name.
@@ -210,6 +405,14 @@ func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("teamstore: delete team %q: %w", name, err)
+	}
+	if s.db != nil {
+		s.db.WMu.Lock()
+		_, err := s.db.ExecContext(ctx, `DELETE FROM team_memory_owners WHERE team_name = ?`, normalizedTeamName(name))
+		s.db.WMu.Unlock()
+		if err != nil {
+			return fmt.Errorf("teamstore: delete memory owner for team %q: %w", name, err)
+		}
 	}
 	return nil
 }
@@ -431,10 +634,11 @@ func (s *Store) findFileCaseInsensitive(dir, name string) (string, os.FileInfo, 
 
 func (s *Store) writeTeamFile(path string, t *Team) error {
 	fm := prompt.GroupFrontmatter{
-		ID:        t.ID,
-		Name:      t.Name,
-		CreatedAt: t.CreatedAt,
-		UpdatedAt: t.UpdatedAt,
+		ID:            t.ID,
+		Name:          t.Name,
+		MemoryOwnerID: t.MemoryOwnerID,
+		CreatedAt:     t.CreatedAt,
+		UpdatedAt:     t.UpdatedAt,
 	}
 
 	fmBytes, err := yaml.Marshal(fm)
@@ -495,11 +699,12 @@ func parseTeamFile(path string, info os.FileInfo) (*Team, error) {
 	}
 
 	return &Team{
-		ID:          id,
-		Name:        name,
-		Description: gf.Body,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
+		ID:            id,
+		Name:          name,
+		Description:   gf.Body,
+		MemoryOwnerID: gf.Frontmatter.MemoryOwnerID,
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
 	}, nil
 }
 

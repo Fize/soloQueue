@@ -25,12 +25,12 @@ func (v *VectorSearcher) Enabled() bool {
 
 // Search embeds the query and queries the vector store.
 // Returns results with normalized scores or nil if disabled.
-func (v *VectorSearcher) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+func (v *VectorSearcher) Search(ctx context.Context, query SearchQuery, limit int) ([]SearchResult, error) {
 	if !v.Enabled() {
 		return nil, nil
 	}
 
-	results, err := v.embedder.Embed(ctx, []string{"query: " + query})
+	results, err := v.embedder.Embed(ctx, []string{"query: " + query.Text})
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +38,16 @@ func (v *VectorSearcher) Search(ctx context.Context, query string, limit int) ([
 		return nil, nil
 	}
 
-	entries, err := v.vecStore.Query(ctx, results[0].Embedding, limit, 0.0)
+	scoped, ok := v.vecStore.(vectorstore.ScopedVectorStore)
+	if !ok {
+		// Fail closed: an unscoped vector store cannot enforce owner isolation.
+		return nil, nil
+	}
+	entries, err := scoped.QueryScoped(ctx, results[0].Embedding, limit, 0.0, vectorstore.QueryFilter{
+		OwnerType: query.OwnerType, OwnerID: query.OwnerID,
+		ScopeType: query.ScopeType, ScopeID: query.ScopeID,
+		IncludeGlobal: query.IncludeGlobal,
+	})
 	if err != nil {
 		return nil, err
 	}

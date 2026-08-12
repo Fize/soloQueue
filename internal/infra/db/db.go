@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 18
+const schemaVersion = 19
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -164,6 +164,14 @@ CREATE TABLE IF NOT EXISTS projects (
 	updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- authoritative server-owned mapping for L2 group memory identities
+CREATE TABLE IF NOT EXISTS team_memory_owners (
+	team_name TEXT PRIMARY KEY COLLATE NOCASE,
+	owner_id TEXT NOT NULL UNIQUE,
+	created_at TEXT NOT NULL DEFAULT (datetime('now')),
+	updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- MCP runtime policy is intentionally separate from protocol-compatible
 -- mcp.json definitions. Approval is bound to definition digest + runtime.
 CREATE TABLE IF NOT EXISTS mcp_policies (
@@ -203,6 +211,8 @@ CREATE TABLE IF NOT EXISTS mem_entries (
 	recall_count INTEGER NOT NULL DEFAULT 0,
 	used_count INTEGER NOT NULL DEFAULT 0,
 	last_used_at TEXT NOT NULL DEFAULT '',
+	owner_type TEXT NOT NULL DEFAULT 'l1',
+	owner_id TEXT NOT NULL DEFAULT '',
 	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -229,12 +239,15 @@ END;
 -- kg_nodes (knowledge graph nodes)
 CREATE TABLE IF NOT EXISTS kg_nodes (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	name TEXT NOT NULL UNIQUE,
+	name TEXT NOT NULL,
 	type TEXT NOT NULL DEFAULT 'entity',
 	mention_count INTEGER NOT NULL DEFAULT 1,
 	first_seen TEXT NOT NULL,
 	last_seen TEXT NOT NULL,
-	confidence REAL NOT NULL DEFAULT 1.0
+	confidence REAL NOT NULL DEFAULT 1.0,
+	owner_type TEXT NOT NULL DEFAULT 'l1',
+	owner_id TEXT NOT NULL DEFAULT '',
+	UNIQUE(owner_type, owner_id, name COLLATE NOCASE)
 );
 CREATE INDEX IF NOT EXISTS idx_kg_nodes_type ON kg_nodes(type);
 CREATE INDEX IF NOT EXISTS idx_kg_nodes_mention_count ON kg_nodes(mention_count DESC);
@@ -252,6 +265,8 @@ CREATE TABLE IF NOT EXISTS kg_edges (
 	valid_from TEXT NOT NULL DEFAULT '',
 	valid_until TEXT,
 	last_reinforced TEXT NOT NULL DEFAULT '',
+	owner_type TEXT NOT NULL DEFAULT 'l1',
+	owner_id TEXT NOT NULL DEFAULT '',
 	UNIQUE(source, target, rel_type)
 );
 CREATE INDEX IF NOT EXISTS idx_kg_edges_source ON kg_edges(source);
@@ -263,8 +278,10 @@ CREATE INDEX IF NOT EXISTS idx_kg_edges_source_hash ON kg_edges(source_hash);
 CREATE TABLE IF NOT EXISTS kg_aliases (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	alias TEXT NOT NULL,
-	canonical TEXT NOT NULL REFERENCES kg_nodes(name),
-	UNIQUE(alias, canonical)
+	canonical TEXT NOT NULL,
+	owner_type TEXT NOT NULL DEFAULT 'l1',
+	owner_id TEXT NOT NULL DEFAULT '',
+	UNIQUE(owner_type, owner_id, alias, canonical)
 );
 
 -- usage_metrics (token usage and router stats)
@@ -875,6 +892,8 @@ func (d *DB) migrate() error {
 		{"used_count", `ALTER TABLE mem_entries ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0`},
 		{"last_used_at", `ALTER TABLE mem_entries ADD COLUMN last_used_at TEXT NOT NULL DEFAULT ''`},
 		{"updated_at", `ALTER TABLE mem_entries ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`},
+		{"owner_type", `ALTER TABLE mem_entries ADD COLUMN owner_type TEXT NOT NULL DEFAULT 'l1'`},
+		{"owner_id", `ALTER TABLE mem_entries ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''`},
 	}
 	memorySchemaChanged := false
 	for _, column := range memoryColumns {
@@ -905,9 +924,89 @@ func (d *DB) migrate() error {
 			ON mem_entries(scope_type, scope_id, status);
 		CREATE INDEX IF NOT EXISTS idx_mem_entries_canonical
 			ON mem_entries(canonical_hash);
+		CREATE INDEX IF NOT EXISTS idx_mem_entries_owner_scope_status
+			ON mem_entries(owner_type, owner_id, scope_type, scope_id, status);
 	`); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("migrate mem_entries v8 indexes: %w", err)
+	}
+
+	// v19: memory authorization is owner-first. Existing main-database rows
+	// are explicitly L1; no ownership is inferred from legacy scopes.
+	hasKGOwner, err := tableHasColumn(tx, "kg_nodes", "owner_type")
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("inspect kg_nodes owner_type column: %w", err)
+	}
+	if !hasKGOwner {
+		if _, err := tx.Exec(`
+			CREATE TABLE kg_nodes_v19 (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL,
+				type TEXT NOT NULL DEFAULT 'entity',
+				mention_count INTEGER NOT NULL DEFAULT 1,
+				first_seen TEXT NOT NULL,
+				last_seen TEXT NOT NULL,
+				confidence REAL NOT NULL DEFAULT 1.0,
+				owner_type TEXT NOT NULL DEFAULT 'l1',
+				owner_id TEXT NOT NULL DEFAULT '',
+				UNIQUE(owner_type, owner_id, name COLLATE NOCASE)
+			);
+			INSERT INTO kg_nodes_v19 (id, name, type, mention_count, first_seen, last_seen, confidence, owner_type, owner_id)
+			SELECT id, name, type, mention_count, first_seen, last_seen, confidence, 'l1', '' FROM kg_nodes;
+
+			CREATE TABLE kg_edges_v19 (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				source INTEGER NOT NULL REFERENCES kg_nodes_v19(id),
+				target INTEGER NOT NULL REFERENCES kg_nodes_v19(id),
+				rel_type TEXT NOT NULL,
+				weight REAL NOT NULL DEFAULT 1.0,
+				evidence TEXT NOT NULL DEFAULT '',
+				source_hash TEXT NOT NULL DEFAULT '',
+				event_time TEXT NOT NULL,
+				valid_from TEXT NOT NULL DEFAULT '',
+				valid_until TEXT,
+				last_reinforced TEXT NOT NULL DEFAULT '',
+				owner_type TEXT NOT NULL DEFAULT 'l1',
+				owner_id TEXT NOT NULL DEFAULT '',
+				UNIQUE(source, target, rel_type)
+			);
+			INSERT INTO kg_edges_v19 (id, source, target, rel_type, weight, evidence, source_hash, event_time, valid_from, valid_until, last_reinforced, owner_type, owner_id)
+			SELECT id, source, target, rel_type, weight, evidence, source_hash, event_time, valid_from, valid_until, last_reinforced, 'l1', '' FROM kg_edges;
+
+			CREATE TABLE kg_aliases_v19 (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				alias TEXT NOT NULL,
+				canonical TEXT NOT NULL,
+				owner_type TEXT NOT NULL DEFAULT 'l1',
+				owner_id TEXT NOT NULL DEFAULT '',
+				UNIQUE(owner_type, owner_id, alias, canonical)
+			);
+			INSERT INTO kg_aliases_v19 (id, alias, canonical, owner_type, owner_id)
+			SELECT id, alias, canonical, 'l1', '' FROM kg_aliases;
+
+			DROP TABLE kg_aliases;
+			DROP TABLE kg_edges;
+			DROP TABLE kg_nodes;
+			ALTER TABLE kg_nodes_v19 RENAME TO kg_nodes;
+			ALTER TABLE kg_edges_v19 RENAME TO kg_edges;
+			ALTER TABLE kg_aliases_v19 RENAME TO kg_aliases;
+		`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate memory graph ownership v19: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_kg_nodes_owner_name ON kg_nodes(owner_type, owner_id, name);
+		CREATE INDEX IF NOT EXISTS idx_kg_nodes_type ON kg_nodes(type);
+		CREATE INDEX IF NOT EXISTS idx_kg_nodes_mention_count ON kg_nodes(mention_count DESC);
+		CREATE INDEX IF NOT EXISTS idx_kg_edges_owner_source ON kg_edges(owner_type, owner_id, source);
+		CREATE INDEX IF NOT EXISTS idx_kg_edges_owner_target ON kg_edges(owner_type, owner_id, target);
+		CREATE INDEX IF NOT EXISTS idx_kg_edges_valid_until ON kg_edges(valid_until);
+		CREATE INDEX IF NOT EXISTS idx_kg_edges_source_hash ON kg_edges(source_hash);
+	`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("create memory owner indexes v19: %w", err)
 	}
 
 	// Fix corrupted llm_models rows where the "vision" column accidentally holds

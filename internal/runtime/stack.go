@@ -430,6 +430,7 @@ func (s *Stack) rebuildMemoryEngine(cfg config.EmbeddingConfig) {
 
 	if s.AgentFactory != nil {
 		s.AgentFactory.SetToolsConfig(s.ToolsCfg)
+		s.AgentFactory.UpdateMemoryEngine(newEngine)
 	}
 
 	s.Log.Info(logger.CatConfig, "memory engine hot-reloaded",

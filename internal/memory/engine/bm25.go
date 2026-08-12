@@ -13,7 +13,10 @@ func NewBM25Searcher(store *MemoryStore) *BM25Searcher {
 }
 
 // Search runs BM25 and returns normalized results.
-func (b *BM25Searcher) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
-	results, _, err := b.store.BM25Search(ctx, query, limit)
+func (b *BM25Searcher) Search(ctx context.Context, query SearchQuery, limit int) ([]SearchResult, error) {
+	results, _, err := b.store.BM25SearchOwned(
+		ctx, query.Text, limit, query.OwnerType, query.OwnerID,
+		query.ScopeType, query.ScopeID, query.IncludeGlobal,
+	)
 	return results, err
 }

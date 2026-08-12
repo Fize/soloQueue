@@ -5,8 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	sqlitedb "github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 func TestStoreCRUD(t *testing.T) {
@@ -155,6 +159,110 @@ func TestStoreCRUD(t *testing.T) {
 	}
 	if _, err := os.Stat(teamPath); !os.IsNotExist(err) {
 		t.Error("team file still exists after deletion")
+	}
+}
+
+func TestEnsureMemoryOwnerIDBackfillsOnceAndRecreationRotates(t *testing.T) {
+	root := t.TempDir()
+	groupsDir := filepath.Join(root, "groups")
+	store := NewStore(groupsDir, filepath.Join(root, "agents"), nil)
+	ctx := context.Background()
+
+	legacy := "---\nname: legacy\n---\nLegacy team\n"
+	if err := os.WriteFile(filepath.Join(groupsDir, "legacy.md"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.EnsureMemoryOwnerID(ctx, "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uuid.Parse(first); err != nil {
+		t.Fatalf("invalid owner UUID %q: %v", first, err)
+	}
+	second, err := store.EnsureMemoryOwnerID(ctx, "legacy")
+	if err != nil || second != first {
+		t.Fatalf("owner changed across reload: first=%q second=%q err=%v", first, second, err)
+	}
+	team, err := store.GetTeamByName(ctx, "legacy")
+	if err != nil || team.MemoryOwnerID != first {
+		t.Fatalf("owner not persisted: team=%+v err=%v", team, err)
+	}
+	team.Description = "Updated"
+	if err := store.UpdateTeam(ctx, "legacy", team); err != nil {
+		t.Fatal(err)
+	}
+	afterUpdate, _ := store.GetTeamByName(ctx, "legacy")
+	if afterUpdate.MemoryOwnerID != first {
+		t.Fatalf("update changed owner: %q -> %q", first, afterUpdate.MemoryOwnerID)
+	}
+
+	if err := store.DeleteTeam(ctx, "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	recreated := &Team{Name: "legacy", Description: "Recreated"}
+	if err := store.CreateTeam(ctx, recreated); err != nil {
+		t.Fatal(err)
+	}
+	if recreated.MemoryOwnerID == first {
+		t.Fatal("recreated team reused abandoned memory owner")
+	}
+}
+
+func TestEnsureMemoryOwnerIDRejectsDuplicate(t *testing.T) {
+	root := t.TempDir()
+	groupsDir := filepath.Join(root, "groups")
+	store := NewStore(groupsDir, filepath.Join(root, "agents"), nil)
+	ownerID := uuid.NewString()
+	for _, name := range []string{"one", "two"} {
+		content := "---\nname: " + name + "\nmemory_owner_id: " + ownerID + "\n---\n"
+		if err := os.WriteFile(filepath.Join(groupsDir, name+".md"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.EnsureMemoryOwnerID(context.Background(), "one"); err == nil {
+		t.Fatal("expected duplicate owner to fail closed")
+	}
+}
+
+func TestSQLiteMemoryOwnerOverridesTamperedFrontmatter(t *testing.T) {
+	root := t.TempDir()
+	shared, err := sqlitedb.Open(filepath.Join(root, "soloqueue.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shared.Close()
+	groupsDir := filepath.Join(root, "groups")
+	store := NewStore(groupsDir, filepath.Join(root, "agents"), shared)
+	ctx := context.Background()
+	team := &Team{Name: "secure"}
+	if err := store.CreateTeam(ctx, team); err != nil {
+		t.Fatal(err)
+	}
+	authoritative := team.MemoryOwnerID
+	tampered := uuid.NewString()
+	path := filepath.Join(groupsDir, "secure.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := strings.Replace(string(data), authoritative, tampered, 1)
+	if err := os.WriteFile(path, []byte(changed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.EnsureMemoryOwnerID(ctx, "secure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != authoritative {
+		t.Fatalf("tampered frontmatter changed authority: got %q want %q", got, authoritative)
+	}
+	repaired, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(repaired), tampered) || !strings.Contains(string(repaired), authoritative) {
+		t.Fatal("frontmatter mirror was not repaired from SQLite authority")
 	}
 }
 

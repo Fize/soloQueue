@@ -42,7 +42,7 @@ func (e *Engine) Ingest(ctx context.Context, candidate MemoryCandidate) (IngestR
 		return IngestResult{}, err
 	}
 	if isNew && len(normalized.Entities) > 0 {
-		e.indexEntities(ctx, normalized.Content, hash, normalized.EventTime, normalized.Entities)
+		e.indexEntities(ctx, normalized.OwnerType, normalized.OwnerID, normalized.Content, hash, normalized.EventTime, normalized.Entities)
 	}
 	action := "insert"
 	if !isNew {
@@ -58,6 +58,10 @@ func (e *Engine) Ingest(ctx context.Context, candidate MemoryCandidate) (IngestR
 }
 
 func normalizeCandidate(candidate MemoryCandidate) (MemoryCandidate, string) {
+	candidate.OwnerType, candidate.OwnerID = normalizeOwner(candidate.OwnerType, candidate.OwnerID)
+	if !validOwner(candidate.OwnerType, candidate.OwnerID) {
+		return candidate, "invalid memory owner"
+	}
 	candidate.Content = strings.TrimSpace(candidate.Content)
 	if candidate.Content == "" {
 		return candidate, "empty content"

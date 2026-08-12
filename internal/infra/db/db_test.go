@@ -160,17 +160,66 @@ func TestOpenMigratesMemoryMetadataV8(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	var memoryType, scopeType, status, updatedAt string
+	var memoryType, scopeType, status, updatedAt, ownerType, ownerID string
 	if err := db.QueryRow(`
-		SELECT memory_type, scope_type, status, updated_at
+		SELECT memory_type, scope_type, status, updated_at, owner_type, owner_id
 		FROM mem_entries WHERE id = 'm1'
-	`).Scan(&memoryType, &scopeType, &status, &updatedAt); err != nil {
+	`).Scan(&memoryType, &scopeType, &status, &updatedAt, &ownerType, &ownerID); err != nil {
 		t.Fatal(err)
 	}
 	if memoryType != "legacy" || scopeType != "global" || status != "active" ||
-		updatedAt != "2026-07-01T00:00:00Z" {
-		t.Fatalf("unexpected migrated metadata: %q %q %q %q",
-			memoryType, scopeType, status, updatedAt)
+		updatedAt != "2026-07-01T00:00:00Z" || ownerType != "l1" || ownerID != "" {
+		t.Fatalf("unexpected migrated metadata: %q %q %q %q %q %q",
+			memoryType, scopeType, status, updatedAt, ownerType, ownerID)
+	}
+}
+
+func TestOpenMigratesExistingKnowledgeGraphToL1Owner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "memory-v18.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`
+		CREATE TABLE kg_nodes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+			type TEXT NOT NULL DEFAULT 'entity', mention_count INTEGER NOT NULL DEFAULT 1,
+			first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 1.0
+		);
+		CREATE TABLE kg_edges (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, source INTEGER NOT NULL, target INTEGER NOT NULL,
+			rel_type TEXT NOT NULL, weight REAL NOT NULL DEFAULT 1.0, evidence TEXT NOT NULL DEFAULT '',
+			source_hash TEXT NOT NULL DEFAULT '', event_time TEXT NOT NULL, valid_from TEXT NOT NULL DEFAULT '',
+			valid_until TEXT, last_reinforced TEXT NOT NULL DEFAULT '', UNIQUE(source, target, rel_type)
+		);
+		CREATE TABLE kg_aliases (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, alias TEXT NOT NULL, canonical TEXT NOT NULL,
+			UNIQUE(alias, canonical)
+		);
+		INSERT INTO kg_nodes VALUES (1, 'SoloQueue', 'project', 1, '2026-01-01', '2026-01-01', 1.0);
+		INSERT INTO kg_nodes VALUES (2, 'SQLite', 'tool', 1, '2026-01-01', '2026-01-01', 1.0);
+		INSERT INTO kg_edges VALUES (1, 1, 2, 'uses', 1.0, '', 'hash', '2026-01-01', '', NULL, '2026-01-01');
+		INSERT INTO kg_aliases VALUES (1, 'SQ', 'SoloQueue');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for _, table := range []string{"kg_nodes", "kg_edges", "kg_aliases"} {
+		var count int
+		query := `SELECT COUNT(*) FROM ` + table + ` WHERE owner_type = 'l1' AND owner_id = ''`
+		if err := database.QueryRow(query).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count == 0 {
+			t.Fatalf("%s rows were not assigned to L1", table)
+		}
 	}
 }
 

@@ -24,6 +24,8 @@ type MemoryEntry struct {
 	SupersedesHash string  `json:"supersedes_hash,omitempty"`
 	CanonicalHash  string  `json:"canonical_hash,omitempty"`
 	LastUsedAt     string  `json:"last_used_at,omitempty"`
+	OwnerType      string  `json:"-"`
+	OwnerID        string  `json:"-"`
 }
 
 // GraphNode is an entity in the knowledge graph.
@@ -74,6 +76,8 @@ type SearchResult struct {
 	ScopeID     string  `json:"scope_id"`
 	Status      string  `json:"status"`
 	ExpiresAt   string  `json:"expires_at,omitempty"`
+	OwnerType   string  `json:"-"`
+	OwnerID     string  `json:"-"`
 }
 
 // SearchQuery parameterizes a hybrid search.
@@ -88,6 +92,8 @@ type SearchQuery struct {
 	ScopeType           string   `json:"scope_type,omitempty"`
 	ScopeID             string   `json:"scope_id,omitempty"`
 	IncludeGlobal       bool     `json:"include_global,omitempty"`
+	OwnerType           string   `json:"-"`
+	OwnerID             string   `json:"-"`
 }
 
 const (
@@ -112,6 +118,9 @@ const (
 	StatusArchived    = "archived"
 	StatusQuarantined = "quarantined"
 	StatusSuperseded  = "superseded"
+
+	OwnerL1      = "l1"
+	OwnerL2Group = "l2_group"
 )
 
 // MemoryCandidate is the only supported input for new long-term memories.
@@ -128,6 +137,8 @@ type MemoryCandidate struct {
 	ExpiresAt           string
 	ExplicitUserRequest bool
 	Entities            []EntityExtraction
+	OwnerType           string
+	OwnerID             string
 }
 
 // IngestResult explains whether a candidate was stored or rejected.

@@ -126,6 +126,10 @@ func (e *Executor) Execute(ctx context.Context, req workflow.NodeRunRequest) (wo
 	createOpts := agent.CreateOptions{
 		ExtraSystemPrompt: buildWorkflowSystemPrompt(req) + req.Node.Prompt + "\n</node_instruction>",
 		ExtraTools:        []tools.Tool{handoff},
+		MemoryPolicy:      agent.MemoryDisabled,
+	}
+	if tmpl.IsLeader && tmpl.Group != "" {
+		createOpts.MemoryPolicy = agent.MemoryL2Group
 	}
 
 	// Create temp agent

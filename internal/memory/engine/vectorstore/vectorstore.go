@@ -14,6 +14,18 @@ type MemoryEntry struct {
 	Embedding []float32 `json:"embedding"`
 	Timestamp time.Time `json:"timestamp"`
 	Source    string    `json:"source"` // original short-term memory filename
+	OwnerType string    `json:"-"`
+	OwnerID   string    `json:"-"`
+	ScopeType string    `json:"-"`
+	ScopeID   string    `json:"-"`
+}
+
+type QueryFilter struct {
+	OwnerType     string
+	OwnerID       string
+	ScopeType     string
+	ScopeID       string
+	IncludeGlobal bool
 }
 
 // VectorStore persists and queries embedded memory entries.
@@ -21,6 +33,12 @@ type VectorStore interface {
 	Upsert(ctx context.Context, entry MemoryEntry) error
 	Query(ctx context.Context, embedding []float32, topK int, minSimilarity float32) ([]MemoryEntry, error)
 	Count(ctx context.Context) (int, error)
+}
+
+// ScopedVectorStore applies authorization filters in storage before ranking.
+type ScopedVectorStore interface {
+	VectorStore
+	QueryScoped(ctx context.Context, embedding []float32, topK int, minSimilarity float32, filter QueryFilter) ([]MemoryEntry, error)
 }
 
 // CosineSimilarity returns the cosine similarity between two float32 vectors.
