@@ -334,14 +334,21 @@ func StartRemoteSkillsSyncLoop(ctx context.Context, workDir, userSkillsDir strin
 
 // compareDirectories compares files between srcDir and dstDir recursively.
 func compareDirectories(srcDir, dstDir string) (equal bool, modified []string, added []string, removed []string, err error) {
-	srcFiles := make(map[string]string)
-	dstFiles := make(map[string]string)
+	type fileSignature struct {
+		hash string
+		perm os.FileMode
+	}
+	srcFiles := make(map[string]fileSignature)
+	dstFiles := make(map[string]fileSignature)
 
 	err = filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
+			if path != srcDir && info.Name() == ".git" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		name := info.Name()
@@ -356,7 +363,7 @@ func compareDirectories(srcDir, dstDir string) (equal bool, modified []string, a
 		if err != nil {
 			return err
 		}
-		srcFiles[filepath.ToSlash(rel)] = hash
+		srcFiles[filepath.ToSlash(rel)] = fileSignature{hash: hash, perm: info.Mode().Perm()}
 		return nil
 	})
 	if err != nil {
@@ -368,6 +375,9 @@ func compareDirectories(srcDir, dstDir string) (equal bool, modified []string, a
 			return err
 		}
 		if info.IsDir() {
+			if path != dstDir && info.Name() == ".git" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		name := info.Name()
@@ -382,18 +392,18 @@ func compareDirectories(srcDir, dstDir string) (equal bool, modified []string, a
 		if err != nil {
 			return err
 		}
-		dstFiles[filepath.ToSlash(rel)] = hash
+		dstFiles[filepath.ToSlash(rel)] = fileSignature{hash: hash, perm: info.Mode().Perm()}
 		return nil
 	})
 	if err != nil && !os.IsNotExist(err) {
 		return false, nil, nil, nil, err
 	}
 
-	for rel, srcH := range srcFiles {
-		dstH, exists := dstFiles[rel]
+	for rel, srcSignature := range srcFiles {
+		dstSignature, exists := dstFiles[rel]
 		if !exists {
 			added = append(added, rel)
-		} else if srcH != dstH {
+		} else if srcSignature != dstSignature {
 			modified = append(modified, rel)
 		}
 	}

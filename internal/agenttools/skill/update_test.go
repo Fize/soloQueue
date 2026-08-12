@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -134,6 +135,61 @@ func TestSyncRemoteSkills_SkipsSkillsWithoutUpstream(t *testing.T) {
 	}
 	if !strings.Contains(string(logBytes), "checked=0 updated=0") {
 		t.Errorf("expected skill without upstream to be excluded from toSync, got:\n%s", logBytes)
+	}
+}
+
+func TestCompareDirectoriesIgnoresGitMetadata(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+
+	for _, dir := range []string{srcDir, dstDir} {
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("same skill"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, ".git", "logs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, ".git", "index"), []byte("source metadata"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dstDir, ".git", "index"), []byte("destination metadata"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	equal, modified, added, removed, err := compareDirectories(srcDir, dstDir)
+	if err != nil {
+		t.Fatalf("compareDirectories failed: %v", err)
+	}
+	if !equal {
+		t.Fatalf("git metadata must not affect skill comparison: modified=%v added=%v removed=%v", modified, added, removed)
+	}
+}
+
+func TestCompareDirectoriesDetectsPermissionChanges(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix executable permission bits")
+	}
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+	for _, dir := range []string{srcDir, dstDir} {
+		if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "scripts", "build.sh"), []byte("#!/bin/sh\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(srcDir, "scripts", "build.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	equal, modified, added, removed, err := compareDirectories(srcDir, dstDir)
+	if err != nil {
+		t.Fatalf("compareDirectories failed: %v", err)
+	}
+	if equal || len(modified) != 1 || modified[0] != "scripts/build.sh" || len(added) != 0 || len(removed) != 0 {
+		t.Fatalf("permission drift must be reported as a modification: equal=%v modified=%v added=%v removed=%v", equal, modified, added, removed)
 	}
 }
 
