@@ -20,10 +20,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
-	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
 // SessionStatusResponse represents the current session status and context window history.
@@ -153,7 +154,11 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build context with file and image data.
-	askCtx := context.Background()
+	askCtx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{
+		RequestID: uuid.NewString(),
+		SessionID: sess.TargetID,
+		Origin:    telemetry.OriginAPI,
+	})
 	var fileAttachments []ctxwin.FileAttachment
 	for _, f := range req.Files {
 		fileAttachments = append(fileAttachments, ctxwin.FileAttachment{
@@ -317,7 +322,11 @@ func (m *Mux) handleAskStream(w http.ResponseWriter, r *http.Request) {
 
 	sess.SetIsQBot(false)
 	// Build context with file and image data.
-	askCtx := r.Context()
+	askCtx := telemetry.WithTelemetryMetadata(r.Context(), telemetry.Metadata{
+		RequestID: uuid.NewString(),
+		SessionID: req.SessionID,
+		Origin:    telemetry.OriginAPI,
+	})
 	var fileAttachments []ctxwin.FileAttachment
 	for _, f := range req.Files {
 		fileAttachments = append(fileAttachments, ctxwin.FileAttachment{

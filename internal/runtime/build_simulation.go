@@ -15,12 +15,14 @@ type simChatClient struct {
 }
 
 func (s *simChatClient) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResponse, error) {
-	simCtx := telemetry.WithTelemetryContext(ctx, "unknown", telemetry.UsageSimulation)
+	simCtx := telemetry.WithTelemetryContext(ctx, "", telemetry.UsageSimulation)
+	simCtx = telemetry.WithTelemetryMetadata(simCtx, telemetry.Metadata{Origin: telemetry.OriginSimulation})
 	return s.inner.Chat(simCtx, req)
 }
 
 func (s *simChatClient) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan llm.Event, error) {
-	simCtx := telemetry.WithTelemetryContext(ctx, "unknown", telemetry.UsageSimulation)
+	simCtx := telemetry.WithTelemetryContext(ctx, "", telemetry.UsageSimulation)
+	simCtx = telemetry.WithTelemetryMetadata(simCtx, telemetry.Metadata{Origin: telemetry.OriginSimulation})
 	return s.inner.ChatStream(simCtx, req)
 }
 

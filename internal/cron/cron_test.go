@@ -372,7 +372,7 @@ func TestBuildTaskPrompt(t *testing.T) {
 func TestBuildCronContext(t *testing.T) {
 	s := newTestScheduler(t)
 	task := Task{ID: "t1"}
-	ctx := s.buildCronContext(task)
+	ctx := s.buildCronContext(task, "run-1")
 	if ctx == nil {
 		t.Error("buildCronContext returned nil")
 	}

@@ -13,10 +13,22 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
-	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 )
+
+func withChannelTelemetry(ctx context.Context) context.Context {
+	if meta, ok := channel.ChatMetaFromContext(ctx); ok {
+		origin := meta.Channel
+		if origin == "qqbot" {
+			origin = telemetry.OriginQQ
+		}
+		return telemetry.WithTelemetryMetadata(ctx, telemetry.Metadata{Origin: origin})
+	}
+	return ctx
+}
 
 // channelAdapterBase provides shared logic for messaging channel adapters.
 type channelAdapterBase struct {
@@ -276,6 +288,7 @@ func (a *SessionAskAdapter) SetChannelSenderData(channelType string, metadata []
 
 // AskStream implements channel.SessionProvider.
 func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
+	ctx = withChannelTelemetry(ctx)
 	sess := a.mgr.Session()
 	if sess == nil {
 		return nil, errors.New("no active session")
@@ -422,6 +435,7 @@ func (a *L2ChannelAdapter) SetChannelSenderData(channelType string, metadata []b
 
 // AskStream implements channel.SessionProvider.
 func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
+	ctx = withChannelTelemetry(ctx)
 	sess, err := a.getSession(ctx)
 	if err != nil {
 		return nil, err

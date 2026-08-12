@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 17
+const schemaVersion = 18
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -312,6 +312,8 @@ CREATE TABLE IF NOT EXISTS llm_call_metrics (
 	total_tokens INTEGER NOT NULL DEFAULT 0,
 	cache_hit_tokens INTEGER NOT NULL DEFAULT 0,
 	cache_miss_tokens INTEGER NOT NULL DEFAULT 0,
+	reasoning_details_reported INTEGER NOT NULL DEFAULT 0,
+	cache_details_reported INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_llm_call_metrics_finished ON llm_call_metrics(finished_at DESC, call_id DESC);
@@ -996,6 +998,29 @@ func (d *DB) migrate() error {
 		`); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("remove llm_call_metrics estimated cost column: %w", err)
+		}
+	}
+
+	// v18: zero token details and absent provider details have different
+	// meanings, so coverage needs explicit provider-reported markers.
+	metricCoverageColumns := []struct {
+		name string
+		ddl  string
+	}{
+		{"reasoning_details_reported", `ALTER TABLE llm_call_metrics ADD COLUMN reasoning_details_reported INTEGER NOT NULL DEFAULT 0`},
+		{"cache_details_reported", `ALTER TABLE llm_call_metrics ADD COLUMN cache_details_reported INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, column := range metricCoverageColumns {
+		hasColumn, err := tableHasColumn(tx, "llm_call_metrics", column.name)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect llm_call_metrics %s column: %w", column.name, err)
+		}
+		if !hasColumn {
+			if _, err := tx.Exec(column.ddl); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migrate llm_call_metrics add %s: %w", column.name, err)
+			}
 		}
 	}
 

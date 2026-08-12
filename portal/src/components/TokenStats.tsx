@@ -19,8 +19,8 @@ interface Metrics {
   total_tokens: number;
   cache_hit_tokens: number;
   request_count: number;
-  success_rate: number;
-  cache_hit_rate: number;
+  success_rate: number | null;
+  cache_hit_rate: number | null;
   p95_duration_ms: number | null;
 }
 
@@ -29,7 +29,11 @@ interface Overview {
     generated_at: string;
     timezone: string;
     bucket_size: "hour" | "day" | "week" | "none";
-    coverage: { total_rows: number; legacy_rows: number };
+    coverage: {
+      total_rows: number;
+      legacy_rows: number;
+      cache_detail: { known_rows: number; applicable_rows: number };
+    };
   };
   summary: Metrics;
   series: { start: string; metrics: Metrics }[];
@@ -74,11 +78,6 @@ async function fetchEnvelope<T>(path: string, signal: AbortSignal): Promise<T> {
   return envelope.data;
 }
 
-function formatLatency(value: number | null) {
-  if (value === null) return "N/A";
-  return value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(1)} s`;
-}
-
 function labelForPoint(value: string, timezone: string, hourly: boolean) {
   return new Intl.DateTimeFormat(undefined, {
     timeZone: timezone,
@@ -107,7 +106,7 @@ export function TokenStats() {
       const params = new URLSearchParams({ ...getRange(preset), timezone });
       try {
         const next = await fetchEnvelope<Overview>(
-          `/api/stats/v2/overview?${params}`,
+          `/api/stats/overview?${params}`,
           controller.signal,
         );
         if (!active) return;
@@ -117,7 +116,7 @@ export function TokenStats() {
         modelParams.set("dimension", "model");
         try {
           const breakdown = await fetchEnvelope<Breakdown>(
-            `/api/stats/v2/breakdowns?${modelParams}`,
+            `/api/stats/breakdowns?${modelParams}`,
             controller.signal,
           );
           if (active) setModels(breakdown.items);
@@ -199,6 +198,19 @@ export function TokenStats() {
     1,
   );
   const hourly = overview.meta.bucket_size === "hour";
+  const cacheCovered = overview.meta.coverage.cache_detail.known_rows > 0;
+  const summaryItems = [
+    [t("tokenStats.summaryTotal"), formatTokenCount(summary.total_tokens)],
+    [t("tokenStats.requests"), summary.request_count.toLocaleString()],
+    ...(cacheCovered && summary.cache_hit_rate !== null
+      ? [
+          [
+            t("tokenStats.summaryCacheHit"),
+            `${(summary.cache_hit_rate * 100).toFixed(1)}%`,
+          ],
+        ]
+      : []),
+  ];
 
   return (
     <section
@@ -267,29 +279,10 @@ export function TokenStats() {
       </div>
 
       <div
-        className="px-4 sm:px-6 py-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 border-b"
+        className="px-4 sm:px-6 py-4 grid grid-cols-2 sm:grid-cols-3 gap-3 border-b"
         style={{ borderColor: "var(--color-border)" }}
       >
-        {[
-          [
-            t("tokenStats.summaryInput"),
-            formatTokenCount(summary.prompt_tokens),
-          ],
-          [
-            t("tokenStats.summaryOutput"),
-            formatTokenCount(summary.completion_tokens),
-          ],
-          [
-            t("tokenStats.summaryTotal"),
-            formatTokenCount(summary.total_tokens),
-          ],
-          [t("tokenStats.requests"), summary.request_count.toLocaleString()],
-          [
-            t("tokenStats.summaryCacheHit"),
-            `${(summary.cache_hit_rate * 100).toFixed(1)}%`,
-          ],
-          [t("tokenStats.p95Latency"), formatLatency(summary.p95_duration_ms)],
-        ].map(([label, value]) => (
+        {summaryItems.map(([label, value]) => (
           <div key={label} className="flex flex-col items-center gap-1">
             <span
               className="text-xs font-medium"
@@ -306,6 +299,21 @@ export function TokenStats() {
           </div>
         ))}
       </div>
+
+      {overview.meta.coverage.legacy_rows ===
+        overview.meta.coverage.total_rows &&
+        overview.meta.coverage.total_rows > 0 && (
+          <div
+            className="px-4 sm:px-6 py-2 text-xs border-b"
+            style={{
+              borderColor: "var(--color-border)",
+              color: "var(--color-muted-foreground)",
+              backgroundColor: "var(--color-surface-secondary)",
+            }}
+          >
+            {t("tokenStats.legacyOnly")}
+          </div>
+        )}
 
       {!collapsed && (
         <div className="grid lg:grid-cols-[2fr_1fr]">

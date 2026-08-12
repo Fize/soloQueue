@@ -216,12 +216,14 @@ func TestTelemetryClient_RecordsSuccessfulCall(t *testing.T) {
 	inner := &usageLLM{response: &agent.LLMResponse{
 		FinishReason: llm.FinishStop,
 		Usage: llm.Usage{
-			PromptTokens:          100,
-			CompletionTokens:      50,
-			TotalTokens:           150,
-			ReasoningTokens:       20,
-			PromptCacheHitTokens:  80,
-			PromptCacheMissTokens: 20,
+			PromptTokens:             100,
+			CompletionTokens:         50,
+			TotalTokens:              150,
+			ReasoningTokens:          20,
+			PromptCacheHitTokens:     80,
+			PromptCacheMissTokens:    20,
+			ReasoningDetailsReported: true,
+			CacheDetailsReported:     true,
 		},
 	}}
 	client := telemetry.NewTelemetryClient(inner, database)
@@ -237,7 +239,7 @@ func TestTelemetryClient_RecordsSuccessfulCall(t *testing.T) {
 
 	rows := waitForMetrics(t, database, 1)
 	got := rows[0]
-	if got.Status != telemetry.StatusSuccess || got.ReasoningTokens != 20 {
+	if got.Status != telemetry.StatusSuccess || got.ReasoningTokens != 20 || !got.ReasoningDetailsReported || !got.CacheDetailsReported {
 		t.Fatalf("metric = %+v", got)
 	}
 	if got.RequestID != "request-1" || got.Origin != telemetry.OriginDesktop || got.TaskType != "engineering" {
@@ -259,8 +261,11 @@ func TestTelemetryClient_RecordsFailedCall(t *testing.T) {
 	_, _ = client.Chat(context.Background(), agent.LLMRequest{ProviderID: "provider-a", Model: "model-a"})
 
 	rows := waitForMetrics(t, database, 1)
-	if rows[0].Status != telemetry.StatusError || rows[0].ErrorCode == "" {
+	if rows[0].Status != telemetry.StatusError || rows[0].ErrorCode == "" || rows[0].Origin != telemetry.OriginSystem {
 		t.Fatalf("failed metric = %+v", rows[0])
+	}
+	if rows[0].TaskType != "" {
+		t.Fatalf("missing task type must remain empty, got %q", rows[0].TaskType)
 	}
 }
 

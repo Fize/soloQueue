@@ -16,29 +16,30 @@ func TestInsertAndListLLMCallMetrics(t *testing.T) {
 	started := time.Date(2026, 8, 11, 8, 0, 0, 0, time.UTC)
 	finished := started.Add(1250 * time.Millisecond)
 	metric := LLMCallMetric{
-		CallID:           "call-1",
-		RequestID:        "request-1",
-		SessionID:        "session-1",
-		RunID:            "run-1",
-		AgentID:          "agent-1",
-		TeamID:           "team-a",
-		Origin:           "desktop",
-		UsageType:        "chat",
-		TaskType:         "engineering",
-		ProviderID:       "provider-a",
-		ModelID:          "model-a",
-		StartedAt:        started,
-		FinishedAt:       finished,
-		Status:           "success",
-		FinishReason:     "stop",
-		RetryCount:       1,
-		DurationMS:       1250,
-		PromptTokens:     100,
-		CompletionTokens: 50,
-		ReasoningTokens:  20,
-		TotalTokens:      150,
-		CacheHitTokens:   80,
-		CacheMissTokens:  20,
+		CallID:                   "call-1",
+		RequestID:                "request-1",
+		SessionID:                "session-1",
+		RunID:                    "run-1",
+		AgentID:                  "agent-1",
+		TeamID:                   "team-a",
+		Origin:                   "desktop",
+		UsageType:                "chat",
+		TaskType:                 "engineering",
+		ProviderID:               "provider-a",
+		ModelID:                  "model-a",
+		StartedAt:                started,
+		FinishedAt:               finished,
+		Status:                   "success",
+		FinishReason:             "stop",
+		DurationMS:               1250,
+		PromptTokens:             100,
+		CompletionTokens:         50,
+		ReasoningTokens:          20,
+		TotalTokens:              150,
+		CacheHitTokens:           80,
+		CacheMissTokens:          20,
+		ReasoningDetailsReported: true,
+		CacheDetailsReported:     true,
 	}
 	if err := database.InsertLLMCallMetric(context.Background(), metric); err != nil {
 		t.Fatalf("InsertLLMCallMetric: %v", err)
@@ -52,7 +53,7 @@ func TestInsertAndListLLMCallMetrics(t *testing.T) {
 		t.Fatalf("row count = %d, want 1", len(rows))
 	}
 	got := rows[0]
-	if got.CallID != metric.CallID || got.ReasoningTokens != 20 || got.Status != "success" {
+	if got.CallID != metric.CallID || got.ReasoningTokens != 20 || got.Status != "success" || !got.ReasoningDetailsReported || !got.CacheDetailsReported {
 		t.Fatalf("metric = %+v", got)
 	}
 	if got.Legacy {
@@ -122,8 +123,26 @@ func TestListLLMCallMetricsIncludesLegacyRows(t *testing.T) {
 	if !got.Legacy || got.ProviderID != "provider-a" || got.ModelID != "model-a" {
 		t.Fatalf("legacy metric = %+v", got)
 	}
-	if got.Status != "unknown" || got.Origin != "unknown" || got.TaskType != "unknown" {
+	if got.Status != "unknown" || got.Origin != "unknown" || got.TaskType != "unknown" || !got.CacheDetailsReported {
 		t.Fatalf("legacy dimensions = %+v", got)
+	}
+}
+
+func TestMigrationAddsProviderDetailCoverageColumns(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer database.Close()
+
+	for _, column := range []string{"reasoning_details_reported", "cache_details_reported"} {
+		var count int
+		if err := database.QueryRow(`SELECT count(*) FROM pragma_table_info('llm_call_metrics') WHERE name = ?`, column).Scan(&count); err != nil {
+			t.Fatalf("inspect %s: %v", column, err)
+		}
+		if count != 1 {
+			t.Fatalf("column %s count = %d, want 1", column, count)
+		}
 	}
 }
 

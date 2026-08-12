@@ -76,9 +76,11 @@ type Usage struct {
 	TotalTokens      int `json:"total_tokens"`
 
 	// DeepSeek specific
-	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens,omitempty"`
-	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens,omitempty"`
-	ReasoningTokens       int `json:"reasoning_tokens,omitempty"`
+	PromptCacheHitTokens     int  `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens    int  `json:"prompt_cache_miss_tokens,omitempty"`
+	ReasoningTokens          int  `json:"reasoning_tokens,omitempty"`
+	CacheDetailsReported     bool `json:"cache_details_reported,omitempty"`
+	ReasoningDetailsReported bool `json:"reasoning_details_reported,omitempty"`
 }
 
 // ─── FinishReason ────────────────────────────────────────────────────────────

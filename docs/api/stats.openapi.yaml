@@ -1,11 +1,17 @@
 openapi: 3.0.3
 info:
   title: SoloQueue Usage Statistics API
-  version: 2.1.0
+  version: 3.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit
   description: |
-    Read-only analytics endpoints for the Desktop usage dashboard and the
-    lightweight Portal summary. All timestamps are RFC 3339 UTC instants.
-    Calendar bucketing uses the requested IANA timezone.
+    Read-only usage analytics for the Desktop dashboard and lightweight Portal.
+    This contract distinguishes known values, values that are not applicable, missing
+    provider details, and rows adapted from legacy storage. Missing dimensions are
+    represented as null and are excluded from breakdown and filter option buckets.
+    All timestamps are RFC 3339 UTC instants. Calendar bucketing uses the requested
+    IANA timezone.
 servers:
   - url: /
 tags:
@@ -15,7 +21,7 @@ security:
   - basicAuth: []
   - {}
 paths:
-  /api/stats/v2/overview:
+  /api/stats/overview:
     get:
       tags: [Statistics]
       operationId: getStatsOverview
@@ -44,11 +50,12 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/Unavailable"
-  /api/stats/v2/breakdowns:
+  /api/stats/breakdowns:
     get:
       tags: [Statistics]
       operationId: getStatsBreakdowns
-      summary: Group usage metrics by one selected dimension
+      summary: Group usage metrics by one selected known dimension
+      description: Rows without a known value for the selected dimension are excluded.
       parameters:
         - $ref: "#/components/parameters/From"
         - $ref: "#/components/parameters/To"
@@ -64,8 +71,7 @@ paths:
           in: query
           required: true
           schema:
-            type: string
-            enum: [usage_type, model, task_type, origin, team, status]
+            $ref: "#/components/schemas/StatsDimension"
       responses:
         "200":
           description: Metrics grouped by the requested dimension.
@@ -79,7 +85,7 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/Unavailable"
-  /api/stats/v2/events:
+  /api/stats/events:
     get:
       tags: [Statistics]
       operationId: listStatsEvents
@@ -120,11 +126,12 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/Unavailable"
-  /api/stats/v2/filters:
+  /api/stats/filters:
     get:
       tags: [Statistics]
       operationId: getStatsFilters
-      summary: Get available filter values for the selected time range
+      summary: Get known filter values for the selected time range
+      description: Missing values and legacy placeholders are not returned as options.
       parameters:
         - $ref: "#/components/parameters/From"
         - $ref: "#/components/parameters/To"
@@ -142,7 +149,7 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/Unavailable"
-  /api/stats/v2/activity:
+  /api/stats/activity:
     get:
       tags: [Statistics]
       operationId: getStatsActivity
@@ -208,37 +215,24 @@ components:
     TeamID:
       name: team_id
       in: query
+      description: Team identifier or `__solo__` for calls without a team.
       schema:
         type: string
     Origin:
       name: origin
       in: query
       schema:
-        type: string
-        enum:
-          [
-            desktop,
-            portal,
-            api,
-            qq,
-            wechat,
-            cron,
-            workflow,
-            simulation,
-            unknown,
-          ]
+        $ref: "#/components/schemas/Origin"
     UsageType:
       name: usage_type
       in: query
       schema:
-        type: string
-        enum: [chat, router, compactor, memory, simulation, unknown]
+        $ref: "#/components/schemas/UsageType"
     TaskType:
       name: task_type
       in: query
       schema:
-        type: string
-        enum: [general, engineering, research, unknown]
+        $ref: "#/components/schemas/TaskType"
     ProviderID:
       name: provider_id
       in: query
@@ -253,8 +247,7 @@ components:
       name: status
       in: query
       schema:
-        type: string
-        enum: [success, error, cancelled, timeout, unknown]
+        $ref: "#/components/schemas/CallStatus"
   responses:
     BadRequest:
       description: Invalid query parameters.
@@ -284,10 +277,71 @@ components:
             data: null
             error: "stats_unavailable: usage metrics storage is not configured"
   schemas:
-    StatsMeta:
+    Origin:
+      type: string
+      enum: [desktop, api, qq, wechat, cron, workflow, simulation, system]
+    UsageType:
+      type: string
+      enum: [chat, router, compactor, memory, simulation]
+    TaskType:
+      type: string
+      enum: [general, engineering, research]
+    CallStatus:
+      type: string
+      enum: [success, error, cancelled, timeout]
+    StatsDimension:
+      type: string
+      enum: [usage_type, model, task_type, origin, team, status]
+    CoverageCount:
+      type: object
+      description: |
+        Coverage for one dimension. `applicable_rows` excludes calls where the
+        dimension has no meaning. `known_rows` is the subset with recorded data.
+      required: [known_rows, applicable_rows]
+      properties:
+        known_rows:
+          type: integer
+          format: int64
+          minimum: 0
+        applicable_rows:
+          type: integer
+          format: int64
+          minimum: 0
+    Coverage:
       type: object
       required:
-        [generated_at, data_from, data_to, timezone, bucket_size, coverage]
+        - total_rows
+        - legacy_rows
+        - origin
+        - task_type
+        - status
+        - latency
+        - cache_detail
+        - reasoning_detail
+      properties:
+        total_rows:
+          type: integer
+          format: int64
+          minimum: 0
+        legacy_rows:
+          type: integer
+          format: int64
+          minimum: 0
+        origin:
+          $ref: "#/components/schemas/CoverageCount"
+        task_type:
+          $ref: "#/components/schemas/CoverageCount"
+        status:
+          $ref: "#/components/schemas/CoverageCount"
+        latency:
+          $ref: "#/components/schemas/CoverageCount"
+        cache_detail:
+          $ref: "#/components/schemas/CoverageCount"
+        reasoning_detail:
+          $ref: "#/components/schemas/CoverageCount"
+    StatsMeta:
+      type: object
+      required: [generated_at, data_from, data_to, timezone, bucket_size, coverage]
       properties:
         generated_at:
           type: string
@@ -305,32 +359,6 @@ components:
           enum: [hour, day, week, none]
         coverage:
           $ref: "#/components/schemas/Coverage"
-    Coverage:
-      type: object
-      required:
-        - total_rows
-        - legacy_rows
-        - cache_coverage_pct
-        - reasoning_coverage_pct
-      properties:
-        total_rows:
-          type: integer
-          format: int64
-          minimum: 0
-        legacy_rows:
-          type: integer
-          format: int64
-          minimum: 0
-        cache_coverage_pct:
-          type: number
-          format: double
-          minimum: 0
-          maximum: 100
-        reasoning_coverage_pct:
-          type: number
-          format: double
-          minimum: 0
-          maximum: 100
     UsageMetrics:
       type: object
       required:
@@ -347,6 +375,7 @@ components:
         - timeout_count
         - success_rate
         - cache_hit_rate
+        - p95_duration_ms
       properties:
         total_tokens:
           type: integer
@@ -364,14 +393,17 @@ components:
           type: integer
           format: int64
           minimum: 0
+          description: Sum over rows with reported reasoning details.
         cache_hit_tokens:
           type: integer
           format: int64
           minimum: 0
+          description: Sum over rows with reported cache details.
         cache_miss_tokens:
           type: integer
           format: int64
           minimum: 0
+          description: Sum over rows with reported cache details.
         request_count:
           type: integer
           format: int64
@@ -397,31 +429,38 @@ components:
           format: double
           minimum: 0
           maximum: 1
+          nullable: true
+          description: Null when no rows have a known status.
         cache_hit_rate:
           type: number
           format: double
           minimum: 0
           maximum: 1
+          nullable: true
+          description: Null when no rows have reported cache details.
         p95_duration_ms:
           type: integer
           format: int64
           minimum: 0
           nullable: true
+          description: Null when no rows have recorded latency.
     MetricDelta:
       type: object
-      required: [current, previous]
+      required: [current, previous, change_pct]
       properties:
         current:
           type: number
           format: double
+          nullable: true
         previous:
           type: number
           format: double
+          nullable: true
         change_pct:
           type: number
           format: double
           nullable: true
-          description: Null when the previous value is zero.
+          description: Null when either value is unavailable or the previous value is zero.
     SeriesPoint:
       type: object
       required: [start, end, metrics]
@@ -436,7 +475,7 @@ components:
           $ref: "#/components/schemas/UsageMetrics"
     Insight:
       type: object
-      required: [id, severity, title, detail]
+      required: [id, severity, title, detail, metric, change_pct]
       properties:
         id:
           type: string
@@ -502,8 +541,7 @@ components:
         meta:
           $ref: "#/components/schemas/StatsMeta"
         dimension:
-          type: string
-          enum: [usage_type, model, task_type, origin, team, status]
+          $ref: "#/components/schemas/StatsDimension"
         items:
           type: array
           items:
@@ -521,6 +559,11 @@ components:
       type: object
       required:
         - call_id
+        - request_id
+        - session_id
+        - run_id
+        - agent_id
+        - team_id
         - origin
         - usage_type
         - task_type
@@ -529,7 +572,8 @@ components:
         - started_at
         - finished_at
         - status
-        - retry_count
+        - finish_reason
+        - error_code
         - duration_ms
         - prompt_tokens
         - completion_tokens
@@ -537,6 +581,8 @@ components:
         - total_tokens
         - cache_hit_tokens
         - cache_miss_tokens
+        - reasoning_details_reported
+        - cache_details_reported
         - legacy
       properties:
         call_id:
@@ -558,28 +604,22 @@ components:
           nullable: true
         origin:
           type: string
-          enum:
-            [
-              desktop,
-              portal,
-              api,
-              qq,
-              wechat,
-              cron,
-              workflow,
-              simulation,
-              unknown,
-            ]
+          enum: [desktop, api, qq, wechat, cron, workflow, simulation, system]
+          nullable: true
         usage_type:
           type: string
-          enum: [chat, router, compactor, memory, simulation, unknown]
+          enum: [chat, router, compactor, memory, simulation]
+          nullable: true
         task_type:
           type: string
-          enum: [general, engineering, research, unknown]
+          enum: [general, engineering, research]
+          nullable: true
         provider_id:
           type: string
+          nullable: true
         model_id:
           type: string
+          nullable: true
         started_at:
           type: string
           format: date-time
@@ -588,20 +628,19 @@ components:
           format: date-time
         status:
           type: string
-          enum: [success, error, cancelled, timeout, unknown]
+          enum: [success, error, cancelled, timeout]
+          nullable: true
         finish_reason:
           type: string
           nullable: true
         error_code:
           type: string
           nullable: true
-        retry_count:
-          type: integer
-          minimum: 0
         duration_ms:
           type: integer
           format: int64
           minimum: 0
+          nullable: true
         prompt_tokens:
           type: integer
           format: int64
@@ -626,12 +665,18 @@ components:
           type: integer
           format: int64
           minimum: 0
+        reasoning_details_reported:
+          type: boolean
+          description: True only when the provider response reported reasoning token details.
+        cache_details_reported:
+          type: boolean
+          description: True only when the provider response reported cache token details.
         legacy:
           type: boolean
           description: True when the row was adapted from the legacy usage table.
     EventsData:
       type: object
-      required: [meta, items]
+      required: [meta, items, next_cursor]
       properties:
         meta:
           $ref: "#/components/schemas/StatsMeta"
@@ -764,3 +809,4 @@ components:
           nullable: true
         error:
           type: string
+          pattern: "^[a-z0-9_]+: .+$"
