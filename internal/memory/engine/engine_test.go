@@ -31,13 +31,14 @@ func openTestDB(t *testing.T) (*sql.DB, *sync.Mutex) {
 			supersedes_hash TEXT NOT NULL DEFAULT '', canonical_hash TEXT NOT NULL DEFAULT '',
 			recall_count INTEGER NOT NULL DEFAULT 0, used_count INTEGER NOT NULL DEFAULT 0,
 			last_used_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			owner_type TEXT NOT NULL DEFAULT 'l1', owner_id TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS mem_fts USING fts5(content, date, content='mem_entries', content_rowid='rowid', tokenize='unicode61')`,
 		`CREATE TRIGGER IF NOT EXISTS mem_fts_ai AFTER INSERT ON mem_entries BEGIN INSERT INTO mem_fts(rowid, content, date) VALUES (new.rowid, new.content, new.date); END`,
-		`CREATE TABLE IF NOT EXISTS kg_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, type TEXT NOT NULL DEFAULT 'entity', mention_count INTEGER NOT NULL DEFAULT 1, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 1.0)`,
-		`CREATE TABLE IF NOT EXISTS kg_edges (id INTEGER PRIMARY KEY AUTOINCREMENT, source INTEGER NOT NULL, target INTEGER NOT NULL, rel_type TEXT NOT NULL, weight REAL NOT NULL DEFAULT 1.0, evidence TEXT NOT NULL DEFAULT '', source_hash TEXT NOT NULL DEFAULT '', event_time TEXT NOT NULL, valid_from TEXT NOT NULL DEFAULT '', valid_until TEXT, last_reinforced TEXT NOT NULL DEFAULT '', UNIQUE(source, target, rel_type))`,
-		`CREATE TABLE IF NOT EXISTS kg_aliases (id INTEGER PRIMARY KEY AUTOINCREMENT, alias TEXT NOT NULL, canonical TEXT NOT NULL, UNIQUE(alias, canonical))`,
+		`CREATE TABLE IF NOT EXISTS kg_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'entity', mention_count INTEGER NOT NULL DEFAULT 1, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 1.0, owner_type TEXT NOT NULL DEFAULT 'l1', owner_id TEXT NOT NULL DEFAULT '', UNIQUE(owner_type, owner_id, name))`,
+		`CREATE TABLE IF NOT EXISTS kg_edges (id INTEGER PRIMARY KEY AUTOINCREMENT, source INTEGER NOT NULL, target INTEGER NOT NULL, rel_type TEXT NOT NULL, weight REAL NOT NULL DEFAULT 1.0, evidence TEXT NOT NULL DEFAULT '', source_hash TEXT NOT NULL DEFAULT '', event_time TEXT NOT NULL, valid_from TEXT NOT NULL DEFAULT '', valid_until TEXT, last_reinforced TEXT NOT NULL DEFAULT '', owner_type TEXT NOT NULL DEFAULT 'l1', owner_id TEXT NOT NULL DEFAULT '', UNIQUE(source, target, rel_type))`,
+		`CREATE TABLE IF NOT EXISTS kg_aliases (id INTEGER PRIMARY KEY AUTOINCREMENT, alias TEXT NOT NULL, canonical TEXT NOT NULL, owner_type TEXT NOT NULL DEFAULT 'l1', owner_id TEXT NOT NULL DEFAULT '', UNIQUE(owner_type, owner_id, alias, canonical))`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

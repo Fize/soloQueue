@@ -118,7 +118,8 @@ func loadFromTeamStore(store *store.Store) (map[string]prompt.GroupFile, []promp
 	for _, t := range teams {
 		groups[t.Name] = prompt.GroupFile{
 			Frontmatter: prompt.GroupFrontmatter{
-				Name: t.Name,
+				Name:          t.Name,
+				MemoryOwnerID: t.MemoryOwnerID,
 			},
 			Body: t.Description,
 		}

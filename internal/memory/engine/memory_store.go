@@ -48,7 +48,7 @@ func (m *MemoryStore) Save(ctx context.Context, content, date, tags, eventTime s
 
 	var existing string
 	err = m.db.QueryRowContext(ctx,
-		`SELECT id FROM mem_entries WHERE content_hash = ?`, contentHash,
+		`SELECT id FROM mem_entries WHERE content_hash = ? AND owner_type = ? AND owner_id = ?`, contentHash, OwnerL1, "",
 	).Scan(&existing)
 	if err == nil {
 		m.mu.Unlock()
@@ -62,9 +62,9 @@ func (m *MemoryStore) Save(ctx context.Context, content, date, tags, eventTime s
 	id := contentHash[:16]
 
 	_, err = m.db.ExecContext(ctx,
-		`INSERT INTO mem_entries (id, content, content_hash, date, tags, event_time, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, content, contentHash, date, tags, eventTime, now,
+		`INSERT INTO mem_entries (id, content, content_hash, date, tags, event_time, created_at, owner_type, owner_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, content, contentHash, date, tags, eventTime, now, OwnerL1, "",
 	)
 	if err != nil {
 		m.mu.Unlock()
@@ -85,6 +85,7 @@ func (m *MemoryStore) Save(ctx context.Context, content, date, tags, eventTime s
 				Embedding: results[0].Embedding,
 				Timestamp: time.Now().UTC(),
 				Source:    "memoryengine",
+				OwnerType: OwnerL1,
 			}); upsertErr != nil {
 				m.logWarn("memory save: vector upsert failed", upsertErr)
 			}
@@ -99,7 +100,11 @@ func (m *MemoryStore) saveCandidate(ctx context.Context, candidate MemoryCandida
 		return "", false, err
 	}
 
-	contentHash = hashContent(candidate.ScopeType + "\x00" + candidate.ScopeID + "\x00" + candidate.Content)
+	hashInput := candidate.ScopeType + "\x00" + candidate.ScopeID + "\x00" + candidate.Content
+	if candidate.OwnerType != OwnerL1 || candidate.OwnerID != "" {
+		hashInput = candidate.OwnerType + "\x00" + candidate.OwnerID + "\x00" + hashInput
+	}
+	contentHash = hashContent(hashInput)
 	now := time.Now().UTC().Format(time.RFC3339)
 	confidence := candidate.Confidence
 	if confidence <= 0 {
@@ -110,9 +115,10 @@ func (m *MemoryStore) saveCandidate(ctx context.Context, candidate MemoryCandida
 	var existingHash string
 	err = m.db.QueryRowContext(ctx,
 		`SELECT content_hash FROM mem_entries
-		 WHERE canonical_hash = ? AND scope_type = ? AND scope_id = ? AND status = 'active'
+		 WHERE canonical_hash = ? AND owner_type = ? AND owner_id = ?
+		   AND scope_type = ? AND scope_id = ? AND status = 'active'
 		 LIMIT 1`,
-		canonicalHash, candidate.ScopeType, candidate.ScopeID,
+		canonicalHash, candidate.OwnerType, candidate.OwnerID, candidate.ScopeType, candidate.ScopeID,
 	).Scan(&existingHash)
 	if err == nil {
 		m.mu.Unlock()
@@ -128,23 +134,23 @@ func (m *MemoryStore) saveCandidate(ctx context.Context, candidate MemoryCandida
 		`INSERT INTO mem_entries (
 			id, content, content_hash, date, tags, event_time, created_at,
 			memory_type, scope_type, scope_id, source_type, source_id,
-			status, confidence, expires_at, canonical_hash, updated_at
-		) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+			status, confidence, expires_at, canonical_hash, updated_at, owner_type, owner_id
+		) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
 		id, candidate.Content, contentHash, candidate.Date, candidate.EventTime, now,
 		candidate.MemoryType, candidate.ScopeType, candidate.ScopeID,
 		candidate.SourceType, candidate.SourceID, confidence, candidate.ExpiresAt,
-		canonicalHash, now,
+		canonicalHash, now, candidate.OwnerType, candidate.OwnerID,
 	)
 	m.mu.Unlock()
 	if err != nil {
 		return "", false, fmt.Errorf("memory save candidate: %w", err)
 	}
 
-	m.embed(ctx, id, contentHash, candidate.Content)
+	m.embed(ctx, id, contentHash, candidate.Content, candidate.OwnerType, candidate.OwnerID, candidate.ScopeType, candidate.ScopeID)
 	return contentHash, true, nil
 }
 
-func (m *MemoryStore) embed(ctx context.Context, id, sourceHash, content string) {
+func (m *MemoryStore) embed(ctx context.Context, id, sourceHash, content, ownerType, ownerID, scopeType, scopeID string) {
 	if m.embedder == nil || m.vecStore == nil {
 		return
 	}
@@ -162,6 +168,10 @@ func (m *MemoryStore) embed(ctx context.Context, id, sourceHash, content string)
 		Embedding: results[0].Embedding,
 		Timestamp: time.Now().UTC(),
 		Source:    sourceHash,
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+		ScopeType: scopeType,
+		ScopeID:   scopeID,
 	}); err != nil {
 		m.logWarn("memory save: vector upsert failed", err)
 	}
@@ -169,33 +179,38 @@ func (m *MemoryStore) embed(ctx context.Context, id, sourceHash, content string)
 
 const memorySelectColumns = `id, content, content_hash, date, tags, event_time, salience, last_recalled_at, created_at,
 	memory_type, scope_type, scope_id, source_type, source_id, status, confidence,
-	expires_at, supersedes_hash, canonical_hash, last_used_at`
+	expires_at, supersedes_hash, canonical_hash, last_used_at, owner_type, owner_id`
 
 func scanMemoryEntry(scanner interface{ Scan(...any) error }, e *MemoryEntry) error {
 	return scanner.Scan(
 		&e.ID, &e.Content, &e.ContentHash, &e.Date, &e.Tags, &e.EventTime,
 		&e.Salience, &e.LastRecalledAt, &e.CreatedAt, &e.MemoryType, &e.ScopeType, &e.ScopeID,
 		&e.SourceType, &e.SourceID, &e.Status, &e.Confidence, &e.ExpiresAt,
-		&e.SupersedesHash, &e.CanonicalHash, &e.LastUsedAt,
+		&e.SupersedesHash, &e.CanonicalHash, &e.LastUsedAt, &e.OwnerType, &e.OwnerID,
 	)
 }
 
 // GetByContentHashes fetches multiple memories by their content hashes.
 func (m *MemoryStore) GetByContentHashes(ctx context.Context, hashes []string) ([]MemoryEntry, error) {
+	return m.GetByContentHashesOwned(ctx, hashes, OwnerL1, "")
+}
+
+func (m *MemoryStore) GetByContentHashesOwned(ctx context.Context, hashes []string, ownerType, ownerID string) ([]MemoryEntry, error) {
 	if len(hashes) == 0 {
 		return nil, nil
 	}
 
 	placeholders := make([]string, len(hashes))
-	args := make([]interface{}, len(hashes))
+	args := make([]interface{}, 0, len(hashes)+2)
 	for i, h := range hashes {
 		placeholders[i] = "?"
-		args[i] = h
+		args = append(args, h)
 	}
+	args = append(args, ownerType, ownerID)
 
 	query := fmt.Sprintf(
 		`SELECT `+memorySelectColumns+`
-		 FROM mem_entries WHERE content_hash IN (%s)`,
+		 FROM mem_entries WHERE content_hash IN (%s) AND owner_type = ? AND owner_id = ?`,
 		strings.Join(placeholders, ","),
 	)
 
@@ -220,6 +235,10 @@ func (m *MemoryStore) GetByContentHashes(ctx context.Context, hashes []string) (
 // Returns results sorted by BM25 score (descending) and the max score for normalization.
 // Each token in the query is individually escaped for FTS5 safety.
 func (m *MemoryStore) BM25Search(ctx context.Context, query string, limit int) ([]SearchResult, float64, error) {
+	return m.BM25SearchOwned(ctx, query, limit, OwnerL1, "", "", "", false)
+}
+
+func (m *MemoryStore) BM25SearchOwned(ctx context.Context, query string, limit int, ownerType, ownerID, scopeType, scopeID string, includeGlobal bool) ([]SearchResult, float64, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -231,15 +250,29 @@ func (m *MemoryStore) BM25Search(ctx context.Context, query string, limit int) (
 
 	ftsQuery := strings.Join(tokens, " ")
 
+	scopeSQL := ""
+	args := []any{ftsQuery, ownerType, ownerID}
+	if scopeType != "" {
+		if includeGlobal && scopeType != ScopeGlobal {
+			scopeSQL = ` AND ((m.scope_type = ? AND m.scope_id = ?) OR m.scope_type = ?)`
+			args = append(args, scopeType, scopeID, ScopeGlobal)
+		} else {
+			scopeSQL = ` AND m.scope_type = ? AND m.scope_id = ?`
+			args = append(args, scopeType, scopeID)
+		}
+	}
+	args = append(args, limit)
 	rows, err := m.db.QueryContext(ctx,
 		`SELECT m.content_hash, m.content, m.date, m.tags, m.event_time,
-		        m.memory_type, m.scope_type, m.scope_id, m.status, m.expires_at, rank
+		        m.memory_type, m.scope_type, m.scope_id, m.status, m.expires_at,
+		        m.owner_type, m.owner_id, rank
 		 FROM mem_fts JOIN mem_entries m ON m.rowid = mem_fts.rowid
-		 WHERE mem_fts MATCH ? AND m.status = 'active'
+		 WHERE mem_fts MATCH ? AND m.owner_type = ? AND m.owner_id = ? AND m.status = 'active'
 		   AND (m.expires_at = '' OR m.expires_at > datetime('now'))
+		 `+scopeSQL+`
 		 ORDER BY rank
 		 LIMIT ?`,
-		ftsQuery, limit,
+		args...,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("bm25 search: %w", err)
@@ -253,7 +286,8 @@ func (m *MemoryStore) BM25Search(ctx context.Context, query string, limit int) (
 		var rank float64
 		if err := rows.Scan(
 			&r.ContentHash, &r.Content, &r.Date, &r.Tags, &r.EventTime,
-			&r.MemoryType, &r.ScopeType, &r.ScopeID, &r.Status, &r.ExpiresAt, &rank,
+			&r.MemoryType, &r.ScopeType, &r.ScopeID, &r.Status, &r.ExpiresAt,
+			&r.OwnerType, &r.OwnerID, &rank,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -281,14 +315,18 @@ func (m *MemoryStore) Timeline(ctx context.Context, from, to string, limit int) 
 }
 
 func (m *MemoryStore) TimelineScoped(ctx context.Context, from, to string, limit int, scopeType, scopeID string, includeGlobal bool) ([]MemoryEntry, error) {
+	return m.TimelineOwned(ctx, from, to, limit, OwnerL1, "", scopeType, scopeID, includeGlobal)
+}
+
+func (m *MemoryStore) TimelineOwned(ctx context.Context, from, to string, limit int, ownerType, ownerID, scopeType, scopeID string, includeGlobal bool) ([]MemoryEntry, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 
 	query := `SELECT ` + memorySelectColumns + `
-		 FROM mem_entries WHERE status = 'active'
+		 FROM mem_entries WHERE owner_type = ? AND owner_id = ? AND status = 'active'
 		   AND (expires_at = '' OR expires_at > datetime('now'))`
-	var args []interface{}
+	args := []interface{}{ownerType, ownerID}
 
 	if from != "" {
 		query += ` AND event_time >= ?`
@@ -329,13 +367,18 @@ func (m *MemoryStore) TimelineScoped(ctx context.Context, from, to string, limit
 
 // BoostSalience increases the salience of a memory (called on recall).
 func (m *MemoryStore) BoostSalience(ctx context.Context, contentHash string) error {
+	return m.BoostSalienceOwned(ctx, contentHash, OwnerL1, "")
+}
+
+func (m *MemoryStore) BoostSalienceOwned(ctx context.Context, contentHash, ownerType, ownerID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := m.db.ExecContext(ctx,
-		`UPDATE mem_entries SET salience = MIN(2.0, salience + 0.3), last_recalled_at = ? WHERE content_hash = ?`,
-		now, contentHash,
+		`UPDATE mem_entries SET salience = MIN(2.0, salience + 0.3), last_recalled_at = ?
+		 WHERE content_hash = ? AND owner_type = ? AND owner_id = ?`,
+		now, contentHash, ownerType, ownerID,
 	)
 	return err
 }
@@ -348,19 +391,24 @@ func (m *MemoryStore) Count(ctx context.Context) (int, error) {
 }
 
 func (m *MemoryStore) ActiveContentHashes(ctx context.Context, hashes []string, scopeType, scopeID string, includeGlobal bool) map[string]bool {
+	return m.ActiveContentHashesOwned(ctx, hashes, OwnerL1, "", scopeType, scopeID, includeGlobal)
+}
+
+func (m *MemoryStore) ActiveContentHashesOwned(ctx context.Context, hashes []string, ownerType, ownerID, scopeType, scopeID string, includeGlobal bool) map[string]bool {
 	active := make(map[string]bool)
 	if len(hashes) == 0 {
 		return active
 	}
 	placeholders := make([]string, len(hashes))
-	args := make([]any, len(hashes))
+	args := make([]any, 0, len(hashes)+2)
 	for i, hash := range hashes {
 		placeholders[i] = "?"
-		args[i] = hash
+		args = append(args, hash)
 	}
+	args = append(args, ownerType, ownerID)
 	query := fmt.Sprintf(
 		`SELECT content_hash FROM mem_entries
-		 WHERE status = 'active' AND content_hash IN (%s)`,
+		 WHERE status = 'active' AND content_hash IN (%s) AND owner_type = ? AND owner_id = ?`,
 		strings.Join(placeholders, ","),
 	)
 	if scopeType != "" {
@@ -388,9 +436,13 @@ func (m *MemoryStore) ActiveContentHashes(ctx context.Context, hashes []string, 
 
 // Delete removes a memory by content hash.
 func (m *MemoryStore) Delete(ctx context.Context, contentHash string) error {
+	return m.DeleteOwned(ctx, contentHash, OwnerL1, "")
+}
+
+func (m *MemoryStore) DeleteOwned(ctx context.Context, contentHash, ownerType, ownerID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	_, err := m.db.ExecContext(ctx, `DELETE FROM mem_entries WHERE content_hash = ?`, contentHash)
+	_, err := m.db.ExecContext(ctx, `DELETE FROM mem_entries WHERE content_hash = ? AND owner_type = ? AND owner_id = ?`, contentHash, ownerType, ownerID)
 	return err
 }
 

@@ -47,7 +47,7 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 
 	// BM25 pipeline
 	g.Go(func() error {
-		results, err := h.bm25.Search(gCtx, query.Text, fetchLimit)
+		results, err := h.bm25.Search(gCtx, query, fetchLimit)
 		if err != nil {
 			return err
 		}
@@ -68,7 +68,7 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 	// Vector pipeline (if enabled)
 	if h.vector != nil && h.vector.Enabled() {
 		g.Go(func() error {
-			results, err := h.vector.Search(gCtx, query.Text, fetchLimit)
+			results, err := h.vector.Search(gCtx, query, fetchLimit)
 			if err != nil {
 				return err
 			}
@@ -104,7 +104,7 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 		}
 	}
 	if len(hashes) > 0 {
-		entries, err := h.store.GetByContentHashes(ctx, hashes)
+		entries, err := h.store.GetByContentHashesOwned(ctx, hashes, query.OwnerType, query.OwnerID)
 		if err == nil {
 			entryMap := make(map[string]MemoryEntry, len(entries))
 			for _, e := range entries {
@@ -129,7 +129,7 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 	fused = h.filterByLifecycleAndScope(fused, query)
 
 	// Apply salience boost
-	fused = h.applySalience(ctx, fused)
+	fused = h.applySalience(ctx, fused, query.OwnerType, query.OwnerID)
 
 	// Trim to limit
 	if len(fused) > limit {
@@ -200,7 +200,7 @@ func (h *HybridSearcher) filterByTime(results []SearchResult, query SearchQuery)
 }
 
 // applySalience boosts scores based on Ebbinghaus salience.
-func (h *HybridSearcher) applySalience(ctx context.Context, results []SearchResult) []SearchResult {
+func (h *HybridSearcher) applySalience(ctx context.Context, results []SearchResult, ownerType, ownerID string) []SearchResult {
 	hashes := make([]string, 0, len(results))
 	for _, r := range results {
 		if r.ContentHash != "" {
@@ -211,7 +211,7 @@ func (h *HybridSearcher) applySalience(ctx context.Context, results []SearchResu
 		return results
 	}
 
-	entries, err := h.store.GetByContentHashes(ctx, hashes)
+	entries, err := h.store.GetByContentHashesOwned(ctx, hashes, ownerType, ownerID)
 	if err != nil {
 		return results
 	}
@@ -256,15 +256,15 @@ func (h *HybridSearcher) collectGraphContext(ctx context.Context, query SearchQu
 
 	var edges []GraphEdge
 	for _, name := range query.Entities {
-		n, err := h.kg.store.GetNode(ctx, name)
+		n, err := h.kg.store.GetNodeOwned(ctx, query.OwnerType, query.OwnerID, name)
 		if err != nil {
-			canon, _ := h.kg.store.ResolveAlias(ctx, name)
-			n, err = h.kg.store.GetNode(ctx, canon)
+			canon, _ := h.kg.store.ResolveAliasOwned(ctx, query.OwnerType, query.OwnerID, name)
+			n, err = h.kg.store.GetNodeOwned(ctx, query.OwnerType, query.OwnerID, canon)
 			if err != nil {
 				continue
 			}
 		}
-		outEdges, _ := h.kg.store.GetEdgesFrom(ctx, n.ID, false)
+		outEdges, _ := h.kg.store.GetEdgesFromOwned(ctx, query.OwnerType, query.OwnerID, n.ID, false)
 		edges = append(edges, outEdges...)
 	}
 
@@ -284,8 +284,8 @@ func (h *HybridSearcher) collectGraphContext(ctx context.Context, query SearchQu
 			hashes = append(hashes, edge.SourceHash)
 		}
 	}
-	active := h.store.ActiveContentHashes(
-		ctx, hashes, query.ScopeType, query.ScopeID, query.IncludeGlobal,
+	active := h.store.ActiveContentHashesOwned(
+		ctx, hashes, query.OwnerType, query.OwnerID, query.ScopeType, query.ScopeID, query.IncludeGlobal,
 	)
 	filteredEdges := unique[:0]
 	for _, edge := range unique {

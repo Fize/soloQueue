@@ -6,11 +6,12 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // SQLiteStore stores memory entries in a SQLite database.
@@ -87,10 +88,54 @@ func (s *SQLiteStore) initTable(ctx context.Context) error {
 		content TEXT NOT NULL,
 		embedding BLOB NOT NULL,
 		timestamp TEXT NOT NULL,
-		source TEXT NOT NULL DEFAULT ''
+		source TEXT NOT NULL DEFAULT '',
+		owner_type TEXT NOT NULL DEFAULT 'l1',
+		owner_id TEXT NOT NULL DEFAULT '',
+		scope_type TEXT NOT NULL DEFAULT 'global',
+		scope_id TEXT NOT NULL DEFAULT ''
 	)`
-	_, err := s.db.ExecContext(ctx, query)
+	if _, err := s.db.ExecContext(ctx, query); err != nil {
+		return err
+	}
+	for _, column := range []struct{ name, ddl string }{
+		{"owner_type", "TEXT NOT NULL DEFAULT 'l1'"},
+		{"owner_id", "TEXT NOT NULL DEFAULT ''"},
+		{"scope_type", "TEXT NOT NULL DEFAULT 'global'"},
+		{"scope_id", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		present, err := s.hasColumn(ctx, column.name)
+		if err != nil {
+			return err
+		}
+		if !present {
+			if _, err := s.db.ExecContext(ctx, `ALTER TABLE `+s.tableName+` ADD COLUMN `+column.name+` `+column.ddl); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_`+s.tableName+`_owner_scope ON `+s.tableName+` (owner_type, owner_id, scope_type, scope_id)`)
 	return err
+}
+
+func (s *SQLiteStore) hasColumn(ctx context.Context, name string) (bool, error) {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(`+s.tableName+`)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var columnName, columnType string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if columnName == name {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // Close releases resources owned by this store. When the store was created
@@ -114,15 +159,22 @@ func (s *SQLiteStore) Upsert(ctx context.Context, entry MemoryEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	query := `INSERT OR REPLACE INTO ` + s.tableName + ` (id, content, embedding, timestamp, source) VALUES (?, ?, ?, ?, ?)`
+	query := `INSERT OR REPLACE INTO ` + s.tableName + `
+		(id, content, embedding, timestamp, source, owner_type, owner_id, scope_type, scope_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := s.db.ExecContext(ctx, query,
 		entry.ID, entry.Content, embedBlob, entry.Timestamp.Format(time.RFC3339), entry.Source,
+		defaultOwnerType(entry.OwnerType), entry.OwnerID, defaultScopeType(entry.ScopeType), entry.ScopeID,
 	)
 	return err
 }
 
 // Query returns the top-K entries most similar to the query embedding.
 func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, minSimilarity float32) ([]MemoryEntry, error) {
+	return s.QueryScoped(ctx, embedding, topK, minSimilarity, QueryFilter{OwnerType: "l1"})
+}
+
+func (s *SQLiteStore) QueryScoped(ctx context.Context, embedding []float32, topK int, minSimilarity float32, filter QueryFilter) ([]MemoryEntry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -136,7 +188,19 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 	// up to float32 rounding.
 	queryNorm, queryHasNorm := NormalizeVector(embedding)
 
-	rows, err := s.db.QueryContext(ctx, `SELECT id, content, embedding, timestamp, source FROM `+s.tableName)
+	ownerType := defaultOwnerType(filter.OwnerType)
+	query := `SELECT id, content, embedding, timestamp, source, owner_type, owner_id, scope_type, scope_id FROM ` + s.tableName + ` WHERE owner_type = ? AND owner_id = ?`
+	args := []any{ownerType, filter.OwnerID}
+	if filter.ScopeType != "" {
+		if filter.IncludeGlobal && filter.ScopeType != "global" {
+			query += ` AND ((scope_type = ? AND scope_id = ?) OR scope_type = 'global')`
+			args = append(args, filter.ScopeType, filter.ScopeID)
+		} else {
+			query += ` AND scope_type = ? AND scope_id = ?`
+			args = append(args, filter.ScopeType, filter.ScopeID)
+		}
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -154,11 +218,11 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 	for rows.Next() {
 		scanned++
 		var (
-			id, content, source string
-			embedBlob           []byte
-			ts                  string
+			id, content, source, ownerType, ownerID, scopeType, scopeID string
+			embedBlob                                                   []byte
+			ts                                                          string
 		)
-		if err := rows.Scan(&id, &content, &embedBlob, &ts, &source); err != nil {
+		if err := rows.Scan(&id, &content, &embedBlob, &ts, &source, &ownerType, &ownerID, &scopeType, &scopeID); err != nil {
 			if s.log != nil {
 				s.log.DebugContext(ctx, logger.CatApp, "vectorstore: skip row due to scan error",
 					"err", err.Error(),
@@ -208,6 +272,10 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 				Content:   content,
 				Embedding: append([]float32(nil), buf...),
 				Source:    source,
+				OwnerType: ownerType,
+				OwnerID:   ownerID,
+				ScopeType: scopeType,
+				ScopeID:   scopeID,
 			}
 			entry.Timestamp, _ = time.Parse(time.RFC3339, ts)
 			heap.Push(h, scored{entry: entry, score: sim})
@@ -218,6 +286,10 @@ func (s *SQLiteStore) Query(ctx context.Context, embedding []float32, topK int, 
 				Content:   content,
 				Embedding: append([]float32(nil), buf...),
 				Source:    source,
+				OwnerType: ownerType,
+				OwnerID:   ownerID,
+				ScopeType: scopeType,
+				ScopeID:   scopeID,
 			}
 			entry.Timestamp, _ = time.Parse(time.RFC3339, ts)
 			(*h)[0] = scored{entry: entry, score: sim}
@@ -284,6 +356,21 @@ func decodeEmbedding(b []byte) []float32 {
 
 // Compile-time check
 var _ VectorStore = (*SQLiteStore)(nil)
+var _ ScopedVectorStore = (*SQLiteStore)(nil)
+
+func defaultOwnerType(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "l1"
+	}
+	return value
+}
+
+func defaultScopeType(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "global"
+	}
+	return value
+}
 
 // --- internal helpers for Query (kept package-private) ---
 

@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 // recallEntityTool traverses the knowledge graph from an entity.
@@ -51,8 +51,8 @@ func (t *recallEntityTool) Execute(ctx context.Context, raw string) (string, err
 		return "", err
 	}
 
-	if t.cfg.MemoryEngine == nil {
-		return "", fmt.Errorf("memory engine is not configured; check your settings")
+	if t.cfg.MemoryAccess == nil {
+		return "", fmt.Errorf("memory_not_configured")
 	}
 
 	var a recallEntityArgs
@@ -69,28 +69,26 @@ func (t *recallEntityTool) Execute(ctx context.Context, raw string) (string, err
 	if a.Limit <= 0 {
 		a.Limit = 10
 	}
+	if a.MaxHops > 4 {
+		a.MaxHops = 4
+	}
+	if a.Limit > 20 {
+		a.Limit = 20
+	}
 
-	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
-	results, err := t.cfg.MemoryEngine.RecallEntityScoped(
-		ctx, a.Entity, a.MaxHops, a.Limit, scopeType, scopeID, true,
-	)
+	results, err := t.cfg.MemoryAccess.RecallEntity(ctx, a.Entity, a.MaxHops, a.Limit)
 	if err != nil {
-		return "", err
+		return "", memoryToolError(ctx, err)
 	}
 
-	if len(results) == 0 {
-		return fmt.Sprintf("No memories found for entity %q.", a.Entity), nil
+	result, err := json.Marshal(struct {
+		Untrusted bool                  `json:"untrusted"`
+		Results   []engine.SearchResult `json:"results"`
+	}{Untrusted: true, Results: results})
+	if err != nil {
+		return "", fmt.Errorf("memory_unavailable")
 	}
-
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Found %d memories related to %q:\n\n", len(results), a.Entity))
-	for i, r := range results {
-		b.WriteString(fmt.Sprintf("%d. [%s] (score: %.2f)\n", i+1, r.Date, r.Score))
-		if r.Content != "" {
-			b.WriteString(fmt.Sprintf("   %s\n\n", r.Content))
-		}
-	}
-	return b.String(), nil
+	return string(result), nil
 }
 
 var _ Tool = (*recallEntityTool)(nil)

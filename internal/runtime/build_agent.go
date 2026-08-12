@@ -34,6 +34,7 @@ func (bc *buildContext) buildAgentInfra() {
 		agent.WithSkillRegistry(bc.skillReg),
 		agent.WithExploreDir(bc.exploreDir),
 		agent.WithTeamStore(bc.teamstore),
+		agent.WithMemoryEngine(bc.memoryEngine),
 	)
 	if bc.sharedDB != nil {
 		bc.agentFactory.ApplyOption(agent.WithSkillInvocationStats(skill.NewSQLiteInvocationStats(bc.sharedDB)))

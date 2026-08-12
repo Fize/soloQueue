@@ -116,7 +116,12 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	sessionToolsCfg.Logger = sessLog
 	sessionToolsCfg.TeamStore = b.RT.TeamStore
 	sessionToolsCfg.CronScope = tools.CronAccessScope{Mode: tools.CronAccessGlobal}
-	baseTools := tools.Build(sessionToolsCfg)
+	baseTools := tools.BuildBase(sessionToolsCfg)
+	if b.RT.MemoryEngine != nil {
+		scopeType, scopeID := memoryScopeForL1(b.WorkDir)
+		access := b.RT.MemoryEngine.BindL1(scopeType, scopeID, true)
+		baseTools = append(baseTools, tools.BuildMemory(sessionToolsCfg, access)...)
+	}
 
 	// Auto-reload: wrap file-writing tools so writes to agents/ or groups/ dirs
 	// trigger automatic parsing and instantiation.
@@ -196,7 +201,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				ModelID:      def.ModelID,
 				SystemPrompt: finalSystemPrompt,
 			}
-			forkTools := tools.Build(toolsCfg)
+			forkTools := tools.BuildBase(toolsCfg)
 			var filtered []tools.Tool
 			for _, t := range forkTools {
 				if t.Name() != "SendFile" && !tools.IsCronTool(t.Name()) {
@@ -487,7 +492,8 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 					if effectiveTeam != "default" {
 						scopeType, scopeID = engine.ScopeTeam, effectiveTeam
 					}
-					_, err := b.RT.MemoryEngine.Ingest(context.Background(), engine.MemoryCandidate{
+					access := b.RT.MemoryEngine.BindL1(scopeType, scopeID, true)
+					_, err := access.Ingest(context.Background(), engine.MemoryCandidate{
 						Content:    mem,
 						MemoryType: engine.MemoryTypeStableFact,
 						ScopeType:  scopeType,
@@ -606,6 +612,14 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		return nil, nil, nil, err
 	}
 	return a, cw, tl, nil
+}
+
+func memoryScopeForL1(workDir string) (string, string) {
+	workDir = filepath.Clean(strings.TrimSpace(workDir))
+	if workDir == "." || workDir == "" || strings.HasSuffix(workDir, string(filepath.Separator)+".soloqueue") {
+		return engine.ScopeGlobal, ""
+	}
+	return engine.ScopeProject, workDir
 }
 
 func (b *Builder) ReconcileL1TeamCatalog(sess *Session, systemPrompt string) error {

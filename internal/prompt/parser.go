@@ -20,7 +20,7 @@ type AgentFrontmatter struct {
 	Permission    bool              `yaml:"permission"`
 	MCPServers    []string          `yaml:"mcp_servers,omitempty"`
 	Skills        []string          `yaml:"skills,omitempty"`
-	Channels      map[string]string `yaml:"channels,omitempty"`      // channel_type → instance_id (e.g. {"qq": "my-qq-bot"})
+	Channels      map[string]string `yaml:"channels,omitempty"`       // channel_type → instance_id (e.g. {"qq": "my-qq-bot"})
 	NotifyChannel string            `yaml:"notify_channel,omitempty"` // channel_type to use for cron notifications
 	CreatedAt     string            `yaml:"created_at,omitempty"`
 	UpdatedAt     string            `yaml:"updated_at,omitempty"`
@@ -28,10 +28,11 @@ type AgentFrontmatter struct {
 
 // GroupFrontmatter corresponds to the YAML frontmatter of ~/.soloqueue/groups/*.md.
 type GroupFrontmatter struct {
-	ID        string `yaml:"id,omitempty"`
-	Name      string `yaml:"name"`
-	CreatedAt string `yaml:"created_at,omitempty"`
-	UpdatedAt string `yaml:"updated_at,omitempty"`
+	ID            string `yaml:"id,omitempty"`
+	Name          string `yaml:"name"`
+	MemoryOwnerID string `yaml:"memory_owner_id,omitempty"`
+	CreatedAt     string `yaml:"created_at,omitempty"`
+	UpdatedAt     string `yaml:"updated_at,omitempty"`
 }
 
 // GroupFile parse result: frontmatter + markdown body (group description).

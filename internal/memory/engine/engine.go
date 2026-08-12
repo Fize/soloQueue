@@ -56,18 +56,18 @@ func (e *Engine) SaveWithEntities(ctx context.Context, content, date, tags, even
 	if err != nil {
 		return hash, isNew, err
 	}
-	e.indexEntities(ctx, content, hash, eventTime, entities)
+	e.indexEntities(ctx, OwnerL1, "", content, hash, eventTime, entities)
 	return hash, isNew, nil
 }
 
-func (e *Engine) indexEntities(ctx context.Context, content, hash, eventTime string, entities []EntityExtraction) {
+func (e *Engine) indexEntities(ctx context.Context, ownerType, ownerID, content, hash, eventTime string, entities []EntityExtraction) {
 	for _, entity := range entities {
 		if entity.Confidence <= 0 {
 			entity.Confidence = 1.0
 		}
 		nodeType := normalizeEntityType(entity.Type)
 
-		srcID, _, err := e.graph.UpsertNode(ctx, entity.Name, nodeType, entity.Confidence)
+		srcID, _, err := e.graph.UpsertNodeOwned(ctx, ownerType, ownerID, entity.Name, nodeType, entity.Confidence)
 		if err != nil {
 			e.logWarn("kg index: upsert node", err)
 			continue
@@ -78,12 +78,12 @@ func (e *Engine) indexEntities(ctx context.Context, content, hash, eventTime str
 			if weight <= 0 {
 				weight = 1.0
 			}
-			tgtID, _, err := e.graph.UpsertNode(ctx, rel.TargetName, "entity", 0.5)
+			tgtID, _, err := e.graph.UpsertNodeOwned(ctx, ownerType, ownerID, rel.TargetName, "entity", 0.5)
 			if err != nil {
 				e.logWarn("kg index: upsert target node", err)
 				continue
 			}
-			if err := e.graph.UpsertEdge(ctx, srcID, tgtID, rel.RelType, weight, content, hash, eventTime, "", ""); err != nil {
+			if err := e.graph.UpsertEdgeOwned(ctx, ownerType, ownerID, srcID, tgtID, rel.RelType, weight, content, hash, eventTime, "", ""); err != nil {
 				e.logWarn("kg index: upsert edge", err)
 			}
 		}
@@ -92,6 +92,10 @@ func (e *Engine) indexEntities(ctx context.Context, content, hash, eventTime str
 
 // Search performs a hybrid search across all configured pipelines.
 func (e *Engine) Search(ctx context.Context, query SearchQuery) (*SearchResultSet, error) {
+	query.OwnerType, query.OwnerID = normalizeOwner(query.OwnerType, query.OwnerID)
+	if !validOwner(query.OwnerType, query.OwnerID) {
+		return nil, ErrMemoryOwnerInvalid
+	}
 	return e.searcher.Search(ctx, query)
 }
 

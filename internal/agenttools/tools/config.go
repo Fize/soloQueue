@@ -21,6 +21,9 @@
 package tools
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/cron"
@@ -28,6 +31,20 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
+
+func memoryToolError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	switch {
+	case errors.Is(err, engine.ErrMemoryOwnerInvalid):
+		return fmt.Errorf("memory_owner_invalid")
+	case errors.Is(err, engine.ErrMemoryAccessDenied):
+		return fmt.Errorf("memory_access_denied")
+	default:
+		return fmt.Errorf("memory_unavailable")
+	}
+}
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -119,11 +136,14 @@ type Config struct {
 	PlanDir string
 
 	// ── Long-term memory ──────────────────────────────────────────────
-	// MemoryEngine is the long-term memory engine (nil means disabled).
-	// Standard agents use Remember / RecallMemory for text RAG.
-	// Knowledge Graph (KG) operations are used programmatically by the Simulation Engine
-	// via the Go API rather than exposing LLM tool calls.
+	// MemoryEngine is privileged runtime configuration used only to create
+	// server-bound capabilities and administrative operations. BuildBase strips
+	// it before constructing agent tools.
 	MemoryEngine *engine.Engine
+
+	// MemoryAccess is an immutable owner-bound capability. Agent-facing
+	// memory tools are registered only when this value is non-nil.
+	MemoryAccess engine.Access
 
 	// ── Team store ──────────────────────────────────────────────────────
 	// TeamStore is the project/team/agent persistence store.
@@ -173,6 +193,16 @@ func ensureExecutor(cfg *Config) {
 //
 // The returned slice preserves declaration order (useful for debugging).
 func Build(cfg Config) []Tool {
+	base := BuildBase(cfg)
+	return append(base, BuildMemory(cfg, cfg.MemoryAccess)...)
+}
+
+// BuildBase returns built-in tools without durable-memory capabilities.
+func BuildBase(cfg Config) []Tool {
+	// Base tools must not retain either the privileged engine or a bound
+	// capability. This keeps L3 and skill-fork tool values memoryless.
+	cfg.MemoryEngine = nil
+	cfg.MemoryAccess = nil
 	ensureExecutor(&cfg)
 	tools := []Tool{
 		newFileReadTool(cfg),
@@ -183,8 +213,6 @@ func Build(cfg Config) []Tool {
 		newHTTPFetchTool(cfg),
 		newShellExecTool(cfg),
 		newWebSearchTool(cfg),
-		newRememberTool(cfg),
-		newRecallMemoryTool(cfg),
 		newSendFileTool(cfg),
 	}
 	if cfg.TeamStore != nil {
@@ -205,6 +233,16 @@ func Build(cfg Config) []Tool {
 		tools = append(tools, newImageTool(cfg))
 	}
 	return tools
+}
+
+// BuildMemory returns durable-memory tools for an already bound capability.
+func BuildMemory(cfg Config, access engine.Access) []Tool {
+	if access == nil {
+		return nil
+	}
+	cfg.MemoryEngine = nil
+	cfg.MemoryAccess = access
+	return []Tool{newRememberTool(cfg), newRecallMemoryTool(cfg)}
 }
 
 // ─── Default Config ─────────────────────────────────────────────────────

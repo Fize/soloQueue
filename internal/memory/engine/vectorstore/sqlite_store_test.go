@@ -2,8 +2,13 @@ package vectorstore
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 func newTestSQLiteStore(t *testing.T) *SQLiteStore {
@@ -34,6 +39,59 @@ func TestSQLiteStore_Upsert_NewEntry(t *testing.T) {
 	count, _ := store.Count(ctx)
 	if count != 1 {
 		t.Errorf("expected 1 entry, got %d", count)
+	}
+}
+
+func TestSQLiteStore_QueryScopedFiltersBeforeRanking(t *testing.T) {
+	store := newTestSQLiteStore(t)
+	ctx := context.Background()
+	for _, entry := range []MemoryEntry{
+		{ID: "l1", Content: "l1", Embedding: []float32{1, 0}, OwnerType: "l1", ScopeType: "global"},
+		{ID: "a", Content: "group-a", Embedding: []float32{1, 0}, OwnerType: "l2_group", OwnerID: "a", ScopeType: "team", ScopeID: "a"},
+		{ID: "b", Content: "group-b", Embedding: []float32{1, 0}, OwnerType: "l2_group", OwnerID: "b", ScopeType: "team", ScopeID: "b"},
+	} {
+		if err := store.Upsert(ctx, entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results, err := store.QueryScoped(ctx, []float32{1, 0}, 1, 0, QueryFilter{
+		OwnerType: "l2_group", OwnerID: "a", ScopeType: "team", ScopeID: "a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Content != "group-a" {
+		t.Fatalf("scoped query leaked or starved owner: %+v", results)
+	}
+}
+
+func TestSQLiteStore_BackfillsLegacyVectorsAsL1(t *testing.T) {
+	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "legacy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`
+		CREATE TABLE mem_vec (
+			id TEXT PRIMARY KEY, content TEXT NOT NULL, embedding BLOB NOT NULL,
+			timestamp TEXT NOT NULL, source TEXT NOT NULL DEFAULT ''
+		)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`INSERT INTO mem_vec VALUES (?, ?, ?, ?, ?)`,
+		"legacy", "legacy vector", encodeEmbedding([]float32{1, 0}), time.Now().UTC().Format(time.RFC3339), "hash"); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	store := NewSQLiteStoreFromDB(database, &mu, WithTableName("mem_vec"))
+	results, err := store.QueryScoped(context.Background(), []float32{1, 0}, 10, 0, QueryFilter{
+		OwnerType: "l1", ScopeType: "global",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Content != "legacy vector" {
+		t.Fatalf("legacy vector was not assigned to L1: %+v", results)
 	}
 }
 

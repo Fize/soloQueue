@@ -12,7 +12,9 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	sqlitedb "github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	memoryengine "github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
@@ -188,6 +190,60 @@ func TestDefaultFactory_Create_Success(t *testing.T) {
 
 	// Clean up
 	_ = agent.Stop(time.Second)
+}
+
+func TestDefaultFactory_MemoryCapabilityOnlyForL2Leader(t *testing.T) {
+	root := t.TempDir()
+	log, err := logger.System(root, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	shared, err := sqlitedb.Open(filepath.Join(root, "soloqueue.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shared.Close()
+	teamStore := store.NewStore(filepath.Join(root, "groups"), filepath.Join(root, "agents"), shared)
+	if err := teamStore.CreateTeam(context.Background(), &store.Team{Name: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	memoryEngine := memoryengine.New(shared.DB, &shared.WMu, nil, nil, log)
+	factory := NewDefaultFactory(
+		NewRegistry(log),
+		&agenttest.FakeLLM{Responses: []string{"ok", "ok"}},
+		tools.Config{MemoryEngine: memoryEngine},
+		log,
+		WithTeamStore(teamStore),
+		WithMemoryEngine(memoryEngine),
+		WithWorkDir(root),
+	)
+
+	leader, _, err := factory.Create(context.Background(), AgentTemplate{
+		ID: "dev-leader", Name: "Dev Leader", Group: "dev", IsLeader: true,
+	}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leader.Stop(time.Second)
+	if !leader.HasTool("Remember") || !leader.HasTool("RecallMemory") {
+		t.Fatal("L2 leader did not receive its bound memory tools")
+	}
+
+	worker, cw, err := factory.Create(context.Background(), AgentTemplate{
+		ID: "worker", Name: "Worker", Group: "dev", IsLeader: false,
+	}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer worker.Stop(time.Second)
+	if worker.HasTool("Remember") || worker.HasTool("RecallMemory") {
+		t.Fatal("L3 worker received durable-memory tools")
+	}
+	systemMessage, ok := cw.MessageAt(0)
+	if !ok || strings.Contains(systemMessage.Content, "Long-Term Memory") {
+		t.Fatal("L3 system prompt advertises durable memory")
+	}
 }
 
 func TestDefaultFactory_Create_WithSubAgents(t *testing.T) {
@@ -953,7 +1009,7 @@ func TestBuildL3SystemPrompt_ContainsFollowThePlanRule(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "explore/", false)
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "explore/")
 
 	// Verify L3 prompt contains "Follow the Plan" rule
 	if !strings.Contains(prompt, "Follow the Plan") {
@@ -981,7 +1037,7 @@ func TestBuildL3SystemPrompt_ContainsExploreDirPath(t *testing.T) {
 	}
 
 	exploreDir := "explore/"
-	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", exploreDir, false)
+	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", exploreDir)
 
 	// Verify L3 prompt contains explore directory path
 	if !strings.Contains(prompt, "explore/") {
@@ -997,7 +1053,7 @@ func TestBuildL3SystemPrompt_EmptyPlanDir(t *testing.T) {
 		SystemPrompt: "You are a backend worker.",
 	}
 
-	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", "explore/", false)
+	prompt := buildL3SystemPrompt(tmpl, nil, "", "/home/user/.soloqueue", "explore/")
 
 	// When planDir is empty, unreplaced placeholders should not appear
 	if strings.Contains(prompt, "{{PLAN_DIR}}") {
@@ -1022,7 +1078,7 @@ func TestBuildL3SystemPrompt_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 
 	planDir := "/home/user/.soloqueue/plan"
-	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "explore/", false)
+	prompt := buildL3SystemPrompt(tmpl, nil, planDir, "/home/user/.soloqueue", "explore/")
 
 	// Verify Tasks structure convention is reflected in L3 prompt
 	if !strings.Contains(prompt, "Tasks") {
@@ -1082,7 +1138,7 @@ func TestBuildL2SystemPrompt_NoPermanentMemory(t *testing.T) {
 	}
 }
 
-func TestBuildL3SystemPrompt_PermanentMemory(t *testing.T) {
+func TestBuildL3SystemPrompt_NeverAdvertisesPermanentMemory(t *testing.T) {
 	tmpl := AgentTemplate{
 		ID:           "backend",
 		Name:         "Backend",
@@ -1090,13 +1146,13 @@ func TestBuildL3SystemPrompt_PermanentMemory(t *testing.T) {
 		SystemPrompt: "You are a backend worker.",
 	}
 
-	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/workdir", "/explore", true)
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/workdir", "/explore")
 
-	if !strings.Contains(prompt, "Long-Term Memory") {
-		t.Error("L3 prompt should contain Long-Term Memory section when permanent memory is enabled")
+	if strings.Contains(prompt, "Long-Term Memory") {
+		t.Error("L3 prompt must not contain Long-Term Memory section")
 	}
-	if !strings.Contains(prompt, "RecallMemory") {
-		t.Error("L3 prompt should mention RecallMemory tool")
+	if strings.Contains(prompt, "RecallMemory") || strings.Contains(prompt, "Remember") {
+		t.Error("L3 prompt must not advertise durable-memory tools")
 	}
 }
 
@@ -1127,33 +1183,27 @@ func TestBuildSystemPrompt_LSPToolAwareness(t *testing.T) {
 		t.Error("L2 prompt should NOT contain LSP section when builtin-lsp is omitted from MCPServers")
 	}
 
-	workerWithLSP := buildL3SystemPrompt(devWithLSP, groups, "/plan", "/workdir", "/explore", false)
+	workerWithLSP := buildL3SystemPrompt(devWithLSP, groups, "/plan", "/workdir", "/explore")
 	if !strings.Contains(workerWithLSP, "LSP Code Intelligence & Navigation Tools") {
 		t.Error("L3 prompt should contain LSP section when builtin-lsp is in MCPServers")
 	}
 
-	workerWithoutLSP := buildL3SystemPrompt(devWithoutLSP, groups, "/plan", "/workdir", "/explore", false)
+	workerWithoutLSP := buildL3SystemPrompt(devWithoutLSP, groups, "/plan", "/workdir", "/explore")
 	if strings.Contains(workerWithoutLSP, "LSP Code Intelligence & Navigation Tools") {
 		t.Error("L3 prompt should NOT contain LSP section when builtin-lsp is omitted from MCPServers")
 	}
 }
 
-func TestBuildL3SystemPrompt_PermanentMemory_Remember(t *testing.T) {
+func TestBuildL3SystemPrompt_NoDurableMemoryTools(t *testing.T) {
 	tmpl := AgentTemplate{
 		ID:           "backend",
 		Name:         "Backend",
 		Description:  "Backend worker",
 		SystemPrompt: "You are a backend worker.",
 	}
-	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/workdir", "/explore", true)
-	if !strings.Contains(prompt, "Remember") {
-		t.Error("L3 prompt should mention Remember tool")
-	}
-	if !strings.Contains(prompt, "when the task explicitly references earlier work") {
-		t.Error("L3 prompt should describe selective memory recall")
-	}
-	if strings.Contains(prompt, "ALWAYS call first") || strings.Contains(prompt, "EVERY non-trivial task") {
-		t.Error("L3 prompt should not require memory recall for every task")
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/workdir", "/explore")
+	if strings.Contains(prompt, "Remember") || strings.Contains(prompt, "RecallMemory") {
+		t.Error("L3 prompt must not mention durable-memory tools")
 	}
 }
 
@@ -1165,7 +1215,7 @@ func TestBuildL3SystemPrompt_NoPermanentMemory(t *testing.T) {
 		SystemPrompt: "You are a backend worker.",
 	}
 
-	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/workdir", "/explore", false)
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/workdir", "/explore")
 
 	if strings.Contains(prompt, "Long-Term Memory") {
 		t.Error("L3 prompt should NOT contain Long-Term Memory section when permanent memory is disabled")
@@ -1868,7 +1918,7 @@ func TestBuildL3SystemPrompt_ContainsExploreDirAbsolutePath(t *testing.T) {
 		Description:  "Backend worker",
 		SystemPrompt: "You are a backend worker.",
 	}
-	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
 	// Explore directory should use the absolute path
 	if !strings.Contains(prompt, "/home/user/.soloqueue/explore") {
@@ -1883,7 +1933,7 @@ func TestBuildL3SystemPrompt_EnvironmentNoWorkDir(t *testing.T) {
 		Description:  "Backend worker",
 		SystemPrompt: "You are a backend worker.",
 	}
-	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore", false)
+	prompt := buildL3SystemPrompt(tmpl, nil, "/plan", "/home/user/.soloqueue", "/home/user/.soloqueue/explore")
 
 	if strings.Contains(prompt, "\n- Working Directory:") {
 		t.Error("L3 prompt Environment section should not contain 'Working Directory' line")

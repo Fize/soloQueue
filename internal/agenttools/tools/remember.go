@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -66,8 +65,8 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", err
 	}
 
-	if t.cfg.MemoryEngine == nil {
-		return "", fmt.Errorf("memory engine is not configured; check your settings")
+	if t.cfg.MemoryAccess == nil {
+		return "", fmt.Errorf("memory_not_configured")
 	}
 
 	var a rememberArgs
@@ -76,6 +75,15 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 	}
 	if err := validateNotZeroLen("content", a.Content); err != nil {
 		return "", err
+	}
+	a.Content = strings.TrimSpace(a.Content)
+	if len([]rune(a.Content)) > 8000 {
+		return "", fmt.Errorf("%w: content exceeds 8000 characters", ErrInvalidArgs)
+	}
+	switch a.MemoryType {
+	case engine.MemoryTypePreference, engine.MemoryTypeDecision, engine.MemoryTypeStableFact, engine.MemoryTypeReusableSolution:
+	default:
+		return "", fmt.Errorf("%w: unsupported memory_type", ErrInvalidArgs)
 	}
 
 	var at time.Time
@@ -92,16 +100,13 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 	date := at.Format("2006-01-02")
 	eventTime := at.Format(time.RFC3339)
 
-	scopeType, scopeID := memoryScopeForWorkDir(t.cfg.WorkDir)
 	sourceType := engine.SourceAgent
 	if a.ExplicitUserRequest {
 		sourceType = engine.SourceExplicit
 	}
-	result, err := t.cfg.MemoryEngine.Ingest(ctx, engine.MemoryCandidate{
+	result, err := t.cfg.MemoryAccess.Ingest(ctx, engine.MemoryCandidate{
 		Content:             a.Content,
 		MemoryType:          a.MemoryType,
-		ScopeType:           scopeType,
-		ScopeID:             scopeID,
 		SourceType:          sourceType,
 		SourceID:            t.cfg.WorkDir,
 		Date:                date,
@@ -109,12 +114,12 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 		ExplicitUserRequest: a.ExplicitUserRequest,
 	})
 	if err != nil {
-		return "", err
+		return "", memoryToolError(ctx, err)
 	}
 
 	if t.logger != nil {
 		t.logger.InfoContext(ctx, logger.CatTool, "remember: evaluated",
-			"hash", result.ContentHash, "action", result.Action, "reason", result.Reason)
+			"action", result.Action, "reason", result.Reason)
 	}
 
 	b, _ := json.Marshal(rememberResult{
@@ -125,14 +130,6 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 		Reason:      result.Reason,
 	})
 	return string(b), nil
-}
-
-func memoryScopeForWorkDir(workDir string) (string, string) {
-	workDir = filepath.Clean(strings.TrimSpace(workDir))
-	if workDir == "." || workDir == "" || strings.HasSuffix(workDir, string(filepath.Separator)+".soloqueue") {
-		return engine.ScopeGlobal, ""
-	}
-	return engine.ScopeProject, workDir
 }
 
 var _ Tool = (*rememberTool)(nil)

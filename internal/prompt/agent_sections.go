@@ -130,9 +130,12 @@ When a task has been agreed, the approval covers it end to end. In-scope steps d
 - Match responses to the task. A simple result gets a direct statement, not sections and formatting.
 `
 
-// MemoryEngineSection is injected into L2/L3 prompts when the memory engine is enabled.
+// MemoryEngineSection is injected only into memory-enabled L2 prompts.
 const MemoryEngineSection = `
 # Long-Term Memory Usage
+
+This memory belongs to your current L2 group and is shared by that group's sessions across
+projects and restarts. It does not include L1 memory or any other group's memory.
 
 Use long-term memory when the task explicitly references earlier work, an ongoing project,
 prior decisions, user preferences, or historical results that would materially improve the work.
@@ -153,7 +156,7 @@ actually asked you to remember something.
 
 ## Tool Reference
 - **RecallMemory(query, limit=10)**: Search long-term memories by text query.
-- **Remember(content, memory_type, explicit_user_request, entities[], timestamp)**: Save durable information.
+- **Remember(content, memory_type, explicit_user_request, timestamp)**: Save durable information.
 `
 
 const L3EnforcedDirectives = `

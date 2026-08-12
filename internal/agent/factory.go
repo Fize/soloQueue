@@ -17,6 +17,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
@@ -87,7 +88,15 @@ type AgentFactory interface {
 type CreateOptions struct {
 	ExtraSystemPrompt string
 	ExtraTools        []tools.Tool
+	MemoryPolicy      MemoryPolicy
 }
+
+type MemoryPolicy uint8
+
+const (
+	MemoryDisabled MemoryPolicy = iota
+	MemoryL2Group
+)
 
 // ─── DefaultFactory ────────────────────────────────────────────────────────
 
@@ -101,7 +110,7 @@ type DefaultFactory struct {
 	defaultModelID string // Default value used when AgentTemplate.ModelID is empty
 	skillRegistry  *skill.SkillRegistry
 	skillStats     skill.InvocationStats // Skill invocation telemetry (optional)
-	workDir        string // ~/.soloqueue, used to compute planDir based on team
+	workDir        string                // ~/.soloqueue, used to compute planDir based on team
 	log            *logger.Logger
 	resolveModel   ModelResolver               // nil = skip model validation (tests)
 	templates      map[string]AgentTemplate    // Full templates indexed by ID, used by buildL2SystemPrompt to find sub-agent descriptions
@@ -110,6 +119,7 @@ type DefaultFactory struct {
 	mcpManager     *mcp.Manager                // MCP server manager (nil = MCP disabled)
 	exploreDir     string                      // exploration artifact directory (platform-appropriate)
 	teamstore      *store.Store                // DB-backed team/agent store (nil = disabled)
+	memoryEngine   *engine.Engine
 }
 
 // NewDefaultFactory creates a DefaultFactory
@@ -247,7 +257,11 @@ func (f *DefaultFactory) RebuildLeaderPrompt(tmpl AgentTemplate, workDir string)
 		projRes = f.loadProjectResources(effectiveWorkDir)
 	}
 
-	hasPermanentMemory := toolsCfg.MemoryEngine != nil
+	memoryAccess, err := f.memoryAccessFor(context.Background(), tmpl, MemoryL2Group)
+	if err != nil {
+		return "", err
+	}
+	hasPermanentMemory := memoryAccess != nil
 	newPrompt := buildL2SystemPrompt(tmpl, templates, groups, planDir, effectiveWorkDir, exploreDir, projRes.agents, hasPermanentMemory)
 	return newPrompt, nil
 }
@@ -296,8 +310,43 @@ func WithTeamStore(store *store.Store) FactoryOption {
 	}
 }
 
+func WithMemoryEngine(memoryEngine *engine.Engine) FactoryOption {
+	return func(f *DefaultFactory) { f.memoryEngine = memoryEngine }
+}
+
+func (f *DefaultFactory) UpdateMemoryEngine(memoryEngine *engine.Engine) {
+	f.mu.Lock()
+	f.memoryEngine = memoryEngine
+	f.mu.Unlock()
+}
+
 func (f *DefaultFactory) Registry() *Registry {
 	return f.registry
+}
+
+func (f *DefaultFactory) memoryAccessFor(ctx context.Context, tmpl AgentTemplate, policy MemoryPolicy) (engine.Access, error) {
+	f.mu.RLock()
+	memoryEngine := f.memoryEngine
+	f.mu.RUnlock()
+	return f.memoryAccessForEngine(ctx, tmpl, policy, memoryEngine)
+}
+
+func (f *DefaultFactory) memoryAccessForEngine(ctx context.Context, tmpl AgentTemplate, policy MemoryPolicy, memoryEngine *engine.Engine) (engine.Access, error) {
+	if policy == MemoryDisabled || memoryEngine == nil {
+		return nil, nil
+	}
+	if policy != MemoryL2Group || !tmpl.IsLeader || strings.TrimSpace(tmpl.Group) == "" || f.teamstore == nil {
+		return nil, engine.ErrMemoryAccessDenied
+	}
+	ownerID, err := f.teamstore.EnsureMemoryOwnerID(ctx, tmpl.Group)
+	if err != nil {
+		if f.log != nil {
+			f.log.WarnContext(ctx, logger.CatConfig, "memory owner resolution failed",
+				"operation", "bind_l2_group", "error_code", "memory_unavailable")
+		}
+		return nil, fmt.Errorf("memory_unavailable")
+	}
+	return memoryEngine.BindL2Group(ownerID)
 }
 
 // ResolveTemplate returns the current DB-backed agent template by ID.
@@ -378,7 +427,11 @@ func (f *DefaultFactory) Log() *logger.Logger {
 // workDir is the project working directory for this agent.
 // If empty, the factory's global workDir (~/.soloqueue) is used.
 func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, *ctxwin.ContextWindow, error) {
-	return f.CreateWithOptions(ctx, tmpl, workDir, CreateOptions{})
+	opts := CreateOptions{MemoryPolicy: MemoryDisabled}
+	if tmpl.IsLeader && tmpl.Group != "" && !strings.HasPrefix(tmpl.ID, "sim-") {
+		opts.MemoryPolicy = MemoryL2Group
+	}
+	return f.CreateWithOptions(ctx, tmpl, workDir, opts)
 }
 
 // CreateWithOptions creates an agent with additional configuration.
@@ -399,7 +452,13 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	for name, group := range f.groups {
 		groups[name] = group
 	}
+	memoryEngine := f.memoryEngine
 	f.mu.RUnlock()
+
+	memoryAccess, err := f.memoryAccessForEngine(ctx, tmpl, opts.MemoryPolicy, memoryEngine)
+	if err != nil {
+		return nil, nil, fmt.Errorf("agent %q: configure memory: %w", tmpl.ID, err)
+	}
 
 	// 1. Construct the final SystemPrompt
 	// Compute team-specific planDir: ~/.soloqueue/plan/<group>/
@@ -444,7 +503,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	}
 
 	var finalPrompt string
-	hasPermanentMemory := toolsCfg.MemoryEngine != nil
+	hasPermanentMemory := memoryAccess != nil
 	if tmpl.IsLeader {
 		finalPrompt = buildL2SystemPrompt(tmpl, templates, groups, planDir, effectiveWorkDir, exploreDir, projRes.agents, hasPermanentMemory)
 		if tmpl.Group != "" && toolsCfg.CronStore != nil && toolsCfg.CronScheduler != nil && !iface.IsCronExecution(ctx) {
@@ -454,7 +513,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 				"A new job always requires a user-facing title, a task_type (general, engineering, or research), schedule, and instruction.\n"
 		}
 	} else {
-		finalPrompt = buildL3SystemPrompt(tmpl, groups, planDir, effectiveWorkDir, exploreDir, hasPermanentMemory)
+		finalPrompt = buildL3SystemPrompt(tmpl, groups, planDir, effectiveWorkDir, exploreDir)
 	}
 
 	// Inject project instructions (AGENTS.md / CLAUDE.md) into system prompt
@@ -519,7 +578,8 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 				Owner: tmpl.Group,
 			}
 		}
-		allTools = tools.Build(agentToolsCfg)
+		allTools = tools.BuildBase(agentToolsCfg)
+		allTools = append(allTools, tools.BuildMemory(agentToolsCfg, memoryAccess)...)
 
 		// Additionally filter SendFile for L3 workers only
 		if !tmpl.IsLeader {
@@ -561,7 +621,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			}
 
 			if peerTmpl, ok := findLeaderTemplate(templates, targetName); ok && peerTmpl.ID != tmpl.ID {
-				child, _, err := f.Create(ctx, peerTmpl, effectiveWorkDir)
+				child, _, err := f.CreateWithOptions(ctx, peerTmpl, effectiveWorkDir, CreateOptions{MemoryPolicy: MemoryDisabled})
 				if err != nil {
 					return nil, false, fmt.Errorf("spawn peer leader %q: %w", targetName, err)
 				}
@@ -698,7 +758,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 				}
 
 				// Build tools and filter out cron tools + SendFile because this is an L3 agent
-				forkTools := tools.Build(toolsCfg)
+				forkTools := tools.BuildBase(toolsCfg)
 				var filtered []tools.Tool
 				for _, t := range forkTools {
 					if t.Name() != "SendFile" && !tools.IsCronTool(t.Name()) {
@@ -1138,7 +1198,7 @@ func hasMCPServer(servers []string, target string) bool {
 //
 // Segment 1 (User Defined Area): User's business Role + System Prompt
 // Segment 2 (Framework Mandatory Area): Immutable underlying contract
-func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, hasPermanentMemory bool) string {
+func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string) string {
 	var b strings.Builder
 
 	// ── Identity ──────────────────────────────────────────
@@ -1162,10 +1222,6 @@ func buildL3SystemPrompt(tmpl AgentTemplate, groups map[string]prompt.GroupFile,
 	// ── Segment 2: Framework Mandatory Area ──────────────────────────────
 	b.WriteString(prompt.EnvSection(workDir, exploreDir, false, false))
 	b.WriteString("\n\n")
-	if hasPermanentMemory {
-		b.WriteString(prompt.MemoryEngineSection)
-		b.WriteString("\n\n")
-	}
 	b.WriteString(strings.ReplaceAll(prompt.SharedAgentRules, "{{EXPLORE_DIR}}", exploreDir))
 	b.WriteString(strings.ReplaceAll(prompt.L3EnforcedDirectives, "{{PLAN_DIR}}", planDir))
 	b.WriteString(strings.ReplaceAll(prompt.L3EnforcedPostPlan, "{{PLAN_DIR}}", planDir))

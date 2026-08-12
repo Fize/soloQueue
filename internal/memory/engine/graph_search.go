@@ -26,21 +26,21 @@ func (gs *GraphSearcher) Search(ctx context.Context, query SearchQuery) ([]Searc
 	}
 
 	if len(query.Entities) > 0 {
-		return gs.entitySearch(ctx, query.Entities, limit)
+		return gs.entitySearch(ctx, query, limit)
 	}
-	return gs.tokenFallbackSearch(ctx, query.Text, limit)
+	return gs.tokenFallbackSearch(ctx, query, limit)
 }
 
 // entitySearch resolves entity names and runs PPR to find related memories.
-func (gs *GraphSearcher) entitySearch(ctx context.Context, entities []string, limit int) ([]SearchResult, error) {
+func (gs *GraphSearcher) entitySearch(ctx context.Context, query SearchQuery, limit int) ([]SearchResult, error) {
 	// Resolve entities to node IDs
 	nodeMap := make(map[int64]bool)
-	for _, name := range entities {
-		canon, err := gs.store.ResolveAlias(ctx, name)
+	for _, name := range query.Entities {
+		canon, err := gs.store.ResolveAliasOwned(ctx, query.OwnerType, query.OwnerID, name)
 		if err != nil {
 			canon = name
 		}
-		node, err := gs.store.GetNode(ctx, canon)
+		node, err := gs.store.GetNodeOwned(ctx, query.OwnerType, query.OwnerID, canon)
 		if err != nil {
 			continue
 		}
@@ -66,7 +66,7 @@ func (gs *GraphSearcher) entitySearch(ctx context.Context, entities []string, li
 	seen := make(map[int64]bool)
 
 	for _, seedID := range seedIDs {
-		edges, err := gs.store.GetEdgesFrom(ctx, seedID, false)
+		edges, err := gs.store.GetEdgesFromOwned(ctx, query.OwnerType, query.OwnerID, seedID, false)
 		if err != nil {
 			continue
 		}
@@ -78,7 +78,7 @@ func (gs *GraphSearcher) entitySearch(ctx context.Context, entities []string, li
 			// 1-hop
 			if !seen[e.Target] {
 				seen[e.Target] = true
-				neighborEdges, _ := gs.store.GetEdgesFrom(ctx, e.Target, false)
+				neighborEdges, _ := gs.store.GetEdgesFromOwned(ctx, query.OwnerType, query.OwnerID, e.Target, false)
 				for _, ne := range neighborEdges {
 					if ne.SourceHash != "" {
 						scoreByHash[ne.SourceHash] += ne.Weight * 0.5
@@ -87,7 +87,7 @@ func (gs *GraphSearcher) entitySearch(ctx context.Context, entities []string, li
 			}
 		}
 		// Incoming edges
-		inEdges, _ := gs.store.GetEdgesTo(ctx, seedID, false)
+		inEdges, _ := gs.store.GetEdgesToOwned(ctx, query.OwnerType, query.OwnerID, seedID, false)
 		for _, e := range inEdges {
 			if e.SourceHash != "" {
 				scoreByHash[e.SourceHash] += e.Weight * 0.7
@@ -118,9 +118,9 @@ func (gs *GraphSearcher) entitySearch(ctx context.Context, entities []string, li
 }
 
 // tokenFallbackSearch tokenizes the query, matches entity names, traverses, and collects memories.
-func (gs *GraphSearcher) tokenFallbackSearch(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+func (gs *GraphSearcher) tokenFallbackSearch(ctx context.Context, query SearchQuery, limit int) ([]SearchResult, error) {
 	// Tokenize and filter stopwords
-	tokens := tokenize(query)
+	tokens := tokenize(query.Text)
 	var keywords []string
 	for _, tok := range tokens {
 		tok = strings.ToLower(strings.TrimSpace(tok))
@@ -138,7 +138,7 @@ func (gs *GraphSearcher) tokenFallbackSearch(ctx context.Context, query string, 
 	var matchedNodes []GraphNode
 	seen := make(map[int64]bool)
 	for _, kw := range keywords {
-		nodes, err := gs.store.SearchNodesByName(ctx, kw, 10)
+		nodes, err := gs.store.SearchNodesByNameOwned(ctx, query.OwnerType, query.OwnerID, kw, 10)
 		if err != nil {
 			continue
 		}
@@ -173,7 +173,7 @@ func (gs *GraphSearcher) tokenFallbackSearch(ctx context.Context, query string, 
 		}
 		visited[nodeID] = true
 
-		edges, err := gs.store.GetEdgesFrom(ctx, nodeID, false)
+		edges, err := gs.store.GetEdgesFromOwned(ctx, query.OwnerType, query.OwnerID, nodeID, false)
 		if err != nil {
 			continue
 		}
@@ -182,7 +182,7 @@ func (gs *GraphSearcher) tokenFallbackSearch(ctx context.Context, query string, 
 				scoreByHash[e.SourceHash] += e.Weight
 			}
 		}
-		inEdges, _ := gs.store.GetEdgesTo(ctx, nodeID, false)
+		inEdges, _ := gs.store.GetEdgesToOwned(ctx, query.OwnerType, query.OwnerID, nodeID, false)
 		for _, e := range inEdges {
 			if e.SourceHash != "" {
 				scoreByHash[e.SourceHash] += e.Weight * 0.7
