@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -73,6 +74,7 @@ type SessionBridge struct {
 	transcriber      *Transcriber
 	whitelistEnabled bool
 	whitelist        map[string]bool
+	accountID        string
 }
 
 // SessionBridgeOption configures a SessionBridge.
@@ -82,6 +84,14 @@ type SessionBridgeOption func(*SessionBridge)
 func WithVersion(v string) SessionBridgeOption {
 	return func(b *SessionBridge) { b.version = v }
 }
+
+// WithAccountID binds the bridge to one QQ bot account.
+func WithAccountID(accountID string) SessionBridgeOption {
+	return func(b *SessionBridge) { b.accountID = accountID }
+}
+
+// AccountID returns the bot account served by this bridge.
+func (b *SessionBridge) AccountID() string { return b.accountID }
 
 // WithWhitelist configures the whitelist settings for the QQ bot.
 func WithWhitelist(enabled bool, list []string) SessionBridgeOption {
@@ -157,6 +167,14 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 			"open_id", msg.OpenID,
 		)
 	}
+	if s, ok := b.sess.(interface {
+		SetChannelMediaSender(string, func(context.Context, []channel.OutboundMedia) error)
+	}); ok {
+		registeredMsg := msg
+		s.SetChannelMediaSender("qq", func(ctx context.Context, media []channel.OutboundMedia) error {
+			return b.SendMediaForMessage(ctx, registeredMsg, media)
+		})
+	}
 
 	// 3. Handle audio messages — download SILK, transcribe via whisper.cpp,
 	//    then treat the transcript as normal text input.
@@ -176,6 +194,7 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	ctx = context.WithValue(ctx, "qq_message", msg)
 	ctx = channel.ContextWithChatMeta(ctx, channel.ChatMeta{
 		Channel:        "qq",
+		AccountID:      msg.AccountID,
 		UserID:         msg.OpenID,
 		ConversationID: msg.ChatID,
 	})
@@ -310,16 +329,17 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	if reply == "" && result.ReasoningContent != "" {
 		reply = result.ReasoningContent
 	}
-	if reply == "" {
-		b.sendReply(ctx, msg, MsgTypeText, "(Thinking complete, no reply content)")
-		return
-	}
-
 	// Send media attachments (if any) or generated images before the text reply.
 	if len(result.MediaList) > 0 {
-		b.SendMediaList(ctx, msg, result.MediaList)
+		_ = b.SendMediaForMessage(ctx, msg, result.MediaList)
 	} else if len(result.ImageURLs) > 0 {
 		b.sendImages(ctx, msg, result.ImageURLs)
+	}
+	if reply == "" {
+		if len(result.MediaList) == 0 && len(result.ImageURLs) == 0 {
+			b.sendReply(ctx, msg, MsgTypeText, "(Thinking complete, no reply content)")
+		}
+		return
 	}
 
 	b.log.InfoContext(ctx, logger.CatApp, "qqbot reply ready",
@@ -588,28 +608,70 @@ func (b *SessionBridge) sendImages(ctx context.Context, msg QQMessage, urls []st
 	}
 }
 
-// SendMediaList uploads each media in the list to QQ and sends as rich media (active message, NOT reply).
+// SendMediaList uploads each media in the list to QQ and sends as rich media.
 func (b *SessionBridge) SendMediaList(ctx context.Context, msg QQMessage, mediaList []PendingMedia) {
+	_ = b.SendMediaForMessage(ctx, msg, mediaList)
+}
+
+// SendMediaForMessage maps transport-neutral media kinds to QQ protocol values.
+// The explicit message keeps delivery bound to the originating QQ route.
+func (b *SessionBridge) SendMediaForMessage(ctx context.Context, msg QQMessage, mediaList []channel.OutboundMedia) error {
+	if msg.AccountID != "" && b.accountID != "" && msg.AccountID != b.accountID {
+		return fmt.Errorf("qq_media_account_mismatch: route account does not match bridge")
+	}
 	targetType, targetID := imageUploadTarget(msg)
 	if targetType == "" {
 		b.log.WarnContext(ctx, logger.CatApp, "qqbot: unsupported source for media upload",
 			"source", msg.Source)
-		return
+		return fmt.Errorf("qq_media_route_invalid: unsupported source %d", msg.Source)
 	}
+	var firstErr error
 	for i, media := range mediaList {
-		fi, err := b.api.UploadFile(ctx, targetType, targetID, media.FileType, media.URL, media.Base64Data)
+		fileType := qqFileType(media.Kind)
+		base64Data := ""
+		if media.Path != "" {
+			data, err := os.ReadFile(media.Path)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("qq_media_read_failed: %w", err)
+				}
+				continue
+			}
+			base64Data = base64.StdEncoding.EncodeToString(data)
+		}
+		fi, err := b.api.UploadFile(ctx, targetType, targetID, fileType, media.URL, base64Data)
 		if err != nil {
 			b.log.WarnContext(ctx, logger.CatApp, "qqbot: media upload failed",
-				"index", i+1, "type", media.FileType, "err", err.Error())
+				"index", i+1, "type", fileType, "err", err.Error())
+			if firstErr == nil {
+				firstErr = fmt.Errorf("qq_media_upload_failed: %w", err)
+			}
 			continue
 		}
 		if err := b.sendMedia(ctx, msg, fi.FileInfo); err != nil {
 			b.log.WarnContext(ctx, logger.CatApp, "qqbot: media send failed",
 				"index", i+1, "err", err.Error())
+			if firstErr == nil {
+				firstErr = fmt.Errorf("qq_media_send_failed: %w", err)
+			}
 		} else {
 			b.log.InfoContext(ctx, logger.CatApp, "qqbot: media sent",
 				"index", i+1)
 		}
+	}
+	return firstErr
+}
+
+func qqFileType(kind channel.MediaKind) int {
+	switch kind {
+	case channel.MediaImage:
+		return FileTypeImage
+	case channel.MediaVideo:
+		return FileTypeVideo
+	case channel.MediaVoice:
+		return FileTypeVoice
+	default:
+		return FileTypeFile
 	}
 }
 

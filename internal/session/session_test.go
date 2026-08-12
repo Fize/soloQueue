@@ -12,12 +12,13 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
-	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // ─── Test helpers ──────────────────────────────────────────────────────
@@ -36,6 +37,24 @@ func startAgent(t *testing.T, fake *agenttest.FakeLLM) *agent.Agent {
 	}
 	t.Cleanup(func() { _ = a.Stop(2 * time.Second) })
 	return a
+}
+
+func TestSendMediaViaChannelUsesOnlyConfiguredChannel(t *testing.T) {
+	calledQQ := 0
+	calledWechat := 0
+	sess := &Session{
+		Agent: &agent.Agent{Def: agent.Definition{NotifyChannel: "qq"}},
+		channelMediaSenders: map[string]func(context.Context, []channel.OutboundMedia) error{
+			"qq":     func(context.Context, []channel.OutboundMedia) error { calledQQ++; return nil },
+			"wechat": func(context.Context, []channel.OutboundMedia) error { calledWechat++; return nil },
+		},
+	}
+	if err := sess.SendMediaViaChannel(context.Background(), []channel.OutboundMedia{{Kind: channel.MediaFile, Path: "/export/a"}}); err != nil {
+		t.Fatal(err)
+	}
+	if calledQQ != 1 || calledWechat != 0 {
+		t.Fatalf("qq=%d wechat=%d", calledQQ, calledWechat)
+	}
 }
 
 // factoryFromFake returns a factory that produces fresh started agents each
@@ -917,8 +936,6 @@ func TestSession_AskStream_CancelNoDuplicate_AfterSamePrevTurn(t *testing.T) {
 		t.Errorf("content %q persisted %d times, want 1; contents=%q", "same", len(contents), contents)
 	}
 }
-
-
 
 // ─── Session.FlushMemory ──────────────────────────────────────────────
 

@@ -163,15 +163,19 @@ type Session struct {
 
 	// channelSenders maps channel type ("qq"/"wechat") to send functions.
 	// Registered by bridges when OnMessage fires. Protected by channelSendersMu.
-	channelSenders   map[string]func(context.Context, string) error
-	channelSendersMu sync.RWMutex
+	channelSenders      map[string]func(context.Context, string) error
+	channelMediaSenders map[string]func(context.Context, []channel.OutboundMedia) error
+	channelSendersMu    sync.RWMutex
 
 	// cancelled: forwarder sets this when cancelled, consumed and reset by the adapter
 	cancelled atomic.Bool
 
-	lastLevel       string       // last classified task type
-	lastLevelMu     sync.RWMutex // protects lastLevel and lastRouteResult
-	lastRouteResult RouteResult  // cached route result (model params preserved)
+	lastLevel          string       // last classified task type
+	lastLevelMu        sync.RWMutex // protects lastLevel and lastRouteResult
+	lastRouteResult    RouteResult  // cached route result (model params preserved)
+	channelRouteMu     sync.Mutex
+	channelRouteKey    string
+	channelRouteOwners int
 
 	// L2-only: coordinates persistent meta.json writes for level/git_base_ref/baseline.
 	// Empty on L1 sessions; MergeAndSave is only called when metaL2ID is non-empty.
@@ -398,6 +402,51 @@ func (s *Session) SetChannelSenderData(channelType string, metadata []byte, fn f
 	}
 }
 
+// SetChannelMediaSender registers media delivery for one channel route.
+func (s *Session) SetChannelMediaSender(channelType string, fn func(context.Context, []channel.OutboundMedia) error) {
+	if channelType == "" || fn == nil {
+		return
+	}
+	s.channelSendersMu.Lock()
+	if s.channelMediaSenders == nil {
+		s.channelMediaSenders = make(map[string]func(context.Context, []channel.OutboundMedia) error)
+	}
+	s.channelMediaSenders[channelType] = fn
+	s.channelSendersMu.Unlock()
+}
+
+// SendMediaViaChannel sends media only through the configured notify channel.
+func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.OutboundMedia) error {
+	if len(media) == 0 {
+		return nil
+	}
+	notifyChannel := ""
+	if s.Agent != nil {
+		notifyChannel = s.Agent.Def.NotifyChannel
+	}
+	if notifyChannel == "" {
+		return nil
+	}
+	s.channelSendersMu.RLock()
+	fn := s.channelMediaSenders[notifyChannel]
+	s.channelSendersMu.RUnlock()
+	if fn != nil {
+		return fn(ctx, media)
+	}
+	if s.metaStore != nil {
+		metadata, err := s.metaStore.GetChannelSenderData(s.TargetID, notifyChannel)
+		if err != nil {
+			return err
+		}
+		if metadata != "" {
+			if factory := channel.GetMediaSenderFactory(notifyChannel); factory != nil {
+				return factory(ctx, []byte(metadata), media)
+			}
+		}
+	}
+	return nil
+}
+
 // HasNotifyChannel reports whether this session's agent has configured a
 // notification channel. It does not claim that a live sender is available.
 func (s *Session) HasNotifyChannel() bool {
@@ -528,6 +577,7 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 		return nil, ErrSessionClosed
 	}
 	ctx = iface.ContextWithIsQBot(ctx, s.IsQBot())
+	ctx = iface.ContextWithMediaDelivery(ctx, s.HasNotifyChannel())
 	ch, err := s.Agent.AskStream(ctx, prompt)
 	if err != nil {
 		return nil, err
@@ -2099,8 +2149,6 @@ func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 
 	m.logger.InfoContext(context.Background(), logger.CatApp, "session manager shutdown completed")
 }
-
-
 
 // formatPayloadForMemory converts ctxwin payload messages to a plain-text string
 // suitable for short-term memory summarization. Skips system messages.

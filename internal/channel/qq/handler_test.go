@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
@@ -21,6 +22,32 @@ func testBridge(t *testing.T, transcriber *Transcriber) *SessionBridge {
 		api:         api,
 		log:         l,
 		transcriber: transcriber,
+	}
+}
+
+func TestSendMediaRejectsCrossAccountRouteBeforeUpload(t *testing.T) {
+	b := testBridge(t, nil)
+	b.accountID = "bot-a"
+	err := b.SendMediaForMessage(context.Background(), QQMessage{AccountID: "bot-b", Source: SourceC2C, TargetOpenID: "user"}, []channel.OutboundMedia{{Kind: channel.MediaFile, URL: "https://example.com/a"}})
+	if err == nil {
+		t.Fatal("expected account mismatch")
+	}
+}
+
+func TestQQFileTypeMappingRemainsCompatible(t *testing.T) {
+	tests := []struct {
+		kind channel.MediaKind
+		want int
+	}{
+		{channel.MediaImage, 1},
+		{channel.MediaVideo, 2},
+		{channel.MediaVoice, 3},
+		{channel.MediaFile, 4},
+	}
+	for _, tc := range tests {
+		if got := qqFileType(tc.kind); got != tc.want {
+			t.Fatalf("kind=%q got=%d want=%d", tc.kind, got, tc.want)
+		}
 	}
 }
 
@@ -73,4 +100,3 @@ func TestProcessAudioMessage_SetsContentOnSuccess(t *testing.T) {
 		t.Errorf("Content = %q, want unchanged on failure", msg.Content)
 	}
 }
-

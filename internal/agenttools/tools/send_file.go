@@ -60,7 +60,7 @@ func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) 
 		return "", err
 	}
 
-	if !iface.IsQBotFromContext(ctx) {
+	if !iface.MediaDeliveryFromContext(ctx) && !iface.IsQBotFromContext(ctx) {
 		return "", fmt.Errorf("sendfile tool is only available for QQ Bot channel")
 	}
 

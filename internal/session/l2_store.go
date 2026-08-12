@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 
 type l2LifecycleState uint8
@@ -27,7 +28,7 @@ const (
 
 // L2SessionEntry holds a single L2 session with its metadata.
 type L2SessionEntry struct {
-	TargetID string    `json:"id"`              // UUID
+	TargetID   string    `json:"id"`              // UUID
 	Name       string    `json:"name"`            // auto-generated from first exchange
 	Group      string    `json:"group"`           // leader template group
 	ProjectID  string    `json:"project_id"`      // optional project ID
@@ -64,25 +65,39 @@ type L2SessionInfo struct {
 // timeline, context window, and agent. Sessions persist across restarts via
 // timeline replay.
 type L2SessionStore struct {
-	mu             sync.RWMutex
-	sessions       map[string]*L2SessionEntry                                // key: UUID
-	channelSenders map[string]map[string]func(context.Context, string) error // group -> channel type -> sender
+	mu                  sync.RWMutex
+	sessions            map[string]*L2SessionEntry                                // key: UUID
+	channelSenders      map[string]map[string]func(context.Context, string) error // group -> channel type -> sender
+	channelMediaSenders map[string]map[string]func(context.Context, []channel.OutboundMedia) error
 
-	builder *Builder
-	logger  *logger.Logger
+	builder   *Builder
+	logger    *logger.Logger
 	metaStore ChannelMetadataStore
-	workDir string
+	workDir   string
 }
 
 // NewL2SessionStore creates a new L2SessionStore.
 func NewL2SessionStore(builder *Builder, workDir string, log *logger.Logger) *L2SessionStore {
 	return &L2SessionStore{
-		sessions:       make(map[string]*L2SessionEntry),
-		channelSenders: make(map[string]map[string]func(context.Context, string) error),
-		builder:        builder,
-		logger:         log,
-		workDir:        workDir,
+		sessions:            make(map[string]*L2SessionEntry),
+		channelSenders:      make(map[string]map[string]func(context.Context, string) error),
+		channelMediaSenders: make(map[string]map[string]func(context.Context, []channel.OutboundMedia) error),
+		builder:             builder,
+		logger:              log,
+		workDir:             workDir,
 	}
+}
+
+func (s *L2SessionStore) SetChannelMediaSenderForGroup(group, channelType string, fn func(context.Context, []channel.OutboundMedia) error) {
+	if group == "" || channelType == "" || fn == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.channelMediaSenders[group] == nil {
+		s.channelMediaSenders[group] = make(map[string]func(context.Context, []channel.OutboundMedia) error)
+	}
+	s.channelMediaSenders[group][channelType] = fn
 }
 
 // SetChannelSenderForGroup registers a sender from an L2 channel bridge. Cron
@@ -126,13 +141,21 @@ func (s *L2SessionStore) ApplyChannelSendersTo(group string, target *Session) {
 	}
 	s.mu.RLock()
 	senders := s.channelSenders[group]
+	mediaSenders := s.channelMediaSenders[group]
 	copySenders := make(map[string]func(context.Context, string) error, len(senders))
 	for channelType, fn := range senders {
 		copySenders[channelType] = fn
 	}
+	copyMediaSenders := make(map[string]func(context.Context, []channel.OutboundMedia) error, len(mediaSenders))
+	for channelType, fn := range mediaSenders {
+		copyMediaSenders[channelType] = fn
+	}
 	s.mu.RUnlock()
 	for channelType, fn := range copySenders {
 		target.SetChannelSender(channelType, fn)
+	}
+	for channelType, fn := range copyMediaSenders {
+		target.SetChannelMediaSender(channelType, fn)
 	}
 }
 
@@ -160,7 +183,7 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 	}
 
 	entry := &L2SessionEntry{
-		TargetID: id,
+		TargetID:  id,
 		Name:      "", // auto-generated after first exchange
 		Group:     group,
 		ProjectID: projectID,
@@ -245,7 +268,7 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 		plans = append(plans, meta.Plans...)
 	}
 	s.sessions[id] = &L2SessionEntry{
-		TargetID: id,
+		TargetID:   id,
 		Name:       meta.Name,
 		Group:      meta.Group,
 		WorkDir:    meta.WorkDir,

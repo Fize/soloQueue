@@ -312,6 +312,7 @@ func (g *Gateway) handleC2CMessage(ctx context.Context, raw json.RawMessage) {
 		return
 	}
 	msg := QQMessage{
+		AccountID:    g.cfg.AppID,
 		Source:       SourceC2C,
 		Content:      event.Content,
 		ImageURLs:    ImageURLs(event.Attachments),
@@ -334,6 +335,7 @@ func (g *Gateway) handleGroupAtMessage(ctx context.Context, raw json.RawMessage)
 		return
 	}
 	msg := QQMessage{
+		AccountID:    g.cfg.AppID,
 		Source:       SourceGroup,
 		Content:      event.Content,
 		ImageURLs:    ImageURLs(event.Attachments),
@@ -355,6 +357,7 @@ func (g *Gateway) handleDirectMessage(ctx context.Context, raw json.RawMessage) 
 		return
 	}
 	msg := QQMessage{
+		AccountID:    g.cfg.AppID,
 		Source:       SourceDirect,
 		Content:      event.Content,
 		ImageURLs:    ImageURLs(event.Attachments),
@@ -376,6 +379,7 @@ func (g *Gateway) handlePublicAtMessage(ctx context.Context, raw json.RawMessage
 		return
 	}
 	msg := QQMessage{
+		AccountID:    g.cfg.AppID,
 		Source:       SourcePublicGuild,
 		Content:      event.Content,
 		ImageURLs:    ImageURLs(event.Attachments),
@@ -397,9 +401,10 @@ func (g *Gateway) handleAudioMessage(ctx context.Context, raw json.RawMessage) {
 		return
 	}
 	msg := QQMessage{
-		Source:   SourceC2C,
-		AudioURL: AudioURL(event.Attachments),
-		OpenID:   event.Author.UserOpenid,
+		AccountID:    g.cfg.AppID,
+		Source:       SourceC2C,
+		AudioURL:     AudioURL(event.Attachments),
+		OpenID:       event.Author.UserOpenid,
 		TargetOpenID: event.Author.UserOpenid,
 		ChatID:       event.Author.UserOpenid,
 		EventID:      event.ID,

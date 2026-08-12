@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
+	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
@@ -33,6 +35,7 @@ type WechatBotManager struct {
 	registry      *agent.Registry
 	gateways      []*wechat.Gateway
 	bridges       []*channel.TextBridge
+	clients       map[string]*wechat.Client
 }
 
 type wechatCredentialStore struct {
@@ -82,7 +85,7 @@ func (s *wechatCredentialStore) SaveWechatCredential(_ context.Context, req wech
 }
 
 func NewWechatBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, workDir, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) *WechatBotManager {
-	m := &WechatBotManager{cfg: cfg, mgr: mgr, l2Store: l2Store, rt: rt, workDir: workDir, version: version, mainLog: mainLog, supervisorsFn: supervisorsFn, registry: registry}
+	m := &WechatBotManager{cfg: cfg, mgr: mgr, l2Store: l2Store, rt: rt, workDir: workDir, version: version, mainLog: mainLog, supervisorsFn: supervisorsFn, registry: registry, clients: make(map[string]*wechat.Client)}
 
 	channel.RegisterSenderFactory("wechat", func(ctx context.Context, data []byte, text string) error {
 		var msg channel.Message
@@ -91,25 +94,36 @@ func NewWechatBotManager(cfg *config.GlobalService, mgr *session.SessionManager,
 		}
 
 		m.mu.Lock()
-		bridges := make([]*channel.TextBridge, len(m.bridges))
-		copy(bridges, m.bridges)
+		client := m.clients[msg.AccountID]
+		if client == nil && msg.AccountID == "" && len(m.clients) == 1 {
+			for _, only := range m.clients {
+				client = only
+			}
+		}
 		m.mu.Unlock()
 
-		if len(bridges) == 0 {
+		if client == nil {
 			return fmt.Errorf("no active wechat bridge available")
 		}
-
-		var lastErr error
-		for _, b := range bridges {
-			// In TextBridge, there isn't an exported SendText method, wait, how can we trigger it?
-			// The original code does `b.sender.SendText(ctx, b.lastMsg, text)`. We can expose a Send method.
-			err := b.Send(ctx, msg, text)
-			if err == nil {
-				return nil
-			}
-			lastErr = err
+		return client.SendText(ctx, msg, text)
+	})
+	channel.RegisterMediaSenderFactory("wechat", func(ctx context.Context, data []byte, media []channel.OutboundMedia) error {
+		var msg channel.Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return err
 		}
-		return fmt.Errorf("all wechat bridges failed to send, last error: %w", lastErr)
+		m.mu.Lock()
+		client := m.clients[msg.AccountID]
+		if client == nil && msg.AccountID == "" && len(m.clients) == 1 {
+			for _, only := range m.clients {
+				client = only
+			}
+		}
+		m.mu.Unlock()
+		if client == nil {
+			return fmt.Errorf("no active wechat bridge for account %q", msg.AccountID)
+		}
+		return client.SendMedia(ctx, msg, media)
 	})
 
 	return m
@@ -123,8 +137,20 @@ func (m *WechatBotManager) Reload() {
 	}
 	m.gateways = nil
 	m.bridges = nil
+	m.clients = make(map[string]*wechat.Client)
 
 	settings := m.cfg.Get()
+	var transcriber *qqbot.Transcriber
+	if settings.Speech.Enabled {
+		modelDir := settings.Speech.ModelDir
+		if modelDir == "" {
+			modelDir = filepath.Join(m.workDir, "models")
+		}
+		candidate := qqbot.NewTranscriber(settings.Speech.Model, modelDir)
+		if candidate.Available() {
+			transcriber = candidate
+		}
+	}
 	for _, baseCfg := range settings.WechatBots {
 		wxCfg := baseCfg.ToWechatConfig(m.version)
 		if !wxCfg.Enabled {
@@ -154,9 +180,13 @@ func (m *WechatBotManager) Reload() {
 		}, m.mgr, m.l2Store, m.rt, m.workDir, wxLog, m.supervisorsFn, m.registry)
 		client := wechat.NewClientWithLogger(wxCfg, wxLog)
 		bridge := channel.NewTextBridge(provider, client, wxLog, m.version, baseCfg.WhitelistEnabled, baseCfg.Whitelist)
+		if transcriber != nil {
+			bridge.SetVoiceTranscriber(transcriber.Transcribe)
+		}
 		gateway := wechat.NewGateway(wxCfg, client, bridge, wxLog)
 		m.gateways = append(m.gateways, gateway)
 		m.bridges = append(m.bridges, bridge)
+		m.clients[wxCfg.BotID] = client
 
 		go func() {
 			if err := gateway.Run(context.Background()); err != nil && err != wechat.ErrClosed {
@@ -175,6 +205,7 @@ func (m *WechatBotManager) Shutdown() {
 	}
 	m.gateways = nil
 	m.bridges = nil
+	m.clients = make(map[string]*wechat.Client)
 }
 
 func WechatCmd(version string) *cobra.Command {

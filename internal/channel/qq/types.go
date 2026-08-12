@@ -245,6 +245,7 @@ const (
 // It abstracts away the event-type-specific fields so the handler layer
 // doesn't need to know about the underlying protocol.
 type QQMessage struct {
+	AccountID    string // bot application id that received this message
 	Source       MessageSource
 	Content      string   // user message text
 	ImageURLs    []string // attachment image URLs
