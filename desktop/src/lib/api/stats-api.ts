@@ -19,8 +19,17 @@ export interface StatsQuery {
 export interface StatsCoverage {
   total_rows: number
   legacy_rows: number
-  cache_coverage_pct: number
-  reasoning_coverage_pct: number
+  origin: StatsCoverageCount
+  task_type: StatsCoverageCount
+  status: StatsCoverageCount
+  latency: StatsCoverageCount
+  cache_detail: StatsCoverageCount
+  reasoning_detail: StatsCoverageCount
+}
+
+export interface StatsCoverageCount {
+  known_rows: number
+  applicable_rows: number
 }
 
 export interface StatsMeta {
@@ -44,14 +53,14 @@ export interface StatsMetrics {
   error_count: number
   cancelled_count: number
   timeout_count: number
-  success_rate: number
-  cache_hit_rate: number
+  success_rate: number | null
+  cache_hit_rate: number | null
   p95_duration_ms: number | null
 }
 
 export interface StatsDelta {
-  current: number
-  previous: number
+  current: number | null
+  previous: number | null
   change_pct: number | null
 }
 
@@ -127,24 +136,25 @@ export interface StatsEvent {
   run_id: string | null
   agent_id: string | null
   team_id: string | null
-  origin: string
-  usage_type: string
-  task_type: string
-  provider_id: string
-  model_id: string
+  origin: string | null
+  usage_type: string | null
+  task_type: string | null
+  provider_id: string | null
+  model_id: string | null
   started_at: string
   finished_at: string
-  status: string
+  status: string | null
   finish_reason: string | null
   error_code: string | null
-  retry_count: number
-  duration_ms: number
+  duration_ms: number | null
   prompt_tokens: number
   completion_tokens: number
   reasoning_tokens: number
   total_tokens: number
   cache_hit_tokens: number
   cache_miss_tokens: number
+  reasoning_details_reported: boolean
+  cache_details_reported: boolean
   legacy: boolean
 }
 
@@ -176,7 +186,7 @@ async function statsRequest<T>(path: string, signal?: AbortSignal): Promise<T> {
 }
 
 export function getStatsOverview(query: StatsQuery, signal?: AbortSignal): Promise<StatsOverview> {
-  return statsRequest(`/stats/v2/overview?${toSearchParams(query)}`, signal)
+  return statsRequest(`/stats/overview?${toSearchParams(query)}`, signal)
 }
 
 export function getStatsBreakdown(
@@ -186,11 +196,11 @@ export function getStatsBreakdown(
 ): Promise<StatsBreakdown> {
   const params = toSearchParams(query)
   params.set('dimension', dimension)
-  return statsRequest(`/stats/v2/breakdowns?${params}`, signal)
+  return statsRequest(`/stats/breakdowns?${params}`, signal)
 }
 
 export function getStatsFilters(query: StatsQuery, signal?: AbortSignal): Promise<StatsFilters> {
-  return statsRequest(`/stats/v2/filters?${toSearchParams(query)}`, signal)
+  return statsRequest(`/stats/filters?${toSearchParams(query)}`, signal)
 }
 
 export function getStatsActivity(
@@ -200,7 +210,7 @@ export function getStatsActivity(
 ): Promise<StatsActivity> {
   const params = toSearchParams(query)
   params.set('days', String(days))
-  return statsRequest(`/stats/v2/activity?${params}`, signal)
+  return statsRequest(`/stats/activity?${params}`, signal)
 }
 
 export function getStatsEvents(
@@ -212,5 +222,5 @@ export function getStatsEvents(
   const params = toSearchParams(query)
   params.set('limit', String(limit))
   if (cursor) params.set('cursor', cursor)
-  return statsRequest(`/stats/v2/events?${params}`, signal)
+  return statsRequest(`/stats/events?${params}`, signal)
 }

@@ -10,31 +10,33 @@ import (
 // LLMCallMetric is one completed LLM request. Empty correlation fields are
 // stored without inventing identifiers, so coverage remains explicit.
 type LLMCallMetric struct {
-	CallID           string
-	RequestID        string
-	SessionID        string
-	RunID            string
-	AgentID          string
-	TeamID           string
-	Origin           string
-	UsageType        string
-	TaskType         string
-	ProviderID       string
-	ModelID          string
-	StartedAt        time.Time
-	FinishedAt       time.Time
-	Status           string
-	FinishReason     string
-	ErrorCode        string
-	RetryCount       int
-	DurationMS       int64
-	PromptTokens     int
-	CompletionTokens int
-	ReasoningTokens  int
-	TotalTokens      int
-	CacheHitTokens   int
-	CacheMissTokens  int
-	Legacy           bool
+	CallID                   string
+	RequestID                string
+	SessionID                string
+	RunID                    string
+	AgentID                  string
+	TeamID                   string
+	Origin                   string
+	UsageType                string
+	TaskType                 string
+	ProviderID               string
+	ModelID                  string
+	StartedAt                time.Time
+	FinishedAt               time.Time
+	Status                   string
+	FinishReason             string
+	ErrorCode                string
+	RetryCount               int
+	DurationMS               int64
+	PromptTokens             int
+	CompletionTokens         int
+	ReasoningTokens          int
+	TotalTokens              int
+	CacheHitTokens           int
+	CacheMissTokens          int
+	ReasoningDetailsReported bool
+	CacheDetailsReported     bool
+	Legacy                   bool
 }
 
 // RouteDecisionMetric is one task-routing decision.
@@ -63,12 +65,13 @@ func (db *DB) InsertLLMCallMetric(ctx context.Context, metric LLMCallMetric) err
 			origin, usage_type, task_type, provider_id, model_id,
 			started_at, finished_at, status, finish_reason, error_code,
 			retry_count, duration_ms, prompt_tokens, completion_tokens,
-			reasoning_tokens, total_tokens, cache_hit_tokens, cache_miss_tokens
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			reasoning_tokens, total_tokens, cache_hit_tokens, cache_miss_tokens,
+			reasoning_details_reported, cache_details_reported
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		metric.CallID, metric.RequestID, metric.SessionID, metric.RunID,
-		metric.AgentID, metric.TeamID, valueOrUnknown(metric.Origin),
-		valueOrUnknown(metric.UsageType), valueOrUnknown(metric.TaskType),
+		metric.AgentID, metric.TeamID, metric.Origin,
+		metric.UsageType, metric.TaskType,
 		metric.ProviderID, metric.ModelID,
 		metric.StartedAt.UTC().Format(time.RFC3339Nano),
 		metric.FinishedAt.UTC().Format(time.RFC3339Nano),
@@ -76,6 +79,7 @@ func (db *DB) InsertLLMCallMetric(ctx context.Context, metric LLMCallMetric) err
 		metric.RetryCount, metric.DurationMS, metric.PromptTokens,
 		metric.CompletionTokens, metric.ReasoningTokens, metric.TotalTokens,
 		metric.CacheHitTokens, metric.CacheMissTokens,
+		metric.ReasoningDetailsReported, metric.CacheDetailsReported,
 	)
 	if err != nil {
 		return fmt.Errorf("insert llm call metric: %w", err)
@@ -102,7 +106,7 @@ func (db *DB) InsertRouteDecisionMetric(ctx context.Context, metric RouteDecisio
 	return nil
 }
 
-// ListLLMCallMetrics returns v2 and legacy events in descending completion order.
+// ListLLMCallMetrics returns current and legacy events in descending completion order.
 func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLMCallMetric, error) {
 	rows, err := db.QueryContext(ctx, `
 		WITH events AS (
@@ -112,6 +116,7 @@ func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLM
 				started_at, finished_at, status, finish_reason, error_code,
 				retry_count, duration_ms, prompt_tokens, completion_tokens,
 				reasoning_tokens, total_tokens, cache_hit_tokens, cache_miss_tokens,
+				reasoning_details_reported, cache_details_reported,
 				0 AS legacy, unixepoch(finished_at) AS finished_epoch
 			FROM llm_call_metrics
 			UNION ALL
@@ -121,6 +126,7 @@ func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLM
 				timestamp, timestamp, 'unknown', '', '',
 				0, 0, prompt_tokens, completion_tokens,
 				0, total_tokens, cache_hit_tokens, cache_miss_tokens,
+				0, CASE WHEN cache_hit_tokens + cache_miss_tokens > 0 THEN 1 ELSE 0 END,
 				1, unixepoch(timestamp)
 			FROM usage_metrics
 			WHERE metric_category = ?
@@ -131,6 +137,7 @@ func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLM
 			started_at, finished_at, status, finish_reason, error_code,
 			retry_count, duration_ms, prompt_tokens, completion_tokens,
 			reasoning_tokens, total_tokens, cache_hit_tokens, cache_miss_tokens,
+			reasoning_details_reported, cache_details_reported,
 			legacy
 		FROM events
 		WHERE finished_epoch >= ? AND finished_epoch < ?
@@ -154,6 +161,7 @@ func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLM
 			&metric.ErrorCode, &metric.RetryCount, &metric.DurationMS,
 			&metric.PromptTokens, &metric.CompletionTokens, &metric.ReasoningTokens,
 			&metric.TotalTokens, &metric.CacheHitTokens, &metric.CacheMissTokens,
+			&metric.ReasoningDetailsReported, &metric.CacheDetailsReported,
 			&legacy,
 		); err != nil {
 			return nil, fmt.Errorf("scan llm call metric: %w", err)
@@ -178,13 +186,6 @@ func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLM
 	return metrics, nil
 }
 
-func valueOrUnknown(value string) string {
-	if value == "" {
-		return "unknown"
-	}
-	return value
-}
-
 func splitLegacyModel(value string) (string, string) {
 	provider, model, found := strings.Cut(value, "/")
 	if !found {
@@ -198,4 +199,11 @@ func parseMetricTime(value string) (time.Time, error) {
 		return parsed.UTC(), nil
 	}
 	return time.ParseInLocation("2006-01-02 15:04:05", value, time.UTC)
+}
+
+func valueOrUnknown(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }

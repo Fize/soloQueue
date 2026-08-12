@@ -2,38 +2,30 @@
 // for capturing token usage statistics to the shared database.
 package telemetry
 
-import "context"
+import (
+	"context"
 
-type telemetryContextKey string
-
-const (
-	teamIDKey    telemetryContextKey = "team_id"
-	usageTypeKey telemetryContextKey = "usage_type"
-	metadataKey  telemetryContextKey = "metadata"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 )
 
-// Standard Usage Types
-const (
-	UsageChat       = "chat"
-	UsageRouter     = "router"
-	UsageCompactor  = "compactor"
-	UsageMemory     = "memory"
-	UsageSimulation = "simulation"
-)
+type Metadata = telemetryctx.Metadata
 
 const (
-	OriginDesktop    = "desktop"
-	OriginPortal     = "portal"
-	OriginAPI        = "api"
-	OriginQQ         = "qq"
-	OriginWechat     = "wechat"
-	OriginCron       = "cron"
-	OriginWorkflow   = "workflow"
-	OriginSimulation = "simulation"
-	OriginUnknown    = "unknown"
-)
+	UsageChat       = telemetryctx.UsageChat
+	UsageRouter     = telemetryctx.UsageRouter
+	UsageCompactor  = telemetryctx.UsageCompactor
+	UsageMemory     = telemetryctx.UsageMemory
+	UsageSimulation = telemetryctx.UsageSimulation
 
-const (
+	OriginDesktop    = telemetryctx.OriginDesktop
+	OriginAPI        = telemetryctx.OriginAPI
+	OriginQQ         = telemetryctx.OriginQQ
+	OriginWechat     = telemetryctx.OriginWechat
+	OriginCron       = telemetryctx.OriginCron
+	OriginWorkflow   = telemetryctx.OriginWorkflow
+	OriginSimulation = telemetryctx.OriginSimulation
+	OriginSystem     = telemetryctx.OriginSystem
+
 	StatusSuccess   = "success"
 	StatusError     = "error"
 	StatusCancelled = "cancelled"
@@ -41,75 +33,19 @@ const (
 	StatusUnknown   = "unknown"
 )
 
-// Metadata carries optional correlation and classification dimensions for one
-// LLM call. Missing values are stored as unknown or left empty by design.
-type Metadata struct {
-	RequestID string
-	SessionID string
-	RunID     string
-	AgentID   string
-	TeamID    string
-	Origin    string
-	UsageType string
-	TaskType  string
+func WithTelemetryContext(ctx context.Context, teamID, usageType string) context.Context {
+	return telemetryctx.WithContext(ctx, teamID, usageType)
 }
 
-// WithTelemetryContext injects team and usage type into the context for telemetry tracking.
-func WithTelemetryContext(ctx context.Context, teamID string, usageType string) context.Context {
-	ctx = context.WithValue(ctx, teamIDKey, teamID)
-	ctx = context.WithValue(ctx, usageTypeKey, usageType)
-	metadata := MetadataFromContext(ctx)
-	metadata.TeamID = teamID
-	metadata.UsageType = usageType
-	ctx = context.WithValue(ctx, metadataKey, metadata)
-	return ctx
-}
-
-// WithTelemetryMetadata adds correlation fields while preserving team and
-// usage values already attached by WithTelemetryContext.
 func WithTelemetryMetadata(ctx context.Context, metadata Metadata) context.Context {
-	current := MetadataFromContext(ctx)
-	if metadata.RequestID != "" {
-		current.RequestID = metadata.RequestID
-	}
-	if metadata.SessionID != "" {
-		current.SessionID = metadata.SessionID
-	}
-	if metadata.RunID != "" {
-		current.RunID = metadata.RunID
-	}
-	if metadata.AgentID != "" {
-		current.AgentID = metadata.AgentID
-	}
-	if metadata.TeamID != "" {
-		current.TeamID = metadata.TeamID
-	}
-	if metadata.Origin != "" {
-		current.Origin = metadata.Origin
-	}
-	if metadata.UsageType != "" {
-		current.UsageType = metadata.UsageType
-	}
-	if metadata.TaskType != "" {
-		current.TaskType = metadata.TaskType
-	}
-	return context.WithValue(ctx, metadataKey, current)
+	return telemetryctx.WithMetadata(ctx, metadata)
 }
 
-// MetadataFromContext returns all available telemetry dimensions.
 func MetadataFromContext(ctx context.Context) Metadata {
-	metadata, _ := ctx.Value(metadataKey).(Metadata)
-	if metadata.TeamID == "" {
-		metadata.TeamID, _ = ctx.Value(teamIDKey).(string)
-	}
-	if metadata.UsageType == "" {
-		metadata.UsageType, _ = ctx.Value(usageTypeKey).(string)
-	}
-	return metadata
+	return telemetryctx.FromContext(ctx)
 }
 
-// TelemetryFromContext extracts team and usage type from the context.
-func TelemetryFromContext(ctx context.Context) (teamID string, usageType string) {
-	metadata := MetadataFromContext(ctx)
+func TelemetryFromContext(ctx context.Context) (teamID, usageType string) {
+	metadata := telemetryctx.FromContext(ctx)
 	return metadata.TeamID, metadata.UsageType
 }

@@ -142,8 +142,8 @@ type wireUsage struct {
 	PromptTokens          int                    `json:"prompt_tokens"`
 	CompletionTokens      int                    `json:"completion_tokens"`
 	TotalTokens           int                    `json:"total_tokens"`
-	PromptCacheHitTokens  int                    `json:"prompt_cache_hit_tokens,omitempty"`
-	PromptCacheMissTokens int                    `json:"prompt_cache_miss_tokens,omitempty"`
+	PromptCacheHitTokens  *int                   `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens *int                   `json:"prompt_cache_miss_tokens,omitempty"`
 	CompletionDetails     *wireCompletionDetails `json:"completion_tokens_details,omitempty"`
 	PromptTokensDetails   *wirePromptDetails     `json:"prompt_tokens_details,omitempty"`
 }
@@ -391,11 +391,17 @@ func chunkToEvents(c wireChunk) []llm.Event {
 }
 
 func wireUsageToLLM(u *wireUsage) llm.Usage {
-	hit := u.PromptCacheHitTokens
+	hit := 0
+	if u.PromptCacheHitTokens != nil {
+		hit = *u.PromptCacheHitTokens
+	}
 	if hit == 0 && u.PromptTokensDetails != nil {
 		hit = u.PromptTokensDetails.CachedTokens
 	}
-	miss := u.PromptCacheMissTokens
+	miss := 0
+	if u.PromptCacheMissTokens != nil {
+		miss = *u.PromptCacheMissTokens
+	}
 	if miss == 0 && hit > 0 && u.PromptTokens > hit {
 		miss = u.PromptTokens - hit
 	}
@@ -405,9 +411,11 @@ func wireUsageToLLM(u *wireUsage) llm.Usage {
 		TotalTokens:           u.TotalTokens,
 		PromptCacheHitTokens:  hit,
 		PromptCacheMissTokens: miss,
+		CacheDetailsReported:  u.PromptCacheHitTokens != nil || u.PromptCacheMissTokens != nil || u.PromptTokensDetails != nil,
 	}
 	if u.CompletionDetails != nil {
 		out.ReasoningTokens = u.CompletionDetails.ReasoningTokens
+		out.ReasoningDetailsReported = true
 	}
 	return out
 }

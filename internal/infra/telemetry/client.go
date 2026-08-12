@@ -90,6 +90,9 @@ func (c *TelemetryClient) logCallAsync(
 	}
 
 	metadata := MetadataFromContext(ctx)
+	if metadata.Origin == "" {
+		metadata.Origin = OriginSystem
+	}
 	finishedAt := time.Now().UTC()
 	status, errorCode := classifyCallError(callErr)
 	metric := db.LLMCallMetric{
@@ -99,9 +102,9 @@ func (c *TelemetryClient) logCallAsync(
 		RunID:        metadata.RunID,
 		AgentID:      metadata.AgentID,
 		TeamID:       metadata.TeamID,
-		Origin:       valueOrUnknown(metadata.Origin),
-		UsageType:    valueOrUnknown(metadata.UsageType),
-		TaskType:     valueOrUnknown(metadata.TaskType),
+		Origin:       metadata.Origin,
+		UsageType:    metadata.UsageType,
+		TaskType:     metadata.TaskType,
 		ProviderID:   req.ProviderID,
 		ModelID:      req.Model,
 		StartedAt:    startedAt,
@@ -121,6 +124,8 @@ func (c *TelemetryClient) logCallAsync(
 		metric.TotalTokens = usage.TotalTokens
 		metric.CacheHitTokens = usage.PromptCacheHitTokens
 		metric.CacheMissTokens = usage.PromptCacheMissTokens
+		metric.ReasoningDetailsReported = usage.ReasoningDetailsReported
+		metric.CacheDetailsReported = usage.CacheDetailsReported
 	}
 
 	bgCtx := context.Background()
@@ -144,11 +149,4 @@ func classifyCallError(err error) (string, string) {
 		return StatusError, fmt.Sprintf("provider_http_%d", apiErr.StatusCode)
 	}
 	return StatusError, "llm_call_failed"
-}
-
-func valueOrUnknown(value string) string {
-	if value == "" {
-		return "unknown"
-	}
-	return value
 }

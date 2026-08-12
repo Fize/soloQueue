@@ -18,6 +18,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 
@@ -399,7 +400,8 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 
 	s.notifyTaskStarted(t)
 
-	cronCtx := s.buildCronContext(t)
+	execID := uuid.New().String()
+	cronCtx := s.buildCronContext(t, execID)
 
 	resolved, ch, err := s.askWithTaskModel(cronCtx, t, l1Session)
 	if err != nil {
@@ -414,7 +416,7 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 		return
 	}
 
-	result, drainErr := s.drainEventsWithTimeline(ch, t, uuid.New().String())
+	result, drainErr := s.drainEventsWithTimeline(ch, t, execID)
 
 	// ── 1-time 10s Retry Logic ──
 	if drainErr != nil {
@@ -440,10 +442,11 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 			retryPrompt = s.buildTaskPrompt(t)
 		}
 
-		retryCtx := s.buildCronContext(t)
+		retryExecID := uuid.New().String() + "-retry"
+		retryCtx := s.buildCronContext(t, retryExecID)
 		_, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
 		if retryStartErr == nil {
-			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, uuid.New().String()+"-retry")
+			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, retryExecID)
 			if retryDrainErr == nil {
 				result = retryResult
 				drainErr = nil
@@ -534,7 +537,8 @@ func (s *Scheduler) executeL2Task(t Task) {
 
 	s.notifyTaskStarted(t)
 
-	cronCtx := s.buildCronContext(t)
+	execID := uuid.New().String()
+	cronCtx := s.buildCronContext(t, execID)
 	resolved, ch, err := s.askWithTaskModel(cronCtx, t, l2Session)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L2 task execution failed to start", "task_id", t.ID, "err", err)
@@ -548,7 +552,7 @@ func (s *Scheduler) executeL2Task(t Task) {
 		return
 	}
 
-	result, drainErr := s.drainEventsWithTimeline(ch, t, uuid.New().String())
+	result, drainErr := s.drainEventsWithTimeline(ch, t, execID)
 
 	// ── 1-time 10s Retry Logic ──
 	if drainErr != nil {
@@ -580,10 +584,11 @@ func (s *Scheduler) executeL2Task(t Task) {
 			retryPrompt = s.buildTaskPrompt(t)
 		}
 
-		retryCtx := s.buildCronContext(t)
+		retryExecID := uuid.New().String() + "-retry"
+		retryCtx := s.buildCronContext(t, retryExecID)
 		_, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
 		if retryStartErr == nil {
-			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, uuid.New().String()+"-retry")
+			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, retryExecID)
 			if retryDrainErr == nil {
 				result = retryResult
 				drainErr = nil
@@ -718,9 +723,13 @@ func (s *Scheduler) buildTaskPrompt(t Task) string {
 }
 
 // buildCronContext creates a context with bypass-confirm flag.
-func (s *Scheduler) buildCronContext(t Task) context.Context {
+func (s *Scheduler) buildCronContext(t Task, runID string) context.Context {
 	cronCtx := iface.ContextWithBypassConfirm(context.Background())
-	return cronCtx
+	return telemetryctx.WithMetadata(cronCtx, telemetryctx.Metadata{
+		RunID:    runID,
+		Origin:   telemetryctx.OriginCron,
+		TaskType: t.TaskType,
+	})
 }
 
 // drainEvents drains an AgentEvent channel, collecting reply text and SendFile media.

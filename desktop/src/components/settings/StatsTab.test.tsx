@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { StatsTab } from './StatsTab'
@@ -50,8 +50,12 @@ const meta = {
   coverage: {
     total_rows: 42,
     legacy_rows: 10,
-    cache_coverage_pct: 80,
-    reasoning_coverage_pct: 76,
+    origin: { known_rows: 32, applicable_rows: 32 },
+    task_type: { known_rows: 32, applicable_rows: 32 },
+    status: { known_rows: 32, applicable_rows: 32 },
+    latency: { known_rows: 32, applicable_rows: 32 },
+    cache_detail: { known_rows: 32, applicable_rows: 32 },
+    reasoning_detail: { known_rows: 24, applicable_rows: 32 },
   },
 }
 
@@ -112,5 +116,49 @@ describe('StatsTab', () => {
     expect(new Date(query.to).getTime() - new Date(query.from).getTime()).toBeGreaterThan(
       29 * 24 * 60 * 60 * 1000
     )
+  })
+
+  it('hides inapplicable reliability panels for legacy-only data', async () => {
+    api.getStatsOverview.mockResolvedValueOnce({
+      meta: {
+        ...meta,
+        coverage: {
+          total_rows: 42,
+          legacy_rows: 42,
+          origin: { known_rows: 0, applicable_rows: 0 },
+          task_type: { known_rows: 0, applicable_rows: 0 },
+          status: { known_rows: 0, applicable_rows: 0 },
+          latency: { known_rows: 0, applicable_rows: 0 },
+          cache_detail: { known_rows: 0, applicable_rows: 0 },
+          reasoning_detail: { known_rows: 0, applicable_rows: 0 },
+        },
+      },
+      summary: { ...metrics, success_rate: null, cache_hit_rate: null, p95_duration_ms: null },
+      comparison: {},
+      series: [],
+      insights: [],
+    })
+
+    render(<StatsTab />)
+
+    expect(await screen.findByText(/Historical records include tokens/)).toBeInTheDocument()
+    expect(screen.getAllByTestId('stats-kpi')).toHaveLength(2)
+    expect(screen.queryByText('Success Rate')).not.toBeInTheDocument()
+    expect(screen.queryByText('P95 Latency')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cache Hit Ratio')).not.toBeInTheDocument()
+  })
+
+  it('advances the rolling query window when refreshed', async () => {
+    render(<StatsTab />)
+
+    await waitFor(() => expect(api.getStatsOverview).toHaveBeenCalledTimes(1))
+    const firstTo = new Date(api.getStatsOverview.mock.calls[0][0].to).getTime()
+    const now = vi.spyOn(Date, 'now').mockReturnValue(firstTo + 60_000)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    await waitFor(() => expect(api.getStatsOverview).toHaveBeenCalledTimes(2))
+    expect(new Date(api.getStatsOverview.mock.calls[1][0].to).getTime()).toBe(firstTo + 60_000)
+    now.mockRestore()
   })
 })

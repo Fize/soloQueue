@@ -461,12 +461,13 @@ func TestChunkToEvents_MultipleToolCallsInOneDelta(t *testing.T) {
 // --- wireUsageToLLM ----------------------------------------------------------
 
 func TestWireUsageToLLM(t *testing.T) {
+	hit, miss := 3, 7
 	wu := &wireUsage{
 		PromptTokens:          10,
 		CompletionTokens:      20,
 		TotalTokens:           30,
-		PromptCacheHitTokens:  3,
-		PromptCacheMissTokens: 7,
+		PromptCacheHitTokens:  &hit,
+		PromptCacheMissTokens: &miss,
 		CompletionDetails:     &wireCompletionDetails{ReasoningTokens: 5},
 	}
 	got := wireUsageToLLM(wu)
@@ -476,7 +477,7 @@ func TestWireUsageToLLM(t *testing.T) {
 	if got.PromptCacheHitTokens != 3 || got.PromptCacheMissTokens != 7 {
 		t.Errorf("cache tokens wrong: %+v", got)
 	}
-	if got.ReasoningTokens != 5 {
+	if got.ReasoningTokens != 5 || !got.ReasoningDetailsReported || !got.CacheDetailsReported {
 		t.Errorf("ReasoningTokens = %d", got.ReasoningTokens)
 	}
 }
@@ -486,6 +487,9 @@ func TestWireUsageToLLM_NilCompletionDetails(t *testing.T) {
 	got := wireUsageToLLM(wu)
 	if got.ReasoningTokens != 0 {
 		t.Errorf("ReasoningTokens should be 0")
+	}
+	if got.ReasoningDetailsReported || got.CacheDetailsReported {
+		t.Errorf("unreported details = %+v", got)
 	}
 }
 

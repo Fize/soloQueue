@@ -83,8 +83,8 @@ function initialRange(): RangeKey {
   return value === '24h' || value === '7d' || value === 'custom' ? value : '30d'
 }
 
-function rangeToQuery(range: RangeKey, customFrom: string, customTo: string) {
-  const now = new Date()
+function rangeToQuery(range: RangeKey, customFrom: string, customTo: string, nowMs: number) {
+  const now = new Date(nowMs)
   if (range === 'custom' && customFrom && customTo) {
     return { from: new Date(customFrom).toISOString(), to: new Date(customTo).toISOString() }
   }
@@ -104,8 +104,13 @@ function formatDuration(value: number | null): string {
   return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} s`
 }
 
-function formatPercent(value: number): string {
+function formatPercent(value: number | null): string {
+  if (value === null) return 'N/A'
   return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`
+}
+
+function coveragePercent(known: number, applicable: number): number {
+  return applicable === 0 ? 0 : (known / applicable) * 100
 }
 
 function formatDelta(value: number | null | undefined): string {
@@ -225,40 +230,43 @@ function EventTable({ events }: { events: StatsEvent[] }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-border/70">
-          {events.map((event) => (
-            <tr key={event.call_id} className="hover:bg-muted/30">
-              <td className="whitespace-nowrap px-3 py-2.5 font-mono text-muted-foreground">
-                {new Date(event.finished_at).toLocaleString()}
-              </td>
-              <td className="max-w-[220px] truncate px-3 py-2.5 text-foreground">
-                {event.provider_id ? `${event.provider_id}/` : ''}
-                {event.model_id || 'Unknown'}
-              </td>
-              <td className="px-3 py-2.5 text-muted-foreground">
-                {event.origin} · {event.usage_type} · {event.task_type}
-              </td>
-              <td className="px-3 py-2.5">
-                <span
-                  className={cn(
-                    'inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium',
-                    event.status === 'success'
-                      ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
-                      : event.status === 'unknown'
-                        ? 'border-border bg-muted text-muted-foreground'
-                        : 'border-destructive/20 bg-destructive/10 text-destructive'
-                  )}
-                >
-                  {event.legacy ? 'Legacy' : event.status}
-                </span>
-              </td>
-              <td className="px-3 py-2.5 text-right font-mono tabular-nums">
-                {event.total_tokens.toLocaleString()}
-              </td>
-              <td className="px-3 py-2.5 text-right font-mono text-muted-foreground tabular-nums">
-                {event.legacy ? 'N/A' : formatDuration(event.duration_ms)}
-              </td>
-            </tr>
-          ))}
+          {events.map((event) => {
+            const context = [event.origin, event.usage_type, event.task_type].filter(Boolean)
+            return (
+              <tr key={event.call_id} className="hover:bg-muted/30">
+                <td className="whitespace-nowrap px-3 py-2.5 font-mono text-muted-foreground">
+                  {new Date(event.finished_at).toLocaleString()}
+                </td>
+                <td className="max-w-[220px] truncate px-3 py-2.5 text-foreground">
+                  {event.provider_id ? `${event.provider_id}/` : ''}
+                  {event.model_id || 'Unknown'}
+                </td>
+                <td className="px-3 py-2.5 text-muted-foreground">
+                  {context.length > 0 ? context.join(' · ') : 'Legacy record'}
+                </td>
+                <td className="px-3 py-2.5">
+                  <span
+                    className={cn(
+                      'inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                      event.status === 'success'
+                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
+                        : event.status === null
+                          ? 'border-border bg-muted text-muted-foreground'
+                          : 'border-destructive/20 bg-destructive/10 text-destructive'
+                    )}
+                  >
+                    {event.legacy ? 'Legacy' : event.status || 'Unavailable'}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums">
+                  {event.total_tokens.toLocaleString()}
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono text-muted-foreground tabular-nums">
+                  {formatDuration(event.duration_ms)}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -285,12 +293,12 @@ export function StatsTab() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [partialError, setPartialError] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
+  const [refreshAt, setRefreshAt] = useState(() => Date.now())
 
   const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', [])
   const rangeValues = useMemo(
-    () => rangeToQuery(range, customFrom, customTo),
-    [range, customFrom, customTo]
+    () => rangeToQuery(range, customFrom, customTo, refreshAt),
+    [range, customFrom, customTo, refreshAt]
   )
   const query = useMemo<StatsQuery>(
     () => ({
@@ -306,7 +314,7 @@ export function StatsTab() {
     [rangeValues, timezone, filters]
   )
 
-  const refresh = useCallback(() => setRefreshKey((value) => value + 1), [])
+  const refresh = useCallback(() => setRefreshAt(Date.now()), [])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -381,7 +389,7 @@ export function StatsTab() {
       active = false
       controller.abort()
     }
-  }, [query, refreshKey, t])
+  }, [query, t])
 
   useEffect(() => {
     const timer = window.setInterval(refresh, 60_000)
@@ -406,6 +414,21 @@ export function StatsTab() {
   const clearFilters = () => setFilters(EMPTY_FILTERS)
   const hasFilters = Object.values(filters).some(Boolean)
   const summary = overview?.summary
+  const coverage = overview?.meta.coverage
+  const allLegacy = Boolean(
+    coverage && coverage.total_rows > 0 && coverage.legacy_rows === coverage.total_rows
+  )
+  const hasReliability = Boolean(coverage && coverage.status.known_rows > 0)
+  const hasLatency = Boolean(coverage && coverage.latency.known_rows > 0)
+  const hasCacheDetail = Boolean(coverage && coverage.cache_detail.known_rows > 0)
+  const hasTaskTypes = Boolean(coverage && coverage.task_type.known_rows > 0)
+  const hasOrigins = Boolean(coverage && coverage.origin.known_rows > 0)
+  const trendMetrics: TrendMetric[] = [
+    'tokens',
+    'calls',
+    ...(hasReliability ? (['errors'] as TrendMetric[]) : []),
+    ...(hasLatency ? (['latency'] as TrendMetric[]) : []),
+  ]
   const chartData =
     overview?.series.map((point) => ({
       period: chartLabel(point.start, overview.meta.bucket_size, overview.meta.timezone),
@@ -561,6 +584,11 @@ export function StatsTab() {
           <AlertTriangle className="h-3.5 w-3.5" /> {t('stats.partialData')}
         </div>
       )}
+      {allLegacy && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
+          {t('stats.legacyOnly')}
+        </div>
+      )}
 
       {loading && !overview ? (
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
@@ -605,29 +633,31 @@ export function StatsTab() {
               hint={t('stats.vsPrevious')}
               icon={<Activity className="h-4 w-4" />}
             />
-            <KpiCard
-              label={t('stats.successRate')}
-              value={
-                overview.meta.coverage.legacy_rows === overview.meta.coverage.total_rows
-                  ? 'N/A'
-                  : formatPercent(summary.success_rate)
-              }
-              hint={t('stats.knownCallsOnly')}
-              icon={<CheckCircle2 className="h-4 w-4" />}
-            />
-            <KpiCard
-              label={t('stats.p95Latency')}
-              value={formatDuration(summary.p95_duration_ms)}
-              delta={overview.comparison.p95_duration_ms?.change_pct}
-              hint={t('stats.lowerIsBetter')}
-              icon={<Clock3 className="h-4 w-4" />}
-            />
-            <KpiCard
-              label={t('stats.cacheHits')}
-              value={formatPercent(summary.cache_hit_rate)}
-              hint={`${overview.meta.coverage.cache_coverage_pct.toFixed(0)}% ${t('stats.coverage')}`}
-              icon={<Gauge className="h-4 w-4" />}
-            />
+            {hasReliability && (
+              <KpiCard
+                label={t('stats.successRate')}
+                value={formatPercent(summary.success_rate)}
+                hint={t('stats.knownCallsOnly')}
+                icon={<CheckCircle2 className="h-4 w-4" />}
+              />
+            )}
+            {hasLatency && (
+              <KpiCard
+                label={t('stats.p95Latency')}
+                value={formatDuration(summary.p95_duration_ms)}
+                delta={overview.comparison.p95_duration_ms?.change_pct}
+                hint={t('stats.lowerIsBetter')}
+                icon={<Clock3 className="h-4 w-4" />}
+              />
+            )}
+            {hasCacheDetail && (
+              <KpiCard
+                label={t('stats.cacheHits')}
+                value={formatPercent(summary.cache_hit_rate)}
+                hint={`${coveragePercent(overview.meta.coverage.cache_detail.known_rows, overview.meta.coverage.cache_detail.applicable_rows).toFixed(0)}% ${t('stats.coverage')}`}
+                icon={<Gauge className="h-4 w-4" />}
+              />
+            )}
           </div>
 
           {overview.insights.length > 0 && (
@@ -659,7 +689,7 @@ export function StatsTab() {
                 <p className="mt-0.5 text-xs text-muted-foreground">{t('stats.trendDesc')}</p>
               </div>
               <div className="flex rounded-lg bg-muted/50 p-1">
-                {(['tokens', 'calls', 'errors', 'latency'] as TrendMetric[]).map((metric) => (
+                {trendMetrics.map((metric) => (
                   <button
                     key={metric}
                     type="button"
@@ -726,32 +756,55 @@ export function StatsTab() {
           <div className="grid gap-4 xl:grid-cols-3">
             <BreakdownList title={t('stats.topModels')} data={breakdowns.model} />
             <BreakdownList title={t('stats.usageTypes')} data={breakdowns.usage_type} />
-            <BreakdownList title={t('stats.taskTypes')} data={breakdowns.task_type} />
-            <BreakdownList title={t('stats.origins')} data={breakdowns.origin} />
-            <BreakdownList title={t('stats.reliability')} data={breakdowns.status} />
-            <GlassCard variant="flat" className="p-4">
-              <h3 className="text-sm font-semibold text-foreground">{t('stats.dataCoverage')}</h3>
-              <div className="mt-4 space-y-3 text-xs">
-                {[
-                  [t('stats.cache'), overview.meta.coverage.cache_coverage_pct],
-                  [t('stats.reasoning'), overview.meta.coverage.reasoning_coverage_pct],
-                ].map(([label, value]) => (
-                  <div key={String(label)}>
-                    <div className="mb-1 flex justify-between">
-                      <span className="text-muted-foreground">{label}</span>
-                      <span className="font-mono text-foreground">{Number(value).toFixed(0)}%</span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary/70"
-                        style={{ width: `${value}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </GlassCard>
+            {hasTaskTypes && (
+              <BreakdownList title={t('stats.taskTypes')} data={breakdowns.task_type} />
+            )}
+            {hasOrigins && <BreakdownList title={t('stats.origins')} data={breakdowns.origin} />}
+            {hasReliability && (
+              <BreakdownList title={t('stats.reliability')} data={breakdowns.status} />
+            )}
           </div>
+
+          {!allLegacy && (
+            <details className="rounded-xl border border-border bg-card">
+              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-foreground">
+                {t('stats.dataCoverage')}
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  {t('stats.coverageDesc')}
+                </span>
+              </summary>
+              <div className="grid gap-3 border-t border-border p-4 sm:grid-cols-2 xl:grid-cols-3">
+                {[
+                  [t('stats.origins'), overview.meta.coverage.origin],
+                  [t('stats.taskTypes'), overview.meta.coverage.task_type],
+                  [t('stats.reliability'), overview.meta.coverage.status],
+                  [t('stats.p95Latency'), overview.meta.coverage.latency],
+                  [t('stats.cache'), overview.meta.coverage.cache_detail],
+                  [t('stats.reasoning'), overview.meta.coverage.reasoning_detail],
+                ].map(([label, value]) => {
+                  const item = value as { known_rows: number; applicable_rows: number }
+                  const percent = coveragePercent(item.known_rows, item.applicable_rows)
+                  return (
+                    <div key={String(label)} className="rounded-lg bg-muted/30 p-3 text-xs">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground">{String(label)}</span>
+                        <span className="font-mono text-foreground">
+                          {item.known_rows.toLocaleString()} /{' '}
+                          {item.applicable_rows.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1.5 rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary/70"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </details>
+          )}
 
           <details className="rounded-xl border border-border bg-card" open={false}>
             <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-foreground">
@@ -765,8 +818,8 @@ export function StatsTab() {
             </div>
           </details>
 
-          <GlassCard variant="flat" size="none" className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <details className="overflow-hidden rounded-xl border border-border bg-card">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3">
               <div>
                 <h3 className="text-sm font-semibold text-foreground">{t('stats.recentCalls')}</h3>
                 <p className="mt-0.5 text-xs text-muted-foreground">{t('stats.recentCallsDesc')}</p>
@@ -774,26 +827,28 @@ export function StatsTab() {
               <span className="text-[10px] text-muted-foreground">
                 {events.length} {t('stats.loaded')}
               </span>
+            </summary>
+            <div className="border-t border-border">
+              {events.length > 0 ? (
+                <EventTable events={events} />
+              ) : (
+                <p className="py-10 text-center text-xs text-muted-foreground">
+                  {t('stats.noEvents')}
+                </p>
+              )}
+              {nextCursor && (
+                <div className="border-t border-border p-3 text-center">
+                  <button
+                    type="button"
+                    onClick={loadMore}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                  >
+                    {t('stats.loadMore')}
+                  </button>
+                </div>
+              )}
             </div>
-            {events.length > 0 ? (
-              <EventTable events={events} />
-            ) : (
-              <p className="py-10 text-center text-xs text-muted-foreground">
-                {t('stats.noEvents')}
-              </p>
-            )}
-            {nextCursor && (
-              <div className="border-t border-border p-3 text-center">
-                <button
-                  type="button"
-                  onClick={loadMore}
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
-                >
-                  {t('stats.loadMore')}
-                </button>
-              </div>
-            )}
-          </GlassCard>
+          </details>
         </>
       ) : null}
     </div>

@@ -8,7 +8,7 @@ vi.mock('./core', () => ({ request: vi.fn() }))
 describe('stats api', () => {
   beforeEach(() => vi.mocked(request).mockReset())
 
-  it('unwraps the v2 envelope and preserves RFC3339 filters', async () => {
+  it('unwraps the statistics envelope and preserves RFC3339 filters', async () => {
     vi.mocked(request).mockResolvedValueOnce({
       data: { summary: { total_tokens: 10 } },
       error: null,
@@ -21,7 +21,7 @@ describe('stats api', () => {
     })
 
     expect(result.summary.total_tokens).toBe(10)
-    expect(request).toHaveBeenCalledWith(expect.stringContaining('/stats/v2/overview?'), {
+    expect(request).toHaveBeenCalledWith(expect.stringContaining('/stats/overview?'), {
       signal: undefined,
     })
     const path = vi.mocked(request).mock.calls[0][0]

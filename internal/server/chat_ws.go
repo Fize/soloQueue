@@ -14,6 +14,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -301,6 +302,11 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	// WebSocket connection. A disconnected client merely loses its forwarder.
 	reqCtx, reqCancel := context.WithCancel(context.Background())
 	reqCtx = session.WithRejectBusyQueue(reqCtx)
+	reqCtx = telemetry.WithTelemetryMetadata(reqCtx, telemetry.Metadata{
+		RequestID: msg.RequestID,
+		SessionID: sessionID,
+		Origin:    telemetry.OriginDesktop,
+	})
 	if len(images) > 0 {
 		reqCtx = context.WithValue(reqCtx, ctxwin.ImageContextKey, images)
 	}

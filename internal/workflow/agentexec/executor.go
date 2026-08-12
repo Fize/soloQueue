@@ -12,6 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/workflow"
 )
 
@@ -97,6 +98,11 @@ func NewExecutor(factory agent.AgentFactory, registry *agent.Registry, log *logg
 // The temporary agent is always stopped and unregistered, regardless
 // of success, failure, or cancellation.
 func (e *Executor) Execute(ctx context.Context, req workflow.NodeRunRequest) (workflow.NodeRunResult, error) {
+	ctx = telemetry.WithTelemetryMetadata(ctx, telemetry.Metadata{
+		RunID:   req.RunID,
+		AgentID: req.NodeRun.ID,
+		Origin:  telemetry.OriginWorkflow,
+	})
 	resolver, ok := e.factory.(templateResolver)
 	if !ok {
 		return workflow.NodeRunResult{}, fmt.Errorf("agentexec: factory cannot resolve agent templates")

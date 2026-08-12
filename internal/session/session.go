@@ -500,6 +500,20 @@ func (s *Session) CW() *ctxwin.ContextWindow {
 	return s.cw
 }
 
+func (s *Session) withSessionTelemetry(ctx context.Context) context.Context {
+	metadata := telemetry.MetadataFromContext(ctx)
+	if metadata.Origin == "" {
+		metadata.Origin = telemetry.OriginSystem
+	}
+	if metadata.SessionID == "" {
+		metadata.SessionID = s.TargetID
+	}
+	if metadata.AgentID == "" && s.Agent != nil {
+		metadata.AgentID = s.Agent.InstanceID
+	}
+	return telemetry.WithTelemetryMetadata(ctx, metadata)
+}
+
 // AskIsolated executes a prompt in a clean context: it calls the underlying
 // agent directly without pushing to the session's ContextWindow or timeline.
 // This is used by the cron scheduler so scheduled tasks run without polluting
@@ -508,6 +522,7 @@ func (s *Session) CW() *ctxwin.ContextWindow {
 func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
 	// Inject telemetry context
 	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
+	ctx = s.withSessionTelemetry(ctx)
 
 	if s.closed.Load() {
 		return nil, ErrSessionClosed
@@ -1057,6 +1072,7 @@ func (s *Session) checkAutoClear() {
 func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	// Inject telemetry context
 	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
+	ctx = s.withSessionTelemetry(ctx)
 
 	if s.closed.Load() {
 		s.logger.DebugContext(ctx, logger.CatApp, "ask rejected: session closed")
@@ -1158,6 +1174,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 
 	// Inject telemetry context
 	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
+	ctx = s.withSessionTelemetry(ctx)
 
 	// ── Pre-inFlight slash command intercept (always immediate, never queued) ──
 	switch lowerTrimmed {
@@ -1378,6 +1395,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			if result.ContextWindow > 0 {
 				effectiveCW = result.ContextWindow
 			}
+			askCtx = telemetry.WithTelemetryMetadata(askCtx, telemetry.Metadata{TaskType: result.Level})
+			ctx = askCtx
 		}
 	}
 
