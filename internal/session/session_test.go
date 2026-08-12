@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -755,7 +756,7 @@ func TestSession_AskStream_CancelAfterToolCall_NoDuplicateTimeline(t *testing.T)
 	// Turn 0: content + tool_call (postIteration → pushHook → timeline).
 	// Turn 1: delayed content — cancellation lands here, after content was
 	// already persisted, reproducing the production duplicate-row bug.
-	var llmCalls int
+	var llmCalls atomic.Int32
 	fake := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"first", ""}, {"second"}},
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
@@ -767,7 +768,7 @@ func TestSession_AskStream_CancelAfterToolCall_NoDuplicateTimeline(t *testing.T)
 		FinishByTurn: []llm.FinishReason{llm.FinishToolCalls, llm.FinishStop},
 		Delay:        300 * time.Millisecond,
 		Hook: func(agent.LLMRequest) {
-			llmCalls++
+			llmCalls.Add(1)
 		},
 	}
 	s, readAssistants := startTimelineSession(t, fake, syncEchoTool{})
@@ -782,10 +783,10 @@ func TestSession_AskStream_CancelAfterToolCall_NoDuplicateTimeline(t *testing.T)
 	// Cancelling here exits the forwarder with gotDone=false while accContent
 	// still holds "first", reproducing the production duplicate-row bug.
 	deadline := time.Now().Add(3 * time.Second)
-	for llmCalls < 2 && time.Now().Before(deadline) {
+	for llmCalls.Load() < 2 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if llmCalls < 2 {
+	if llmCalls.Load() < 2 {
 		t.Fatal("agent did not reach second LLM call")
 	}
 
