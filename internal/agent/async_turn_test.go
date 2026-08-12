@@ -39,10 +39,12 @@ func (m *mockAsyncTool) ExecuteAsync(ctx context.Context, args string) (*tools.A
 // ─── TestExecToolsWithAsync_SingleAsyncTool ────────────────────────────────
 
 func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
+	release := make(chan struct{})
+
 	// Create target Agent (simulating L2)
 	target := &mockLocatable{
 		askFunc: func(ctx context.Context, prompt string) (string, error) {
-			time.Sleep(50 * time.Millisecond)
+			<-release
 			return "async-result", nil
 		},
 	}
@@ -103,16 +105,16 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 		t.Error("asyncTurns[0] not registered")
 	}
 
-	// Wait for async tasks to complete (watchDelegatedTask will fill results and trigger resumeTurn)
-	time.Sleep(200 * time.Millisecond)
+	close(release)
+	waitFor(t, time.Second, func() bool {
+		a.turnMu.RLock()
+		defer a.turnMu.RUnlock()
+		_, stillHas := a.asyncTurns[0]
+		return !stillHas
+	})
 
-	// Verify asyncTurns has been cleaned up
-	a.turnMu.RLock()
-	_, stillHas := a.asyncTurns[0]
-	a.turnMu.RUnlock()
-
-	if stillHas {
-		t.Error("asyncTurns[0] should be cleaned up after completion")
+	if results[0] != "" {
+		t.Errorf("results[0] changed to %q after async completion, want empty placeholder", results[0])
 	}
 }
 

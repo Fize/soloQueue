@@ -120,7 +120,7 @@ func (a *Agent) execToolsWithAsync(
 				cw:        cw,
 				iter:      iter,
 				toolCalls: calls,
-				results:   results,
+				results:   append([]string(nil), results...),
 				durations: make([]time.Duration, len(calls)),
 				callerCtx: ctx,
 			}
