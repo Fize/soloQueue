@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -123,6 +124,91 @@ func TestInstallAndUninstallSkill(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(userDir, skillID)); !os.IsNotExist(err) {
 		t.Errorf("installed skill folder was not removed")
+	}
+}
+
+func TestCopyDirPreservesExecutableFileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix executable permission bits")
+	}
+	srcDir := t.TempDir()
+	dstDir := filepath.Join(t.TempDir(), "copied-skill")
+	scriptPath := filepath.Join(srcDir, "build.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(scriptPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyDir(srcDir, dstDir); err != nil {
+		t.Fatalf("copyDir failed: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(dstDir, "build.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("copied executable mode = %o, want 755", got)
+	}
+}
+
+func TestCopyDirPreservesDirectoryMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix directory permission bits")
+	}
+	srcDir := t.TempDir()
+	dstDir := filepath.Join(t.TempDir(), "copied-skill")
+	srcAssetsDir := filepath.Join(srcDir, "assets")
+	if err := os.Mkdir(srcAssetsDir, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(srcAssetsDir, 0o770); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyDir(srcDir, dstDir); err != nil {
+		t.Fatalf("copyDir failed: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(dstDir, "assets"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o770 {
+		t.Fatalf("copied directory mode = %o, want 770", got)
+	}
+}
+
+func TestCopyDirPreservesReadOnlyDirectoryMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix directory permission bits")
+	}
+	srcDir := t.TempDir()
+	dstDir := filepath.Join(t.TempDir(), "copied-skill")
+	srcAssetsDir := filepath.Join(srcDir, "assets")
+	if err := os.Mkdir(srcAssetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcAssetsDir, "asset.txt"), []byte("asset"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(srcAssetsDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(srcAssetsDir, 0o755)
+		_ = os.Chmod(filepath.Join(dstDir, "assets"), 0o755)
+	})
+
+	if err := copyDir(srcDir, dstDir); err != nil {
+		t.Fatalf("copyDir failed: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(dstDir, "assets"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o555 {
+		t.Fatalf("copied read-only directory mode = %o, want 555", got)
 	}
 }
 
@@ -277,8 +363,5 @@ Body content`
 		}
 	}
 }
-
-
-
 
 

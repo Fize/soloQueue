@@ -326,7 +326,7 @@ func copyDir(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dst, info.Mode()); err != nil {
+	if err := os.MkdirAll(dst, info.Mode().Perm()|0o700); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(src)
@@ -346,7 +346,7 @@ func copyDir(src, dst string) error {
 			}
 		}
 	}
-	return nil
+	return os.Chmod(dst, info.Mode().Perm())
 }
 
 func copyFile(src, dst string) error {
@@ -355,12 +355,19 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm())
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	if err := out.Chmod(info.Mode().Perm()); err != nil {
 		return err
 	}
 	return out.Sync()
@@ -501,5 +508,3 @@ func ListSkillFilesFromFS(fsys fs.FS, skillDir string) ([]SkillFileEntry, error)
 	err := walk(skillDir, 0)
 	return out, err
 }
-
-
