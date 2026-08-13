@@ -310,6 +310,15 @@ type terminalCancelExecutor struct {
 	release chan struct{}
 }
 
+type requestCaptureExecutor struct {
+	request chan NodeRunRequest
+}
+
+func (e requestCaptureExecutor) Execute(_ context.Context, req NodeRunRequest) (NodeRunResult, error) {
+	e.request <- req
+	return NodeRunResult{Handoff: &HandoffData{Outcome: "done", Content: "ok"}}, nil
+}
+
 func (e *terminalCancelExecutor) Execute(ctx context.Context, req NodeRunRequest) (NodeRunResult, error) {
 	e.started <- req.Node.ID
 	if req.Node.ID == "blocked" {
@@ -863,6 +872,71 @@ nodes:
 	}
 	if !found {
 		t.Error("expected HANDOFF_OUTCOME_UNKNOWN error")
+	}
+}
+
+func TestEngine_RejectsOversizedHandoffContent(t *testing.T) {
+	yaml := `
+name: oversized-output
+description: Oversized output
+version: "1"
+defaults:
+  max_output_bytes: 4
+agents:
+  worker:
+    template: dev
+entry: [step1]
+nodes:
+  - id: step1
+    agent: worker
+    prompt: Do it
+    outputs:
+      done:
+        to: []
+`
+	wf := mustParse(t, yaml)
+	exec := NewFakeExecutor()
+	exec.SetNode("step1", FakeNodeResult{
+		Handoff: &HandoffData{Outcome: "done", Content: "12345"},
+	})
+
+	rs := runEngineExpecting(t, wf, exec, "test", RunFailed)
+	for _, nr := range rs.NodeRuns {
+		if nr.Error != nil && strings.Contains(nr.Error.Error(), "OUTPUT_TOO_LARGE") {
+			return
+		}
+	}
+	t.Fatal("expected OUTPUT_TOO_LARGE error")
+}
+
+func TestEngine_PassesEffectiveOutputLimitToExecutor(t *testing.T) {
+	wf := mustParse(t, `
+name: effective-output-limit
+description: Effective output limit
+version: "1"
+defaults:
+  max_output_bytes: 1024
+agents:
+  worker:
+    template: dev
+entry: [step1]
+nodes:
+  - id: step1
+    agent: worker
+    prompt: Do it
+    outputs:
+      done:
+        to: []
+`)
+	requests := make(chan NodeRunRequest, 1)
+	limits := DefaultEngineLimits()
+	limits.MaxOutputBytes = 16
+	engine := NewEngine(requestCaptureExecutor{request: requests}, limits)
+	if _, err := engine.Run(context.Background(), wf, "test", "/tmp/test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := (<-requests).MaxOutputBytes; got != 16 {
+		t.Fatalf("MaxOutputBytes = %d, want 16", got)
 	}
 }
 
