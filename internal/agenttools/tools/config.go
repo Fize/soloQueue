@@ -41,6 +41,10 @@ func memoryToolError(ctx context.Context, err error) error {
 		return fmt.Errorf("memory_owner_invalid")
 	case errors.Is(err, engine.ErrMemoryAccessDenied):
 		return fmt.Errorf("memory_access_denied")
+	case errors.Is(err, engine.ErrMemorySubjectConflict):
+		return fmt.Errorf("memory_subject_conflict")
+	case errors.Is(err, engine.ErrMemoryReplacementInvalid):
+		return fmt.Errorf("memory_replacement_invalid")
 	default:
 		return fmt.Errorf("memory_unavailable")
 	}

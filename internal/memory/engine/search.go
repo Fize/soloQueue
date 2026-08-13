@@ -121,6 +121,10 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 					fused[i].ScopeID = e.ScopeID
 					fused[i].Status = e.Status
 					fused[i].ExpiresAt = e.ExpiresAt
+					fused[i].SubjectKey = e.SubjectKey
+					fused[i].ValidFrom = e.ValidFrom
+					fused[i].ValidUntil = e.ValidUntil
+					fused[i].SupersedesHash = e.SupersedesHash
 				}
 			}
 		}
@@ -153,14 +157,40 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 }
 
 func (h *HybridSearcher) filterByLifecycleAndScope(results []SearchResult, query SearchQuery) []SearchResult {
-	now := time.Now().UTC().Format(time.RFC3339)
+	referenceTime := time.Now().UTC()
+	if query.AsOf != "" {
+		parsed, ok := parseMemoryTime(query.AsOf)
+		if !ok {
+			return nil
+		}
+		referenceTime = parsed
+	}
 	filtered := make([]SearchResult, 0, len(results))
 	for _, result := range results {
-		if result.Status != "" && result.Status != StatusActive {
+		if query.AsOf != "" {
+			if result.Status != "" && result.Status != StatusActive && result.Status != StatusSuperseded {
+				continue
+			}
+			if result.ValidUntil != "" {
+				validUntil, ok := parseMemoryTime(result.ValidUntil)
+				if !ok || !referenceTime.Before(validUntil) {
+					continue
+				}
+			}
+		} else if result.Status != "" && result.Status != StatusActive {
 			continue
 		}
-		if result.ExpiresAt != "" && result.ExpiresAt <= now {
-			continue
+		if result.ValidFrom != "" {
+			validFrom, ok := parseMemoryTime(result.ValidFrom)
+			if !ok || validFrom.After(referenceTime) {
+				continue
+			}
+		}
+		if result.ExpiresAt != "" {
+			expiresAt, ok := parseMemoryTime(result.ExpiresAt)
+			if !ok || !referenceTime.Before(expiresAt) {
+				continue
+			}
 		}
 		if query.ScopeType == "" {
 			filtered = append(filtered, result)
@@ -179,24 +209,41 @@ func (h *HybridSearcher) filterByLifecycleAndScope(results []SearchResult, query
 
 // filterByTime filters results based on date range or as_of point.
 func (h *HybridSearcher) filterByTime(results []SearchResult, query SearchQuery) []SearchResult {
+	asOf, asOfOK := parseOptionalMemoryTime(query.AsOf)
+	dateFrom, dateFromOK := parseOptionalMemoryTime(query.DateFrom)
+	dateTo, dateToOK := parseOptionalMemoryTime(query.DateTo)
+	if !asOfOK || !dateFromOK || !dateToOK {
+		return nil
+	}
 	var filtered []SearchResult
 	for _, r := range results {
 		eventTime := r.EventTime
 		if eventTime == "" {
 			eventTime = r.Date // fallback to date
 		}
-		if query.AsOf != "" && eventTime > query.AsOf {
+		event, ok := parseMemoryTime(eventTime)
+		if !ok {
 			continue
 		}
-		if query.DateFrom != "" && eventTime < query.DateFrom {
+		if query.AsOf != "" && event.After(asOf) {
 			continue
 		}
-		if query.DateTo != "" && eventTime > query.DateTo {
+		if query.DateFrom != "" && event.Before(dateFrom) {
+			continue
+		}
+		if query.DateTo != "" && event.After(dateTo) {
 			continue
 		}
 		filtered = append(filtered, r)
 	}
 	return filtered
+}
+
+func parseOptionalMemoryTime(value string) (time.Time, bool) {
+	if value == "" {
+		return time.Time{}, true
+	}
+	return parseMemoryTime(value)
 }
 
 // applySalience boosts scores based on Ebbinghaus salience.
@@ -239,7 +286,7 @@ func (h *HybridSearcher) applySalience(ctx context.Context, results []SearchResu
 }
 
 func parseMemoryTime(value string) (time.Time, bool) {
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
 		parsed, err := time.Parse(layout, value)
 		if err == nil {
 			return parsed, true
@@ -284,8 +331,8 @@ func (h *HybridSearcher) collectGraphContext(ctx context.Context, query SearchQu
 			hashes = append(hashes, edge.SourceHash)
 		}
 	}
-	active := h.store.ActiveContentHashesOwned(
-		ctx, hashes, query.OwnerType, query.OwnerID, query.ScopeType, query.ScopeID, query.IncludeGlobal,
+	active := h.store.ContentHashesVisibleAtOwned(
+		ctx, hashes, query.OwnerType, query.OwnerID, query.ScopeType, query.ScopeID, query.IncludeGlobal, query.AsOf,
 	)
 	filteredEdges := unique[:0]
 	for _, edge := range unique {

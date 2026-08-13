@@ -16,7 +16,7 @@ func NewBM25Searcher(store *MemoryStore) *BM25Searcher {
 func (b *BM25Searcher) Search(ctx context.Context, query SearchQuery, limit int) ([]SearchResult, error) {
 	results, _, err := b.store.BM25SearchOwned(
 		ctx, query.Text, limit, query.OwnerType, query.OwnerID,
-		query.ScopeType, query.ScopeID, query.IncludeGlobal,
+		query.ScopeType, query.ScopeID, query.IncludeGlobal, query.AsOf,
 	)
 	return results, err
 }
