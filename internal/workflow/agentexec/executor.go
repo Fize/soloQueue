@@ -7,6 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
@@ -20,7 +23,11 @@ import (
 // The executor creates one per NodeRun; after the agent calls workflow_handoff,
 // the tool stores the outcome/content and signals the turn to end.
 type handoffTool struct {
-	result *workflow.HandoffData // written by Execute, read by executor
+	mu              sync.Mutex
+	result          *workflow.HandoffData // written by Execute, read by executor
+	allowedOutcomes []string
+	maxOutputBytes  int
+	completed       bool
 }
 
 // handoffArgs is the JSON schema for workflow_handoff parameters.
@@ -29,8 +36,26 @@ type handoffArgs struct {
 	Content string `json:"content"`
 }
 
-func newHandoffTool() *handoffTool {
-	return &handoffTool{result: &workflow.HandoffData{}}
+func newHandoffTool(allowedOutcomes []string, maxOutputBytes int) *handoffTool {
+	allowed := append([]string(nil), allowedOutcomes...)
+	sort.Strings(allowed)
+	return &handoffTool{
+		result:          &workflow.HandoffData{},
+		allowedOutcomes: allowed,
+		maxOutputBytes:  maxOutputBytes,
+	}
+}
+
+func nodeAllowedOutcomes(node *workflow.NodeDef) []string {
+	if node == nil {
+		return nil
+	}
+	outcomes := make([]string, 0, len(node.Outputs))
+	for outcome := range node.Outputs {
+		outcomes = append(outcomes, outcome)
+	}
+	sort.Strings(outcomes)
+	return outcomes
 }
 
 func (t *handoffTool) Name() string { return "workflow_handoff" }
@@ -43,14 +68,28 @@ func (t *handoffTool) Description() string {
 }
 
 func (t *handoffTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{
-		"type": "object",
-		"properties": {
-			"outcome": {"type": "string", "description": "The outcome label matching the node's outputs"},
-			"content": {"type": "string", "description": "A summary of what was accomplished"}
+	type property struct {
+		Type        string   `json:"type"`
+		Description string   `json:"description"`
+		Enum        []string `json:"enum,omitempty"`
+	}
+	schema := struct {
+		Type       string              `json:"type"`
+		Properties map[string]property `json:"properties"`
+		Required   []string            `json:"required"`
+	}{
+		Type: "object",
+		Properties: map[string]property{
+			"outcome": {Type: "string", Description: "The outcome label matching the node's outputs", Enum: t.allowedOutcomes},
+			"content": {Type: "string", Description: "A summary of what was accomplished"},
 		},
-		"required": ["outcome", "content"]
-	}`)
+		Required: []string{"outcome", "content"},
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		panic(fmt.Sprintf("workflow_handoff: marshal schema: %v", err))
+	}
+	return raw
 }
 
 func (t *handoffTool) Execute(ctx context.Context, args string) (string, error) {
@@ -58,16 +97,28 @@ func (t *handoffTool) Execute(ctx context.Context, args string) (string, error) 
 	if err := json.Unmarshal([]byte(args), &ha); err != nil {
 		return "", fmt.Errorf("workflow_handoff: invalid arguments: %w", err)
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.completed {
+		return "", fmt.Errorf("HANDOFF_DUPLICATE")
+	}
+	if !slices.Contains(t.allowedOutcomes, ha.Outcome) {
+		return "", fmt.Errorf("HANDOFF_OUTCOME_UNKNOWN: %s", ha.Outcome)
+	}
+	if len(ha.Content) > t.maxOutputBytes {
+		return "", fmt.Errorf("OUTPUT_TOO_LARGE: %d bytes exceeds %d", len(ha.Content), t.maxOutputBytes)
+	}
 
 	t.result.Outcome = ha.Outcome
 	t.result.Content = ha.Content
+	t.completed = true
 
 	return fmt.Sprintf("Handoff accepted: outcome=%s", ha.Outcome), nil
 }
 
-// TerminatesTurn always returns true — a successful handoff ends the agent turn.
+// Failed terminal calls stay in the tool loop so the model can correct them.
 func (t *handoffTool) TerminatesTurn(result string, err error) bool {
-	return true
+	return err == nil
 }
 
 // ─── Executor ──────────────────────────────────────────────────────────────
@@ -121,7 +172,7 @@ func (e *Executor) Execute(ctx context.Context, req workflow.NodeRunRequest) (wo
 	}
 
 	// Create the handoff tool (one per NodeRun)
-	handoff := newHandoffTool()
+	handoff := newHandoffTool(nodeAllowedOutcomes(req.Node), req.MaxOutputBytes)
 
 	createOpts := agent.CreateOptions{
 		ExtraSystemPrompt: buildWorkflowSystemPrompt(req) + req.Node.Prompt + "\n</node_instruction>",
@@ -151,9 +202,12 @@ func (e *Executor) Execute(ctx context.Context, req workflow.NodeRunRequest) (wo
 		return workflow.NodeRunResult{}, fmt.Errorf("agentexec: ask: %w", err)
 	}
 
-	// Consume events (we don't need to do anything with them;
-	// confirmation relay is handled by the session-level event channel)
+	// Drain the full stream so producer backpressure cannot hide a terminal error.
+	var childErr error
 	for event := range evCh {
+		if streamError, ok := event.(agent.ErrorEvent); ok && childErr == nil {
+			childErr = streamError.Err
+		}
 		if confirmation, ok := event.(agent.ToolNeedsConfirmEvent); ok && req.RecordConfirmation != nil {
 			callID := confirmation.CallID
 			req.RecordConfirmation(workflow.ConfirmationRequest{
@@ -172,6 +226,9 @@ func (e *Executor) Execute(ctx context.Context, req workflow.NodeRunRequest) (wo
 		if ctx.Err() != nil {
 			return workflow.NodeRunResult{}, ctx.Err()
 		}
+	}
+	if childErr != nil {
+		return workflow.NodeRunResult{}, fmt.Errorf("agentexec: child stream: %w", childErr)
 	}
 
 	// Check if handoff occurred
@@ -200,6 +257,14 @@ func buildWorkflowSystemPrompt(req workflow.NodeRunRequest) string {
 			prompt += fmt.Sprintf("\n- from: %s\n  outcome: %s\n  content: %s", inp.FromNode, inp.Outcome, inp.Content)
 		}
 		prompt += "\n</upstream_inputs>"
+	}
+
+	if outcomes := nodeAllowedOutcomes(req.Node); len(outcomes) > 0 {
+		prompt += "\n\n<allowed_outcomes>"
+		for _, outcome := range outcomes {
+			prompt += "\n- " + outcome
+		}
+		prompt += "\n</allowed_outcomes>"
 	}
 
 	prompt += "\n\n<node_instruction>\n"

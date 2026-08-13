@@ -328,6 +328,7 @@ type NodeRunRequest struct {
 	NodeRun            *NodeRun
 	WorkflowInput      string
 	WorkDir            string
+	MaxOutputBytes     int
 	RecordConfirmation func(ConfirmationRequest)
 }
 

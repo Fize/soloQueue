@@ -360,6 +360,7 @@ func (e *Engine) dispatchReady(rs *RunState, ctx context.Context, resultCh chan<
 				NodeRun:            nr,
 				WorkflowInput:      rs.Input,
 				WorkDir:            rs.WorkDir,
+				MaxOutputBytes:     defaults.MaxOutputBytes,
 				RecordConfirmation: recordConfirmation,
 			}
 
@@ -417,6 +418,13 @@ func (e *Engine) handleResult(rs *RunState, ctx context.Context, result nodeExec
 		nr.Error = fmt.Errorf("HANDOFF_MISSING")
 		nr.FinishedAt = time.Now()
 		e.failFast(rs, ctx, "handoff missing")
+		return
+	}
+	if len(result.Handoff.Content) > defaults.MaxOutputBytes {
+		nr.State = NodeFailed
+		nr.Error = fmt.Errorf("OUTPUT_TOO_LARGE: %d bytes exceeds %d", len(result.Handoff.Content), defaults.MaxOutputBytes)
+		nr.FinishedAt = time.Now()
+		e.failFast(rs, ctx, "handoff output too large")
 		return
 	}
 
