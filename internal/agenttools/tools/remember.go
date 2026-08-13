@@ -37,8 +37,10 @@ func (rememberTool) Parameters() json.RawMessage {
   "type":"object",
   "properties":{
     "content":{"type":"string","description":"The information to save. Be concise but include all key details."},
-    "memory_type":{"type":"string","enum":["preference","decision","stable_fact","reusable_solution"],"description":"Why this information remains useful across future conversations."},
-    "explicit_user_request":{"type":"boolean","description":"True only when the user explicitly asked to remember this information."},
+	    "memory_type":{"type":"string","enum":["preference","decision","stable_fact","reusable_solution"],"description":"Why this information remains useful across future conversations."},
+	    "subject_key":{"type":"string","description":"Optional stable dotted key for a mutable preference, decision, or fact."},
+	    "replaces_content_hash":{"type":"string","description":"Optional content hash of the active memory explicitly replaced by this one. Requires subject_key."},
+	    "explicit_user_request":{"type":"boolean","description":"True only when the user explicitly asked to remember this information."},
     "timestamp":{"type":"string","description":"Optional. The time this information is about, in YYYY-MM-DD HH:MM format. Use the actual time the event occurred or was discussed, not the current time. If omitted, defaults to now."}
   },
   "required":["content","memory_type"]
@@ -48,6 +50,8 @@ func (rememberTool) Parameters() json.RawMessage {
 type rememberArgs struct {
 	Content             string `json:"content"`
 	MemoryType          string `json:"memory_type"`
+	SubjectKey          string `json:"subject_key,omitempty"`
+	ReplacesContentHash string `json:"replaces_content_hash,omitempty"`
 	ExplicitUserRequest bool   `json:"explicit_user_request,omitempty"`
 	Timestamp           string `json:"timestamp"`
 }
@@ -106,6 +110,8 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 	}
 	result, err := t.cfg.MemoryAccess.Ingest(ctx, engine.MemoryCandidate{
 		Content:             a.Content,
+		SubjectKey:          a.SubjectKey,
+		ReplacesContentHash: a.ReplacesContentHash,
 		MemoryType:          a.MemoryType,
 		SourceType:          sourceType,
 		SourceID:            t.cfg.WorkDir,
@@ -124,7 +130,7 @@ func (t *rememberTool) Execute(ctx context.Context, raw string) (string, error) 
 
 	b, _ := json.Marshal(rememberResult{
 		ContentHash: result.ContentHash,
-		Saved:       result.Action == "insert",
+		Saved:       result.Action == "insert" || result.Action == "replace",
 		IsNew:       result.IsNew,
 		Action:      result.Action,
 		Reason:      result.Reason,

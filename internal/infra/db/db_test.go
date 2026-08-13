@@ -174,6 +174,115 @@ func TestOpenMigratesMemoryMetadataV8(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesMemoryRevisionMetadataV20(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "memory-v19.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`
+		CREATE TABLE mem_entries (
+			id TEXT PRIMARY KEY, content TEXT NOT NULL, content_hash TEXT NOT NULL UNIQUE,
+			date TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '', event_time TEXT NOT NULL,
+			salience REAL NOT NULL DEFAULT 1.0, last_recalled_at TEXT NOT NULL DEFAULT '',
+			memory_type TEXT NOT NULL DEFAULT 'legacy', scope_type TEXT NOT NULL DEFAULT 'global',
+			scope_id TEXT NOT NULL DEFAULT '', source_type TEXT NOT NULL DEFAULT 'legacy',
+			source_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
+			confidence REAL NOT NULL DEFAULT 1.0, expires_at TEXT NOT NULL DEFAULT '',
+			supersedes_hash TEXT NOT NULL DEFAULT '', canonical_hash TEXT NOT NULL DEFAULT '',
+			recall_count INTEGER NOT NULL DEFAULT 0, used_count INTEGER NOT NULL DEFAULT 0,
+			last_used_at TEXT NOT NULL DEFAULT '', owner_type TEXT NOT NULL DEFAULT 'l1',
+			owner_id TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, created_at TEXT NOT NULL
+		);
+		INSERT INTO mem_entries (
+			id, content, content_hash, date, event_time, memory_type, status, updated_at, created_at
+		) VALUES
+			('active', 'current value', 'active-hash', '2026-08-01', '2026-08-01T09:00:00Z',
+			 'stable_fact', 'active', '2026-08-01T09:00:00Z', '2026-08-01T09:00:00Z'),
+			('old', 'old value', 'old-hash', '2026-07-01', '2026-07-01T09:00:00Z',
+			 'stable_fact', 'superseded', '2026-08-01T09:00:00Z', '2026-07-01T09:00:00Z');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`PRAGMA user_version = 19`); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	rows, err := database.Query(`
+		SELECT id, subject_key, valid_from, valid_until
+		FROM mem_entries ORDER BY id
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	type revisionMetadata struct {
+		id, subjectKey, validFrom, validUntil string
+	}
+	var got []revisionMetadata
+	for rows.Next() {
+		var row revisionMetadata
+		if err := rows.Scan(&row.id, &row.subjectKey, &row.validFrom, &row.validUntil); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []revisionMetadata{
+		{id: "active", validFrom: "2026-08-01T09:00:00Z"},
+		{id: "old", validFrom: "2026-07-01T09:00:00Z", validUntil: "2026-08-01T09:00:00Z"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("revision metadata row count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("revision metadata row %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 20 {
+		t.Fatalf("schema version = %d, want 20", version)
+	}
+}
+
+func TestMemoryRevisionSubjectIndexRejectsDuplicateActiveMutableMemory(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "memory.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	insert := `INSERT INTO mem_entries (
+		id, content, content_hash, date, event_time, memory_type, scope_type, scope_id,
+		source_type, status, owner_type, owner_id, subject_key, valid_from
+	) VALUES (?, ?, ?, '2026-08-01', '2026-08-01T09:00:00Z',
+		'stable_fact', 'project', '/work/project', 'agent', 'active', 'l1', '',
+		'project.runtime.go_version', '2026-08-01T09:00:00Z')`
+	if _, err := database.Exec(insert, "m1", "Go 1.24", "hash-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(insert, "m2", "Go 1.25.8", "hash-2"); err == nil {
+		t.Fatal("duplicate active mutable subject was accepted")
+	}
+}
+
 func TestOpenMigratesExistingKnowledgeGraphToL1Owner(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "memory-v18.db")
 	raw, err := sql.Open("sqlite", path)

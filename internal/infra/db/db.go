@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 19
+const schemaVersion = 20
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -213,6 +213,9 @@ CREATE TABLE IF NOT EXISTS mem_entries (
 	last_used_at TEXT NOT NULL DEFAULT '',
 	owner_type TEXT NOT NULL DEFAULT 'l1',
 	owner_id TEXT NOT NULL DEFAULT '',
+	subject_key TEXT NOT NULL DEFAULT '',
+	valid_from TEXT NOT NULL DEFAULT '',
+	valid_until TEXT NOT NULL DEFAULT '',
 	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1007,6 +1010,61 @@ func (d *DB) migrate() error {
 	`); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("create memory owner indexes v19: %w", err)
+	}
+
+	// v20: memory revisions use explicit subject identity and validity intervals
+	// so current recall and historical recall share one durable source of truth.
+	memoryRevisionColumns := []struct {
+		name string
+		ddl  string
+	}{
+		{"subject_key", `ALTER TABLE mem_entries ADD COLUMN subject_key TEXT NOT NULL DEFAULT ''`},
+		{"valid_from", `ALTER TABLE mem_entries ADD COLUMN valid_from TEXT NOT NULL DEFAULT ''`},
+		{"valid_until", `ALTER TABLE mem_entries ADD COLUMN valid_until TEXT NOT NULL DEFAULT ''`},
+	}
+	memoryRevisionSchemaChanged := false
+	for _, column := range memoryRevisionColumns {
+		hasColumn, err := tableHasColumn(tx, "mem_entries", column.name)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect mem_entries %s column: %w", column.name, err)
+		}
+		if !hasColumn {
+			if _, err := tx.Exec(column.ddl); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migrate mem_entries v20 add %s: %w", column.name, err)
+			}
+			memoryRevisionSchemaChanged = true
+		}
+	}
+	if memoryRevisionSchemaChanged {
+		// Existing external-content FTS indexes may not contain legacy rows yet;
+		// rebuild before UPDATE triggers attempt to delete their old terms.
+		if _, err := tx.Exec(`INSERT INTO mem_fts(mem_fts) VALUES('rebuild')`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate mem_entries v20 rebuild fts: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`
+		UPDATE mem_entries
+		SET valid_from = COALESCE(NULLIF(event_time, ''), created_at)
+		WHERE valid_from = '';
+		UPDATE mem_entries
+		SET valid_until = updated_at
+		WHERE status = 'superseded' AND valid_until = '';
+	`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migrate mem_entries v20 data: %w", err)
+	}
+	if _, err := tx.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_mem_entries_active_subject
+		ON mem_entries(owner_type, owner_id, scope_type, scope_id, memory_type, subject_key)
+		WHERE status = 'active'
+		  AND subject_key != ''
+		  AND memory_type IN ('preference', 'decision', 'stable_fact');
+	`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migrate mem_entries v20 subject index: %w", err)
 	}
 
 	// Fix corrupted llm_models rows where the "vision" column accidentally holds

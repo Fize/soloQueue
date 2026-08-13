@@ -26,6 +26,9 @@ type MemoryEntry struct {
 	LastUsedAt     string  `json:"last_used_at,omitempty"`
 	OwnerType      string  `json:"-"`
 	OwnerID        string  `json:"-"`
+	SubjectKey     string  `json:"subject_key,omitempty"`
+	ValidFrom      string  `json:"valid_from,omitempty"`
+	ValidUntil     string  `json:"valid_until,omitempty"`
 }
 
 // GraphNode is an entity in the knowledge graph.
@@ -64,20 +67,24 @@ type GraphAlias struct {
 
 // SearchResult is one ranked hit from a hybrid search.
 type SearchResult struct {
-	ContentHash string  `json:"content_hash"`
-	Content     string  `json:"content"`
-	Score       float64 `json:"score"`
-	Source      string  `json:"source"` // "bm25", "kg", or "vector"
-	Date        string  `json:"date"`
-	Tags        string  `json:"tags"`
-	EventTime   string  `json:"event_time"`
-	MemoryType  string  `json:"memory_type"`
-	ScopeType   string  `json:"scope_type"`
-	ScopeID     string  `json:"scope_id"`
-	Status      string  `json:"status"`
-	ExpiresAt   string  `json:"expires_at,omitempty"`
-	OwnerType   string  `json:"-"`
-	OwnerID     string  `json:"-"`
+	ContentHash    string  `json:"content_hash"`
+	Content        string  `json:"content"`
+	Score          float64 `json:"score"`
+	Source         string  `json:"source"` // "bm25", "kg", or "vector"
+	Date           string  `json:"date"`
+	Tags           string  `json:"tags"`
+	EventTime      string  `json:"event_time"`
+	MemoryType     string  `json:"memory_type"`
+	ScopeType      string  `json:"scope_type"`
+	ScopeID        string  `json:"scope_id"`
+	Status         string  `json:"status"`
+	ExpiresAt      string  `json:"expires_at,omitempty"`
+	SubjectKey     string  `json:"subject_key,omitempty"`
+	ValidFrom      string  `json:"valid_from,omitempty"`
+	ValidUntil     string  `json:"valid_until,omitempty"`
+	SupersedesHash string  `json:"supersedes_hash,omitempty"`
+	OwnerType      string  `json:"-"`
+	OwnerID        string  `json:"-"`
 }
 
 // SearchQuery parameterizes a hybrid search.
@@ -126,6 +133,8 @@ const (
 // MemoryCandidate is the only supported input for new long-term memories.
 type MemoryCandidate struct {
 	Content             string
+	SubjectKey          string
+	ReplacesContentHash string
 	MemoryType          string
 	ScopeType           string
 	ScopeID             string

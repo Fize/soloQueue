@@ -10,8 +10,10 @@ import (
 )
 
 var (
-	ErrMemoryAccessDenied = errors.New("memory_access_denied")
-	ErrMemoryOwnerInvalid = errors.New("memory_owner_invalid")
+	ErrMemoryAccessDenied       = errors.New("memory_access_denied")
+	ErrMemoryOwnerInvalid       = errors.New("memory_owner_invalid")
+	ErrMemorySubjectConflict    = errors.New("memory_subject_conflict")
+	ErrMemoryReplacementInvalid = errors.New("memory_replacement_invalid")
 )
 
 // Access is an immutable, server-bound capability for one memory owner and

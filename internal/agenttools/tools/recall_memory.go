@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
@@ -34,8 +35,9 @@ func (recallMemoryTool) Parameters() json.RawMessage {
   "type":"object",
   "properties":{
     "query":{"type":"string","description":"Search query. Both keyword and semantic-style queries work."},
-    "entities":{"type":"array","items":{"type":"string"},"description":"Optional. Entity names to focus the knowledge graph search on."},
-    "limit":{"type":"integer","description":"Max results. Default 10."}
+	    "entities":{"type":"array","items":{"type":"string"},"description":"Optional. Entity names to focus the knowledge graph search on."},
+	    "as_of":{"type":"string","description":"Optional. Recall the version valid at this time in YYYY-MM-DD HH:MM format."},
+	    "limit":{"type":"integer","description":"Max results. Default 10."}
   },
   "required":["query"]
 }`)
@@ -44,6 +46,7 @@ func (recallMemoryTool) Parameters() json.RawMessage {
 type recallMemoryArgs struct {
 	Query    string   `json:"query"`
 	Entities []string `json:"entities,omitempty"`
+	AsOf     string   `json:"as_of,omitempty"`
 	Limit    int      `json:"limit,omitempty"`
 }
 
@@ -72,6 +75,14 @@ func (t *recallMemoryTool) Execute(ctx context.Context, raw string) (string, err
 			return "", fmt.Errorf("%w: entity is too large", ErrInvalidArgs)
 		}
 	}
+	asOf := ""
+	if a.AsOf != "" {
+		parsed, err := time.Parse("2006-01-02 15:04", a.AsOf)
+		if err != nil {
+			return "", fmt.Errorf("%w: invalid as_of, expected YYYY-MM-DD HH:MM", ErrInvalidArgs)
+		}
+		asOf = parsed.Format(time.RFC3339)
+	}
 
 	limit := a.Limit
 	if limit <= 0 {
@@ -85,6 +96,7 @@ func (t *recallMemoryTool) Execute(ctx context.Context, raw string) (string, err
 		Text:                a.Query,
 		Entities:            a.Entities,
 		Limit:               limit,
+		AsOf:                asOf,
 		IncludeGraphContext: len(a.Entities) > 0,
 	})
 	if err != nil {

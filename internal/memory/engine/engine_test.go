@@ -32,6 +32,8 @@ func openTestDB(t *testing.T) (*sql.DB, *sync.Mutex) {
 			recall_count INTEGER NOT NULL DEFAULT 0, used_count INTEGER NOT NULL DEFAULT 0,
 			last_used_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 			owner_type TEXT NOT NULL DEFAULT 'l1', owner_id TEXT NOT NULL DEFAULT '',
+			subject_key TEXT NOT NULL DEFAULT '', valid_from TEXT NOT NULL DEFAULT '',
+			valid_until TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS mem_fts USING fts5(content, date, content='mem_entries', content_rowid='rowid', tokenize='unicode61')`,

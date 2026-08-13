@@ -256,6 +256,14 @@ func TestAssembleWithXML_PermanentMemoryIsSelective(t *testing.T) {
 	if strings.Contains(result, "At the start of a session") || strings.Contains(result, "Auto-Search") {
 		t.Fatal("permanent memory instructions should not require automatic recall")
 	}
+	for _, instructions := range []string{result, MemoryEngineSection} {
+		if !strings.Contains(instructions, "replaces_content_hash") {
+			t.Fatal("permanent memory instructions should explain explicit replacement")
+		}
+		if !strings.Contains(instructions, "as_of") {
+			t.Fatal("permanent memory instructions should explain historical recall")
+		}
+	}
 }
 
 func TestAssembleWithXML_EscapesDynamicSectionBoundaries(t *testing.T) {

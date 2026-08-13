@@ -14,6 +14,7 @@ var (
 	markdownHeadingPattern = regexp.MustCompile(`(?m)^\s*#{1,6}\s+`)
 	spacePattern           = regexp.MustCompile(`\s+`)
 	entityTypePattern      = regexp.MustCompile(`[^a-z0-9_]+`)
+	subjectKeyPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 )
 
 var allowedEntityTypes = map[string]bool{
@@ -29,6 +30,9 @@ func (e *Engine) Ingest(ctx context.Context, candidate MemoryCandidate) (IngestR
 	normalized, reason := normalizeCandidate(candidate)
 	if reason != "" {
 		return IngestResult{Action: "skip", Reason: reason}, nil
+	}
+	if normalized.ReplacesContentHash != "" && normalized.SubjectKey == "" {
+		return IngestResult{}, ErrMemoryReplacementInvalid
 	}
 	if !normalized.ExplicitUserRequest &&
 		(normalized.SourceType == SourceAgent || normalized.SourceType == SourceCompaction) &&
@@ -48,6 +52,8 @@ func (e *Engine) Ingest(ctx context.Context, candidate MemoryCandidate) (IngestR
 	if !isNew {
 		action = "skip"
 		reason = "duplicate canonical memory in scope"
+	} else if normalized.ReplacesContentHash != "" {
+		action = "replace"
 	}
 	return IngestResult{
 		Action:      action,
@@ -63,8 +69,14 @@ func normalizeCandidate(candidate MemoryCandidate) (MemoryCandidate, string) {
 		return candidate, "invalid memory owner"
 	}
 	candidate.Content = strings.TrimSpace(candidate.Content)
+	candidate.SubjectKey = strings.ToLower(strings.TrimSpace(candidate.SubjectKey))
+	candidate.ReplacesContentHash = strings.TrimSpace(candidate.ReplacesContentHash)
 	if candidate.Content == "" {
 		return candidate, "empty content"
+	}
+	if candidate.SubjectKey != "" &&
+		(len([]rune(candidate.SubjectKey)) > 200 || !subjectKeyPattern.MatchString(candidate.SubjectKey)) {
+		return candidate, "invalid subject key"
 	}
 	if !candidate.ExplicitUserRequest && candidate.SourceType != SourceSimulation &&
 		len([]rune(candidate.Content)) > maxAutomaticMemoryChars {
