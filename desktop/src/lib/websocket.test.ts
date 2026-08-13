@@ -19,7 +19,14 @@ interface WSInstance {
 beforeEach(() => {
   localStorage.clear()
   useRuntimeStore.setState({ status: null, connectionStatus: 'disconnected' })
-  useConnectionStore.setState({ mode: 'local', remoteUrl: '', username: '', password: '' })
+  useConnectionStore.setState({
+    mode: 'local',
+    remoteUrl: '',
+    username: '',
+    password: '',
+    backendReady: true,
+    backendStatus: { running: true, pid: null, uptime: 0 },
+  })
   useChatStore.setState({ activeRequests: {}, routeSessions: {}, streamingSessions: {} })
   wsManager.disconnect()
   mockWSServer = null

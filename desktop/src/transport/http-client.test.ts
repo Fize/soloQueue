@@ -10,6 +10,8 @@ describe('http client', () => {
       remoteUrl: '',
       username: '',
       password: '',
+      backendReady: true,
+      backendStatus: { running: true, pid: null, uptime: 0 },
     })
   })
 
