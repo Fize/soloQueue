@@ -159,6 +159,7 @@ type runControl struct {
 	cancel          context.CancelFunc
 	pauseMode       string
 	cancelRequested bool
+	persistenceErr  error
 }
 
 type runMetadata struct {
@@ -261,7 +262,7 @@ func (m *RunManager) reconcileInterrupted() {
 	}
 	_ = rows.Close()
 	for _, detail := range interrupted {
-		m.persist(detail)
+		_ = m.persist(detail)
 		m.expireConfirmations(detail.ID, "interrupted")
 		m.recordEvent(detail.ID, "run_interrupted", "", map[string]any{"reason": "server restart", "resume_available": detail.ResumeAvailable})
 	}
@@ -304,7 +305,17 @@ func (m *RunManager) startTask(ctx context.Context, wf *ParsedWorkflow, workflow
 	m.meta[id] = metadata
 	m.runs[id] = detail
 	m.mu.Unlock()
-	m.persist(detail)
+	if err := m.persist(detail); err != nil {
+		_ = metadata.audit.Close()
+		m.mu.Lock()
+		delete(m.meta, id)
+		delete(m.runs, id)
+		m.mu.Unlock()
+		if removeErr := m.wt.Remove(ctx, wt, true); removeErr != nil {
+			return "", fmt.Errorf("workflow_persistence_failed: %v; remove worktree: %w", err, removeErr)
+		}
+		return "", fmt.Errorf("workflow_persistence_failed: %w", err)
+	}
 	m.recordEvent(id, "run_created", "", map[string]any{"workflow": wf.Name, "source": source, "worktree": wt})
 	runCtx, cancel := context.WithCancel(ctx)
 	control := &runControl{cancel: cancel}
@@ -320,6 +331,12 @@ func (m *RunManager) startTask(ctx context.Context, wf *ParsedWorkflow, workflow
 			cancel()
 		}()
 		runState, runErr := m.engine.RunWithOptions(runCtx, wf, task.PromptInput(), wt.Path, RunOptions{ID: id, Observer: m.publish, PauseRequested: func() (string, bool) { return m.pauseState(id) }, CancelRequested: func() bool { return m.cancelState(id) }, RecordConfirmation: func(req ConfirmationRequest) { m.recordConfirmation(id, req) }})
+		m.mu.RLock()
+		persistenceErr := control.persistenceErr
+		m.mu.RUnlock()
+		if persistenceErr != nil {
+			return
+		}
 		if runErr == nil && runState != nil {
 			m.runDelivery(runCtx, id, runState.Status)
 		}
@@ -375,7 +392,7 @@ func (m *RunManager) Pause(id, mode string) error {
 	detail.ResumeAvailable = true
 	m.runs[id] = detail
 	m.mu.Unlock()
-	m.persist(detail)
+	_ = m.persist(detail)
 	m.stateMu.Unlock()
 	m.recordEvent(id, "pause_requested", "", map[string]any{"mode": mode})
 	if mode == "force" {
@@ -437,7 +454,7 @@ func (m *RunManager) Resume(ctx context.Context, id string, allowDirty bool) err
 	detail.ResumeAvailable = false
 	m.runs[id] = *detail
 	m.mu.Unlock()
-	m.persist(*detail)
+	_ = m.persist(*detail)
 	m.recordEvent(id, "resume_requested", "", map[string]any{"allow_dirty": allowDirty})
 	go func() {
 		defer func() {
@@ -632,7 +649,7 @@ func (m *RunManager) storeDetail(detail RunDetail) {
 	m.mu.Lock()
 	m.runs[detail.ID] = detail
 	m.mu.Unlock()
-	m.persist(detail)
+	_ = m.persist(detail)
 }
 
 func (m *RunManager) closeAudit(id string) {
@@ -767,6 +784,13 @@ func (m *RunManager) List(workflowName string) ([]RunSummary, error) {
 func (m *RunManager) publish(rs *RunState) {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
+	m.mu.RLock()
+	control := m.active[rs.ID]
+	if control != nil && control.persistenceErr != nil {
+		m.mu.RUnlock()
+		return
+	}
+	m.mu.RUnlock()
 	detail := snapshotRun(rs)
 	if rs.Status == RunCompleted || rs.Status == RunFailed || rs.Status == RunBlocked || rs.Status == RunPaused || rs.Status == RunCancelled {
 		m.refreshWorktreeState(rs.ID)
@@ -783,7 +807,26 @@ func (m *RunManager) publish(rs *RunState) {
 	}
 	m.runs[detail.ID] = detail
 	m.mu.Unlock()
-	m.persist(detail)
+	if err := m.persist(detail); err != nil {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		detail.Status = RunFailed
+		detail.FinishedAt = now
+		detail.ErrorCode = "workflow_persistence_failed"
+		detail.ErrorMessage = err.Error()
+		var cancel context.CancelFunc
+		m.mu.Lock()
+		m.runs[detail.ID] = detail
+		if current := m.active[detail.ID]; current != nil {
+			current.persistenceErr = err
+			cancel = current.cancel
+		}
+		m.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		m.recordEvent(detail.ID, "run_failed", "", map[string]any{"error_code": detail.ErrorCode, "error": detail.ErrorMessage})
+		return
+	}
 	m.mu.Lock()
 	if m.publishedSnapshots == nil {
 		m.publishedSnapshots = make(map[string][sha256.Size]byte)
@@ -844,36 +887,42 @@ func (m *RunManager) publishFailure(id, workflowName, input string, err error) {
 	m.mu.Lock()
 	m.runs[id] = detail
 	m.mu.Unlock()
-	m.persist(detail)
+	_ = m.persist(detail)
 	m.recordEvent(id, "run_failed", "", map[string]any{"error": err.Error()})
 }
 
-func (m *RunManager) persist(detail RunDetail) {
+func (m *RunManager) persist(detail RunDetail) error {
 	if m.db == nil {
-		return
+		return nil
 	}
 	raw, err := json.Marshal(detail)
 	if err != nil {
-		return
+		return fmt.Errorf("workflow persistence: marshal run: %w", err)
 	}
-	taskJSON, _ := detail.Task.JSON()
+	taskJSON, err := detail.Task.JSON()
+	if err != nil {
+		return fmt.Errorf("workflow persistence: marshal task: %w", err)
+	}
 	deliveryJSON := detail.DeliveryResult
 	if len(deliveryJSON) == 0 {
-		deliveryJSON, _ = json.Marshal(detail.Delivery)
+		deliveryJSON, err = json.Marshal(detail.Delivery)
+		if err != nil {
+			return fmt.Errorf("workflow persistence: marshal delivery: %w", err)
+		}
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	snapshotFingerprint := sha256.Sum256(raw)
 	m.db.WMu.Lock()
 	defer m.db.WMu.Unlock()
 	if previous, ok := m.persistedSnapshots[detail.ID]; ok && previous == snapshotFingerprint {
-		return
+		return nil
 	}
 	tx, err := m.db.Begin()
 	if err != nil {
-		return
+		return fmt.Errorf("workflow persistence: begin: %w", err)
 	}
 	defer tx.Rollback()
-	_, _ = tx.Exec(`INSERT INTO workflow_runs(
+	if _, err := tx.Exec(`INSERT INTO workflow_runs(
 		id, workflow_name, status, started_at, finished_at, snapshot_json,
 		workflow_version, workflow_hash, workflow_yaml, task_json, work_dir, source,
 		repository_path, base_ref, base_commit, branch_name, worktree_path, worktree_state,
@@ -897,15 +946,23 @@ func (m *RunManager) persist(detail RunDetail) {
 		detail.RepositoryPath, detail.BaseRef, detail.BaseCommit, detail.BranchName, detail.WorktreePath, detail.WorktreeState,
 		detail.ParentRunID, detail.RestartedFrom, detail.SuccessorRunID, detail.PauseMode, detail.ResumeAvailable,
 		detail.QualityStatus, detail.DeliveryStatus, string(deliveryJSON), detail.ErrorCode, detail.ErrorMessage,
-		detail.AuditDir, detail.AuditHeadHash, detail.StartedAt, now)
+		detail.AuditDir, detail.AuditHeadHash, detail.StartedAt, now); err != nil {
+		return fmt.Errorf("workflow persistence: write run: %w", err)
+	}
 	persisted := make(map[string][sha256.Size]byte)
 	for _, node := range detail.NodeRuns {
-		nodeRaw, _ := json.Marshal(node)
+		nodeRaw, err := json.Marshal(node)
+		if err != nil {
+			return fmt.Errorf("workflow persistence: marshal node %s: %w", node.ID, err)
+		}
 		fingerprint := sha256.Sum256(nodeRaw)
 		if previous, ok := m.persistedNodes[node.ID]; ok && previous == fingerprint {
 			continue
 		}
-		inputs, _ := json.Marshal(node.Inputs)
+		inputs, err := json.Marshal(node.Inputs)
+		if err != nil {
+			return fmt.Errorf("workflow persistence: marshal node inputs %s: %w", node.ID, err)
+		}
 		outcome, content := "", ""
 		errorCode := ""
 		if node.Result != nil {
@@ -914,50 +971,75 @@ func (m *RunManager) persist(detail RunDetail) {
 		if node.Error != "" {
 			errorCode = "node_execution_failed"
 		}
-		_, _ = tx.Exec(`INSERT INTO workflow_node_runs(id, workflow_run_id, node_id, attempt, activation_id, state, inputs_json, outcome, output_content, error_message, started_at, finished_at, updated_at)
+		if _, err := tx.Exec(`INSERT INTO workflow_node_runs(id, workflow_run_id, node_id, attempt, activation_id, state, inputs_json, outcome, output_content, error_message, started_at, finished_at, updated_at)
 			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET state=excluded.state, inputs_json=excluded.inputs_json, outcome=excluded.outcome,
 			output_content=excluded.output_content, error_message=excluded.error_message, started_at=excluded.started_at,
 			finished_at=excluded.finished_at, updated_at=excluded.updated_at`,
-			node.ID, detail.ID, node.NodeID, node.Attempt, node.ActivationID, node.State, string(inputs), outcome, content, node.Error, node.StartedAt, node.FinishedAt, now)
+			node.ID, detail.ID, node.NodeID, node.Attempt, node.ActivationID, node.State, string(inputs), outcome, content, node.Error, node.StartedAt, node.FinishedAt, now); err != nil {
+			return fmt.Errorf("workflow persistence: write node %s: %w", node.ID, err)
+		}
 		if errorCode != "" {
-			_, _ = tx.Exec(`UPDATE workflow_node_runs SET error_code = ? WHERE id = ?`, errorCode, node.ID)
+			if _, err := tx.Exec(`UPDATE workflow_node_runs SET error_code = ? WHERE id = ?`, errorCode, node.ID); err != nil {
+				return fmt.Errorf("workflow persistence: write node error %s: %w", node.ID, err)
+			}
 		}
 		persisted[node.ID] = fingerprint
 	}
 	// Checkpoints capture changed scheduler boundaries only. Recovery needs the
 	// latest state, while long-term traceability remains in audit events.
-	readyJSON, _ := json.Marshal(detail.ReadyQueue)
-	joinJSON, _ := json.Marshal(detail.JoinBuckets)
-	loopJSON, _ := json.Marshal(detail.LoopCounters)
+	readyJSON, err := json.Marshal(detail.ReadyQueue)
+	if err != nil {
+		return fmt.Errorf("workflow persistence: marshal ready queue: %w", err)
+	}
+	joinJSON, err := json.Marshal(detail.JoinBuckets)
+	if err != nil {
+		return fmt.Errorf("workflow persistence: marshal join buckets: %w", err)
+	}
+	loopJSON, err := json.Marshal(detail.LoopCounters)
+	if err != nil {
+		return fmt.Errorf("workflow persistence: marshal loop counters: %w", err)
+	}
 	var seq int
-	_ = tx.QueryRow(`SELECT COALESCE(MAX(sequence), 0) FROM workflow_run_checkpoints WHERE workflow_run_id = ?`, detail.ID).Scan(&seq)
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(sequence), 0) FROM workflow_run_checkpoints WHERE workflow_run_id = ?`, detail.ID).Scan(&seq); err != nil {
+		return fmt.Errorf("workflow persistence: read checkpoint sequence: %w", err)
+	}
 	seq++
-	_, _ = tx.Exec(`INSERT INTO workflow_run_checkpoints(workflow_run_id, sequence, engine_version, scheduler_json, ready_queue_json, join_buckets_json, loop_counters_json, completed_node_runs_json, created_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`, detail.ID, seq, "workflow-v2", fmt.Sprintf(`{"status":%q}`, detail.Status), string(readyJSON), string(joinJSON), string(loopJSON), string(raw), now)
-	_, _ = tx.Exec(`UPDATE workflow_runs SET checkpoint_sequence = ?, updated_at = ? WHERE id = ?`, seq, now, detail.ID)
+	if _, err := tx.Exec(`INSERT INTO workflow_run_checkpoints(workflow_run_id, sequence, engine_version, scheduler_json, ready_queue_json, join_buckets_json, loop_counters_json, completed_node_runs_json, created_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`, detail.ID, seq, "workflow-v2", fmt.Sprintf(`{"status":%q}`, detail.Status), string(readyJSON), string(joinJSON), string(loopJSON), string(raw), now); err != nil {
+		return fmt.Errorf("workflow persistence: write checkpoint: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE workflow_runs SET checkpoint_sequence = ?, updated_at = ? WHERE id = ?`, seq, now, detail.ID); err != nil {
+		return fmt.Errorf("workflow persistence: update checkpoint sequence: %w", err)
+	}
 	if seq > maxRetainedCheckpoints {
-		_, _ = tx.Exec(`DELETE FROM workflow_run_checkpoints WHERE workflow_run_id = ? AND sequence <= ?`, detail.ID, seq-maxRetainedCheckpoints)
+		if _, err := tx.Exec(`DELETE FROM workflow_run_checkpoints WHERE workflow_run_id = ? AND sequence <= ?`, detail.ID, seq-maxRetainedCheckpoints); err != nil {
+			return fmt.Errorf("workflow persistence: trim checkpoints: %w", err)
+		}
 	}
 	if detail.WorktreePath != "" && detail.RepositoryPath != "" {
-		_, _ = tx.Exec(`INSERT INTO workflow_worktrees(id, workflow_run_id, kind, repository_path, path, branch, base_commit, state, created_at)
+		if _, err := tx.Exec(`INSERT INTO workflow_worktrees(id, workflow_run_id, kind, repository_path, path, branch, base_commit, state, created_at)
 			VALUES(?, ?, 'main', ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET repository_path=excluded.repository_path, path=excluded.path,
 			branch=excluded.branch, base_commit=excluded.base_commit, state=excluded.state`,
-			detail.ID, detail.ID, detail.RepositoryPath, detail.WorktreePath, detail.BranchName, detail.BaseCommit, detail.WorktreeState, now)
-	}
-	if tx.Commit() == nil {
-		if m.persistedSnapshots == nil {
-			m.persistedSnapshots = make(map[string][sha256.Size]byte)
-		}
-		m.persistedSnapshots[detail.ID] = snapshotFingerprint
-		if m.persistedNodes == nil {
-			m.persistedNodes = make(map[string][sha256.Size]byte)
-		}
-		for id, fingerprint := range persisted {
-			m.persistedNodes[id] = fingerprint
+			detail.ID, detail.ID, detail.RepositoryPath, detail.WorktreePath, detail.BranchName, detail.BaseCommit, detail.WorktreeState, now); err != nil {
+			return fmt.Errorf("workflow persistence: write worktree: %w", err)
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("workflow persistence: commit: %w", err)
+	}
+	if m.persistedSnapshots == nil {
+		m.persistedSnapshots = make(map[string][sha256.Size]byte)
+	}
+	m.persistedSnapshots[detail.ID] = snapshotFingerprint
+	if m.persistedNodes == nil {
+		m.persistedNodes = make(map[string][sha256.Size]byte)
+	}
+	for id, fingerprint := range persisted {
+		m.persistedNodes[id] = fingerprint
+	}
+	return nil
 }
 
 func (m *RunManager) applyMetadata(detail *RunDetail) {
@@ -1209,7 +1291,21 @@ func snapshotRun(rs *RunState) RunDetail {
 			detail.FailedCount++
 		}
 	}
-	sort.Slice(detail.NodeRuns, func(i, j int) bool { return detail.NodeRuns[i].StartedAt < detail.NodeRuns[j].StartedAt })
+	sort.Slice(detail.NodeRuns, func(i, j int) bool {
+		if detail.NodeRuns[i].StartedAt == detail.NodeRuns[j].StartedAt {
+			return detail.NodeRuns[i].ID < detail.NodeRuns[j].ID
+		}
+		return detail.NodeRuns[i].StartedAt < detail.NodeRuns[j].StartedAt
+	})
+	if rs.Status == RunFailed {
+		for _, node := range detail.NodeRuns {
+			if (node.State == NodeFailed || node.State == NodeTimedOut) && node.Error != "" {
+				detail.ErrorCode = "workflow_execution_failed"
+				detail.ErrorMessage = fmt.Sprintf("%s: %s", node.NodeID, node.Error)
+				break
+			}
+		}
+	}
 	for _, output := range rs.TerminalOutput {
 		detail.TerminalOutputs = append(detail.TerminalOutputs, TerminalOutputView{Node: output.Node, Outcome: output.Outcome, Content: output.Content})
 	}
