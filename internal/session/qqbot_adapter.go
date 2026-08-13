@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
@@ -170,6 +171,16 @@ func (b *channelAdapterBase) consumeAskStreamEvents(
 	eventCh <-chan iface.AgentEvent,
 	onIntermediate channel.OnIntermediateFunc,
 ) (*channel.AskStreamResult, error) {
+	return b.consumeAskStreamEventsWithDelegation(ctx, sess, eventCh, onIntermediate, nil)
+}
+
+func (b *channelAdapterBase) consumeAskStreamEventsWithDelegation(
+	ctx context.Context,
+	sess *Session,
+	eventCh <-chan iface.AgentEvent,
+	onIntermediate channel.OnIntermediateFunc,
+	onDelegationStarted func(),
+) (*channel.AskStreamResult, error) {
 	var contentBuf strings.Builder
 	var sentLen int
 	var reasoningContent string
@@ -186,6 +197,11 @@ func (b *channelAdapterBase) consumeAskStreamEvents(
 				intermediate := contentBuf.String()[sentLen:]
 				onIntermediate(ctx, intermediate)
 				sentLen = contentBuf.Len()
+			}
+
+		case agent.DelegationStartedEvent:
+			if onDelegationStarted != nil {
+				onDelegationStarted()
 			}
 
 		case agent.ToolNeedsConfirmEvent:
@@ -389,9 +405,13 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 		}
 		return nil, err
 	}
-	defer releaseRoute()
+	// A yielded L1 turn no longer owns the actor execution slot. Releasing its
+	// channel route at the same boundary lets another bridge submit work while
+	// this caller keeps consuming its request-scoped response stream.
+	releaseRouteOnce := sync.OnceFunc(releaseRoute)
+	defer releaseRouteOnce()
 
-	return a.consumeAskStreamEvents(ctx, sess, eventCh, onIntermediate)
+	return a.consumeAskStreamEventsWithDelegation(ctx, sess, eventCh, onIntermediate, releaseRouteOnce)
 }
 
 // SaveUploadedFile saves an uploaded file to the session's workspace downloads folder.

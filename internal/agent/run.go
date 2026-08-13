@@ -11,9 +11,11 @@ import (
 // jobWatchdogGrace: bounded wait for async goroutines after ctx cancellation.
 const jobWatchdogGrace = 10 * time.Second
 
-// runJob runs fn(ctx), then waits for all async goroutines (taskWg) before closing done.
+// runJob releases the actor loop as soon as a job yields or completes.
+// Async tasks are awaited only during agent shutdown so delegation can run in
+// the background while the priority mailbox serves new L1 requests.
 func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
-	done := make(chan struct{}, 1)
+	jobDone := make(chan struct{})
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -22,22 +24,34 @@ func (a *Agent) runJob(ctx context.Context, fn func(context.Context)) {
 				a.logError(ctx, logger.CatActor, "agent job panic", err)
 				a.cancel()
 			}
-			a.taskWg.Wait()
-			close(done)
+			close(jobDone)
 		}()
 		fn(ctx)
 	}()
+
 	select {
-	case <-done:
-	case <-ctx.Done():
-		select {
-		case <-done:
-		case <-time.After(jobWatchdogGrace):
-			a.logError(ctx, logger.CatActor, "job did not stop after context cancellation",
-				fmt.Errorf("job stuck for %s after ctx.Done (async goroutines may be orphaned)", jobWatchdogGrace),
-				"grace_period", jobWatchdogGrace.String(),
-			)
+	case <-jobDone:
+		if ctx.Err() == nil {
+			return
 		}
+	case <-ctx.Done():
+	}
+
+	cleanupDone := make(chan struct{})
+	go func() {
+		// Waiting for the job first ensures every taskWg.Add for this turn has
+		// happened before Wait begins.
+		<-jobDone
+		a.taskWg.Wait()
+		close(cleanupDone)
+	}()
+	select {
+	case <-cleanupDone:
+	case <-time.After(jobWatchdogGrace):
+		a.logError(ctx, logger.CatActor, "job did not stop after context cancellation",
+			fmt.Errorf("job stuck for %s after ctx.Done (async goroutines may be orphaned)", jobWatchdogGrace),
+			"grace_period", jobWatchdogGrace.String(),
+		)
 	}
 }
 
