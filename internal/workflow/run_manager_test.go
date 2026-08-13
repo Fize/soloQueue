@@ -3,10 +3,12 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +23,26 @@ func (runManagerTestExecutor) Execute(context.Context, NodeRunRequest) (NodeRunR
 
 type pausableRunExecutor struct {
 	started chan struct{}
+}
+
+type countingRunExecutor struct {
+	calls atomic.Int32
+}
+
+func (e *countingRunExecutor) Execute(context.Context, NodeRunRequest) (NodeRunResult, error) {
+	e.calls.Add(1)
+	return NodeRunResult{Handoff: &HandoffData{Outcome: "done", Content: "ok"}}, nil
+}
+
+type blockingRunExecutor struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (e *blockingRunExecutor) Execute(context.Context, NodeRunRequest) (NodeRunResult, error) {
+	close(e.started)
+	<-e.release
+	return NodeRunResult{Handoff: &HandoffData{Outcome: "done", Content: "ok"}}, nil
 }
 
 func (e pausableRunExecutor) Execute(ctx context.Context, _ NodeRunRequest) (NodeRunResult, error) {
@@ -220,6 +242,80 @@ nodes:
 	}
 }
 
+func TestSnapshotRunPopulatesTopLevelErrorFromFailedNode(t *testing.T) {
+	wf := mustParse(t, `
+name: failed-summary
+version: "1"
+agents:
+  worker: {template: dev}
+entry: [plan]
+nodes:
+  - id: plan
+    agent: worker
+    prompt: Plan
+    outputs: {planned: {to: []}}
+`)
+	detail := snapshotRun(&RunState{
+		ID:       "wf_failed_summary",
+		Workflow: wf,
+		Status:   RunFailed,
+		NodeRuns: map[string]*NodeRun{
+			"plan:1": {ID: "plan:1", NodeID: "plan", State: NodeFailed, Error: errors.New("HANDOFF_OUTCOME_UNKNOWN: plan_ready")},
+		},
+		StartedAt: time.Now(),
+	})
+	if detail.ErrorCode != "workflow_execution_failed" {
+		t.Fatalf("error code = %q, want workflow_execution_failed", detail.ErrorCode)
+	}
+	if !strings.Contains(detail.ErrorMessage, "plan: HANDOFF_OUTCOME_UNKNOWN: plan_ready") {
+		t.Fatalf("error message = %q, want node and original error", detail.ErrorMessage)
+	}
+}
+
+func TestFailedRunErrorSurvivesManagerReadback(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "workflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	wf := mustParse(t, `
+name: failed-readback
+version: "1"
+agents:
+  worker: {template: dev}
+entry: [plan]
+nodes:
+  - id: plan
+    agent: worker
+    prompt: Plan
+    outputs: {planned: {to: []}}
+`)
+	detail := snapshotRun(&RunState{
+		ID:       "wf_failed_readback",
+		Workflow: wf,
+		Status:   RunFailed,
+		NodeRuns: map[string]*NodeRun{
+			"plan:1": {ID: "plan:1", NodeID: "plan", State: NodeFailed, Error: errors.New("HANDOFF_OUTCOME_UNKNOWN: plan_ready")},
+		},
+		StartedAt: time.Now(),
+	})
+	manager := newRunManagerWithStateRoot(NewEngine(runManagerTestExecutor{}, DefaultEngineLimits()), database, t.TempDir(), t.TempDir())
+	if err := manager.persist(detail); err != nil {
+		t.Fatal(err)
+	}
+	restarted := newRunManagerWithStateRoot(NewEngine(runManagerTestExecutor{}, DefaultEngineLimits()), database, t.TempDir(), t.TempDir())
+	loaded, err := restarted.Get(detail.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ErrorCode != detail.ErrorCode || loaded.ErrorMessage != detail.ErrorMessage {
+		t.Fatalf("readback error = (%q, %q), want (%q, %q)", loaded.ErrorCode, loaded.ErrorMessage, detail.ErrorCode, detail.ErrorMessage)
+	}
+	if len(loaded.NodeRuns) != 1 || loaded.NodeRuns[0].Error != detail.NodeRuns[0].Error {
+		t.Fatalf("readback node detail = %+v, want %+v", loaded.NodeRuns, detail.NodeRuns)
+	}
+}
+
 func TestPersistWritesSchedulerCheckpointColumns(t *testing.T) {
 	database, err := db.Open(filepath.Join(t.TempDir(), "workflow.db"))
 	if err != nil {
@@ -233,7 +329,7 @@ func TestPersistWritesSchedulerCheckpointColumns(t *testing.T) {
 		JoinBuckets:  []JoinBucketView{{NodeID: "merge", ActivationID: "activation-1", Expected: []string{"left", "right"}}},
 		LoopCounters: []LoopCounterView{{EdgeID: "review:retry:edit", ActivationID: "activation-1", Count: 2}},
 	}
-	manager.persist(detail)
+	_ = manager.persist(detail)
 
 	var readyJSON, joinJSON, loopJSON string
 	if err := database.QueryRow(`SELECT ready_queue_json, join_buckets_json, loop_counters_json FROM workflow_run_checkpoints WHERE workflow_run_id = ? ORDER BY sequence DESC LIMIT 1`, detail.ID).Scan(&readyJSON, &joinJSON, &loopJSON); err != nil {
@@ -244,6 +340,154 @@ func TestPersistWritesSchedulerCheckpointColumns(t *testing.T) {
 	}
 }
 
+func TestPersistReturnsErrorWhenDatabaseIsClosed(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "workflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := newRunManagerWithStateRoot(nil, database, t.TempDir(), t.TempDir())
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	detail := RunDetail{RunSummary: RunSummary{
+		ID:           "wf_closed_db",
+		WorkflowName: "closed-db",
+		Status:       RunFailed,
+		StartedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+	}}
+	if err := manager.persist(detail); err == nil {
+		t.Fatal("persist error = nil, want closed database error")
+	}
+}
+
+func TestPersistRollsBackWhenNodeWriteFails(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "workflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	manager := newRunManagerWithStateRoot(nil, database, t.TempDir(), t.TempDir())
+	if _, err := database.Exec(`DROP TABLE workflow_node_runs`); err != nil {
+		t.Fatal(err)
+	}
+	detail := RunDetail{
+		RunSummary: RunSummary{ID: "wf_atomic", WorkflowName: "atomic", Status: RunFailed, StartedAt: time.Now().UTC().Format(time.RFC3339Nano)},
+		NodeRuns:   []NodeRunView{{ID: "node-1", NodeID: "plan", State: NodeFailed, Error: "failed"}},
+	}
+	if err := manager.persist(detail); err == nil {
+		t.Fatal("persist error = nil, want node write failure")
+	}
+	var count int
+	if err := database.QueryRow(`SELECT count(*) FROM workflow_runs WHERE id = ?`, detail.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("workflow run rows = %d, want rollback", count)
+	}
+}
+
+func TestStartTaskRejectsInitialPersistenceFailureAndRemovesWorktree(t *testing.T) {
+	repo := initWorkflowTestRepo(t)
+	stateRoot := t.TempDir()
+	database, err := db.Open(filepath.Join(t.TempDir(), "workflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := &countingRunExecutor{}
+	manager := newRunManagerWithStateRoot(NewEngine(executor, DefaultEngineLimits()), database, t.TempDir(), stateRoot)
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`
+name: persistence-start
+version: "1"
+agents:
+  worker: {template: dev}
+entry: [start]
+nodes:
+  - id: start
+    agent: worker
+    prompt: Start
+    outputs: {done: {to: []}}
+`)
+	wf, err := ParseWorkflow(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.StartTask(context.Background(), wf, raw, WorkflowTask{Goal: "test", AcceptanceCriteria: []string{"done"}}, repo, "HEAD", "", "test")
+	if err == nil || !strings.Contains(err.Error(), "workflow_persistence_failed") {
+		t.Fatalf("StartTask error = %v, want workflow_persistence_failed", err)
+	}
+	if got := executor.calls.Load(); got != 0 {
+		t.Fatalf("executor calls = %d, want 0", got)
+	}
+	entries, readErr := os.ReadDir(filepath.Join(stateRoot, "workflow-worktrees"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("worktree entries = %d, want 0", len(entries))
+	}
+}
+
+func TestRunFailsWhenRuntimePersistenceStopsWorking(t *testing.T) {
+	repo := initWorkflowTestRepo(t)
+	database, err := db.Open(filepath.Join(t.TempDir(), "workflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := &blockingRunExecutor{started: make(chan struct{}), release: make(chan struct{})}
+	manager := newRunManagerWithStateRoot(NewEngine(executor, DefaultEngineLimits()), database, t.TempDir(), t.TempDir())
+	raw := []byte(`
+name: persistence-runtime
+version: "1"
+agents:
+  worker: {template: dev}
+entry: [start]
+nodes:
+  - id: start
+    agent: worker
+    prompt: Start
+    outputs: {done: {to: []}}
+`)
+	wf, err := ParseWorkflow(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := manager.StartTask(context.Background(), wf, raw, WorkflowTask{Goal: "test", AcceptanceCriteria: []string{"done"}}, repo, "HEAD", "", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-executor.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("executor did not start")
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	close(executor.release)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		detail, getErr := manager.Get(id)
+		if getErr == nil && detail.Status == RunFailed && detail.ErrorCode == "workflow_persistence_failed" {
+			if !strings.Contains(detail.ErrorMessage, "database is closed") {
+				t.Fatalf("error message = %q, want database failure", detail.ErrorMessage)
+			}
+			manager.mu.RLock()
+			_, active := manager.active[id]
+			manager.mu.RUnlock()
+			if !active {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	detail, _ := manager.Get(id)
+	t.Fatalf("run detail = %+v, want terminal persistence failure", detail)
+}
+
 func TestPersistSkipsIdenticalSnapshot(t *testing.T) {
 	database, err := db.Open(filepath.Join(t.TempDir(), "workflow.db"))
 	if err != nil {
@@ -252,8 +496,8 @@ func TestPersistSkipsIdenticalSnapshot(t *testing.T) {
 	defer database.Close()
 	manager := newRunManagerWithStateRoot(nil, database, t.TempDir(), t.TempDir())
 	detail := RunDetail{RunSummary: RunSummary{ID: "wf_dedupe", WorkflowName: "dedupe", Status: RunRunning, StartedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
-	manager.persist(detail)
-	manager.persist(detail)
+	_ = manager.persist(detail)
+	_ = manager.persist(detail)
 
 	var count int
 	if err := database.QueryRow(`SELECT count(*) FROM workflow_run_checkpoints WHERE workflow_run_id = ?`, detail.ID).Scan(&count); err != nil {
@@ -274,7 +518,7 @@ func TestPersistBoundsRecoveryCheckpoints(t *testing.T) {
 	detail := RunDetail{RunSummary: RunSummary{ID: "wf_retention", WorkflowName: "retention", Status: RunRunning, StartedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	for i := 1; i <= 70; i++ {
 		detail.CompletedCount = i
-		manager.persist(detail)
+		_ = manager.persist(detail)
 	}
 
 	var count, maxSequence int
@@ -454,7 +698,7 @@ func TestListOmitsWorkflowDefinition(t *testing.T) {
 	}
 	defer database.Close()
 	manager := newRunManagerWithStateRoot(nil, database, t.TempDir(), t.TempDir())
-	manager.persist(RunDetail{RunSummary: RunSummary{ID: "wf_list", WorkflowName: "list", Status: RunCompleted, StartedAt: time.Now().UTC().Format(time.RFC3339Nano), WorkflowYAML: strings.Repeat("large-definition\n", 1000)}})
+	_ = manager.persist(RunDetail{RunSummary: RunSummary{ID: "wf_list", WorkflowName: "list", Status: RunCompleted, StartedAt: time.Now().UTC().Format(time.RFC3339Nano), WorkflowYAML: strings.Repeat("large-definition\n", 1000)}})
 
 	runs, err := manager.List("list")
 	if err != nil {
