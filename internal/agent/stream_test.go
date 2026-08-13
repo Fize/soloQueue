@@ -406,6 +406,42 @@ type concurrencyTool struct {
 	peak     *int32
 }
 
+type terminalFakeTool struct {
+	*fakeTool
+}
+
+func (t *terminalFakeTool) TerminatesTurn(_ string, err error) bool { return err == nil }
+
+func TestAskStream_TerminalToolMixedBatchExecutesNoSideEffects(t *testing.T) {
+	terminal := &terminalFakeTool{fakeTool: newFakeTool("handoff")}
+	regular := newFakeTool("write")
+	fake := &agenttest.FakeLLM{ToolCallsByTurn: [][]llm.ToolCall{
+		{
+			{ID: "terminal-mixed", Function: llm.FunctionCall{Name: "handoff", Arguments: `{}`}},
+			{ID: "regular-mixed", Function: llm.FunctionCall{Name: "write", Arguments: `{}`}},
+		},
+		{{ID: "terminal-only", Function: llm.FunctionCall{Name: "handoff", Arguments: `{}`}}},
+	}}
+	a := NewAgent(Definition{ID: "a1"}, fake, nil,
+		WithTools(terminal, regular),
+		WithParallelTools(true),
+	)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+
+	if _, err := a.Ask(context.Background(), "finish safely"); err != nil {
+		t.Fatal(err)
+	}
+	if got := regular.CallCount(); got != 0 {
+		t.Fatalf("regular tool calls = %d, want 0", got)
+	}
+	if got := terminal.CallCount(); got != 1 {
+		t.Fatalf("terminal tool calls = %d, want 1", got)
+	}
+}
+
 func (c *concurrencyTool) Name() string                { return c.name }
 func (c *concurrencyTool) Description() string         { return "concurrency probe " + c.name }
 func (c *concurrencyTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }

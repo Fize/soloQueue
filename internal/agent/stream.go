@@ -9,11 +9,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // WithBypassConfirmCtx returns a context that skips all tool confirmations.
@@ -144,7 +144,6 @@ func (a *Agent) recoverAndEmit(ctx context.Context, out chan<- AgentEvent) {
 		panic(r) // propagate to run goroutine's outer recover
 	}
 }
-
 
 // startRelayGoroutine forwards ToolNeedsConfirmEvent and ErrorEvent from relayCh to out.
 func (a *Agent) startRelayGoroutine(ctx context.Context, relayCh <-chan iface.AgentEvent, out chan<- AgentEvent, onEvent func(iface.AgentEvent)) <-chan struct{} {
@@ -801,6 +800,26 @@ func (a *Agent) execTools(
 	out chan<- AgentEvent,
 ) []string {
 	results := make([]string, len(calls))
+	if len(calls) > 1 && a.tools != nil {
+		terminalName := ""
+		for _, tc := range calls {
+			tool, ok := a.tools.SafeGet(tc.Function.Name)
+			if !ok {
+				continue
+			}
+			if _, ok := tool.(tools.TurnTerminator); ok {
+				terminalName = tc.Function.Name
+				break
+			}
+		}
+		if terminalName != "" {
+			message := fmt.Sprintf("error: terminal tool %s must be the only tool call in this response", terminalName)
+			for i := range results {
+				results[i] = message
+			}
+			return results
+		}
+	}
 
 	// Serial path: single tool, or parallel not enabled
 	if len(calls) <= 1 || !a.parallelTools {
