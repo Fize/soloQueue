@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { useConnectionStore } from '@/stores/connectionStore'
 
 import {
   getAgentProfile,
@@ -20,6 +21,10 @@ import {
 beforeEach(() => {
   // vitest 4: use spyOn to mock global fetch
   vi.spyOn(globalThis, 'fetch').mockReset()
+  useConnectionStore.setState({
+    backendReady: true,
+    backendStatus: { running: true, pid: null, uptime: 0 },
+  })
 })
 
 function mockResponse(data: unknown, status = 200) {
