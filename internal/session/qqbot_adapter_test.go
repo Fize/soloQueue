@@ -2,17 +2,22 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 
 // newTestLog creates a silent logger for adapter tests.
@@ -343,5 +348,138 @@ func TestSameChannelRoutePreservesPendingMerge(t *testing.T) {
 	}
 	if got := sess.pending.Len(); got != 1 {
 		t.Fatalf("pending length = %d, want 1", got)
+	}
+}
+
+type channelBlockingTarget struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (t *channelBlockingTarget) Ask(ctx context.Context, prompt string) (string, error) {
+	t.once.Do(func() { close(t.started) })
+	select {
+	case <-t.release:
+		return "qq delegation result", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func (t *channelBlockingTarget) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+	out := make(chan iface.AgentEvent, 2)
+	go func() {
+		defer close(out)
+		result, err := t.Ask(ctx, prompt)
+		if err != nil {
+			out <- agent.ErrorEvent{Err: err}
+			return
+		}
+		out <- agent.ContentDeltaEvent{Delta: result}
+		out <- agent.DoneEvent{Content: result}
+	}()
+	return out, nil
+}
+
+func (t *channelBlockingTarget) Confirm(callID, choice string) error { return nil }
+func (t *channelBlockingTarget) ErrorCount() int32                   { return 0 }
+func (t *channelBlockingTarget) LastError() string                   { return "" }
+
+type channelDelegationTool struct {
+	target iface.Locatable
+}
+
+func (t *channelDelegationTool) Name() string        { return "delegate" }
+func (t *channelDelegationTool) Description() string { return "delegate a blocked channel test task" }
+func (t *channelDelegationTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+func (t *channelDelegationTool) Execute(ctx context.Context, args string) (string, error) {
+	return "", nil
+}
+func (t *channelDelegationTool) ExecuteAsync(ctx context.Context, args string) (*tools.AsyncAction, error) {
+	return &tools.AsyncAction{Target: t.target, Prompt: "blocked channel task", Timeout: 5 * time.Second}, nil
+}
+
+func TestL1ChannelAllowsWechatWhileQQDelegatesWithoutCrossingResponses(t *testing.T) {
+	testLog := newTestLog(t)
+	target := &channelBlockingTarget{started: make(chan struct{}), release: make(chan struct{})}
+	fakeLLM := &agenttest.FakeLLM{
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+			Index:     0,
+			ID:        "call-delegate",
+			Name:      "delegate",
+			Arguments: `{"task":"blocked"}`,
+		}}},
+		StreamDeltas: [][]string{nil, {"wechat response"}, {"qq response"}},
+	}
+	a := agent.NewAgent(
+		agent.Definition{ID: "channel-l1", Name: "Channel L1"},
+		fakeLLM,
+		testLog,
+		agent.WithTools(&channelDelegationTool{target: target}),
+		agent.WithPriorityMailbox(),
+	)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("start agent: %v", err)
+	}
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	mgr := NewSessionManager(func(context.Context, string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		return a, cw, nil, nil
+	}, testLog)
+	if _, err := mgr.Init(context.Background(), "default"); err != nil {
+		t.Fatalf("init manager: %v", err)
+	}
+	t.Cleanup(func() { mgr.Shutdown(2 * time.Second) })
+	var releaseOnce sync.Once
+	releaseDelegation := func() { releaseOnce.Do(func() { close(target.release) }) }
+	t.Cleanup(releaseDelegation)
+
+	adapter := NewChannelAdapter(mgr, testLog)
+	qqCtx := channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{
+		Channel: "qq", AccountID: "qq-bot", ConversationID: "qq-chat", UserID: "qq-user",
+	})
+	wechatBase := channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{
+		Channel: "wechat", AccountID: "wechat-bot", ConversationID: "wechat-chat", UserID: "wechat-user",
+	})
+
+	type callResult struct {
+		result *channel.AskStreamResult
+		err    error
+	}
+	qqDone := make(chan callResult, 1)
+	go func() {
+		result, err := adapter.AskStream(qqCtx, "delegate from qq", nil)
+		qqDone <- callResult{result: result, err: err}
+	}()
+
+	select {
+	case <-target.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for QQ delegation to start")
+	}
+
+	wechatCtx, cancelWechat := context.WithTimeout(wechatBase, 500*time.Millisecond)
+	defer cancelWechat()
+	wechatResult, err := adapter.AskStream(wechatCtx, "answer from wechat", nil)
+	if err != nil {
+		t.Fatalf("WeChat request did not enter L1 during QQ delegation: %v", err)
+	}
+	if wechatResult == nil || wechatResult.Content != "wechat response" {
+		t.Fatalf("WeChat result = %#v, want isolated wechat response", wechatResult)
+	}
+
+	releaseDelegation()
+	select {
+	case qqResult := <-qqDone:
+		if qqResult.err != nil {
+			t.Fatalf("QQ request failed: %v", qqResult.err)
+		}
+		if qqResult.result == nil || qqResult.result.Content != "qq response" {
+			t.Fatalf("QQ result = %#v, want isolated qq response", qqResult.result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for QQ response after delegation release")
 	}
 }

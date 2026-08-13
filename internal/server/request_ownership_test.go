@@ -9,8 +9,10 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -181,6 +183,136 @@ func TestBusySessionRejection(t *testing.T) {
 
 	// Let the first request finish cleanly.
 	time.Sleep(400 * time.Millisecond)
+}
+
+type blockingDelegationTarget struct {
+	release <-chan struct{}
+}
+
+func (t *blockingDelegationTarget) Ask(ctx context.Context, prompt string) (string, error) {
+	select {
+	case <-t.release:
+		return "delegation result", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func (t *blockingDelegationTarget) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+	out := make(chan iface.AgentEvent, 2)
+	go func() {
+		defer close(out)
+		result, err := t.Ask(ctx, prompt)
+		if err != nil {
+			out <- agent.ErrorEvent{Err: err}
+			return
+		}
+		out <- agent.ContentDeltaEvent{Delta: result}
+		out <- agent.DoneEvent{Content: result}
+	}()
+	return out, nil
+}
+
+func (t *blockingDelegationTarget) Confirm(callID, choice string) error { return nil }
+func (t *blockingDelegationTarget) ErrorCount() int32                   { return 0 }
+func (t *blockingDelegationTarget) LastError() string                   { return "" }
+
+type blockingDelegationTool struct {
+	target iface.Locatable
+}
+
+func (t *blockingDelegationTool) Name() string        { return "delegate" }
+func (t *blockingDelegationTool) Description() string { return "delegate a blocked test task" }
+func (t *blockingDelegationTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+func (t *blockingDelegationTool) Execute(ctx context.Context, args string) (string, error) {
+	return "", nil
+}
+func (t *blockingDelegationTool) ExecuteAsync(ctx context.Context, args string) (*tools.AsyncAction, error) {
+	return &tools.AsyncAction{Target: t.target, Prompt: "blocked task", Timeout: 5 * time.Second}, nil
+}
+
+func TestL1DesktopStartsSecondRequestBeforeDelegationCompletes(t *testing.T) {
+	workDir := t.TempDir()
+	log, err := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("create logger: %v", err)
+	}
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	target := &blockingDelegationTarget{release: release}
+	fakeLLM := &agenttest.FakeLLM{
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+			Index:     0,
+			ID:        "call-delegate",
+			Name:      "delegate",
+			Arguments: `{"task":"blocked"}`,
+		}}},
+		StreamDeltas: [][]string{nil, {"second request response"}, {"first request response"}},
+	}
+	a := agent.NewAgent(
+		agent.Definition{ID: "l1-test", Name: "L1 test"},
+		fakeLLM,
+		log,
+		agent.WithTools(&blockingDelegationTool{target: target}),
+		agent.WithPriorityMailbox(),
+		agent.WithAgentWorkDir(workDir),
+	)
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		return a, cw, nil, nil
+	}
+	mgr := session.NewSessionManager(factory, log)
+	if _, err := mgr.Init(context.Background(), "default"); err != nil {
+		t.Fatalf("init manager: %v", err)
+	}
+	mux := NewMux(workDir, log, WithSessionManager(mgr))
+	t.Cleanup(func() { _ = mux.Close() })
+
+	h := NewHub(mux)
+	client := &Client{send: make(chan []byte, 32), activeRequests: make(map[string]*activeRequest)}
+	h.handleChatSend(client, &ClientMessage{
+		Type: "chat_send", RequestID: "req-delegating", SessionID: "l1", Prompt: "delegate this",
+	})
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case data := <-client.send:
+			var msg WSMessage
+			if err := json.Unmarshal(data, &msg); err != nil {
+				t.Fatalf("unmarshal websocket message: %v", err)
+			}
+			if msg.Type == "delegation_start" && msg.RequestID == "req-delegating" {
+				goto delegationStarted
+			}
+		case <-deadline:
+			t.Fatal("timeout waiting for delegation_start")
+		}
+	}
+
+delegationStarted:
+	idleDeadline := time.Now().Add(time.Second)
+	for !mgr.Session().Idle() && time.Now().Before(idleDeadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !mgr.Session().Idle() {
+		t.Fatal("session did not release inFlight after delegation_start")
+	}
+
+	h.handleChatSend(client, &ClientMessage{
+		Type: "chat_send", RequestID: "req-follow-up", SessionID: "l1", Prompt: "answer this now",
+	})
+
+	secondStarted := time.Now().Add(500 * time.Millisecond)
+	for fakeLLM.StreamCallCount() < 2 && time.Now().Before(secondStarted) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := fakeLLM.StreamCallCount(); got < 2 {
+		t.Fatalf("L1 stream calls = %d, want at least 2 before delegation completes", got)
+	}
 }
 
 func TestL1AllowsConcurrentRequests(t *testing.T) {
