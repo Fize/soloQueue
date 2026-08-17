@@ -209,6 +209,7 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	// Process file attachments first
 	var promptBuilder strings.Builder
 	promptBuilder.WriteString(msg.Content)
+	var fileAttachments []ctxwin.FileAttachment
 
 	if len(msg.Files) > 0 {
 		var fileBlocks []string
@@ -236,6 +237,7 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 			}
 
 			b.log.InfoContext(ctx, logger.CatApp, "qqbot saved file attachment", "path", localPath, "size", len(data))
+			fileAttachments = append(fileAttachments, ctxwin.FileAttachment{Name: filename, Path: localPath})
 
 			binary := isBinary(data)
 			var block string
@@ -276,6 +278,7 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 				b.log.WarnContext(ctx, logger.CatApp, "qqbot failed to save image locally", "filename", filename, "err", saveErr.Error())
 			} else {
 				b.log.InfoContext(ctx, logger.CatApp, "qqbot saved image locally", "path", localPath, "size", len(data), "mime", mimeType)
+				fileAttachments = append(fileAttachments, ctxwin.FileAttachment{Name: filename, Path: localPath})
 			}
 
 			b64 := base64.StdEncoding.EncodeToString(data)
@@ -290,6 +293,9 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 			// Still note images in the prompt text so the LLM knows images are attached.
 			promptBuilder.WriteString("\n[User uploaded images, processed by visual recognition]")
 		}
+	}
+	if len(fileAttachments) > 0 {
+		ctx = context.WithValue(ctx, ctxwin.FilesContextKey, fileAttachments)
 	}
 
 	msg.Content = promptBuilder.String()

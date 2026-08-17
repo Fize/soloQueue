@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 type fakeSession struct {
@@ -13,6 +14,21 @@ type fakeSession struct {
 }
 
 type busySession struct{ fakeSession }
+
+type attachmentSession struct {
+	fakeSession
+	files []ctxwin.FileAttachment
+}
+
+func (s *attachmentSession) AskStream(ctx context.Context, prompt string, _ OnIntermediateFunc) (*AskStreamResult, error) {
+	s.prompt = prompt
+	s.files, _ = ctx.Value(ctxwin.FilesContextKey).([]ctxwin.FileAttachment)
+	return &AskStreamResult{Content: "reply"}, nil
+}
+
+func (*attachmentSession) SaveUploadedFile(context.Context, string, []byte) (string, error) {
+	return "/tmp/saved-image.jpg", nil
+}
 
 func (*busySession) AskStream(context.Context, string, OnIntermediateFunc) (*AskStreamResult, error) {
 	return nil, ErrSessionBusy
@@ -143,6 +159,20 @@ func TestTextBridgeMediaOnlyReachesAgent(t *testing.T) {
 	})
 	if sess.prompt == "" || sender.text != "reply" {
 		t.Fatalf("prompt=%q reply=%q", sess.prompt, sender.text)
+	}
+}
+
+func TestTextBridgeAddsSavedImageToFilesContext(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sess := &attachmentSession{}
+	bridge := NewTextBridge(sess, &fakeSender{}, log, "1.0.0", false, nil)
+	bridge.OnMessage(context.Background(), Message{
+		Channel: "wechat", AccountID: "bot", ConversationID: "chat", UserID: "user", Text: "describe",
+		Attachments: []Attachment{{Kind: AttachmentImage, Name: "image.jpg", MIMEType: "image/jpeg", Data: []byte("image")}},
+	})
+
+	if len(sess.files) != 1 || sess.files[0].Name != "image.jpg" || sess.files[0].Path != "/tmp/saved-image.jpg" {
+		t.Fatalf("files context = %#v", sess.files)
 	}
 }
 

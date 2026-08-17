@@ -17,6 +17,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 func withChannelTelemetry(ctx context.Context) context.Context {
@@ -100,6 +101,7 @@ func (b *channelAdapterBase) compactAndReap(ctx context.Context, sess *Session) 
 // cannot remember which bridge must deliver the eventual response.
 func (b *channelAdapterBase) askChannelStream(ctx context.Context, sess *Session, prompt string) (<-chan iface.AgentEvent, func(), error) {
 	route := channelRouteKey(ctx)
+	structuredInput := ctx.Value(ctxwin.FilesContextKey) != nil || ctx.Value(ctxwin.ImageContextKey) != nil
 	for {
 		sess.channelRouteMu.Lock()
 		if sess.channelRouteKey != "" && sess.channelRouteKey != route {
@@ -121,13 +123,13 @@ func (b *channelAdapterBase) askChannelStream(ctx context.Context, sess *Session
 		sess.channelRouteMu.Unlock()
 
 		askCtx := ctx
-		if !sameRouteActive {
+		if !sameRouteActive || structuredInput {
 			askCtx = WithRejectBusyQueue(ctx)
 		}
 		eventCh, err := sess.AskStream(askCtx, prompt)
 		if err != nil {
 			releaseChannelRoute(sess, route)
-			if errors.Is(err, ErrQueued) && !sameRouteActive {
+			if errors.Is(err, ErrQueued) && (!sameRouteActive || structuredInput) {
 				timer := time.NewTimer(25 * time.Millisecond)
 				select {
 				case <-ctx.Done():

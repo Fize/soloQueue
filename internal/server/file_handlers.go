@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -149,10 +150,42 @@ func (m *Mux) validatePath(raw string) (string, error) {
 	return "", os.ErrPermission
 }
 
+func (m *Mux) validateLegacyDesignOutputImage(raw string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(expandTilde(raw)))
+	if err != nil {
+		return "", err
+	}
+	root, err := filepath.EvalSymlinks(filepath.Join(m.workDir, "design_output"))
+	if err != nil {
+		return "", err
+	}
+	workRoot, err := filepath.EvalSymlinks(filepath.Clean(m.workDir))
+	if err != nil {
+		return "", err
+	}
+	rootRel, err := filepath.Rel(workRoot, root)
+	if err != nil || rootRel == ".." || strings.HasPrefix(rootRel, ".."+string(filepath.Separator)) {
+		return "", os.ErrPermission
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", os.ErrPermission
+	}
+	switch strings.ToLower(filepath.Ext(resolved)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp":
+		return resolved, nil
+	default:
+		return "", os.ErrPermission
+	}
+}
+
 // handleGetFileContent serves a file's content from the plan directory or team workspaces.
 func (m *Mux) handleGetFileContent(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("path")
 	absPath, err := m.validatePath(raw)
+	if errors.Is(err, os.ErrPermission) {
+		absPath, err = m.validateLegacyDesignOutputImage(raw)
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "file not found"})
@@ -326,5 +359,3 @@ func (m *Mux) handleSaveFile(w http.ResponseWriter, r *http.Request) {
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
-
-

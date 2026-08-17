@@ -27,6 +27,7 @@ type Attachment struct {
 // Message is the transport-neutral part of an inbound channel message.
 // ReplyToken is opaque and must be passed back to the originating transport.
 type Message struct {
+	MessageID      string
 	Channel        string
 	AccountID      string
 	ConversationID string
