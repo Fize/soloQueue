@@ -20,9 +20,15 @@ interface AgentInfo {
   iteration?: number
 }
 
+export interface SupervisorInfo {
+  group: string
+  leader_id: string
+  children_ids: string[]
+}
+
 interface AgentTableProps {
   agents: AgentInfo[]
-  supervisors: Record<string, string[]> | null
+  supervisors: SupervisorInfo[] | null
   isConnected: boolean
   onSelectAgent: (instanceId: string) => void
   t: (key: string, v?: Record<string, string | number>) => string
@@ -49,27 +55,28 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
 
 export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t }: AgentTableProps) {
   // Group agents by supervisor if available
-  const groupedAgents: { supervisor: string; members: AgentInfo[] }[] = []
+  const groupedAgents: { key: string; supervisor: string; members: AgentInfo[] }[] = []
 
   if (supervisors) {
     // Build grouped structure
     const assigned = new Set<string>()
-    for (const [supervisor, memberIds] of Object.entries(supervisors)) {
+    for (const supervisor of supervisors) {
+      const memberIds = [supervisor.leader_id, ...supervisor.children_ids]
       const members = agents.filter(a => memberIds.includes(a.instance_id) || memberIds.includes(a.id))
       members.forEach(m => assigned.add(m.instance_id || m.id))
       if (members.length > 0) {
-        groupedAgents.push({ supervisor, members })
+        groupedAgents.push({ key: supervisor.leader_id, supervisor: supervisor.group, members })
       }
     }
     // Ungrouped agents
     const ungrouped = agents.filter(a => !assigned.has(a.instance_id || a.id))
     if (ungrouped.length > 0) {
-      groupedAgents.push({ supervisor: t('table.groups.ungrouped'), members: ungrouped })
+      groupedAgents.push({ key: 'ungrouped', supervisor: t('table.groups.ungrouped'), members: ungrouped })
     }
   } else {
     // Flat list — single group
     if (agents.length > 0) {
-      groupedAgents.push({ supervisor: t('table.groups.all'), members: agents })
+      groupedAgents.push({ key: 'all', supervisor: t('table.groups.all'), members: agents })
     }
   }
 
@@ -258,7 +265,7 @@ export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t 
             </thead>
             <tbody>
               {groupedAgents.map((group) => (
-                <Fragment key={group.supervisor}>
+                <Fragment key={group.key}>
                   {/* Group header */}
                   {groupedAgents.length > 1 && (
                     <tr>

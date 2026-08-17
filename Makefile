@@ -24,6 +24,7 @@ help: ## Show this help
 build-web: ## Build lightweight web portal (for Go embed)
 	cd portal && pnpm approve-builds esbuild
 	cd portal && pnpm install
+	cd portal && pnpm test
 	cd portal && pnpm build
 	rm -rf internal/server/dist && cp -r portal/dist internal/server/dist
 	rsync -a --exclude='.venv' --exclude='__pycache__' --exclude='*.pyc' skills/ internal/server/dist/skills
