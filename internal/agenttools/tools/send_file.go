@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -93,7 +95,10 @@ func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) 
 		}
 
 		fileName = filepath.Base(abs)
-		path = exported
+		path, err = t.previewableExport(ctx, exported)
+		if err != nil {
+			return "", fmt.Errorf("failed to prepare file preview %s: %v", abs, err)
+		}
 
 		if a.FileType != "" {
 			fileType = a.FileType
@@ -142,6 +147,63 @@ func (t *sendFileTool) Execute(ctx context.Context, raw string) (string, error) 
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil
+}
+
+func (t *sendFileTool) previewableExport(ctx context.Context, source string) (string, error) {
+	root := workRootFromPlanDir(t.cfg.PlanDir)
+	if t.cfg.PlanDir == "" || isPreviewablePath(source, root, t.cfg.WorkDir) {
+		return source, nil
+	}
+	dir := filepath.Join(root, "artifacts", "sendfile")
+	if err := t.cfg.Executor.MkdirAll(ctx, dir); err != nil {
+		return "", err
+	}
+	readResult, err := t.cfg.Executor.ReadFile(ctx, source, ReadFileOptions{})
+	if err != nil {
+		return "", err
+	}
+	var nonce [8]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", err
+	}
+	finalPath := filepath.Join(dir, "sendfile-"+hex.EncodeToString(nonce[:])+"-"+filepath.Base(source))
+	if _, err := t.cfg.Executor.WriteFile(ctx, finalPath, readResult.Data, WriteFileOptions{}); err != nil {
+		return "", err
+	}
+	return finalPath, nil
+}
+
+func workRootFromPlanDir(planDir string) string {
+	current := filepath.Clean(planDir)
+	for current != "." && current != string(filepath.Separator) {
+		if filepath.Base(current) == "plan" {
+			return filepath.Dir(current)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+	return filepath.Dir(filepath.Clean(planDir))
+}
+
+func isPreviewablePath(path, root, workDir string) bool {
+	knownRoots := []string{
+		filepath.Join(root, "plan"), filepath.Join(root, "downloads"), filepath.Join(root, "workspace"),
+		filepath.Join(root, "images"), filepath.Join(root, "artifacts"), filepath.Join(root, "explore"), filepath.Join(root, "design"),
+	}
+	if cleanedWorkDir := filepath.Clean(workDir); workDir != "" && cleanedWorkDir != filepath.Clean(root) {
+		knownRoots = append(knownRoots, cleanedWorkDir)
+	}
+	cleanedPath := filepath.Clean(path)
+	for _, candidate := range knownRoots {
+		rel, err := filepath.Rel(filepath.Clean(candidate), cleanedPath)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func detectFileType(name string) string {

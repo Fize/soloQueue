@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -13,12 +14,105 @@ import (
 
 func mkSendFileTool(t *testing.T, maxSize int64) (*sendFileTool, string) {
 	t.Helper()
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "workspace", "team")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cfg := Config{
 		MaxFileSize: maxSize,
 		WorkDir:     dir,
+		PlanDir:     filepath.Join(root, "plan"),
 	}
 	return newSendFileTool(cfg), dir
+}
+
+func TestSendFileCopiesUnpreviewableLocalFileToArtifacts(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "workspace", "team")
+	sourceDir := filepath.Join(root, "design_output", "travel")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(sourceDir, "plan.png")
+	if err := os.WriteFile(source, []byte("image data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tool := newSendFileTool(Config{WorkDir: workDir, PlanDir: filepath.Join(root, "plan")})
+	args, _ := json.Marshal(sendFileArgs{Path: source})
+	out, err := tool.Execute(iface.ContextWithMediaDelivery(context.Background(), true), string(args))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var result sendFileResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	artifactsRoot := filepath.Join(root, "artifacts") + string(filepath.Separator)
+	if !strings.HasPrefix(result.Path, artifactsRoot) {
+		t.Fatalf("path = %q, want under %q", result.Path, artifactsRoot)
+	}
+	if result.Status != "success" || result.FileName != "plan.png" || result.FileType != "image" || result.URL != "" {
+		t.Fatalf("result shape changed: %#v", result)
+	}
+	data, err := os.ReadFile(result.Path)
+	if err != nil || string(data) != "image data" {
+		t.Fatalf("copied data = %q, err=%v", data, err)
+	}
+}
+
+func TestSendFileCopyIgnoresReadToolSizeLimit(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "workspace", "team")
+	sourceDir := filepath.Join(root, "design_output")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte(strings.Repeat("x", 2048))
+	source := filepath.Join(sourceDir, "large.png")
+	if err := os.WriteFile(source, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tool := newSendFileTool(Config{MaxFileSize: 16, WorkDir: workDir, PlanDir: filepath.Join(root, "plan")})
+	args, _ := json.Marshal(sendFileArgs{Path: source})
+	out, err := tool.Execute(iface.ContextWithMediaDelivery(context.Background(), true), string(args))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var result sendFileResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(result.Path)
+	if err != nil || !bytes.Equal(got, content) {
+		t.Fatalf("copied bytes=%d err=%v", len(got), err)
+	}
+}
+
+func TestSendFileUsesGlobalRootForTeamPlanDirectory(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "workspace", "team")
+	sourceDir := filepath.Join(root, "design_output")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(sourceDir, "plan.png")
+	if err := os.WriteFile(source, []byte("image data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tool := newSendFileTool(Config{WorkDir: workDir, PlanDir: filepath.Join(root, "plan", "team")})
+	args, _ := json.Marshal(sendFileArgs{Path: source})
+	out, err := tool.Execute(iface.ContextWithMediaDelivery(context.Background(), true), string(args))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result sendFileResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(result.Path, filepath.Join(root, "artifacts")+string(filepath.Separator)) {
+		t.Fatalf("path = %q, want global artifacts root", result.Path)
+	}
 }
 
 func TestSendFile_HappyLocalPath(t *testing.T) {

@@ -126,6 +126,42 @@ func TestSessionAskAdapter_AskStreamWithSession(t *testing.T) {
 	}
 }
 
+func TestSessionAskAdapterPersistsFilesContextOnUserMessage(t *testing.T) {
+	testLog := newTestLog(t)
+	fake := &agenttest.FakeLLM{Responses: []string{"final-response"}}
+	pushed := make(chan ctxwin.Message, 4)
+	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		a := agent.NewAgent(agent.Definition{ID: "agent-" + teamID}, fake, nil)
+		if err := a.Start(ctx); err != nil {
+			return nil, nil, nil, err
+		}
+		cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer(), ctxwin.WithPushHook(func(msg ctxwin.Message) {
+			pushed <- msg
+		}))
+		return a, cw, nil, nil
+	}
+	mgr := NewSessionManager(factory, testLog)
+	t.Cleanup(func() { mgr.Shutdown(time.Second) })
+	if _, err := mgr.Init(context.Background(), "team-a"); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	adapter := NewQQBotAdapter(mgr, testLog)
+	ctx := channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{Channel: "qq", AccountID: "bot", ConversationID: "chat", UserID: "user"})
+	ctx = context.WithValue(ctx, ctxwin.FilesContextKey, []ctxwin.FileAttachment{{Name: "image.jpg", Path: "/tmp/image.jpg"}})
+	if _, err := adapter.AskStream(ctx, "describe", nil); err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+
+	close(pushed)
+	for msg := range pushed {
+		if msg.Role == ctxwin.RoleUser && len(msg.Files) == 1 && msg.Files[0].Path == "/tmp/image.jpg" {
+			return
+		}
+	}
+	t.Fatal("user file metadata missing from timeline push hook")
+}
+
 func TestSessionAskAdapter_SaveUploadedFile(t *testing.T) {
 	testLog := newTestLog(t)
 	fake := &agenttest.FakeLLM{Responses: []string{"r"}}
@@ -348,6 +384,25 @@ func TestSameChannelRoutePreservesPendingMerge(t *testing.T) {
 	}
 	if got := sess.pending.Len(); got != 1 {
 		t.Fatalf("pending length = %d, want 1", got)
+	}
+}
+
+func TestSameChannelRouteMediaWaitsWithoutPendingMerge(t *testing.T) {
+	testLog := newTestLog(t)
+	sess := &Session{logger: testLog, pending: &PendingQueue{}, channelRouteKey: "qq\x00bot\x00chat\x00user", channelRouteOwners: 1}
+	sess.inFlight.Store(1)
+	base := &channelAdapterBase{log: testLog}
+	ctx := channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{Channel: "qq", AccountID: "bot", ConversationID: "chat", UserID: "user"})
+	ctx = context.WithValue(ctx, ctxwin.FilesContextKey, []ctxwin.FileAttachment{{Name: "image.jpg", Path: "/tmp/image.jpg"}})
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Millisecond)
+	defer cancel()
+
+	_, _, err := base.askChannelStream(ctx, sess, "media follow-up")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := sess.pending.Len(); got != 0 {
+		t.Fatalf("pending length = %d, want 0", got)
 	}
 }
 

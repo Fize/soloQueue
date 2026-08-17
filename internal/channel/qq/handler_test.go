@@ -2,11 +2,31 @@ package qq
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
+
+type imageContextSession struct {
+	files []ctxwin.FileAttachment
+}
+
+func (s *imageContextSession) AskStream(ctx context.Context, _ string, _ channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
+	s.files, _ = ctx.Value(ctxwin.FilesContextKey).([]ctxwin.FileAttachment)
+	return nil, channel.ErrQueued
+}
+func (*imageContextSession) Clear(context.Context) error   { return nil }
+func (*imageContextSession) Compact(context.Context) error { return nil }
+func (*imageContextSession) CancelCurrent(string) error    { return nil }
+func (*imageContextSession) SaveUploadedFile(context.Context, string, []byte) (string, error) {
+	return "/tmp/saved-qq-image.jpg", nil
+}
+func (*imageContextSession) SetChannelSenderData(string, []byte, func(context.Context, string) error) {
+}
 
 func testBridge(t *testing.T, transcriber *Transcriber) *SessionBridge {
 	t.Helper()
@@ -98,5 +118,24 @@ func TestProcessAudioMessage_SetsContentOnSuccess(t *testing.T) {
 	}
 	if msg.Content != "should not be overwritten on failure" {
 		t.Errorf("Content = %q, want unchanged on failure", msg.Content)
+	}
+}
+
+func TestQQImageAddsSavedFileToFilesContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("image"))
+	}))
+	defer server.Close()
+
+	log, _ := logger.New(t.TempDir(), logger.WithFile(false), logger.WithConsole(false))
+	sess := &imageContextSession{}
+	bridge := NewSessionBridge(sess, nil, log)
+	bridge.OnQQMessage(context.Background(), QQMessage{
+		AccountID: "bot", OpenID: "user", ChatID: "chat", Content: "describe", ImageURLs: []string{server.URL + "/image.jpg"},
+	})
+
+	if len(sess.files) != 1 || sess.files[0].Path != "/tmp/saved-qq-image.jpg" || sess.files[0].Name != "image.jpg" {
+		t.Fatalf("files context = %#v", sess.files)
 	}
 }

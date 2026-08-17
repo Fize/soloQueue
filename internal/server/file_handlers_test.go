@@ -85,3 +85,66 @@ func TestHTTP_FileHandlers_ToggleCheckbox(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPFileContentAllowsLegacyDesignOutputRasterImage(t *testing.T) {
+	workDir := t.TempDir()
+	mux := NewMux(workDir, nil)
+	defer mux.Close()
+	dir := filepath.Join(workDir, "design_output", "travel")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "plan.png")
+	if err := os.WriteFile(path, []byte("png data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newLocalhostRequest(http.MethodGet, "/api/files/content?path="+path, nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Body.String() != "png data" {
+		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHTTPFileContentRejectsLegacyDesignOutputHTML(t *testing.T) {
+	workDir := t.TempDir()
+	mux := NewMux(workDir, nil)
+	defer mux.Close()
+	dir := filepath.Join(workDir, "design_output")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "report.html")
+	if err := os.WriteFile(path, []byte("<script>alert(1)</script>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newLocalhostRequest(http.MethodGet, "/api/files/content?path="+path, nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHTTPFileContentRejectsLegacyDesignOutputRootSymlinkEscape(t *testing.T) {
+	workDir := t.TempDir()
+	externalDir := t.TempDir()
+	path := filepath.Join(externalDir, "secret.png")
+	if err := os.WriteFile(path, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(externalDir, filepath.Join(workDir, "design_output")); err != nil {
+		t.Fatal(err)
+	}
+	mux := NewMux(workDir, nil)
+	defer mux.Close()
+
+	req := newLocalhostRequest(http.MethodGet, "/api/files/content?path="+filepath.Join(workDir, "design_output", "secret.png"), nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}

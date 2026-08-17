@@ -151,6 +151,7 @@ func (b *TextBridge) preparePrompt(ctx context.Context, msg Message) (string, co
 	var prompt strings.Builder
 	prompt.WriteString(msg.Text)
 	var files []string
+	var fileAttachments []ctxwin.FileAttachment
 	var images []llm.ImageContent
 	for i, attachment := range msg.Attachments {
 		if attachment.Kind == AttachmentAudio && strings.TrimSpace(attachment.Transcript) == "" && len(attachment.Data) > 0 && b.transcribeVoice != nil {
@@ -186,6 +187,7 @@ func (b *TextBridge) preparePrompt(ctx context.Context, msg Message) (string, co
 		}
 		if localPath != "" {
 			files = append(files, fmt.Sprintf("- Filename: %s\n  Saved path: %s", name, localPath))
+			fileAttachments = append(fileAttachments, ctxwin.FileAttachment{Name: name, Path: localPath})
 		} else if attachment.Transcript == "" {
 			files = append(files, fmt.Sprintf("- Attachment: %s (%s)", name, attachment.Kind))
 		}
@@ -198,6 +200,9 @@ func (b *TextBridge) preparePrompt(ctx context.Context, msg Message) (string, co
 	if len(images) > 0 {
 		ctx = context.WithValue(ctx, ctxwin.ImageContextKey, images)
 		prompt.WriteString("\n[User uploaded images, processed by visual recognition]")
+	}
+	if len(fileAttachments) > 0 {
+		ctx = context.WithValue(ctx, ctxwin.FilesContextKey, fileAttachments)
 	}
 	return strings.TrimSpace(prompt.String()), ctx
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ type Gateway struct {
 	cfg     Config
 	client  *Client
 	handler channel.Handler
+	buffer  *messageBuffer
 	log     *logger.Logger
 
 	mu     sync.Mutex
@@ -27,7 +29,7 @@ type Gateway struct {
 }
 
 func NewGateway(cfg Config, client *Client, handler channel.Handler, log *logger.Logger) *Gateway {
-	return &Gateway{cfg: cfg, client: client, handler: handler, log: log}
+	return &Gateway{cfg: cfg, client: client, handler: handler, buffer: newMessageBuffer(time.Second, log, handler), log: log}
 }
 
 func (g *Gateway) Run(ctx context.Context) error {
@@ -98,7 +100,7 @@ func (g *Gateway) dispatch(ctx context.Context, raw Message) {
 		Channel: normalized.Channel, AccountID: normalized.AccountID,
 		UserID: normalized.UserID, ConversationID: normalized.ConversationID,
 	})
-	g.handler.OnMessage(nctx, normalized)
+	g.buffer.Push(nctx, normalized)
 }
 
 func mediaFromItem(item MessageItem) *CDNMedia {
@@ -138,6 +140,9 @@ func (g *Gateway) Close() {
 	g.closed = true
 	if g.cancel != nil {
 		g.cancel()
+	}
+	if g.buffer != nil {
+		g.buffer.Close()
 	}
 	g.mu.Unlock()
 }
@@ -183,6 +188,7 @@ func (g *Gateway) normalize(msg Message) (channel.Message, bool) {
 		conversationID = msg.GroupID
 	}
 	return channel.Message{
+		MessageID:      strconv.FormatInt(msg.MessageID, 10),
 		Channel:        "wechat",
 		AccountID:      g.cfg.BotID,
 		ConversationID: conversationID,
