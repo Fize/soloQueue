@@ -3,7 +3,7 @@ import { Layers, Database } from 'lucide-react'
 import { useTranslation } from './i18n'
 import { Header } from './components/Header'
 import { MetricsRow } from './components/MetricsRow'
-import { AgentTable } from './components/AgentTable'
+import { AgentTable, type SupervisorInfo } from './components/AgentTable'
 import { TokenStats } from './components/TokenStats'
 import { CronSection } from './components/CronSection'
 import { AgentModal } from './components/AgentModal'
@@ -97,7 +97,7 @@ export default function App() {
   const [connStatus, setConnStatus] = useState<ConnectionStatus>('disconnected')
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
-  const [supervisors, setSupervisors] = useState<Record<string, string[]> | null>(null)
+  const [supervisors, setSupervisors] = useState<SupervisorInfo[] | null>(null)
   const [cronTasks, setCronTasks] = useState<CronTaskStatus[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<NotificationPayload[]>([])
