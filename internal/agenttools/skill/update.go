@@ -4,17 +4,21 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"gopkg.in/yaml.v3"
 )
 
 // SkillsUpdateConfig defines which skills are allowed to be auto-updated.
@@ -109,9 +113,9 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 
 	var toSync []*Skill
 	stats := struct {
-		installed         int
-		withUpstream      int
-		withAutoUpdateOn  int
+		installed        int
+		withUpstream     int
+		withAutoUpdateOn int
 	}{installed: len(installed)}
 	for _, s := range installed {
 		// Check if local skill has upstream, or if embedded version has upstream
@@ -220,13 +224,17 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 			}
 		}
 
-		srcPath := tempDir
-		if s.SubPath != "" {
-			srcPath = filepath.Join(tempDir, filepath.FromSlash(s.SubPath))
+		srcPath, err := remoteSkillSourcePath(tempDir, s.SubPath)
+		if err != nil {
+			warn("remote skill source path is unsafe", "id", s.ID, "path", s.SubPath, "err", err.Error())
+			_ = os.RemoveAll(tempDir)
+			continue
 		}
 
-		if _, err := os.Stat(filepath.Join(srcPath, "SKILL.md")); os.IsNotExist(err) {
-			warn("remote repository does not contain SKILL.md for skill", "id", s.ID, "path", srcPath)
+		skillManifest := filepath.Join(srcPath, "SKILL.md")
+		manifestInfo, err := os.Lstat(skillManifest)
+		if err != nil || !manifestInfo.Mode().IsRegular() {
+			warn("remote repository does not contain a regular SKILL.md for skill", "id", s.ID, "path", srcPath, "err", err)
 			_ = os.RemoveAll(tempDir)
 			continue
 		}
@@ -239,23 +247,12 @@ func SyncRemoteSkills(ctx context.Context, workDir, userSkillsDir string, reg *S
 		}
 
 		if !equal {
-			disabledFile := filepath.Join(s.Dir, ".disabled")
-			hasDisabled := false
-			if _, err := os.Stat(disabledFile); err == nil {
-				hasDisabled = true
-			}
-
-			_ = os.RemoveAll(s.Dir)
-			if err := copyDir(srcPath, s.Dir); err != nil {
+			if err := syncManagedFiles(srcPath, s.Dir); err != nil {
 				if log != nil {
 					log.LogError(ctx, logger.CatApp, "failed to copy remote skill files", err, "id", s.ID)
 				}
 				_ = os.RemoveAll(tempDir)
 				continue
-			}
-
-			if hasDisabled {
-				_ = os.WriteFile(disabledFile, []byte(""), 0o644)
 			}
 
 			updatedAny = true
@@ -332,93 +329,383 @@ func StartRemoteSkillsSyncLoop(ctx context.Context, workDir, userSkillsDir strin
 	}()
 }
 
-// compareDirectories compares files between srcDir and dstDir recursively.
+// compareDirectories compares remote-managed files between srcDir and dstDir.
+// Local-only and ignored paths are intentionally outside the comparison: the
+// remote tree is an incremental overlay, not a mirror that owns runtime state.
 func compareDirectories(srcDir, dstDir string) (equal bool, modified []string, added []string, removed []string, err error) {
 	type fileSignature struct {
 		hash string
 		perm os.FileMode
 	}
 	srcFiles := make(map[string]fileSignature)
-	dstFiles := make(map[string]fileSignature)
+	if err := requireRemoteDirectory(srcDir); err != nil {
+		return false, nil, nil, nil, err
+	}
+	ignore, err := loadSkillIgnoreRules(srcDir, dstDir)
+	if err != nil {
+		return false, nil, nil, nil, err
+	}
 
-	err = filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(srcDir, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
-			if path != srcDir && info.Name() == ".git" {
+		if filePath == srcDir {
+			return nil
+		}
+		rel, err := filepath.Rel(srcDir, filePath)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if ignore.matches(rel, info.IsDir()) {
+			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		name := info.Name()
-		if strings.HasPrefix(name, ".") {
+		if info.IsDir() {
+			if conflictErr := remoteDirectoryConflict(dstDir, rel); conflictErr != nil {
+				return conflictErr
+			}
 			return nil
 		}
-		rel, err := filepath.Rel(srcDir, path)
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("remote managed path %q is not a regular file", rel)
+		}
+		hash, err := fileHash(filePath)
 		if err != nil {
 			return err
 		}
-		hash, err := fileHash(path)
-		if err != nil {
-			return err
-		}
-		srcFiles[filepath.ToSlash(rel)] = fileSignature{hash: hash, perm: info.Mode().Perm()}
+		srcFiles[rel] = fileSignature{hash: hash, perm: info.Mode().Perm()}
 		return nil
 	})
 	if err != nil {
 		return false, nil, nil, nil, err
 	}
 
-	err = filepath.Walk(dstDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			if path != dstDir && info.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		name := info.Name()
-		if strings.HasPrefix(name, ".") {
-			return nil
-		}
-		rel, err := filepath.Rel(dstDir, path)
-		if err != nil {
-			return err
-		}
-		hash, err := fileHash(path)
-		if err != nil {
-			return err
-		}
-		dstFiles[filepath.ToSlash(rel)] = fileSignature{hash: hash, perm: info.Mode().Perm()}
-		return nil
-	})
-	if err != nil && !os.IsNotExist(err) {
-		return false, nil, nil, nil, err
-	}
-
 	for rel, srcSignature := range srcFiles {
-		dstSignature, exists := dstFiles[rel]
-		if !exists {
+		dstPath := filepath.Join(dstDir, filepath.FromSlash(rel))
+		info, statErr := os.Lstat(dstPath)
+		if os.IsNotExist(statErr) {
 			added = append(added, rel)
-		} else if srcSignature != dstSignature {
+			continue
+		}
+		if statErr != nil {
+			return false, nil, nil, nil, statErr
+		}
+		if !info.Mode().IsRegular() {
+			return false, nil, nil, nil, skillSyncConflict(rel, "remote file", info)
+		}
+		hash, hashErr := fileHash(dstPath)
+		if hashErr != nil {
+			return false, nil, nil, nil, hashErr
+		}
+		dstSignature := fileSignature{hash: hash, perm: info.Mode().Perm()}
+		if srcSignature != dstSignature {
 			modified = append(modified, rel)
 		}
 	}
 
-	for rel := range dstFiles {
-		if _, exists := srcFiles[rel]; !exists {
-			removed = append(removed, rel)
-		}
-	}
-
-	equal = len(modified) == 0 && len(added) == 0 && len(removed) == 0
+	sort.Strings(modified)
+	sort.Strings(added)
+	equal = len(modified) == 0 && len(added) == 0
 	return equal, modified, added, removed, nil
 }
 
+// syncManagedFiles overlays non-ignored remote files onto dstDir. It never
+// removes paths merely because they are absent upstream. Type conflicts are
+// reported instead of deleting local-only content to make the overlay fit.
+func syncManagedFiles(srcDir, dstDir string) error {
+	if err := requireRemoteDirectory(srcDir); err != nil {
+		return err
+	}
+	ignore, err := loadSkillIgnoreRules(srcDir, dstDir)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
+
+	return filepath.Walk(srcDir, func(srcPath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if srcPath == srcDir {
+			return nil
+		}
+		rel, err := filepath.Rel(srcDir, srcPath)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if ignore.matches(rel, info.IsDir()) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		dstPath := filepath.Join(dstDir, filepath.FromSlash(rel))
+		if info.IsDir() {
+			if conflictErr := remoteDirectoryConflict(dstDir, rel); conflictErr != nil {
+				return conflictErr
+			}
+			if err := os.MkdirAll(dstPath, info.Mode().Perm()|0o700); err != nil {
+				return err
+			}
+			return os.Chmod(dstPath, info.Mode().Perm())
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("remote managed path %q is not a regular file", rel)
+		}
+
+		dstInfo, statErr := os.Lstat(dstPath)
+		if statErr == nil && !dstInfo.Mode().IsRegular() {
+			return skillSyncConflict(rel, "remote file", dstInfo)
+		} else if statErr != nil && !os.IsNotExist(statErr) {
+			return statErr
+		}
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+			return err
+		}
+		return copyFile(srcPath, dstPath)
+	})
+}
+
+var errSkillSyncConflict = errors.New("skill sync type conflict")
+
+func remoteSkillSourcePath(repoDir, subPath string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(subPath))
+	if subPath == "" {
+		clean = "."
+	}
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("subpath %q escapes the cloned repository", subPath)
+	}
+
+	candidate := filepath.Join(repoDir, clean)
+	rel, err := filepath.Rel(repoDir, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("subpath %q escapes the cloned repository", subPath)
+	}
+	current := repoDir
+	if rel != "." {
+		for _, component := range strings.Split(rel, string(filepath.Separator)) {
+			current = filepath.Join(current, component)
+			info, err := os.Lstat(current)
+			if err != nil {
+				return "", err
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				return "", fmt.Errorf("remote skill source component %q is a symlink", component)
+			}
+		}
+	}
+	if err := requireRemoteDirectory(candidate); err != nil {
+		return "", err
+	}
+	return candidate, nil
+}
+
+func requireRemoteDirectory(srcDir string) error {
+	info, err := os.Lstat(srcDir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("remote skill source %s is not a regular directory", srcDir)
+	}
+	return nil
+}
+
+func remoteDirectoryConflict(dstDir, rel string) error {
+	dstPath := filepath.Join(dstDir, filepath.FromSlash(rel))
+	dstInfo, err := os.Lstat(dstPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if dstInfo.IsDir() {
+		return nil
+	}
+	return skillSyncConflict(rel, "remote directory", dstInfo)
+}
+
+func skillSyncConflict(rel, remoteType string, localInfo os.FileInfo) error {
+	localType := "non-regular path"
+	switch {
+	case localInfo.IsDir():
+		localType = "directory"
+	case localInfo.Mode().IsRegular():
+		localType = "file"
+	case localInfo.Mode()&os.ModeSymlink != 0:
+		localType = "symlink"
+	}
+	return fmt.Errorf("%w at %q: %s conflicts with local %s; local content was preserved", errSkillSyncConflict, rel, remoteType, localType)
+}
+
+type skillIgnoreRules struct {
+	remote gitignoreMatcher
+	local  gitignoreMatcher
+}
+
+func loadSkillIgnoreRules(srcDir, dstDir string) (skillIgnoreRules, error) {
+	remote, err := loadGitignore(filepath.Join(srcDir, ".gitignore"))
+	if err != nil {
+		return skillIgnoreRules{}, err
+	}
+	local, err := loadGitignore(filepath.Join(dstDir, ".gitignore"))
+	if err != nil {
+		return skillIgnoreRules{}, err
+	}
+	return skillIgnoreRules{remote: remote, local: local}, nil
+}
+
+func (r skillIgnoreRules) matches(rel string, isDir bool) bool {
+	return isBuiltinSkillIgnored(rel) || r.remote.matches(rel, isDir) || r.local.matches(rel, isDir)
+}
+
+var builtinSkillIgnoredDirs = map[string]struct{}{
+	".cache": {}, ".git": {}, ".mypy_cache": {}, ".next": {}, ".nox": {},
+	".npm": {}, ".nuxt": {}, ".parcel-cache": {}, ".pnpm-store": {},
+	".pytest_cache": {}, ".ruff_cache": {}, ".tox": {}, ".turbo": {},
+	".venv": {}, ".yarn": {}, "__pycache__": {}, "bower_components": {},
+	"__pypackages__": {}, "coverage": {}, "data": {}, "env": {}, "logs": {}, "node_modules": {},
+	"site-packages": {}, "temp": {}, "tmp": {}, "venv": {},
+}
+
+func isBuiltinSkillIgnored(rel string) bool {
+	rel = strings.Trim(filepath.ToSlash(rel), "/")
+	if rel == "" {
+		return false
+	}
+	parts := strings.Split(rel, "/")
+	for _, part := range parts {
+		if _, ok := builtinSkillIgnoredDirs[part]; ok {
+			return true
+		}
+	}
+	base := parts[len(parts)-1]
+	if base == ".disabled" || base == ".DS_Store" || base == ".env" || strings.HasPrefix(base, ".env.") {
+		return true
+	}
+	lower := strings.ToLower(base)
+	for _, suffix := range []string{".pyc", ".pyo", ".db", ".db-shm", ".db-wal", ".sqlite", ".sqlite3", ".log"} {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return strings.HasSuffix(lower, ".egg-info")
+}
+
+type gitignorePattern struct {
+	pattern  string
+	negated  bool
+	dirOnly  bool
+	rooted   bool
+	baseOnly bool
+}
+
+type gitignoreMatcher []gitignorePattern
+
+func loadGitignore(ignorePath string) (gitignoreMatcher, error) {
+	info, err := os.Lstat(ignorePath)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("inspect %s: %w", ignorePath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("ignore file %s is not a regular file", ignorePath)
+	}
+	data, err := os.ReadFile(ignorePath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", ignorePath, err)
+	}
+
+	var matcher gitignoreMatcher
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSuffix(rawLine, "\r")
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, `\#`) || strings.HasPrefix(line, `\!`) {
+			line = line[1:]
+		}
+		negated := strings.HasPrefix(line, "!")
+		if negated {
+			line = strings.TrimPrefix(line, "!")
+		}
+		dirOnly := strings.HasSuffix(line, "/")
+		line = strings.TrimSuffix(line, "/")
+		rooted := strings.HasPrefix(line, "/")
+		line = strings.TrimPrefix(line, "/")
+		line = path.Clean(filepath.ToSlash(line))
+		if line == "." || line == "" {
+			continue
+		}
+		matcher = append(matcher, gitignorePattern{
+			pattern:  line,
+			negated:  negated,
+			dirOnly:  dirOnly,
+			rooted:   rooted,
+			baseOnly: !strings.Contains(line, "/"),
+		})
+	}
+	return matcher, nil
+}
+
+func (m gitignoreMatcher) matches(rel string, isDir bool) bool {
+	rel = strings.Trim(filepath.ToSlash(rel), "/")
+	ignored := false
+	for _, rule := range m {
+		if rule.matches(rel, isDir) {
+			ignored = !rule.negated
+		}
+	}
+	return ignored
+}
+
+func (p gitignorePattern) matches(rel string, isDir bool) bool {
+	if rel == "" {
+		return false
+	}
+	if p.baseOnly && !p.rooted {
+		parts := strings.Split(rel, "/")
+		for i, part := range parts {
+			matched, _ := doublestar.Match(p.pattern, part)
+			if matched && (!p.dirOnly || i < len(parts)-1 || isDir) {
+				return true
+			}
+		}
+		return false
+	}
+
+	parts := strings.Split(rel, "/")
+	for i := len(parts); i > 0; i-- {
+		candidate := strings.Join(parts[:i], "/")
+		candidateIsDir := i < len(parts) || isDir
+		matched, _ := doublestar.Match(p.pattern, candidate)
+		if matched && (!p.dirOnly || candidateIsDir) {
+			return true
+		}
+	}
+	return false
+}
+
 func fileHash(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("refusing to hash non-regular file %s", path)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
