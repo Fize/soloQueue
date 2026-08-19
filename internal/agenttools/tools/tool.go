@@ -168,6 +168,10 @@ type FallbackTool struct {
 func WithFallbackPrefix(tools []Tool) []Tool {
 	out := make([]Tool, len(tools))
 	for i, t := range tools {
+		if _, requiredTerminalTool := t.(TurnTerminator); requiredTerminalTool {
+			out[i] = t
+			continue
+		}
 		out[i] = &FallbackTool{
 			Tool: t,
 			desc: "[!!! DO NOT USE — protocol violation — call delegate_* instead !!!] " + t.Description(),
