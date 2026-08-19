@@ -406,7 +406,14 @@ func TestSession_CancelCurrent_KeepsSessionReusable(t *testing.T) {
 	if err := s.CancelCurrent("test stop"); err != nil {
 		t.Fatalf("CancelCurrent: %v", err)
 	}
-	for range first {
+	var cancellationErrors []error
+	for event := range first {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok {
+			cancellationErrors = append(cancellationErrors, errorEvent.Err)
+		}
+	}
+	if len(cancellationErrors) != 0 {
+		t.Fatalf("explicit cancellation emitted terminal errors: %v", cancellationErrors)
 	}
 
 	deadline := time.Now().Add(time.Second)
@@ -429,6 +436,206 @@ func TestSession_CancelCurrent_KeepsSessionReusable(t *testing.T) {
 	}
 	if !gotDone {
 		t.Fatal("AskStream after cancel completed without DoneEvent")
+	}
+}
+
+func TestSession_AskStream_DeadlineEmitsOneTerminalError(t *testing.T) {
+	fake := &agenttest.FakeLLM{
+		Responses: []string{"late response"},
+		Delay:     200 * time.Millisecond,
+	}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.requestTimeout = 10 * time.Millisecond
+
+	stream, err := s.AskStream(context.Background(), "time out")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+
+	var terminalErrors []error
+	for event := range stream {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok {
+			terminalErrors = append(terminalErrors, errorEvent.Err)
+		}
+	}
+
+	if len(terminalErrors) != 1 {
+		t.Fatalf("terminal error count = %d, want 1", len(terminalErrors))
+	}
+	if got := terminalErrors[0].Error(); got != "Session request timed out after 10ms" {
+		t.Fatalf("terminal error = %q", got)
+	}
+}
+
+func TestSession_AskStream_DeadlineReleasesWithSaturatedOutput(t *testing.T) {
+	deltas := make([]string, 256)
+	for i := range deltas {
+		deltas[i] = "x"
+	}
+	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{deltas}}
+	a := startAgent(t, fake)
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.requestTimeout = 100 * time.Millisecond
+
+	stream, err := s.AskStream(context.Background(), "fill the output buffer")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+
+	fillDeadline := time.Now().Add(time.Second)
+	for len(stream) < cap(stream) && time.Now().Before(fillDeadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(stream) != cap(stream) {
+		t.Fatalf("output buffer did not saturate: len=%d cap=%d", len(stream), cap(stream))
+	}
+
+	releaseDeadline := time.Now().Add(500 * time.Millisecond)
+	for s.inFlight.Load() != 0 && time.Now().Before(releaseDeadline) {
+		time.Sleep(time.Millisecond)
+	}
+	releasedBeforeDrain := s.inFlight.Load() == 0
+
+	var terminalErrors []error
+	for event := range stream {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok {
+			terminalErrors = append(terminalErrors, errorEvent.Err)
+		}
+	}
+	if !releasedBeforeDrain {
+		t.Fatal("deadline cleanup waited for the saturated output consumer")
+	}
+	if len(terminalErrors) != 1 {
+		t.Fatalf("terminal error count = %d, want 1", len(terminalErrors))
+	}
+	if got := terminalErrors[0].Error(); got != "Session request timed out after 100ms" {
+		t.Fatalf("terminal error = %q", got)
+	}
+}
+
+func TestSession_AskStream_DeadlineSourceErrorsAndCloseEmitOnce(t *testing.T) {
+	a := startAgent(t, &agenttest.FakeLLM{})
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.requestTimeout = 10 * time.Millisecond
+	s.askStreamHistory = func(ctx context.Context, _ *ctxwin.ContextWindow, _ string) (<-chan agent.AgentEvent, error) {
+		source := make(chan agent.AgentEvent, 2)
+		go func() {
+			<-ctx.Done()
+			source <- agent.ErrorEvent{Err: context.DeadlineExceeded}
+			source <- agent.ErrorEvent{Err: context.DeadlineExceeded}
+			close(source)
+		}()
+		return source, nil
+	}
+
+	stream, err := s.AskStream(context.Background(), "source deadline")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+
+	var terminalErrors []error
+	for event := range stream {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok {
+			terminalErrors = append(terminalErrors, errorEvent.Err)
+		}
+	}
+	if len(terminalErrors) != 1 {
+		t.Fatalf("terminal error count = %d, want 1", len(terminalErrors))
+	}
+	if got := terminalErrors[0].Error(); got != "Session request timed out after 10ms" {
+		t.Fatalf("terminal error = %q", got)
+	}
+}
+
+func TestSession_AskStream_LiveContextForwardsUpstreamDeadline(t *testing.T) {
+	a := startAgent(t, &agenttest.FakeLLM{})
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	upstreamErr := fmt.Errorf("provider timeout: %w", context.DeadlineExceeded)
+	s.askStreamHistory = func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error) {
+		source := make(chan agent.AgentEvent, 1)
+		source <- agent.ErrorEvent{Err: upstreamErr}
+		close(source)
+		return source, nil
+	}
+
+	stream, err := s.AskStream(context.Background(), "upstream deadline")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+
+	var errorsSeen []error
+	for event := range stream {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok {
+			errorsSeen = append(errorsSeen, errorEvent.Err)
+		}
+	}
+	if len(errorsSeen) != 1 {
+		t.Fatalf("error count = %d, want 1", len(errorsSeen))
+	}
+	if errorsSeen[0].Error() != upstreamErr.Error() {
+		t.Fatalf("error = %q, want %q", errorsSeen[0], upstreamErr)
+	}
+}
+
+func TestSession_AskStream_LiveContextForwardsUpstreamCancel(t *testing.T) {
+	a := startAgent(t, &agenttest.FakeLLM{})
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	upstreamErr := fmt.Errorf("provider canceled: %w", context.Canceled)
+	s.askStreamHistory = func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error) {
+		source := make(chan agent.AgentEvent, 1)
+		source <- agent.ErrorEvent{Err: upstreamErr}
+		close(source)
+		return source, nil
+	}
+
+	stream, err := s.AskStream(context.Background(), "upstream cancel")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+
+	var errorsSeen []error
+	for event := range stream {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok {
+			errorsSeen = append(errorsSeen, errorEvent.Err)
+		}
+	}
+	if len(errorsSeen) != 1 {
+		t.Fatalf("error count = %d, want 1", len(errorsSeen))
+	}
+	if errorsSeen[0].Error() != upstreamErr.Error() {
+		t.Fatalf("error = %q, want %q", errorsSeen[0], upstreamErr)
+	}
+}
+
+func TestSession_CancelCurrent_SourceCancelErrorIsSilent(t *testing.T) {
+	a := startAgent(t, &agenttest.FakeLLM{})
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	started := make(chan struct{})
+	s.askStreamHistory = func(ctx context.Context, _ *ctxwin.ContextWindow, _ string) (<-chan agent.AgentEvent, error) {
+		source := make(chan agent.AgentEvent, 2)
+		close(started)
+		go func() {
+			<-ctx.Done()
+			source <- agent.ErrorEvent{Err: context.Canceled}
+			source <- agent.ErrorEvent{Err: context.Canceled}
+			close(source)
+		}()
+		return source, nil
+	}
+
+	stream, err := s.AskStream(context.Background(), "cancel controlled source")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	<-started
+	if err := s.CancelCurrent("test controlled cancel"); err != nil {
+		t.Fatalf("CancelCurrent: %v", err)
+	}
+	for event := range stream {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok {
+			t.Fatalf("explicit cancellation emitted terminal error: %v", errorEvent.Err)
+		}
 	}
 }
 

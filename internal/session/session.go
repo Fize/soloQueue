@@ -64,6 +64,8 @@ func rejectsBusyQueue(ctx context.Context) bool {
 // Version is the current version of soloqueue. It is set at startup by the main command.
 var Version = "0.1.0"
 
+const defaultRequestTimeout = 20 * time.Minute
+
 // CurrentLevel returns the classification level of the last routed task.
 // Returns "" if no task has been routed yet or routing is disabled.
 func (s *Session) CurrentLevel() string {
@@ -203,6 +205,8 @@ type Session struct {
 
 	idleTimeout      time.Duration // 0 = disabled; auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum CW tokens to trigger compact
+	requestTimeout   time.Duration // session-scoped so deadline behavior can be tested without a production-length wait
+	askStreamHistory func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error)
 	isQBot           atomic.Bool
 }
 
@@ -221,15 +225,17 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	}
 
 	s := &Session{
-		TargetID:      id,
-		TeamID:        teamID,
-		Agent:         a,
-		Created:       time.Now(),
-		cw:            cw,
-		tl:            tl,
-		logger:        l,
-		pending:       &PendingQueue{},
-		activeCancels: make(map[uint64]activeTurnCancel),
+		TargetID:         id,
+		TeamID:           teamID,
+		Agent:            a,
+		Created:          time.Now(),
+		cw:               cw,
+		tl:               tl,
+		logger:           l,
+		pending:          &PendingQueue{},
+		activeCancels:    make(map[uint64]activeTurnCancel),
+		requestTimeout:   defaultRequestTimeout,
+		askStreamHistory: a.AskStreamWithHistory,
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 
@@ -1365,7 +1371,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		return nil, ErrQueued
 	}
 	clientCtx := ctx
-	askCtx, askCancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Minute)
+	askCtx, askCancel := context.WithTimeout(context.WithoutCancel(ctx), s.requestTimeout)
 	askCtx = iface.ContextWithIsQBot(askCtx, s.IsQBot())
 	cancelID := s.registerActiveCancel(askCancel)
 	// Routing, memory recall, the leader LLM, local children, and cross-team
@@ -1495,7 +1501,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		"prompt_len", len(prompt),
 	)
 
-	srcCh, err := s.Agent.AskStreamWithHistory(askCtx, s.cw, prompt)
+	srcCh, err := s.askStreamHistory(askCtx, s.cw, prompt)
 	if err != nil {
 		// Agent stopped: attempt to restart and retry once
 		if errors.Is(err, agent.ErrStopped) || errors.Is(err, agent.ErrNotStarted) {
@@ -1510,7 +1516,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				)
 			} else {
 				// Retry once
-				srcCh, err = s.Agent.AskStreamWithHistory(askCtx, s.cw, prompt)
+				srcCh, err = s.askStreamHistory(askCtx, s.cw, prompt)
 				if err == nil {
 					goto enqueued
 				}
@@ -1647,6 +1653,45 @@ enqueued:
 		}()
 
 		clientDisconnected := false
+		deadlineErrorEmitted := false
+		deadlineError := fmt.Errorf("Session request timed out after %s", formatRequestTimeout(s.requestTimeout))
+		emitDeadlineError := func() {
+			if deadlineErrorEmitted {
+				return
+			}
+			deadlineErrorEmitted = true
+			terminal := agent.ErrorEvent{Err: deadlineError}
+			select {
+			case out <- terminal:
+				eventCount++
+				return
+			default:
+			}
+			// A terminal event must never wait for a stalled consumer. If the
+			// output buffer is saturated, discard one incomplete streaming event
+			// to reserve the slot that closes the request with its timeout cause.
+			select {
+			case <-out:
+			default:
+			}
+			out <- terminal
+			eventCount++
+		}
+		terminateContext := func(err error) bool {
+			switch {
+			case errors.Is(err, context.DeadlineExceeded):
+				s.cancelled.Store(true)
+				rollbackTurn()
+				emitDeadlineError()
+				return true
+			case errors.Is(err, context.Canceled):
+				s.cancelled.Store(true)
+				rollbackTurn()
+				return true
+			default:
+				return false
+			}
+		}
 		for {
 			var ev agent.AgentEvent
 			if clientDisconnected {
@@ -1657,8 +1702,7 @@ enqueued:
 					}
 					ev = e
 				case <-askCtx.Done():
-					s.cancelled.Store(true)
-					rollbackTurn()
+					terminateContext(askCtx.Err())
 
 					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
 						"target_id", s.TargetID,
@@ -1675,8 +1719,7 @@ enqueued:
 					}
 					ev = e
 				case <-askCtx.Done():
-					s.cancelled.Store(true)
-					rollbackTurn()
+					terminateContext(askCtx.Err())
 
 					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
 						"target_id", s.TargetID,
@@ -1687,6 +1730,18 @@ enqueued:
 				case <-clientCtx.Done():
 					clientDisconnected = true
 					continue
+				}
+			}
+			if e, ok := ev.(agent.ErrorEvent); ok {
+				// The agent uses the same request context, so its context error is
+				// another observation of this request's terminal state only when it
+				// matches askCtx. An upstream context error while askCtx is still
+				// live remains an ordinary source error and must be forwarded intact.
+				askErr := askCtx.Err()
+				if (errors.Is(e.Err, context.DeadlineExceeded) && errors.Is(askErr, context.DeadlineExceeded)) ||
+					(errors.Is(e.Err, context.Canceled) && errors.Is(askErr, context.Canceled)) {
+					terminateContext(askErr)
+					return
 				}
 			}
 			if clientDisconnected {
@@ -1700,8 +1755,7 @@ enqueued:
 				case out <- ev:
 					eventCount++
 				case <-askCtx.Done():
-					s.cancelled.Store(true)
-					rollbackTurn()
+					terminateContext(askCtx.Err())
 
 					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (write)",
 						"target_id", s.TargetID,
@@ -1758,9 +1812,7 @@ enqueued:
 		}
 	done:
 		// Check if cancellation occurred between goto done and this label (narrow race window)
-		if askCtx.Err() != nil {
-			s.cancelled.Store(true)
-			rollbackTurn()
+		if terminateContext(askCtx.Err()) {
 		} else if gotDone {
 			if finalContent != "" {
 				s.mu.Lock()
@@ -1792,6 +1844,19 @@ enqueued:
 		)
 	}()
 	return out, nil
+}
+
+func formatRequestTimeout(timeout time.Duration) string {
+	switch {
+	case timeout%time.Hour == 0:
+		return fmt.Sprintf("%d hours", timeout/time.Hour)
+	case timeout%time.Minute == 0:
+		return fmt.Sprintf("%d minutes", timeout/time.Minute)
+	case timeout%time.Second == 0:
+		return fmt.Sprintf("%d seconds", timeout/time.Second)
+	default:
+		return timeout.String()
+	}
 }
 
 // partialFlushRemainder computes what a non-normal-exit flush should actually

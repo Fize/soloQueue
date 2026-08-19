@@ -25,6 +25,7 @@ interface ChatState {
   historyLoading: Record<string, boolean> // track which sessions are loading history
   historyHasMore: Record<string, boolean> // track which sessions have more history to load
   historyCursor: Record<string, string | null> // cursor for next load-more page
+  historyPreservedMessageIds: Record<string, string[]> // one-shot protection for request-owned terminal errors during runtime hydration
   sessionsLoading: boolean // true while loadSessions() is in flight — drives the "Loading sessions…" UI
   sessionsLoaded: boolean // true once a listSessions call has succeeded — stale-session guard may only trust absence after this
 
@@ -64,6 +65,7 @@ interface ChatState {
   completeLastDelegation: (sessionId: string, agentName: string, durationMs?: number, resultContent?: string) => void
   cancelRunningDelegations: (sessionId: string) => void
   resolveToolConfirm: (sessionId: string, callId: string, choice: string) => void
+  failAssistantMessage: (sessionId: string, messageId: string, error: string) => void
   
   rewindSession: (sessionId: string, targetTs: string) => Promise<void>
   deleteSessionMessages: (sessionId: string, targetTsList: string[]) => Promise<void>
@@ -129,6 +131,7 @@ export const useChatStore = create<ChatState>((set) => ({
   historyLoading: {},
   historyHasMore: {},
   historyCursor: {},
+  historyPreservedMessageIds: {},
   sessionsLoading: false,
   sessionsLoaded: false,
 
@@ -273,6 +276,10 @@ export const useChatStore = create<ChatState>((set) => ({
         if (current && current.length > 0 && s.streamingSessions[sessionId]) {
           return {}
         }
+        const preservedIds = s.historyPreservedMessageIds[sessionId] || []
+        const preserveCurrentMessages = preservedIds.some((messageId) =>
+          current?.some((message) => message.id === messageId)
+        )
         const updatedSessions = s.sessions.map((sess) => {
           if (sess.id === sessionId) {
             return {
@@ -283,6 +290,15 @@ export const useChatStore = create<ChatState>((set) => ({
           }
           return sess
         })
+        if (preserveCurrentMessages) {
+          const { [sessionId]: _consumed, ...remainingPreservedIds } = s.historyPreservedMessageIds
+          return {
+            sessions: updatedSessions,
+            historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
+            historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
+            historyPreservedMessageIds: remainingPreservedIds,
+          }
+        }
         return {
           sessions: updatedSessions,
           messages: { ...s.messages, [sessionId]: msgs },
@@ -296,6 +312,10 @@ export const useChatStore = create<ChatState>((set) => ({
         // Don't clear messages that were added by a racing send().
         const current = s.messages[sessionId]
         if (current && current.length > 0 && s.streamingSessions[sessionId]) {
+          return {}
+        }
+        const preservedIds = s.historyPreservedMessageIds[sessionId] || []
+        if (preservedIds.some((messageId) => current?.some((message) => message.id === messageId))) {
           return {}
         }
         return {
@@ -723,6 +743,55 @@ export const useChatStore = create<ChatState>((set) => ({
       })
       return {
         messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
+      }
+    })
+  },
+
+  failAssistantMessage: (sessionId: string, messageId: string, error: string) => {
+    set((s) => {
+      const messages = s.messages[sessionId] || []
+      let changed = false
+      const updated = messages.map((message) => {
+        if (message.id !== messageId || message.role !== 'assistant') return message
+
+        let hasVisibleError = false
+        const segments = message.segments.map((segment): ChatSegment => {
+          if (segment.type === 'error' && segment.text === error) {
+            hasVisibleError = true
+            return segment
+          }
+          if (segment.type === 'tool_call' && !segment.done) {
+            changed = true
+            return { ...segment, done: true, error }
+          }
+          if (segment.type === 'delegation' && segment.status === 'running') {
+            changed = true
+            return { ...segment, status: 'failed', resultContent: error }
+          }
+          if (segment.type === 'tool_confirm' && !segment.resolved) {
+            changed = true
+            hasVisibleError = true
+            return { type: 'error', text: error }
+          }
+          return segment
+        })
+
+        if (!hasVisibleError) {
+          changed = true
+          segments.push({ type: 'error', text: error })
+        }
+        return { ...message, segments }
+      })
+      if (!changed) return s
+      const preservedIds = s.historyPreservedMessageIds[sessionId] || []
+      return {
+        messages: { ...s.messages, [sessionId]: updated },
+        historyPreservedMessageIds: {
+          ...s.historyPreservedMessageIds,
+          [sessionId]: preservedIds.includes(messageId)
+            ? preservedIds
+            : [...preservedIds, messageId],
+        },
       }
     })
   },
