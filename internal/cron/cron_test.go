@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -336,11 +337,66 @@ func TestDrainEvents(t *testing.T) {
 }
 
 func TestBuildCronPrompt(t *testing.T) {
-	task := Task{Instruction: "Check health status"}
+	task := Task{ID: "task-1", Title: "Health check", Instruction: "Check health status"}
 	prompt := buildCronPrompt(task)
-	if prompt == "" {
-		t.Error("buildCronPrompt returned empty string")
+	for _, want := range []string{
+		"<TASK_INSTRUCTION>\nCheck health status\n</TASK_INSTRUCTION>",
+		"<FINAL_OUTPUT_CONTRACT>",
+		`"summary"`,
+		`"sections"`,
+		"Return JSON only",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("buildCronPrompt missing %q:\n%s", want, prompt)
+		}
 	}
+	for _, forbidden := range []string{`"version"`, `"status"`, `"task_id"`, `"error"`, "previous report"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Errorf("buildCronPrompt must not ask the model for %q:\n%s", forbidden, prompt)
+		}
+	}
+	if !strings.Contains(continuationPrompt, "<FINAL_OUTPUT_CONTRACT>") {
+		t.Fatalf("retry continuation prompt must retain final output contract: %s", continuationPrompt)
+	}
+}
+
+func TestNormalizeCronResult(t *testing.T) {
+	task := Task{ID: "task-1", Title: "Daily report"}
+	now := time.Date(2026, 8, 19, 15, 30, 0, 0, time.Local)
+
+	t.Run("valid strict payload becomes success", func(t *testing.T) {
+		result, err := normalizeCronResult(task, "run-1", `{"summary":"Ready","sections":[{"title":"Details","content":"All systems green."}]}`, now)
+		if err != nil {
+			t.Fatalf("normalizeCronResult returned error: %v", err)
+		}
+		if result.Version != "v1" || result.TaskID != task.ID || result.RunID != "run-1" || result.Title != task.Title {
+			t.Fatalf("project-owned fields not populated: %+v", result)
+		}
+		if result.Status != "success" || result.Error != nil || result.Summary != "Ready" || len(result.Sections) != 1 {
+			t.Fatalf("unexpected success result: %+v", result)
+		}
+		if result.GeneratedAt != now.Format(time.RFC3339) {
+			t.Fatalf("GeneratedAt = %q, want %q", result.GeneratedAt, now.Format(time.RFC3339))
+		}
+	})
+
+	t.Run("invalid non-empty payload becomes partial", func(t *testing.T) {
+		raw := `{"summary":"Ready","sections":[],"status":"success"}`
+		result, err := normalizeCronResult(task, "run-2", raw, now)
+		if err == nil || !strings.Contains(err.Error(), "unknown field") {
+			t.Fatalf("expected strict parse error, got %v", err)
+		}
+		if result.Status != "partial" || result.Summary != raw || len(result.Sections) != 0 || result.Error == nil || !strings.HasPrefix(*result.Error, "invalid_structured_output:") {
+			t.Fatalf("unexpected partial result: %+v", result)
+		}
+	})
+
+	t.Run("empty final output becomes failed", func(t *testing.T) {
+		result, err := normalizeCronResult(task, "run-3", "  \n", now)
+		if err == nil || result.Status != "failed" || result.Error == nil || !strings.HasPrefix(*result.Error, "empty_structured_output:") {
+			t.Fatalf("unexpected empty-output result=%+v err=%v", result, err)
+		}
+	})
 }
 
 func TestParseSendFileMedia(t *testing.T) {
@@ -620,17 +676,26 @@ func TestDrainEventsWithTimeline_Basic(t *testing.T) {
 	task := Task{ID: "test-task", Title: "test", Instruction: "do something"}
 	ch := make(chan iface.AgentEvent, 2)
 
-	// Simulate a simple content delta + done.
-	ch <- &testContentDelta{delta: "hello"}
-	ch <- &testDoneEvent{content: " world"}
+	// Intermediate content remains replayable, but only the final Done payload
+	// may be normalized and delivered.
+	ch <- &testContentDelta{delta: "private intermediate analysis"}
+	ch <- &testDoneEvent{content: `{"summary":"Ready","sections":[{"title":"Details","content":"All systems green."}]}`}
 	close(ch)
 
 	result, err := s.drainEventsWithTimeline(ch, task, "exec-1")
 	if err != nil {
 		t.Fatalf("drainEventsWithTimeline: %v", err)
 	}
-	if result.replyText != "hello world" {
-		t.Errorf("expected 'hello world', got %q", result.replyText)
+	if result.canonical.Status != "success" {
+		t.Fatalf("expected success result, got %+v", result.canonical)
+	}
+	if strings.Contains(result.replyText, "private intermediate analysis") {
+		t.Fatalf("intermediate content leaked into delivery: %q", result.replyText)
+	}
+	for _, want := range []string{"[成功] test", "Ready", "## Details", "All systems green."} {
+		if !strings.Contains(result.replyText, want) {
+			t.Errorf("standardized reply missing %q: %q", want, result.replyText)
+		}
 	}
 	if result.timelineDir == "" {
 		t.Error("timelineDir should not be empty")
@@ -640,6 +705,356 @@ func TestDrainEventsWithTimeline_Basic(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(tmpDir, "logs", "cron", "test-task", "exec-1", "timeline-*.jsonl"))
 	if err != nil || len(files) == 0 {
 		t.Errorf("timeline file was not created (err=%v, files=%v)", err, files)
+		return
+	}
+	timelineBytes, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatalf("read timeline: %v", err)
+	}
+	if !strings.Contains(string(timelineBytes), "private intermediate analysis") {
+		t.Fatalf("timeline must retain intermediate content:\n%s", timelineBytes)
+	}
+}
+
+func TestDrainEventsWithTimeline_InvalidFinalOutputIsLoggedAndStandardized(t *testing.T) {
+	s := newTestScheduler(t)
+	tmpDir := t.TempDir()
+	s.SetWorkDir(tmpDir)
+
+	task := Task{ID: "test-invalid", Title: "Invalid output", Instruction: "do something"}
+	ch := make(chan iface.AgentEvent, 2)
+	ch <- &testContentDelta{delta: "do not deliver this process output"}
+	ch <- &testDoneEvent{content: "plain final answer"}
+	close(ch)
+
+	result, err := s.drainEventsWithTimeline(ch, task, "exec-invalid")
+	if err != nil {
+		t.Fatalf("drainEventsWithTimeline: %v", err)
+	}
+	if result.canonical.Status != "partial" || result.canonical.Summary != "plain final answer" || len(result.canonical.Sections) != 0 {
+		t.Fatalf("unexpected partial result: %+v", result.canonical)
+	}
+	if strings.Contains(result.replyText, "do not deliver this process output") || !strings.Contains(result.replyText, "[部分完成] Invalid output") {
+		t.Fatalf("unexpected standardized reply: %q", result.replyText)
+	}
+
+	files, err := filepath.Glob(filepath.Join(tmpDir, "logs", "cron", "test-invalid", "exec-invalid", "timeline-*.jsonl"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("timeline file was not created (err=%v, files=%v)", err, files)
+	}
+	timelineBytes, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatalf("read timeline: %v", err)
+	}
+	if !strings.Contains(string(timelineBytes), "invalid_structured_output") {
+		t.Fatalf("timeline must record the parse error:\n%s", timelineBytes)
+	}
+}
+
+func TestRunL1TaskDeliversCanonicalResults(t *testing.T) {
+	tests := []struct {
+		name            string
+		final           string
+		startErr        error
+		wantStatus      string
+		wantMessage     string
+		wantCallbackOK  bool
+		wantDiagnostic  string
+		forbidInMessage string
+	}{
+		{
+			name:           "valid structured output",
+			final:          `{"summary":"Ready","sections":[]}`,
+			wantStatus:     "success",
+			wantMessage:    "[成功] Cron delivery",
+			wantCallbackOK: true,
+		},
+		{
+			name:           "invalid final output",
+			final:          "plain final answer",
+			wantStatus:     "success",
+			wantMessage:    "[部分完成] Cron delivery",
+			wantDiagnostic: "invalid_structured_output:",
+		},
+		{
+			name:        "empty final output",
+			final:       "",
+			wantStatus:  "failed",
+			wantMessage: "[失败] Cron delivery",
+		},
+		{
+			name:            "execution fails to start",
+			startErr:        errors.New("provider unavailable at /private/provider.sock?token=secret"),
+			wantStatus:      "failed",
+			wantMessage:     "[失败] Cron delivery",
+			wantDiagnostic:  "provider unavailable at /private/provider.sock?token=secret",
+			forbidInMessage: "/private/provider.sock",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := openTestDB(t)
+			task, err := store.CreateTask(context.Background(), CreateTaskInput{
+				Title:       "Cron delivery",
+				TaskType:    "general",
+				Expression:  "0 8 * * *",
+				Instruction: "produce a report",
+				TargetAgent: "L1",
+				NextRunAt:   time.Now().Add(time.Hour),
+			})
+			if err != nil {
+				t.Fatalf("CreateTask: %v", err)
+			}
+
+			var messages []string
+			session := &mockSession{
+				idle: true,
+				askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+					if tt.startErr != nil {
+						return nil, tt.startErr
+					}
+					ch := make(chan iface.AgentEvent, 2)
+					ch <- &testContentDelta{delta: "private process output"}
+					ch <- &testDoneEvent{content: tt.final}
+					close(ch)
+					return ch, nil
+				},
+				sendViaChannelFn: func(_ context.Context, text string) error {
+					messages = append(messages, text)
+					return nil
+				},
+			}
+			s := NewScheduler(store, &mockSessionManager{session: session}, nil)
+			s.SetWorkDir(t.TempDir())
+			t.Cleanup(s.Stop)
+			callbackCalled := false
+			callbackOK := false
+			s.OnTaskComplete = func(_, _ string, success bool, _ string) {
+				callbackCalled = true
+				callbackOK = success
+			}
+
+			s.runL1Task(context.Background(), *task, session)
+
+			if len(messages) != 1 || !strings.Contains(messages[0], tt.wantMessage) {
+				t.Fatalf("messages = %q, want one standardized message containing %q", messages, tt.wantMessage)
+			}
+			if strings.Contains(messages[0], "private process output") {
+				t.Fatalf("intermediate process output leaked: %q", messages[0])
+			}
+			if tt.forbidInMessage != "" && strings.Contains(messages[0], tt.forbidInMessage) {
+				t.Fatalf("private diagnostic leaked into public message: %q", messages[0])
+			}
+			if !callbackCalled || callbackOK != tt.wantCallbackOK {
+				t.Fatalf("completion callback called=%v success=%v, want called=true success=%v", callbackCalled, callbackOK, tt.wantCallbackOK)
+			}
+			records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+			if err != nil || len(records) != 1 {
+				t.Fatalf("ListExecutionHistory err=%v records=%v", err, records)
+			}
+			if records[0].Status != tt.wantStatus {
+				t.Fatalf("execution status = %q, want %q", records[0].Status, tt.wantStatus)
+			}
+			if tt.wantDiagnostic != "" && !strings.Contains(records[0].ErrorMessage, tt.wantDiagnostic) {
+				t.Fatalf("raw diagnostic was not persisted: %+v", records[0])
+			}
+		})
+	}
+}
+
+func TestCronPanicsUseCanonicalFailureAndKeepRawDiagnosticsPrivate(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*Scheduler, *Task, *mockSession)
+	}{
+		{
+			name: "L1 idle panic",
+			run: func(s *Scheduler, task *Task, session *mockSession) {
+				session.idleFn = func() bool { panic("private L1 panic at /secret/l1") }
+				s.executeL1Task(*task)
+			},
+		},
+		{
+			name: "L2 execution panic",
+			run: func(s *Scheduler, task *Task, session *mockSession) {
+				task.TargetAgent = "engineering"
+				session.hasNotifyChannel = true
+				session.askStreamFn = func(context.Context, string) (<-chan iface.AgentEvent, error) {
+					panic("private L2 panic at /secret/l2")
+				}
+				s.sessionMgr = &mockSessionManager{getSession: func(context.Context, string, string) (Session, bool, func(), error) {
+					return session, false, nil, nil
+				}}
+				s.executeL2Task(*task)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := openTestDB(t)
+			task, err := store.CreateTask(context.Background(), CreateTaskInput{
+				Title:       "Panic task",
+				TaskType:    "general",
+				Expression:  "0 8 * * *",
+				Instruction: "panic",
+				TargetAgent: "L1",
+				NextRunAt:   time.Now().Add(time.Hour),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var messages []string
+			session := &mockSession{idle: true, sendViaChannelFn: func(_ context.Context, text string) error {
+				messages = append(messages, text)
+				return nil
+			}}
+			s := NewScheduler(store, &mockSessionManager{session: session}, nil)
+			s.SetWorkDir(t.TempDir())
+			callbackOK := true
+			s.OnTaskComplete = func(_, _ string, success bool, _ string) { callbackOK = success }
+
+			tt.run(s, task, session)
+
+			if callbackOK {
+				t.Fatal("panic completion callback must not report success")
+			}
+			if len(messages) != 1 || !strings.Contains(messages[0], "[失败] Panic task") {
+				t.Fatalf("panic message = %q, want one canonical failure", messages)
+			}
+			if strings.Contains(messages[0], "/secret/") || strings.Contains(messages[0], "private L") {
+				t.Fatalf("panic diagnostic leaked publicly: %q", messages[0])
+			}
+			records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+			if err != nil || len(records) != 1 {
+				t.Fatalf("history err=%v records=%v", err, records)
+			}
+			if records[0].Status != "failed" || !strings.Contains(records[0].ErrorMessage, "private L") {
+				t.Fatalf("panic history did not retain raw diagnostic: %+v", records[0])
+			}
+		})
+	}
+}
+
+func TestFailedRetriesUseTerminalAttemptProvenance(t *testing.T) {
+	for _, target := range []string{"L1", "engineering"} {
+		t.Run(target, func(t *testing.T) {
+			store := openTestDB(t)
+			task, err := store.CreateTask(context.Background(), CreateTaskInput{
+				Title:       "Retry task",
+				TaskType:    "general",
+				Expression:  "0 8 * * *",
+				Instruction: "retry",
+				TargetAgent: target,
+				NextRunAt:   time.Now().Add(time.Hour),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var attempts int
+			var messages []string
+			session := &mockSession{
+				idle:             true,
+				hasNotifyChannel: true,
+				askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+					attempts++
+					ch := make(chan iface.AgentEvent, 1)
+					if attempts == 1 {
+						ch <- &testErrorEvent{err: errors.New("initial private failure")}
+					} else {
+						ch <- &testErrorEvent{err: errors.New("terminal private retry failure")}
+					}
+					close(ch)
+					return ch, nil
+				},
+				sendViaChannelFn: func(_ context.Context, text string) error {
+					messages = append(messages, text)
+					return nil
+				},
+			}
+			manager := &mockSessionManager{session: session}
+			if target != "L1" {
+				manager.getSession = func(context.Context, string, string) (Session, bool, func(), error) {
+					return session, false, nil, nil
+				}
+			}
+			s := NewScheduler(store, manager, nil)
+			s.SetWorkDir(t.TempDir())
+			s.retryDelay = 0
+			if target == "L1" {
+				s.runL1Task(context.Background(), *task, session)
+			} else {
+				s.executeL2Task(*task)
+			}
+
+			if attempts != 2 {
+				t.Fatalf("attempts = %d, want 2", attempts)
+			}
+			if len(messages) != 1 || strings.Contains(messages[0], "private") {
+				t.Fatalf("public failure must be canonical and private: %q", messages)
+			}
+			records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+			if err != nil || len(records) != 1 {
+				t.Fatalf("history err=%v records=%v", err, records)
+			}
+			if !strings.Contains(records[0].TimelineDir, "-retry") {
+				t.Fatalf("timeline provenance = %q, want terminal retry timeline", records[0].TimelineDir)
+			}
+			if !strings.Contains(records[0].ErrorMessage, "terminal private retry failure") || strings.Contains(records[0].ErrorMessage, "initial private failure") {
+				t.Fatalf("diagnostic provenance did not use terminal retry: %+v", records[0])
+			}
+		})
+	}
+}
+
+func TestRetryStartFailureKeepsRawErrorOutOfPublicResult(t *testing.T) {
+	store := openTestDB(t)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title:       "Retry start task",
+		TaskType:    "general",
+		Expression:  "0 8 * * *",
+		Instruction: "retry",
+		TargetAgent: "L1",
+		NextRunAt:   time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var attempts int
+	var messages []string
+	session := &mockSession{
+		idle: true,
+		askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+			attempts++
+			if attempts == 2 {
+				return nil, errors.New("retry start private endpoint /secret/retry")
+			}
+			ch := make(chan iface.AgentEvent, 1)
+			ch <- &testErrorEvent{err: errors.New("initial failure")}
+			close(ch)
+			return ch, nil
+		},
+		sendViaChannelFn: func(_ context.Context, text string) error {
+			messages = append(messages, text)
+			return nil
+		},
+	}
+	s := NewScheduler(store, &mockSessionManager{session: session}, nil)
+	s.SetWorkDir(t.TempDir())
+	s.retryDelay = 0
+	s.runL1Task(context.Background(), *task, session)
+
+	if len(messages) != 1 || strings.Contains(messages[0], "/secret/retry") {
+		t.Fatalf("retry start detail leaked publicly: %q", messages)
+	}
+	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+	if err != nil || len(records) != 1 || !strings.Contains(records[0].ErrorMessage, "/secret/retry") {
+		t.Fatalf("retry start diagnostic not retained: err=%v records=%v", err, records)
+	}
+	if !strings.Contains(records[0].TimelineDir, "-retry") {
+		t.Fatalf("retry start provenance = %q, want terminal retry timeline", records[0].TimelineDir)
 	}
 }
 

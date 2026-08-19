@@ -1,10 +1,12 @@
 package cron
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -63,6 +65,26 @@ type ResolvedModel struct {
 	FallbackReason    string
 }
 
+// CronResultSection is model-authored report content after strict validation.
+type CronResultSection struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+// CronResultV1 is the scheduler-owned result boundary for every Cron run. The
+// model owns only Summary and Sections; all remaining fields are project-owned.
+type CronResultV1 struct {
+	Version     string              `json:"version"`
+	TaskID      string              `json:"task_id"`
+	RunID       string              `json:"run_id"`
+	Title       string              `json:"title"`
+	Status      string              `json:"status"`
+	Summary     string              `json:"summary"`
+	Sections    []CronResultSection `json:"sections"`
+	Error       *string             `json:"error"`
+	GeneratedAt string              `json:"generated_at"`
+}
+
 // ModelResolver resolves the latest configured model for a persisted task type.
 type ModelResolver func(taskType string) (ResolvedModel, error)
 
@@ -94,6 +116,7 @@ type Scheduler struct {
 	logger     *logger.Logger
 	cron       *robfig.Cron
 	workDir    string // base directory for cron log storage
+	retryDelay time.Duration
 
 	modelResolver ModelResolver
 
@@ -149,6 +172,7 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 		entries:     make(map[string]robfig.EntryID),
 		timers:      make(map[string]*time.Timer),
 		oneTimeRuns: make(map[string]string),
+		retryDelay:  10 * time.Second,
 	}
 	s.l1Cond = sync.NewCond(&s.l1Mu)
 	return s
@@ -305,6 +329,9 @@ func (s *Scheduler) claimOneTimeRun(t Task) bool {
 // and executed later by l1QueueLoop.
 func (s *Scheduler) executeL1Task(t Task) {
 	ctx := context.Background()
+	start := time.Now()
+	panicRunID := uuid.New().String()
+	var l1Session Session
 
 	// Two-phase commit: claim the task.
 	claimed, err := s.dbStore.ClaimTask(ctx, t.ID)
@@ -320,14 +347,12 @@ func (s *Scheduler) executeL1Task(t Task) {
 	// Panic recovery: catch panic, log, record history, return to 'active' for retry.
 	defer func() {
 		if panicValue := recover(); panicValue != nil {
-			s.logger.Error(logger.CatApp, "cron: L1 task execution panicked", "task_id", t.ID, "panic", panicValue)
 			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
-			s.recordExecution(ctx, t, ResolvedModel{}, time.Now(), drainEventsResult{},
-				fmt.Sprintf("panic: %v", panicValue), "panic")
+			s.handleCronPanic(ctx, t, start, panicRunID, ResolvedModel{}, l1Session, false, panicValue)
 		}
 	}()
 
-	l1Session := s.sessionMgr.Session()
+	l1Session = s.sessionMgr.Session()
 	if l1Session == nil {
 		s.logger.Warn(logger.CatApp, "cron: L1 task skipped, no active session", "task_id", t.ID)
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
@@ -375,6 +400,50 @@ func (s *Scheduler) notifyTaskComplete(t Task, success bool, summary string) {
 	s.OnTaskComplete(t.ID, t.Title, success, summary)
 }
 
+func (s *Scheduler) handleCronPanic(ctx context.Context, t Task, start time.Time, runID string, resolved ResolvedModel, sess Session, l2 bool, panicValue any) {
+	rawErr := fmt.Errorf("panic: %v", panicValue)
+	s.logger.Error(logger.CatApp, "cron: task execution panicked", "task_id", t.ID, "run_id", runID, "panic", panicValue)
+	result := drainEventsResult{diagnosticError: diagnosticCronError("execution_panicked", rawErr)}
+	result.timelineDir = s.writeCronDiagnosticTimeline(t, runID, "execution_panicked", rawErr.Error())
+	applyCronResult(&result, failedCronResult(t, runID, "execution_panicked", time.Now()))
+	s.recordExecution(ctx, t, resolved, start, result, result.diagnosticError, result.canonical.Status)
+	s.notifyTaskComplete(t, false, firstLineSummary(result.replyText))
+	if sess == nil {
+		return
+	}
+	if l2 {
+		s.deliverL2ResultViaChannel(ctx, t, sess, result.replyText)
+		return
+	}
+	if err := sess.SendViaChannel(ctx, result.replyText); err != nil {
+		s.logger.Warn(logger.CatApp, "cron: panic notification failed", "task_id", t.ID, "err", err)
+	}
+}
+
+func (s *Scheduler) writeCronDiagnosticTimeline(t Task, runID, reason, diagnostic string) string {
+	var tlDir string
+	if s.workDir == "" {
+		tlDir = filepath.Join(os.TempDir(), "soloqueue-cron", t.ID, runID)
+	} else {
+		tlDir = filepath.Join(s.workDir, "logs", "cron", t.ID, runID)
+	}
+	if err := os.MkdirAll(tlDir, 0o755); err != nil {
+		s.logger.Error(logger.CatApp, "cron: failed to create diagnostic timeline", "task_id", t.ID, "run_id", runID, "err", err)
+		return ""
+	}
+	tl, err := timeline.NewWriter(tlDir, "timeline", 50*1024*1024, 15)
+	if err != nil {
+		s.logger.Error(logger.CatApp, "cron: failed to open diagnostic timeline", "task_id", t.ID, "run_id", runID, "err", err)
+		return ""
+	}
+	defer tl.Close()
+	if err := tl.AppendControl(&timeline.ControlPayload{Action: "error", Reason: reason, Content: diagnostic}); err != nil {
+		s.logger.Error(logger.CatApp, "cron: failed to write diagnostic timeline", "task_id", t.ID, "run_id", runID, "err", err)
+		return ""
+	}
+	return filepath.Join("logs", "cron", t.ID, runID)
+}
+
 // firstLineSummary returns at most the first line of s, truncated to ~100 runes.
 func firstLineSummary(s string) string {
 	if s == "" {
@@ -388,18 +457,49 @@ func firstLineSummary(s string) string {
 	return line
 }
 
-const continuationPrompt = "[SYSTEM NOTICE] The previous streaming response was interrupted due to a network error. System connection has been restored. Please resume and complete the unfinished task based on the above tool calls and intermediate results."
+const cronFinalOutputContract = `<FINAL_OUTPUT_CONTRACT>
+After all analysis and tool calls are complete, return exactly one JSON object in this shape:
+{
+  "summary": "A concise result summary",
+  "sections": [
+    {
+      "title": "Section title",
+      "content": "Markdown content"
+    }
+  ]
+}
+
+Rules:
+- Return JSON only in the final response, without a Markdown code fence or surrounding prose.
+- Output only the fields "summary" and "sections".
+- "summary" must be a non-empty string.
+- "sections" must be an array and may be empty.
+- Every section must contain only non-empty "title" and "content" strings.
+- State unavailable data explicitly and do not invent facts.
+- Do not include intermediate reasoning, tool calls, or tool results in the final JSON.
+</FINAL_OUTPUT_CONTRACT>`
+
+const continuationPrompt = "[SYSTEM NOTICE] The previous streaming response was interrupted due to a network error. System connection has been restored. Please resume and complete the unfinished task based on the above tool calls and intermediate results.\n\n" + cronFinalOutputContract
 
 // runL1Task executes a single L1 task on the given session.
 func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	start := time.Now()
+	execID := uuid.New().String()
+	var resolved ResolvedModel
+	defer func() {
+		if panicValue := recover(); panicValue != nil {
+			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+			s.handleCronPanic(ctx, t, start, execID, resolved, l1Session, false, panicValue)
+		}
+	}()
 
 	s.notifyTaskStarted(t)
 
-	execID := uuid.New().String()
 	cronCtx := s.buildCronContext(t, execID)
 
-	resolved, ch, err := s.askWithTaskModel(cronCtx, t, l1Session)
+	var ch <-chan iface.AgentEvent
+	var err error
+	resolved, ch, err = s.askWithTaskModel(cronCtx, t, l1Session)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
 		if errors.Is(err, errTaskModelResolution) {
@@ -407,8 +507,15 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 		} else {
 			s.updateTaskAfterExecution(ctx, t)
 		}
-		s.recordExecution(ctx, t, resolved, start, drainEventsResult{}, err.Error(), "failed")
-		s.notifyTaskComplete(t, false, err.Error())
+		failureResult := drainEventsResult{}
+		applyCronResult(&failureResult, failedCronResult(t, execID, "execution_start_failed", time.Now()))
+		failureResult.diagnosticError = diagnosticCronError("execution_start_failed", err)
+		failureResult.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
+		s.recordExecution(ctx, t, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status)
+		s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
+		if sendErr := l1Session.SendViaChannel(ctx, failureResult.replyText); sendErr != nil {
+			s.logger.Warn(logger.CatApp, "cron: L1 failure notification failed", "task_id", t.ID, "err", sendErr)
+		}
 		return
 	}
 
@@ -418,7 +525,7 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	if drainErr != nil {
 		s.logger.Warn(logger.CatApp, "cron: L1 task drain error, preparing 10s retry",
 			"task_id", t.ID, "tool_calls", result.toolCallCount, "err", drainErr)
-		time.Sleep(10 * time.Second)
+		time.Sleep(s.retryDelay)
 
 		var retrySess Session
 		var retryPrompt string
@@ -440,11 +547,13 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 
 		retryExecID := uuid.New().String() + "-retry"
 		retryCtx := s.buildCronContext(t, retryExecID)
-		_, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		retryResolved, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		resolved = retryResolved
+		execID = retryExecID
 		if retryStartErr == nil {
 			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, retryExecID)
+			result = retryResult
 			if retryDrainErr == nil {
-				result = retryResult
 				drainErr = nil
 				s.logger.Info(logger.CatApp, "cron: L1 task retry succeeded", "task_id", t.ID)
 			} else {
@@ -453,6 +562,9 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 			}
 		} else {
 			s.logger.Error(logger.CatApp, "cron: L1 task retry failed to start", "task_id", t.ID, "err", retryStartErr)
+			result = drainEventsResult{}
+			drainErr = fmt.Errorf("retry failed to start: %w", retryStartErr)
+			result.timelineDir = s.writeCronDiagnosticTimeline(t, retryExecID, "execution_start_failed", drainErr.Error())
 		}
 	}
 
@@ -460,24 +572,22 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 	s.logger.Info(logger.CatApp, "cron: L1 task completed", "task_id", t.ID, "duration_ms", duration.Milliseconds())
 
 	// Record execution history.
-	status := "success"
-	errMsg := ""
 	if drainErr != nil {
-		status = "failed"
-		errMsg = drainErr.Error()
+		applyCronResult(&result, failedCronResult(t, execID, "execution_failed", time.Now()))
+		result.diagnosticError = diagnosticCronError("execution_failed", drainErr)
 	}
+	status := result.canonical.Status
+	errMsg := result.diagnosticError
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
-	if status != "success" {
-		s.notifyTaskComplete(t, false, "Execution failed: "+errMsg)
-	} else {
-		s.notifyTaskComplete(t, true, firstLineSummary(result.replyText))
-	}
+	s.notifyTaskComplete(t, status == "success", firstLineSummary(result.replyText))
 
 	// Deliver result through the session's bound channel (QQ/WeChat).
-	if status == "success" && result.replyText != "" {
-		l1Session.SendViaChannel(ctx, result.replyText)
+	if result.replyText != "" {
+		if err := l1Session.SendViaChannel(ctx, result.replyText); err != nil {
+			s.logger.Warn(logger.CatApp, "cron: L1 notification failed", "task_id", t.ID, "err", err)
+		}
 	}
-	if status == "success" && len(result.mediaFiles) > 0 {
+	if drainErr == nil && len(result.mediaFiles) > 0 {
 		if err := l1Session.SendMediaViaChannel(ctx, result.mediaFiles); err != nil {
 			s.logger.Warn(logger.CatApp, "cron: L1 media notification failed", "task_id", t.ID, "err", err)
 		}
@@ -494,6 +604,10 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 // L2 session, executes the task, and queues the result for L1 delivery.
 func (s *Scheduler) executeL2Task(t Task) {
 	ctx := context.Background()
+	start := time.Now()
+	execID := uuid.New().String()
+	var resolved ResolvedModel
+	var l2Session Session
 
 	// Two-phase commit: claim the task.
 	claimed, err := s.dbStore.ClaimTask(ctx, t.ID)
@@ -509,16 +623,15 @@ func (s *Scheduler) executeL2Task(t Task) {
 	// Panic recovery.
 	defer func() {
 		if panicValue := recover(); panicValue != nil {
-			s.logger.Error(logger.CatApp, "cron: L2 task execution panicked", "task_id", t.ID, "panic", panicValue)
 			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
-			s.recordExecution(ctx, t, ResolvedModel{}, time.Now(), drainEventsResult{},
-				fmt.Sprintf("panic: %v", panicValue), "panic")
-			s.notifyTaskComplete(t, false, fmt.Sprintf("panic: %v", panicValue))
+			s.handleCronPanic(ctx, t, start, execID, resolved, l2Session, true, panicValue)
 		}
 	}()
 
 	// Get session for this L2 team.
-	l2Session, isNew, cleanup, err := s.sessionMgr.GetSession(ctx, t.TargetAgent, t.ID)
+	var isNew bool
+	var cleanup func()
+	l2Session, isNew, cleanup, err = s.sessionMgr.GetSession(ctx, t.TargetAgent, t.ID)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: failed to get L2 session", "task_id", t.ID, "target", t.TargetAgent, "err", err)
 		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
@@ -534,13 +647,11 @@ func (s *Scheduler) executeL2Task(t Task) {
 		return
 	}
 
-	start := time.Now()
-
 	s.notifyTaskStarted(t)
 
-	execID := uuid.New().String()
 	cronCtx := s.buildCronContext(t, execID)
-	resolved, ch, err := s.askWithTaskModel(cronCtx, t, l2Session)
+	var ch <-chan iface.AgentEvent
+	resolved, ch, err = s.askWithTaskModel(cronCtx, t, l2Session)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L2 task execution failed to start", "task_id", t.ID, "err", err)
 		if errors.Is(err, errTaskModelResolution) {
@@ -548,8 +659,13 @@ func (s *Scheduler) executeL2Task(t Task) {
 		} else {
 			s.updateTaskAfterExecution(ctx, t)
 		}
-		s.recordExecution(ctx, t, resolved, start, drainEventsResult{}, err.Error(), "failed")
-		s.notifyTaskComplete(t, false, err.Error())
+		failureResult := drainEventsResult{}
+		applyCronResult(&failureResult, failedCronResult(t, execID, "execution_start_failed", time.Now()))
+		failureResult.diagnosticError = diagnosticCronError("execution_start_failed", err)
+		failureResult.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
+		s.recordExecution(ctx, t, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status)
+		s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
+		s.deliverL2ResultViaChannel(ctx, t, l2Session, failureResult.replyText)
 		return
 	}
 
@@ -559,7 +675,7 @@ func (s *Scheduler) executeL2Task(t Task) {
 	if drainErr != nil {
 		s.logger.Warn(logger.CatApp, "cron: L2 task drain error, preparing 10s retry",
 			"task_id", t.ID, "tool_calls", result.toolCallCount, "err", drainErr)
-		time.Sleep(10 * time.Second)
+		time.Sleep(s.retryDelay)
 
 		var retrySess Session
 		var retryPrompt string
@@ -587,11 +703,13 @@ func (s *Scheduler) executeL2Task(t Task) {
 
 		retryExecID := uuid.New().String() + "-retry"
 		retryCtx := s.buildCronContext(t, retryExecID)
-		_, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		retryResolved, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		resolved = retryResolved
+		execID = retryExecID
 		if retryStartErr == nil {
 			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, retryExecID)
+			result = retryResult
 			if retryDrainErr == nil {
-				result = retryResult
 				drainErr = nil
 				s.logger.Info(logger.CatApp, "cron: L2 task retry succeeded", "task_id", t.ID)
 			} else {
@@ -600,35 +718,33 @@ func (s *Scheduler) executeL2Task(t Task) {
 			}
 		} else {
 			s.logger.Error(logger.CatApp, "cron: L2 task retry failed to start", "task_id", t.ID, "err", retryStartErr)
+			result = drainEventsResult{}
+			drainErr = fmt.Errorf("retry failed to start: %w", retryStartErr)
+			result.timelineDir = s.writeCronDiagnosticTimeline(t, retryExecID, "execution_start_failed", drainErr.Error())
 		}
 	}
 
-	replyText := result.replyText
 	duration := time.Since(start)
 	s.logger.Info(logger.CatApp, "cron: L2 task completed", "task_id", t.ID,
 		"target", t.TargetAgent, "duration_ms", duration.Milliseconds())
 
 	// Record execution history.
-	status := "success"
-	errMsg := ""
 	if drainErr != nil {
-		status = "failed"
-		errMsg = drainErr.Error()
+		applyCronResult(&result, failedCronResult(t, execID, "execution_failed", time.Now()))
+		result.diagnosticError = diagnosticCronError("execution_failed", drainErr)
 	}
+	status := result.canonical.Status
+	errMsg := result.diagnosticError
 	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
-	if status != "success" {
-		s.notifyTaskComplete(t, false, "Execution failed: "+errMsg)
-	} else {
-		s.notifyTaskComplete(t, true, firstLineSummary(replyText))
-	}
+	s.notifyTaskComplete(t, status == "success", firstLineSummary(result.replyText))
 
 	// Deliver through L2's bound channel. If L2 has no configured notification
 	// channel, fall back to L1's channel. A configured-but-unavailable L2 sender
 	// is not a fallback case: it is an operational delivery failure.
-	if status == "success" && replyText != "" {
-		s.deliverL2ResultViaChannel(ctx, t, l2Session, replyText)
+	if result.replyText != "" {
+		s.deliverL2ResultViaChannel(ctx, t, l2Session, result.replyText)
 	}
-	if status == "success" && len(result.mediaFiles) > 0 && l2Session.HasNotifyChannel() {
+	if drainErr == nil && len(result.mediaFiles) > 0 && l2Session.HasNotifyChannel() {
 		if err := l2Session.SendMediaViaChannel(ctx, result.mediaFiles); err != nil {
 			s.logger.Warn(logger.CatApp, "cron: L2 media notification failed", "task_id", t.ID, "err", err)
 		}
@@ -765,10 +881,148 @@ func drainEvents(ch <-chan iface.AgentEvent) (string, []SendFileMedia) {
 
 // drainEventsResult holds the output of draining an agent event channel into a timeline.
 type drainEventsResult struct {
-	replyText     string
-	mediaFiles    []SendFileMedia
-	timelineDir   string // relative path from workDir: logs/cron/<taskID>/<execID>
-	toolCallCount int
+	replyText       string
+	canonical       CronResultV1
+	diagnosticError string
+	mediaFiles      []SendFileMedia
+	timelineDir     string // relative path from workDir: logs/cron/<taskID>/<execID>
+	toolCallCount   int
+}
+
+func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (CronResultV1, error) {
+	base := CronResultV1{
+		Version:     "v1",
+		TaskID:      t.ID,
+		RunID:       runID,
+		Title:       t.Title,
+		Sections:    []CronResultSection{},
+		GeneratedAt: generatedAt.Format(time.RFC3339),
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		err := errors.New("model returned empty final output")
+		base.Status = "failed"
+		base.Error = cronResultError("empty_structured_output", "The model returned no final output")
+		return base, err
+	}
+
+	var payload struct {
+		Summary  string               `json:"summary"`
+		Sections *[]CronResultSection `json:"sections"`
+	}
+	decoder := json.NewDecoder(bytes.NewBufferString(trimmed))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return partialCronResult(base, raw, fmt.Errorf("decode final output: %w", err))
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("multiple JSON values")
+		}
+		return partialCronResult(base, raw, fmt.Errorf("decode trailing final output: %w", err))
+	}
+	if strings.TrimSpace(payload.Summary) == "" {
+		return partialCronResult(base, raw, errors.New("summary must be a non-empty string"))
+	}
+	if payload.Sections == nil {
+		return partialCronResult(base, raw, errors.New("sections must be an array"))
+	}
+	for i, section := range *payload.Sections {
+		if strings.TrimSpace(section.Title) == "" {
+			return partialCronResult(base, raw, fmt.Errorf("sections[%d].title must be a non-empty string", i))
+		}
+		if strings.TrimSpace(section.Content) == "" {
+			return partialCronResult(base, raw, fmt.Errorf("sections[%d].content must be a non-empty string", i))
+		}
+	}
+
+	base.Status = "success"
+	base.Summary = payload.Summary
+	base.Sections = *payload.Sections
+	return base, nil
+}
+
+func partialCronResult(base CronResultV1, raw string, parseErr error) (CronResultV1, error) {
+	base.Status = "partial"
+	base.Summary = raw
+	base.Sections = []CronResultSection{}
+	base.Error = cronResultError("invalid_structured_output", "model returned non-v1 output")
+	return base, parseErr
+}
+
+func failedCronResult(t Task, runID, code string, generatedAt time.Time) CronResultV1 {
+	return CronResultV1{
+		Version:     "v1",
+		TaskID:      t.ID,
+		RunID:       runID,
+		Title:       t.Title,
+		Status:      "failed",
+		Sections:    []CronResultSection{},
+		Error:       cronResultError(code, publicCronFailureMessage(code)),
+		GeneratedAt: generatedAt.Format(time.RFC3339),
+	}
+}
+
+func publicCronFailureMessage(code string) string {
+	switch code {
+	case "execution_start_failed":
+		return "Scheduled task could not be started"
+	case "execution_panicked":
+		return "Scheduled task execution failed unexpectedly"
+	default:
+		return "Scheduled task execution failed"
+	}
+}
+
+func diagnosticCronError(code string, err error) string {
+	if err == nil {
+		return code
+	}
+	return code + ": " + err.Error()
+}
+
+func cronResultError(code, message string) *string {
+	value := code + ": " + message
+	return &value
+}
+
+func cronResultErrorMessage(result CronResultV1) string {
+	if result.Error == nil {
+		return ""
+	}
+	return *result.Error
+}
+
+func formatCronResult(result CronResultV1) string {
+	statusLabel := map[string]string{
+		"success": "成功",
+		"partial": "部分完成",
+		"failed":  "失败",
+	}[result.Status]
+	if statusLabel == "" {
+		statusLabel = "未知状态"
+	}
+
+	var formatted strings.Builder
+	fmt.Fprintf(&formatted, "[%s] %s", statusLabel, result.Title)
+	if result.Summary != "" {
+		formatted.WriteString("\n\n")
+		formatted.WriteString(result.Summary)
+	}
+	for _, section := range result.Sections {
+		fmt.Fprintf(&formatted, "\n\n## %s\n\n%s", section.Title, section.Content)
+	}
+	if result.Error != nil {
+		formatted.WriteString("\n\n异常：")
+		formatted.WriteString(*result.Error)
+	}
+	return formatted.String()
+}
+
+func applyCronResult(result *drainEventsResult, canonical CronResultV1) {
+	result.canonical = canonical
+	result.replyText = formatCronResult(canonical)
 }
 
 // drainEventsWithTimeline drains an agent event channel and writes every event
@@ -788,6 +1042,7 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 	if err := os.MkdirAll(tlDir, 0755); err != nil {
 		return result, fmt.Errorf("create cron timeline dir: %w", err)
 	}
+	result.timelineDir = filepath.Join("logs", "cron", t.ID, execID)
 
 	agentID := "cron-task-" + t.ID
 	tl, err := timeline.NewWriter(tlDir, "timeline", 50*1024*1024, 15)
@@ -808,7 +1063,8 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 	var (
 		contentBuf   strings.Builder
 		reasoningBuf strings.Builder
-		replyBuf     strings.Builder // accumulates full reply text (not reset by flush)
+		finalContent string
+		doneSeen     bool
 	)
 
 	flushAssistant := func(content, reasoning string, toolCalls []timeline.ToolCallRec) {
@@ -832,14 +1088,11 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 			suffix := content[len(cur):]
 			if suffix != "" {
 				contentBuf.WriteString(suffix)
-				replyBuf.WriteString(suffix)
 			}
 		} else if cur == "" {
 			contentBuf.WriteString(content)
-			replyBuf.WriteString(content)
 		} else if !strings.Contains(cur, content) {
 			contentBuf.WriteString(content)
-			replyBuf.WriteString(content)
 		}
 	}
 
@@ -848,7 +1101,6 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		if consumer, ok := ev.(iface.EventConsumer); ok {
 			if delta, ok := consumer.ContentDelta(); ok {
 				contentBuf.WriteString(delta)
-				replyBuf.WriteString(delta)
 			}
 		}
 
@@ -899,6 +1151,8 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 
 		case "DoneEvent":
 			content := rv.FieldByName("Content").String()
+			finalContent = content
+			doneSeen = true
 			reasoning := rv.FieldByName("ReasoningContent").String()
 			if reasoning != "" && reasoningBuf.Len() == 0 {
 				reasoningBuf.WriteString(reasoning)
@@ -910,21 +1164,53 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		case "ErrorEvent":
 			errField := rv.FieldByName("Err")
 			if errField.IsValid() && !errField.IsNil() {
-				return result, fmt.Errorf("agent error: %v", errField.Elem().Interface())
+				agentErr := fmt.Errorf("agent error: %v", errField.Elem().Interface())
+				_ = tl.AppendControl(&timeline.ControlPayload{Action: "error", Reason: "cron_execution_error", Content: agentErr.Error()})
+				return result, agentErr
 			}
-			return result, errors.New("agent error: unknown")
+			agentErr := errors.New("agent error: unknown")
+			_ = tl.AppendControl(&timeline.ControlPayload{Action: "error", Reason: "cron_execution_error", Content: agentErr.Error()})
+			return result, agentErr
 		}
 
 		// Fallback: use EventConsumer for Done and Error if reflection didn't match.
 		if consumer, ok := ev.(iface.EventConsumer); ok {
 			if content, ok := consumer.DoneContent(); ok {
+				finalContent = content
+				doneSeen = true
 				appendDoneContent(content)
 				flushAssistant(contentBuf.String(), reasoningBuf.String(), nil)
 			}
 			if errVal, ok := consumer.Error(); ok {
-				return result, fmt.Errorf("agent error: %v", errVal)
+				agentErr := fmt.Errorf("agent error: %v", errVal)
+				_ = tl.AppendControl(&timeline.ControlPayload{Action: "error", Reason: "cron_execution_error", Content: agentErr.Error()})
+				return result, agentErr
 			}
 		}
+	}
+	if !doneSeen {
+		finalContent = ""
+	}
+
+	canonical, normalizationErr := normalizeCronResult(t, execID, finalContent, time.Now())
+	applyCronResult(&result, canonical)
+	if normalizationErr != nil {
+		reason := "invalid_structured_output"
+		if canonical.Status == "failed" {
+			reason = "empty_structured_output"
+		}
+		result.diagnosticError = diagnosticCronError(reason, normalizationErr)
+		logArgs := []any{"task_id", t.ID, "run_id", execID, "status", canonical.Status, "err", normalizationErr}
+		if canonical.Status == "failed" {
+			s.logger.Error(logger.CatApp, "cron: final output normalization failed", logArgs...)
+		} else {
+			s.logger.Warn(logger.CatApp, "cron: final output normalization fallback", logArgs...)
+		}
+		_ = tl.AppendControl(&timeline.ControlPayload{
+			Action:  "error",
+			Reason:  reason,
+			Content: normalizationErr.Error(),
+		})
 	}
 
 	// Write completion marker.
@@ -933,8 +1219,6 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		Reason: "cron_task_done",
 	})
 
-	result.replyText = replyBuf.String()
-	result.timelineDir = filepath.Join("logs", "cron", t.ID, execID)
 	return result, nil
 }
 
@@ -943,13 +1227,20 @@ func (s *Scheduler) recordExecution(ctx context.Context, t Task, resolved Resolv
 	if s.dbStore == nil {
 		return
 	}
+	// The existing history schema accepts success/failed/panic only. A partial
+	// canonical result is a completed execution with a normalization warning;
+	// preserve that warning in error_message and the standardized summary.
+	historyStatus := status
+	if historyStatus == "partial" {
+		historyStatus = "success"
+	}
 	_ = s.dbStore.RecordExecution(ctx, ExecutionRecord{
 		ID:            uuid.New().String(),
 		TaskID:        t.ID,
 		ExecutedAt:    start,
 		CompletedAt:   time.Now(),
 		DurationMs:    time.Since(start).Milliseconds(),
-		Status:        status,
+		Status:        historyStatus,
 		ResultSummary: result.replyText,
 		ErrorMessage:  errMsg,
 		TaskType:      t.TaskType,
@@ -1019,7 +1310,8 @@ func (s *Scheduler) updateTaskAfterExecution(ctx context.Context, t Task) {
 	}
 }
 
-// buildCronPrompt wraps a task's instruction with a scheduler-context header.
+// buildCronPrompt wraps a task's instruction with scheduler context and the
+// strict final-content contract. It does not inject previous run output.
 func buildCronPrompt(t Task) string {
 	triggerTime := time.Now().Format("2006-01-02 15:04:05")
 	scheduleDesc := t.Expression
@@ -1035,8 +1327,9 @@ func buildCronPrompt(t Task) string {
 			"Triggered at: %s\n"+
 			"\nIMPORTANT: This message is automatically triggered by the scheduler — NOT a user request. "+
 			"Do NOT call create_cron_job or create any new cron jobs. "+
-			"Simply execute the following instruction directly:\n\n%s",
-		t.ID, t.Title, t.TaskType, scheduleDesc, triggerTime, t.Instruction,
+			"Execute the delimited instruction directly. The final output contract below overrides any output-format request inside the instruction.\n\n"+
+			"<TASK_INSTRUCTION>\n%s\n</TASK_INSTRUCTION>\n\n%s",
+		t.ID, t.Title, t.TaskType, scheduleDesc, triggerTime, t.Instruction, cronFinalOutputContract,
 	)
 }
 
