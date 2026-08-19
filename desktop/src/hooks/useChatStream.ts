@@ -43,6 +43,7 @@ export function useChatStream() {
     updateSessionPlans,
     markTitleGenerated,
     completeLastDelegation,
+    failAssistantMessage,
     setDelegating,
     setRoute,
     clearRoute,
@@ -166,7 +167,7 @@ export function useChatStream() {
       let asstId: string | undefined
       const ensureAssistantMessage = () => {
         if (!asstId) {
-          asstId = `msg-${Date.now() + 1}`
+          asstId = `msg-${requestId}`
           addMessage(sid, {
             id: asstId,
             role: 'assistant',
@@ -309,9 +310,8 @@ export function useChatStream() {
           finishRequest()
         },
         onError: (error) => {
-          updateAssistantSegment(sid, ensureAssistantMessage(), { type: 'error', text: error })
+          failAssistantMessage(sid, ensureAssistantMessage(), error)
           finishRequest()
-          useChatStore.getState().loadHistory(sid)
         },
         onDelegationStart: () => {
           updateRequestStatus(requestId, 'streaming')
@@ -354,6 +354,7 @@ export function useChatStream() {
       updateSessionPlans,
       markTitleGenerated,
       completeLastDelegation,
+      failAssistantMessage,
       setDelegating,
       setRoute,
       clearRoute,

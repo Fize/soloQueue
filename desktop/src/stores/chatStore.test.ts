@@ -24,6 +24,7 @@ beforeEach(() => {
     historyLoading: {},
     historyHasMore: {},
     historyCursor: {},
+    historyPreservedMessageIds: {},
     sessionsLoading: false,
     sessionsLoaded: false,
   })
@@ -231,6 +232,60 @@ describe('chatStore', () => {
     expect(segments[1]).toMatchObject({ done: true, error: 'Cancelled by user' })
     expect(segments[2]).toMatchObject({ done: false })
     expect(segments[3]).toMatchObject({ status: 'cancelled' })
+  })
+
+  it('fails unfinished segments only in the assistant message owned by the request', () => {
+    const sid = 'l1'
+    const timeoutError = 'Session request timed out after 20 minutes'
+    const ownedMessage = {
+      id: 'assistant-owned',
+      role: 'assistant' as const,
+      timestamp: '',
+      segments: [
+        { type: 'tool_call' as const, callId: 'write-1', name: 'Write', args: '{}', done: false },
+        {
+          type: 'delegation' as const,
+          agentName: 'QuantAnalyst',
+          task: 'write report',
+          status: 'running' as const,
+        },
+        {
+          type: 'tool_confirm' as const,
+          callId: 'confirm-1',
+          name: 'Write',
+          prompt: 'Allow write?',
+          allowInSession: false,
+          resolved: false,
+        },
+      ],
+    }
+    const parallelMessage = {
+      id: 'assistant-parallel',
+      role: 'assistant' as const,
+      timestamp: '',
+      segments: [
+        { type: 'tool_call' as const, callId: 'read-2', name: 'Read', args: '{}', done: false },
+        {
+          type: 'tool_confirm' as const,
+          callId: 'confirm-2',
+          name: 'Shell',
+          prompt: 'Allow command?',
+          allowInSession: false,
+          resolved: false,
+        },
+      ],
+    }
+    useChatStore.setState({ messages: { [sid]: [ownedMessage, parallelMessage] } })
+
+    useChatStore.getState().failAssistantMessage(sid, ownedMessage.id, timeoutError)
+
+    const messages = useChatStore.getState().messages[sid]
+    expect(messages[0].segments).toEqual([
+      { ...ownedMessage.segments[0], done: true, error: timeoutError },
+      { ...ownedMessage.segments[1], status: 'failed', resultContent: timeoutError },
+      { type: 'error', text: timeoutError },
+    ])
+    expect(messages[1]).toEqual(parallelMessage)
   })
 
   it('sessionsLoading toggles true→false around loadSessions (drives the tree loading UI)', async () => {

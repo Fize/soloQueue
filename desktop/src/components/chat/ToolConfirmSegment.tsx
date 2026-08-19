@@ -27,7 +27,7 @@ export function ToolConfirmSegment({
       resolveToolConfirm(activeSessionId, segment.callId, choice)
     } catch (err) {
       console.error('Failed to confirm tool:', err)
-      toast.error(t('common.failedToConfirmTool'))
+      toast.error(err instanceof Error && err.message ? err.message : t('common.failedToConfirmTool'))
     } finally {
       setSubmitting(false)
     }
@@ -144,4 +144,3 @@ export function ToolConfirmSegment({
     </div>
   )
 }
-

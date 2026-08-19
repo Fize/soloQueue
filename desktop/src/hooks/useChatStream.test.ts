@@ -3,6 +3,7 @@ import { renderHook, act } from '@testing-library/react'
 import { useChatStream } from './useChatStream'
 import { useChatStore } from '@/stores/chatStore'
 import { wsManager } from '@/lib/websocket'
+import { fetchSessionHistory } from '@/lib/api'
 
 vi.mock('@/lib/websocket', () => ({
   wsManager: {
@@ -11,6 +12,11 @@ vi.mock('@/lib/websocket', () => ({
     unregisterChat: vi.fn(),
   },
 }))
+
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return { ...actual, fetchSessionHistory: vi.fn() }
+})
 
 beforeEach(() => {
   useChatStore.setState({
@@ -24,10 +30,15 @@ beforeEach(() => {
     streamingSessions: {},
     delegatingSessions: {},
     routeSessions: {},
+    historyPreservedMessageIds: {},
     titleGenerated: {},
   })
   vi.clearAllMocks()
   vi.mocked(wsManager.send).mockReturnValue(true)
+  vi.mocked(fetchSessionHistory).mockResolvedValue({
+    messages: [],
+    has_more: false,
+  })
 })
 
 describe('useChatStream', () => {
@@ -169,6 +180,159 @@ describe('useChatStream', () => {
 
     expect(useChatStore.getState().activeRequests).toEqual({})
     expect(useChatStore.getState().streamingSessions.l1).toBe(false)
+  })
+
+  it('reconciles only the failing L1 request message when the server reports a timeout', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const randomSpy = vi
+      .spyOn(Math, 'random')
+      .mockReturnValueOnce(0.1)
+      .mockReturnValueOnce(0.2)
+    const originalLoadHistory = useChatStore.getState().loadHistory
+    const loadHistory = vi.fn()
+    useChatStore.setState({
+      activeSessionId: 'l1',
+      messages: {},
+      streamingSessions: {},
+      loadHistory,
+    })
+    const { result } = renderHook(() => useChatStream())
+
+    await act(async () => {
+      await result.current.send('timing out', undefined, 'l1')
+      await result.current.send('still running', undefined, 'l1')
+    })
+
+    const handlers = vi.mocked(wsManager.registerChat).mock.calls.map((call) => call[1])
+    act(() => {
+      handlers[0].onToolStart?.({ call_id: 'write-1', name: 'Write', args: '{}' })
+      handlers[0].onToolConfirm?.({
+        call_id: 'confirm-1',
+        name: 'Write',
+        prompt: 'Allow write?',
+        allow_in_session: false,
+      })
+      handlers[1].onToolStart?.({ call_id: 'read-2', name: 'Read', args: '{}' })
+      handlers[1].onToolConfirm?.({
+        call_id: 'confirm-2',
+        name: 'Read',
+        prompt: 'Allow read?',
+        allow_in_session: false,
+      })
+    })
+
+    const timeoutError = 'Session request timed out after 20 minutes'
+    act(() => {
+      handlers[0].onError?.(timeoutError)
+    })
+
+    const assistants = useChatStore
+      .getState()
+      .messages.l1.filter((message) => message.role === 'assistant')
+    expect(assistants[0].id).not.toBe(assistants[1].id)
+    expect(assistants[0].segments).toEqual([
+      expect.objectContaining({ type: 'tool_call', callId: 'write-1', done: true, error: timeoutError }),
+      { type: 'error', text: timeoutError },
+    ])
+    expect(assistants[1].segments).toEqual([
+      expect.objectContaining({ type: 'tool_call', callId: 'read-2', done: false }),
+      expect.objectContaining({ type: 'tool_confirm', callId: 'confirm-2', resolved: false }),
+    ])
+    expect(Object.values(useChatStore.getState().activeRequests)).toHaveLength(1)
+    expect(useChatStore.getState().streamingSessions.l1).toBe(true)
+    expect(loadHistory).not.toHaveBeenCalled()
+    useChatStore.setState({ loadHistory: originalLoadHistory })
+    randomSpy.mockRestore()
+    nowSpy.mockRestore()
+  })
+
+  it('preserves the timed-out request through runtime history hydration without changing a parallel L1 request', async () => {
+    let now = 2_000
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now++)
+    useChatStore.setState({ activeSessionId: 'l1', messages: {}, streamingSessions: {} })
+    const { result } = renderHook(() => useChatStream())
+
+    await act(async () => {
+      await result.current.send('request that times out', undefined, 'l1')
+      await result.current.send('parallel request', undefined, 'l1')
+    })
+
+    const handlers = vi.mocked(wsManager.registerChat).mock.calls.map((call) => call[1])
+    act(() => {
+      handlers[0].onToolStart?.({ call_id: 'write-timeout', name: 'Write', args: '{}' })
+      handlers[0].onToolConfirm?.({
+        call_id: 'confirm-timeout',
+        name: 'Write',
+        prompt: 'Allow write?',
+        allow_in_session: false,
+      })
+      handlers[1].onToolStart?.({ call_id: 'read-parallel', name: 'Read', args: '{}' })
+      handlers[1].onToolConfirm?.({
+        call_id: 'confirm-parallel',
+        name: 'Read',
+        prompt: 'Allow read?',
+        allow_in_session: false,
+      })
+    })
+
+    const timeoutError = 'Session request timed out after 20 minutes'
+    act(() => handlers[0].onError?.(timeoutError))
+
+    const beforeHydration = useChatStore.getState().messages.l1
+    const parallelBefore = beforeHydration.find((message) =>
+      message.segments.some(
+        (segment) => segment.type === 'tool_call' && segment.callId === 'read-parallel'
+      )
+    )
+
+    act(() => {
+      useChatStore.setState({
+        activeRequests: {},
+        streamingSessions: { l1: false },
+      })
+    })
+    await act(async () => {
+      await useChatStore.getState().loadHistory('l1')
+    })
+
+    const afterHydration = useChatStore.getState().messages.l1
+    const timedOut = afterHydration.find((message) =>
+      message.segments.some(
+        (segment) => segment.type === 'tool_call' && segment.callId === 'write-timeout'
+      )
+    )
+    const parallelAfter = afterHydration.find((message) =>
+      message.segments.some(
+        (segment) => segment.type === 'tool_call' && segment.callId === 'read-parallel'
+      )
+    )
+    expect(timedOut?.segments).toContainEqual({ type: 'error', text: timeoutError })
+    expect(parallelAfter).toEqual(parallelBefore)
+
+    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'server-history',
+          role: 'assistant',
+          segments: [{ type: 'content', text: 'fresh server history' }],
+          timestamp: '2026-08-19T15:00:00Z',
+        },
+      ],
+      has_more: false,
+    })
+    await act(async () => {
+      await useChatStore.getState().loadHistory('l1')
+    })
+    expect(useChatStore.getState().messages.l1).toEqual([
+      {
+        id: 'server-history',
+        role: 'assistant',
+        segments: [{ type: 'content', text: 'fresh server history' }],
+        timestamp: '2026-08-19T15:00:00Z',
+        files: undefined,
+      },
+    ])
+    nowSpy.mockRestore()
   })
 
   it('cleans up the optimistic request when the chat message is not sent', async () => {
