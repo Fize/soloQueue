@@ -9,17 +9,24 @@ import (
 func TestBuild_AlwaysIncludesWebSearch(t *testing.T) {
 	cfg := DefaultConfig()
 	list := Build(cfg)
-	if len(list) != 9 {
-		t.Errorf("Build returned %d tools, want 9", len(list))
+	if len(list) != 10 {
+		t.Errorf("Build returned %d tools, want 10", len(list))
 	}
 	hasWebSearch := false
+	hasSubmitCronResult := false
 	for _, tool := range list {
 		if tool.Name() == "WebSearch" {
 			hasWebSearch = true
 		}
+		if tool.Name() == "SubmitCronResult" {
+			hasSubmitCronResult = true
+		}
 	}
 	if !hasWebSearch {
 		t.Errorf("WebSearch should always be included")
+	}
+	if !hasSubmitCronResult {
+		t.Errorf("SubmitCronResult should always be included")
 	}
 	for _, tool := range list {
 		if tool.Name() == "Remember" || tool.Name() == "RecallMemory" {

@@ -218,6 +218,7 @@ func BuildBase(cfg Config) []Tool {
 		newShellExecTool(cfg),
 		newWebSearchTool(cfg),
 		newSendFileTool(cfg),
+		newSubmitCronResultTool(),
 	}
 	if cfg.TeamStore != nil {
 		tools = append(tools, newResolveProjectTool(cfg))

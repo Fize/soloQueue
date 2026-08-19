@@ -458,25 +458,18 @@ func firstLineSummary(s string) string {
 }
 
 const cronFinalOutputContract = `<FINAL_OUTPUT_CONTRACT>
-After all analysis and tool calls are complete, return exactly one JSON object in this shape:
-{
-  "summary": "A concise result summary",
-  "sections": [
-    {
-      "title": "Section title",
-      "content": "Markdown content"
-    }
-  ]
-}
+After all analysis and tool calls are complete:
+Call SubmitCronResult exactly once.
 
 Rules:
-- Return JSON only in the final response, without a Markdown code fence or surrounding prose.
-- Output only the fields "summary" and "sections".
-- "summary" must be a non-empty string.
-- "sections" must be an array and may be empty.
+- SubmitCronResult must be the only tool call in the final model response.
+- Do not put report content in ordinary assistant text before or after the tool call.
+- Pass exactly "summary" and "sections" to the tool. Do not add metadata or status fields.
+- "summary" must be a non-empty string; "sections" must be an array and may be empty.
 - Every section must contain only non-empty "title" and "content" strings.
+- Tool arguments are JSON. Escape double quotes, newlines, and backslashes inside string values as \", \n, and \\.
 - State unavailable data explicitly and do not invent facts.
-- Do not include intermediate reasoning, tool calls, or tool results in the final JSON.
+- Do not include intermediate reasoning, tool calls, or tool results in the submitted content.
 </FINAL_OUTPUT_CONTRACT>`
 
 const continuationPrompt = "[SYSTEM NOTICE] The previous streaming response was interrupted due to a network error. System connection has been restored. Please resume and complete the unfinished task based on the above tool calls and intermediate results.\n\n" + cronFinalOutputContract
@@ -913,27 +906,27 @@ func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (Cron
 	decoder := json.NewDecoder(bytes.NewBufferString(trimmed))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&payload); err != nil {
-		return partialCronResult(base, raw, fmt.Errorf("decode final output: %w", err))
+		return partialCronResult(base, fmt.Errorf("decode final output: %w", err))
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		if err == nil {
 			err = errors.New("multiple JSON values")
 		}
-		return partialCronResult(base, raw, fmt.Errorf("decode trailing final output: %w", err))
+		return partialCronResult(base, fmt.Errorf("decode trailing final output: %w", err))
 	}
 	if strings.TrimSpace(payload.Summary) == "" {
-		return partialCronResult(base, raw, errors.New("summary must be a non-empty string"))
+		return partialCronResult(base, errors.New("summary must be a non-empty string"))
 	}
 	if payload.Sections == nil {
-		return partialCronResult(base, raw, errors.New("sections must be an array"))
+		return partialCronResult(base, errors.New("sections must be an array"))
 	}
 	for i, section := range *payload.Sections {
 		if strings.TrimSpace(section.Title) == "" {
-			return partialCronResult(base, raw, fmt.Errorf("sections[%d].title must be a non-empty string", i))
+			return partialCronResult(base, fmt.Errorf("sections[%d].title must be a non-empty string", i))
 		}
 		if strings.TrimSpace(section.Content) == "" {
-			return partialCronResult(base, raw, fmt.Errorf("sections[%d].content must be a non-empty string", i))
+			return partialCronResult(base, fmt.Errorf("sections[%d].content must be a non-empty string", i))
 		}
 	}
 
@@ -943,9 +936,9 @@ func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (Cron
 	return base, nil
 }
 
-func partialCronResult(base CronResultV1, raw string, parseErr error) (CronResultV1, error) {
+func partialCronResult(base CronResultV1, parseErr error) (CronResultV1, error) {
 	base.Status = "partial"
-	base.Summary = raw
+	base.Summary = "任务已完成，但最终结果格式异常，未经验证的内容未发送。详细信息已记录到执行日志。"
 	base.Sections = []CronResultSection{}
 	base.Error = cronResultError("invalid_structured_output", "model returned non-v1 output")
 	return base, parseErr
@@ -970,6 +963,10 @@ func publicCronFailureMessage(code string) string {
 		return "Scheduled task could not be started"
 	case "execution_panicked":
 		return "Scheduled task execution failed unexpectedly"
+	case "missing_structured_submission":
+		return "Scheduled task produced no validated result"
+	case "invalid_structured_submission":
+		return "Scheduled task result validation failed"
 	default:
 		return "Scheduled task execution failed"
 	}
@@ -1013,7 +1010,7 @@ func formatCronResult(result CronResultV1) string {
 	for _, section := range result.Sections {
 		fmt.Fprintf(&formatted, "\n\n## %s\n\n%s", section.Title, section.Content)
 	}
-	if result.Error != nil {
+	if result.Status != "partial" && result.Error != nil {
 		formatted.WriteString("\n\n异常：")
 		formatted.WriteString(*result.Error)
 	}
@@ -1060,11 +1057,18 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 	})
 
 	// ── Event processing state ──
+	type submissionAttemptState struct {
+		done bool
+	}
 	var (
-		contentBuf   strings.Builder
-		reasoningBuf strings.Builder
-		finalContent string
-		doneSeen     bool
+		contentBuf                  strings.Builder
+		reasoningBuf                strings.Builder
+		submissionEvents            int
+		submissionAttempts          = make(map[string]*submissionAttemptState)
+		submissionAttemptOrder      []string
+		submissionProtocolErrors    []string
+		submissionAttemptErrors     []string
+		successfulSubmissionResults []CronResultV1
 	)
 
 	flushAssistant := func(content, reasoning string, toolCalls []timeline.ToolCallRec) {
@@ -1120,6 +1124,18 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 			callID := rv.FieldByName("CallID").String()
 			name := rv.FieldByName("Name").String()
 			args := rv.FieldByName("Args").String()
+			if name == "SubmitCronResult" {
+				submissionEvents++
+				switch {
+				case strings.TrimSpace(callID) == "":
+					submissionProtocolErrors = append(submissionProtocolErrors, "SubmitCronResult start missing call ID")
+				case submissionAttempts[callID] != nil:
+					submissionProtocolErrors = append(submissionProtocolErrors, fmt.Sprintf("duplicate SubmitCronResult start for call ID %q", callID))
+				default:
+					submissionAttempts[callID] = &submissionAttemptState{}
+					submissionAttemptOrder = append(submissionAttemptOrder, callID)
+				}
+			}
 			if callID != "" {
 				flushAssistant(contentBuf.String(), reasoningBuf.String(), []timeline.ToolCallRec{
 					{ID: callID, Type: "function", Name: name, Arguments: args},
@@ -1131,17 +1147,54 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 			name := rv.FieldByName("Name").String()
 			toolResult := rv.FieldByName("Result").String()
 			errField := rv.FieldByName("Err")
+			var toolErr error
 			if errField.IsValid() && !errField.IsNil() {
-				toolResult = "error: " + errField.Elem().String()
+				toolErr, _ = errField.Interface().(error)
+				if toolErr == nil {
+					toolErr = errors.New("tool execution failed")
+				}
+			}
+			timelineToolResult := toolResult
+			if toolErr != nil {
+				timelineToolResult = "error: " + toolErr.Error()
 			}
 			_ = tl.AppendMessage(&timeline.MessagePayload{
 				Role:        "tool",
-				Content:     toolResult,
+				Content:     timelineToolResult,
 				Name:        name,
 				ToolCallID:  callID,
 				IsEphemeral: len(toolResult) > 2000,
 				AgentID:     agentID,
 			})
+			if name == "SubmitCronResult" {
+				submissionEvents++
+				attempt := submissionAttempts[callID]
+				paired := false
+				switch {
+				case strings.TrimSpace(callID) == "":
+					submissionProtocolErrors = append(submissionProtocolErrors, "SubmitCronResult completion missing call ID")
+				case attempt == nil:
+					submissionProtocolErrors = append(submissionProtocolErrors, fmt.Sprintf("orphan SubmitCronResult completion for call ID %q", callID))
+				case attempt.done:
+					submissionProtocolErrors = append(submissionProtocolErrors, fmt.Sprintf("duplicate SubmitCronResult completion for call ID %q", callID))
+				default:
+					attempt.done = true
+					paired = true
+				}
+				if paired && toolErr != nil {
+					submissionAttemptErrors = append(submissionAttemptErrors, fmt.Sprintf("call ID %q tool execution failed: %s", callID, toolErr.Error()))
+				} else if paired {
+					canonical, validationErr := normalizeCronResult(t, execID, toolResult, time.Now())
+					if validationErr != nil || canonical.Status != "success" {
+						if validationErr == nil {
+							validationErr = errors.New("submission did not normalize to success")
+						}
+						submissionAttemptErrors = append(submissionAttemptErrors, fmt.Sprintf("call ID %q validation failed: %s", callID, validationErr.Error()))
+					} else {
+						successfulSubmissionResults = append(successfulSubmissionResults, canonical)
+					}
+				}
+			}
 			// Extract SendFile media.
 			if name == "SendFile" && toolResult != "" {
 				if m := parseSendFileMedia(toolResult); m != nil {
@@ -1151,8 +1204,6 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 
 		case "DoneEvent":
 			content := rv.FieldByName("Content").String()
-			finalContent = content
-			doneSeen = true
 			reasoning := rv.FieldByName("ReasoningContent").String()
 			if reasoning != "" && reasoningBuf.Len() == 0 {
 				reasoningBuf.WriteString(reasoning)
@@ -1176,8 +1227,6 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		// Fallback: use EventConsumer for Done and Error if reflection didn't match.
 		if consumer, ok := ev.(iface.EventConsumer); ok {
 			if content, ok := consumer.DoneContent(); ok {
-				finalContent = content
-				doneSeen = true
 				appendDoneContent(content)
 				flushAssistant(contentBuf.String(), reasoningBuf.String(), nil)
 			}
@@ -1188,28 +1237,42 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 			}
 		}
 	}
-	if !doneSeen {
-		finalContent = ""
+
+	for _, callID := range submissionAttemptOrder {
+		if !submissionAttempts[callID].done {
+			submissionProtocolErrors = append(submissionProtocolErrors, fmt.Sprintf("unfinished SubmitCronResult call ID %q", callID))
+		}
 	}
 
-	canonical, normalizationErr := normalizeCronResult(t, execID, finalContent, time.Now())
-	applyCronResult(&result, canonical)
-	if normalizationErr != nil {
-		reason := "invalid_structured_output"
-		if canonical.Status == "failed" {
-			reason = "empty_structured_output"
+	var submissionFailureCode, submissionDiagnostic string
+	switch {
+	case submissionEvents == 0:
+		submissionFailureCode = "missing_structured_submission"
+		submissionDiagnostic = "no SubmitCronResult execution completed"
+	case len(submissionProtocolErrors) > 0:
+		submissionFailureCode = "invalid_structured_submission"
+		submissionDiagnostic = strings.Join(submissionProtocolErrors, "; ")
+	case len(successfulSubmissionResults) > 1:
+		submissionFailureCode = "invalid_structured_submission"
+		submissionDiagnostic = fmt.Sprintf("multiple successful SubmitCronResult submissions: %d", len(successfulSubmissionResults))
+	case len(successfulSubmissionResults) == 0:
+		submissionFailureCode = "invalid_structured_submission"
+		submissionDiagnostic = strings.Join(submissionAttemptErrors, "; ")
+		if submissionDiagnostic == "" {
+			submissionDiagnostic = "SubmitCronResult did not produce a valid result"
 		}
-		result.diagnosticError = diagnosticCronError(reason, normalizationErr)
-		logArgs := []any{"task_id", t.ID, "run_id", execID, "status", canonical.Status, "err", normalizationErr}
-		if canonical.Status == "failed" {
-			s.logger.Error(logger.CatApp, "cron: final output normalization failed", logArgs...)
-		} else {
-			s.logger.Warn(logger.CatApp, "cron: final output normalization fallback", logArgs...)
-		}
+	default:
+		applyCronResult(&result, successfulSubmissionResults[0])
+	}
+	if submissionFailureCode != "" {
+		applyCronResult(&result, failedCronResult(t, execID, submissionFailureCode, time.Now()))
+		result.diagnosticError = diagnosticCronError(submissionFailureCode, errors.New(submissionDiagnostic))
+		s.logger.Warn(logger.CatApp, "cron: structured submission rejected",
+			"task_id", t.ID, "run_id", execID, "reason", submissionFailureCode, "detail", submissionDiagnostic)
 		_ = tl.AppendControl(&timeline.ControlPayload{
 			Action:  "error",
-			Reason:  reason,
-			Content: normalizationErr.Error(),
+			Reason:  submissionFailureCode,
+			Content: submissionDiagnostic,
 		})
 	}
 
