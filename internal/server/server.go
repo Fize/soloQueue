@@ -44,6 +44,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/assets"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
@@ -88,8 +89,21 @@ type Mux struct {
 	sharedDB          *db.DB // for metric reporting
 	workflowStore     *workflow.Store
 	workflowRuns      *workflow.RunManager
-	distFS            fs.FS
+	webFS             fs.FS
+	statusFS          fs.FS
+	skillFS           fs.FS
+	frontendMode      FrontendMode
 }
+
+// FrontendMode controls which browser bundle is exposed by the API mux.
+type FrontendMode string
+
+const (
+	FrontendStatus FrontendMode = "status"
+	FrontendWeb    FrontendMode = "web"
+	FrontendStart  FrontendMode = "start"
+	FrontendNone   FrontendMode = "none"
+)
 
 // MuxOption is a functional option for NewMux.
 type MuxOption func(*Mux)
@@ -223,10 +237,21 @@ func WithWorkflow(store *workflow.Store, runs *workflow.RunManager) MuxOption {
 	return func(m *Mux) { m.workflowStore, m.workflowRuns = store, runs }
 }
 
-// WithDistFS overrides the embedded web assets and skills filesystem (useful for testing).
-func WithDistFS(fsys fs.FS) MuxOption {
-	return func(m *Mux) { m.distFS = fsys }
-}
+// WithWebFS overrides the embedded Web Console filesystem.
+func WithWebFS(fsys fs.FS) MuxOption { return func(m *Mux) { m.webFS = fsys } }
+
+// WithStatusFS overrides the embedded Status UI filesystem.
+func WithStatusFS(fsys fs.FS) MuxOption { return func(m *Mux) { m.statusFS = fsys } }
+
+// WithSkillFS overrides the embedded Skill Store filesystem.
+func WithSkillFS(fsys fs.FS) MuxOption { return func(m *Mux) { m.skillFS = fsys } }
+
+// WithDistFS is a compatibility alias for the old combined test fixture. It
+// now supplies only the Skill Store bundle.
+func WithDistFS(fsys fs.FS) MuxOption { return WithSkillFS(fsys) }
+
+// WithFrontendMode selects the static bundle mounted by the API mux.
+func WithFrontendMode(mode FrontendMode) MuxOption { return func(m *Mux) { m.frontendMode = mode } }
 
 // SetHub sets the WebSocket Hub after construction. This is useful when the
 // Hub needs a reference to the Mux (circular dependency).
@@ -257,8 +282,17 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		opt(m)
 	}
 
-	if m.distFS == nil {
-		m.distFS = distFS()
+	if m.webFS == nil {
+		m.webFS = assets.WebFS()
+	}
+	if m.statusFS == nil {
+		m.statusFS = assets.StatusFS()
+	}
+	if m.skillFS == nil {
+		m.skillFS = assets.SkillsFS()
+	}
+	if m.frontendMode == "" {
+		m.frontendMode = FrontendStatus
 	}
 
 	if m.teamstore == nil && m.workDir != "" {
@@ -323,11 +357,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	})
 
 	// Auth check
+	r.Get("/api/auth/status", m.handleAuthStatus)
 	r.Get("/api/auth/check", m.handleAuthCheck)
 	r.Get("/api/auth/token", m.handleGetWSToken)
 
 	// Health check
 	r.Get("/healthz", m.handleHealth)
+	r.Get("/api/runtime-config", m.handleRuntimeConfig)
 
 	// Live agents status endpoint
 	r.Get("/api/agents/live", m.handleGetLiveAgents)
@@ -569,9 +605,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	// Static file server for embedded web UI (catch-all: only unmatched paths).
 	// SPA fallback: if the path does not exist in the embedded FS,
 	// serve index.html so React Router can handle client-side routing.
-	fsys := m.distFS
-	fileServer := http.FileServer(http.FS(fsys))
+	webFileServer := http.FileServer(http.FS(m.webFS))
+	statusFileServer := http.FileServer(http.FS(m.statusFS))
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api" || r.URL.Path == "/ws" {
+			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "route not found"})
+			return
+		}
 		// Localhost (127.0.0.1, ::1) bypasses auth.
 		if !isLocalhostAccess(r) {
 			// Auth not configured — deny all remote access
@@ -590,18 +630,36 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			}
 		}
 
-		// SPA: serve embedded static files or fallback to index.html
+		if strings.HasPrefix(r.URL.Path, "/status") && m.frontendMode != FrontendWeb {
+			path := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/status"), "/")
+			if path != "" {
+				if info, err := fs.Stat(m.statusFS, path); err == nil && !info.IsDir() {
+					r.URL.Path = "/" + path
+					statusFileServer.ServeHTTP(w, r)
+					return
+				}
+			}
+			r.URL.Path = "/"
+			statusFileServer.ServeHTTP(w, r)
+			return
+		}
+		if m.frontendMode == FrontendStatus {
+			http.Redirect(w, r, "/status/", http.StatusTemporaryRedirect)
+			return
+		}
+		if m.frontendMode == FrontendNone {
+			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "route not found"})
+			return
+		}
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path != "" {
-			if info, err := fs.Stat(fsys, path); err == nil && !info.IsDir() {
-				fileServer.ServeHTTP(w, r)
+			if info, err := fs.Stat(m.webFS, path); err == nil && !info.IsDir() {
+				webFileServer.ServeHTTP(w, r)
 				return
 			}
 		}
-		if _, err := fs.Stat(fsys, path); err != nil {
-			r.URL.Path = "/"
-		}
-		fileServer.ServeHTTP(w, r)
+		r.URL.Path = "/"
+		webFileServer.ServeHTTP(w, r)
 	})
 
 	return m
@@ -627,6 +685,13 @@ func (m *Mux) Close() error {
 
 func (m *Mux) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "work_dir": m.workDir})
+}
+
+// handleRuntimeConfig is intentionally tiny: browsers need only the backend
+// origin when the Web Console is served by the standalone `web` command.
+// Embedded `start` uses an empty value to signal same-origin requests.
+func (m *Mux) handleRuntimeConfig(w http.ResponseWriter, _ *http.Request) {
+	m.writeJSON(w, http.StatusOK, map[string]string{"backend_url": ""})
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -656,18 +721,9 @@ func (m *Mux) logError(ctx context.Context, msg string, err error) {
 // corsMiddleware handles CORS for the Web UI dev server.
 func (m *Mux) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin != "" {
-			// For file:// and null origins (e.g. Electron desktop app), use *.
-			// Access-Control-Allow-Origin: null + Access-Control-Allow-Credentials: true
-			// causes CORS failures in Chromium for credentialed cross-origin requests.
-			if origin == "null" {
-				origin = "*"
-			}
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

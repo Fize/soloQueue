@@ -21,8 +21,8 @@ personal project rather than a production-ready enterprise platform.
   tool confirmations.
 - SoloQueue supports task routing, workflows, memory, skills, MCP/LSP tools,
   scheduled tasks, and channel delivery.
-- SoloQueue provides a desktop console plus an embedded browser portal for local or
-  controlled remote use.
+- SoloQueue provides a full browser Web Console plus an embedded read-only Status UI for
+  local or controlled remote use.
 
 ## Non-goals
 
@@ -40,7 +40,7 @@ experiments it makes observable.
 - An API key for the provider configured in `settings.yaml` (the defaults use
   `DEEPSEEK_API_KEY`).
 
-### Build and run the embedded portal
+### Build and run the embedded browser application
 
 ```bash
 git clone https://github.com/Fize/soloQueue.git
@@ -48,35 +48,30 @@ cd soloQueue
 
 make build
 export DEEPSEEK_API_KEY="your-api-key"
-./soloqueue serve
+./soloqueue start
 ```
 
 Open <http://127.0.0.1:57647>. On the first start, let SoloQueue create the local work
 directory and settings file under `~/.soloqueue/`.
 
-Use `make build` to build the lightweight portal first and embed it into the
-Go binary. You can run `go run ./cmd/soloqueue serve` without a built portal for
-backend development, but expect the browser UI to remain empty until you run
-`make build-web`.
+Use `make build` to build the Web Console and Status UI and embed them into the
+Go binary. `soloqueue serve` starts the backend with the Status UI at `/status/`;
+`soloqueue web` starts only the standalone Web Console.
 
-### Develop with the desktop console
+### Develop the browser frontends
 
 Use two terminals:
 
 ```bash
-# Terminal 1
+# Terminal 1: backend
 go run ./cmd/soloqueue serve --port 8765 --verbose
 
-# Terminal 2
-cd desktop
-pnpm approve-builds
-pnpm install
-pnpm dev
+# Terminal 2: Web Console
+cd web && pnpm install && pnpm dev
 ```
 
-Use the desktop development server to proxy API and WebSocket traffic to
-port `8765`. For a packaged desktop build, run `make build-all` or choose
-one platform, for example `make package-desktop PLATFORM=mac`.
+The Web Console development server proxies API and WebSocket traffic to port
+`8765`. The Status UI can be developed independently with `cd status-ui && pnpm dev`.
 
 ## Useful commands
 
@@ -105,7 +100,8 @@ Start with the [English documentation hub](docs/README.md), or read the
 
 ```bash
 go test ./...
-cd desktop && pnpm test && pnpm build
+cd web && pnpm test && pnpm build
+cd status-ui && pnpm test && pnpm build
 ```
 
 The repository is distributed primarily as source. Check the current build and

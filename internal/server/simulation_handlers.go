@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 )
 
@@ -99,24 +99,24 @@ func (m *Mux) handleDeleteSimulation(w http.ResponseWriter, r *http.Request) {
 }
 
 type fromSeedRequest struct {
-	SeedText        string `json:"seed_text"`
-	Topic           string `json:"topic,omitempty"`
-	PersonaCount    int    `json:"persona_count"`
-	ModelID         string `json:"model_id,omitempty"`
-	ProviderID      string `json:"provider_id,omitempty"`
-	MaxWallClockMs  int    `json:"max_wall_clock_ms,omitempty"`
-	SimulatedHours  int    `json:"simulated_hours,omitempty"`
-	TickIntervalMs  int    `json:"tick_interval_ms,omitempty"`
-	TimeScale       int    `json:"time_scale,omitempty"`
-	EnableReflection bool  `json:"enable_reflection,omitempty"`
-	Language        string `json:"language,omitempty"`
+	SeedText         string `json:"seed_text"`
+	Topic            string `json:"topic,omitempty"`
+	PersonaCount     int    `json:"persona_count"`
+	ModelID          string `json:"model_id,omitempty"`
+	ProviderID       string `json:"provider_id,omitempty"`
+	MaxWallClockMs   int    `json:"max_wall_clock_ms,omitempty"`
+	SimulatedHours   int    `json:"simulated_hours,omitempty"`
+	TickIntervalMs   int    `json:"tick_interval_ms,omitempty"`
+	TimeScale        int    `json:"time_scale,omitempty"`
+	EnableReflection bool   `json:"enable_reflection,omitempty"`
+	Language         string `json:"language,omitempty"`
 }
 
 type fromSeedResponse struct {
-	SimulationID string                          `json:"simulation_id"`
+	SimulationID string                    `json:"simulation_id"`
 	Entities     []engine.EntityExtraction `json:"entities"`
-	Personas     []simulation.Persona           `json:"personas"`
-	Topic        string                          `json:"topic"`
+	Personas     []simulation.Persona      `json:"personas"`
+	Topic        string                    `json:"topic"`
 }
 
 // handleCreateFromSeed creates a simulation from seed text with auto-generated personas.
@@ -140,12 +140,12 @@ func (m *Mux) handleCreateFromSeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	opts := simulation.CreateFromSeedOptions{
-		ModelID:         req.ModelID,
-		ProviderID:      req.ProviderID,
-		MaxWallClockMs:  req.MaxWallClockMs,
-		SimulatedHours:  req.SimulatedHours,
-		TickIntervalMs:  req.TickIntervalMs,
-		TimeScale:       req.TimeScale,
+		ModelID:          req.ModelID,
+		ProviderID:       req.ProviderID,
+		MaxWallClockMs:   req.MaxWallClockMs,
+		SimulatedHours:   req.SimulatedHours,
+		TickIntervalMs:   req.TickIntervalMs,
+		TimeScale:        req.TimeScale,
 		EnableReflection: req.EnableReflection,
 		Language:         req.Language,
 	}

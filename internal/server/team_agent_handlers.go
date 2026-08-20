@@ -17,15 +17,15 @@ type BuiltinTeamMemberResponse struct {
 }
 
 type BuiltinTeamResponse struct {
-	ID            string                             `json:"id"`
-	Name          string                             `json:"name"`
-	DisplayName   string                             `json:"display_name"`
-	Description   string                             `json:"description"`
-	Leader        string                             `json:"leader"`
-	Members       []BuiltinTeamMemberResponse        `json:"members"`
+	ID            string                         `json:"id"`
+	Name          string                         `json:"name"`
+	DisplayName   string                         `json:"display_name"`
+	Description   string                         `json:"description"`
+	Leader        string                         `json:"leader"`
+	Members       []BuiltinTeamMemberResponse    `json:"members"`
 	Status        store.BuiltinTeamInstallStatus `json:"status"`
-	MissingAgents []string                           `json:"missing_agents"`
-	Conflicts     []string                           `json:"conflicts"`
+	MissingAgents []string                       `json:"missing_agents"`
+	Conflicts     []string                       `json:"conflicts"`
 }
 
 // ─── Response Types ─────────────────────────────────────────────────────────

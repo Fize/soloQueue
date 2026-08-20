@@ -6,37 +6,33 @@ Tactical guidance for AI coding agents working in this repository.
 
 ## Build
 
-### Prerequisite: pnpm approve-builds
+### Frontend build approvals
 
-The `.npmrc` requires `onlyBuiltDependencies` for `electron` and `esbuild`. Before first `pnpm install`, run:
-
-```bash
-cd portal && pnpm approve-builds esbuild    # or: pnpm approve-builds
-cd desktop && pnpm approve-builds           # approves both electron + esbuild
-```
-
-The Makefile does this automatically. Without it, `pnpm install` fails.
+The Web Console and Status UI declare pnpm's `allowBuilds.esbuild: true` in
+their local `pnpm-workspace.yaml` files. No interactive approval step is
+required before running the Makefile targets.
 
 ### Linux / macOS (make)
 
 ```bash
-make build            # Build Go binary with portal embedded (default)
-make build-web        # Build lightweight web portal — copies into internal/server/dist/
-make build-desktop    # Build Electron desktop web UI
-make build-all        # Build Go binary AND desktop web UI
-make build-go         # Build Go binary only (assumes portal dist already exists)
+make build            # Build both browser UIs and Go binary
+make build-web        # Build the full Web Console
+make build-status     # Build the read-only Status UI
+make build-assets     # Build both UIs and embed Skills
+make build-go         # Build Go binary only (assumes assets already exist)
 make build-win        # Cross-compile Go for Windows
-make package-desktop  # Package Electron app (PLATFORM=mac|win|linux)
+make start            # Start backend and both browser UIs on one port
 make clean            # Remove all build artifacts
 ```
 
-The Go binary embeds `internal/server/dist/` via `//go:embed`. `go run ./cmd/soloqueue serve` without a pre-built dist works but the portal will be blank. Always `make build-web` (or `make build`) first for a working UI.
+The Go binary embeds independent `internal/assets/dist/web`, `status`, and `skills` bundles. Always run `make build-assets` (or `make build`) before a production build.
 
 ### Windows (PowerShell)
 
 ```powershell
-./scripts/build.ps1              # Build Go binary with portal embedded
-./scripts/build.ps1 build-web    # Build web portal
+./scripts/build.ps1              # Build browser assets and Go binary
+./scripts/build.ps1 build-web    # Build Web Console
+./scripts/build.ps1 build-status # Build Status UI
 ./scripts/build.ps1 build-go     # Build Go binary only
 ./scripts/build.ps1 clean        # Remove all build artifacts
 ```
@@ -62,36 +58,36 @@ GOCACHE=/tmp/soloqueue-go-cache go test -race ./internal/workflow/... -count=1
 ### Frontend lint & tests
 
 ```bash
-cd desktop && pnpm lint            # ESLint
-cd desktop && pnpm test            # Vitest
-cd desktop && pnpm test:watch      # Vitest watch mode
-cd desktop && pnpm format          # Prettier
+cd web && pnpm lint                # ESLint
+cd web && pnpm test                # Vitest
+cd web && pnpm test:watch          # Vitest watch mode
+cd web && pnpm format              # Prettier
 ```
 
-The portal has no lint or test scripts configured.
+The status-ui has no lint script configured.
 No Go linter (golangci-lint, go vet) is wired into the Makefile.
 
 ## Running locally
 
 ```bash
-go run ./cmd/soloqueue serve --port 8765    # start server (separate terminal)
+go run ./cmd/soloqueue serve --port 8765    # backend + Status UI
 
-# Desktop UI (Electron + React) — separate terminal:
-cd desktop && pnpm install && pnpm dev
+# Full Web Console (separate terminal):
+cd web && pnpm install && pnpm dev
 
-# Lightweight portal (embedded in Go binary):
-cd portal && pnpm install && pnpm dev
+# Read-only Status UI (separate terminal):
+cd status-ui && pnpm install && pnpm dev
 ```
 
-Open `http://localhost:5173`. The desktop Vite dev server proxies `/api` → `http://localhost:8765` and `/ws` → `ws://localhost:8765`.
+Open the Web Console Vite dev server at `http://localhost:5173`; it proxies `/api` and `/ws` to the backend.
 
-**Test setup**: Vitest uses `@` alias → `src/`, jsdom environment, setup file at `src/test-setup.ts`, test files match `src/**/*.test.{ts,tsx}` and `electron/**/*.test.mjs`.
+**Test setup**: Vitest uses `@` alias → `src/`, jsdom environment, setup file at `src/test-setup.ts`, test files match `src/**/*.test.{ts,tsx}`.
 
 ## Go module & binary
 
 `github.com/xiaobaitu/soloqueue`. Go 1.25.8.
 
-`soloqueue serve` is the primary mode. Default port 57647; dev convention uses `--port 8765` to match Vite proxy. Binds `127.0.0.1`.
+`soloqueue start` is the combined browser mode. `serve` defaults to port 57647 and `web` to 57648. All bind `127.0.0.1` by default.
 Other subcommands: `version`.
 `serve` flags: `--bypass` (skip tool confirmations), `--verbose` / `-v` (logs to stderr).
 
@@ -171,8 +167,8 @@ internal/simulation/    Generative Agents simulation engine
 internal/team/          auto-reload for LLM-written agent/group files
 internal/team/store/    filesystem-backed team & agent persistence
 internal/workflow/      YAML DAG workflow engine (v1) with outcome routing + bounded loops
-desktop/                Electron app (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
-portal/                 Lightweight web portal (React 19 + Vite + TailwindCSS v4, embedded in Go binary)
+web/                    Full browser Web Console (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
+status-ui/              Independent read-only backend status page
 skills/                 Bundled skill definitions, copied into embedded dist at build time
 ```
 
@@ -230,12 +226,12 @@ LLM-driven conversation summaries triggered on context window compaction. `Manag
 - **QQ returns `expires_in` as a string** — do not parse as integer.
 - **Test conventions**: no `TestMain` or shared fixtures. Self-contained per package.
 - **Package manager**: `pnpm` (NOT npm). Lockfile: `pnpm-lock.yaml`.
-- **Frontend**: State management via Zustand stores (`desktop/src/stores/`). Real-time updates via WebSocket. `@/` path alias maps to `src/`.
+- **Frontend**: State management via Zustand stores (`web/src/stores/`). Real-time updates via WebSocket. `@/` path alias maps to `src/`.
 - **TelemetryClient** (`internal/telemetry/`): wraps `agent.LLMClient` to log token usage to SQLite on every Chat/ChatStream call.
 
 ## Known discrepancies
 
-- `README.md` mentions `cd web` — this directory does not exist. Use `portal/` or `desktop/`.
+- The full browser console lives in `web/`; the independent status page lives in `status-ui/`.
 
 ## Cron notification limitations
 

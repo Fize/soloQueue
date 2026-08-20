@@ -19,6 +19,22 @@ type authCheckResponse struct {
 	User          string `json:"user,omitempty"`
 }
 
+type authStatusResponse struct {
+	Required bool   `json:"required"`
+	Scheme   string `json:"scheme"`
+}
+
+// handleAuthStatus is intentionally public so a browser can decide whether to
+// render its login gate before making any authenticated API requests. The
+// answer is request-specific: localhost is already trusted by the middleware,
+// while a remote request must authenticate when credentials are configured.
+func (m *Mux) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	m.writeJSON(w, http.StatusOK, authStatusResponse{
+		Required: m.effectiveAuthUser != "" && !isLocalhostAccess(r),
+		Scheme:   "basic",
+	})
+}
+
 func (m *Mux) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 	user := m.effectiveAuthUser
 	if user == "" {
@@ -74,8 +90,11 @@ func (m *Mux) resolveEffectiveAuth() {
 // WebSocket connections may use a one-time ?token= query parameter instead.
 func (m *Mux) tokenAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Readiness probe must be unauthenticated — it returns no user data.
-		if r.URL.Path == "/healthz" {
+		// These endpoints contain no protected application data and are needed by
+		// the browser before it has credentials. Auth status is request-specific
+		// (localhost is already trusted); runtime-config only exposes the backend
+		// URL used by the web command.
+		if r.URL.Path == "/healthz" || r.URL.Path == "/api/auth/status" || r.URL.Path == "/api/runtime-config" {
 			next.ServeHTTP(w, r)
 			return
 		}

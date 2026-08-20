@@ -69,6 +69,12 @@ model_routes:
 - `--verbose, -v`：启用详细的 stderr 日志输出。
 - `--bypass`：全局绕过工具确认提示。
 
+### `soloqueue start`
+在一个监听器中启动后端运行时、`/` 下的 Web Console 和 `/status/` 下的状态页。支持与 `serve` 相同的 host、port、verbose 和 bypass 参数。
+
+### `soloqueue web`
+只启动独立 Web Console。使用 `--backend` 设置后端地址，默认值为 `http://127.0.0.1:57647`。
+
 ### `soloqueue version`
 打印应用程序版本字符串。
 

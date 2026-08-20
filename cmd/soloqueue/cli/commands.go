@@ -18,6 +18,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/assets"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/cron"
@@ -38,12 +39,20 @@ func mcpLoaderFromRT(rt *runtime.Stack) *mcp.Loader {
 }
 
 func ServeCmd(version string) *cobra.Command {
+	return serveCmd("serve", version, server.FrontendStatus)
+}
+
+// StartCmd runs the same runtime assembly as serve, but exposes both browser
+// bundles from the one listener.
+func StartCmd(version string) *cobra.Command { return serveCmd("start", version, server.FrontendStart) }
+
+func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Command {
 	var port int
 	var host string
 	var verbose bool
 	var bypass bool
 	cmd := &cobra.Command{
-		Use:   "serve",
+		Use:   use,
 		Short: "Start the local HTTP/WebSocket server",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workDir, err := config.DefaultWorkDir()
@@ -80,7 +89,7 @@ func ServeCmd(version string) *cobra.Command {
 				return cfg.WriteSoul(prompt.DefaultProfileAnswers())
 			}
 
-			rt, err := runtime.Build(workDir, cfg, log, profileSetup, bypass, server.DistFS())
+			rt, err := runtime.Build(workDir, cfg, log, profileSetup, bypass, assets.SkillsFS())
 			if err != nil {
 				return err
 			}
@@ -227,6 +236,7 @@ func ServeCmd(version string) *cobra.Command {
 			runtimeMetrics := &server.RuntimeMetrics{HTTPAddr: actualAddr}
 			fmt.Println(actualAddr)
 			mux := server.NewMux(workDir, log,
+				server.WithFrontendMode(frontendMode),
 				server.WithRegistry(rt.AgentRegistry),
 				server.WithSessionManager(mgr),
 				server.WithL2SessionStore(l2Store),
@@ -365,6 +375,42 @@ func ServeCmd(version string) *cobra.Command {
 	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "HTTP server host")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print logs to console (stderr)")
 	cmd.Flags().BoolVar(&bypass, "bypass", false, "bypass all tool confirmations for all agents")
+	return cmd
+}
+
+// WebCmd serves the standalone Web Console without constructing a backend
+// runtime. The frontend calls --backend directly; no reverse proxy is used.
+func WebCmd(version string) *cobra.Command {
+	var port int
+	var host, backendURL string
+	cmd := &cobra.Command{
+		Use:   "web",
+		Short: "Start the standalone Web Console",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+			if err != nil {
+				return fmt.Errorf("listen %s:%d: %w", host, port, err)
+			}
+			fmt.Println(listener.Addr().String())
+			srv := &http.Server{Handler: server.NewWebHandler(assets.WebFS(), backendURL)}
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			go func() {
+				<-ctx.Done()
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = srv.Shutdown(shutdownCtx)
+			}()
+			if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("http serve: %w", err)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().IntVarP(&port, "port", "p", 57648, "Web server port (0 = random)")
+	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "Web server host")
+	cmd.Flags().StringVar(&backendURL, "backend", "http://127.0.0.1:57647", "Backend URL used by the browser")
+	_ = version // retained for command registration symmetry and future banner use
 	return cmd
 }
 

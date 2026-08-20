@@ -64,4 +64,3 @@ func TestSkillsReportCmd_PrintsGovernanceReport(t *testing.T) {
 		t.Errorf("quality warnings should be reported: %q", got)
 	}
 }
-

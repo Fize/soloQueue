@@ -19,7 +19,7 @@ Workflow、定时任务、消息渠道和运行观测如何协同工作。
 - 使用团队、Agent 模板、委派和工具确认构建多智能体工作台。
 - 支持通过任务路由、Workflow、Memory、Skills、MCP/LSP、定时任务和消息渠道进行
   Harness Engineering 实验。
-- 提供 Electron 桌面控制台和嵌入式浏览器 Portal。
+- 提供完整的浏览器 Web Console 和独立的嵌入式只读状态页。
 
 ## 从源码快速开始
 
@@ -29,7 +29,7 @@ Workflow、定时任务、消息渠道和运行观测如何协同工作。
 - Node.js 和 pnpm。
 - 至少一个已启用 LLM Provider 的 API Key。
 
-### 构建并运行嵌入式 Portal
+### 构建并运行嵌入式浏览器应用
 
 ~~~bash
 git clone https://github.com/Fize/soloQueue.git
@@ -37,26 +37,28 @@ cd soloQueue
 
 make build
 export DEEPSEEK_API_KEY="your-api-key"
-./soloqueue serve
+./soloqueue start
 ~~~
 
 打开 http://127.0.0.1:57647。第一次启动时，SoloQueue 会在 ~/.soloqueue/ 下创建工作
 目录和 settings.yaml。
 
-### 运行桌面开发客户端
+### 开发浏览器前端
 
-在两个终端中分别运行后端和桌面客户端：
+在两个终端中分别运行后端和 Web Console：
 
 ~~~bash
 # 终端 1
 go run ./cmd/soloqueue serve --port 8765 --verbose
 
-# 终端 2
-cd desktop
-pnpm approve-builds
+# 终端 2：Web Console
+cd web
 pnpm install
 pnpm dev
 ~~~
+
+只读状态页可以在 `status-ui/` 中独立开发。`soloqueue serve` 默认提供状态页，
+`soloqueue web` 只启动 Web Console，`soloqueue start` 在一个端口同时提供两者。
 
 ## 常用命令
 

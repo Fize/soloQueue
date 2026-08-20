@@ -27,7 +27,7 @@ Use only existing Go packages and standard-library `sync`, `time`, and filesyste
 ## Explicitly Out of Scope
 
 - No database migration or artifact registry.
-- No new file API or Desktop component redesign.
+- No new file API or browser component redesign.
 - No QQ message buffering.
 - No unification of QQ and WeChat outbound protocol, rate limiting, typing, ASR, or command handling.
 - No general rewrite of the pending queue or public `AskStream` API.

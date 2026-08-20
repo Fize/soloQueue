@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 func MemoryCmd() *cobra.Command {

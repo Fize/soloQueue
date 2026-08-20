@@ -57,11 +57,21 @@ type accessEntry struct {
 	UserAgent  string `json:"user_agent,omitempty"`
 }
 
+func requestPathForLog(r *http.Request) string {
+	if r == nil || r.URL == nil {
+		return ""
+	}
+	return r.URL.Path
+}
+
 func (l *httpAccessLogger) logRequest(r *http.Request, ww middleware.WrapResponseWriter, duration time.Duration) {
 	entry := accessEntry{
-		Timestamp:  time.Now().Format(time.RFC3339Nano),
-		Method:     r.Method,
-		Path:       r.URL.RequestURI(),
+		Timestamp: time.Now().Format(time.RFC3339Nano),
+		Method:    r.Method,
+		// Log only the path. RequestURI includes the query string, which would
+		// expose one-time WebSocket tokens (and potentially other credentials)
+		// in the access log.
+		Path:       requestPathForLog(r),
 		Status:     ww.Status(),
 		DurationMs: duration.Milliseconds(),
 		Bytes:      ww.BytesWritten(),

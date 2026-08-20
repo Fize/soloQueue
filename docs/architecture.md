@@ -8,10 +8,10 @@ This document provides a technical overview of SoloQueue's internal architecture
 
 ## 1. Process Boundary & Layering
 
-SoloQueue is structured as a local-first application comprising a Go backend server, an Electron desktop client (`desktop/`), and an embedded web portal (`portal/` built into `internal/server/dist/`).
+SoloQueue is structured as a local-first application comprising a Go backend server, an embedded browser Web Console (`web/`), and an independent read-only Status UI (`status-ui/`). Both bundles and the Skill Store are embedded separately under `internal/assets/`.
 
 ```text
-Desktop / Portal Client
+Web Console / Status UI
        │ HTTP + WebSocket
        ▼
 HTTP Server & Auth Middleware (internal/server)
@@ -68,9 +68,3 @@ Channel bridges normalize external messaging protocols into the internal session
 
 - **QQ Bot (`internal/channel/qq`)**: Implements Tencent Bot Gateway protocol. Handles passive response windows and queues active outbound message bursts.
 - **WeChat iLink (`internal/channel/wechat`)**: Connects through Tencent's official iLink Bot API. Supports long-poll update streams, QR login pairing, and typing state keepalives.
-
----
-
-## 6. Maintainer Notes: macOS Code Signing
-
-For local macOS package builds, SoloQueue provides fixed self-signing scripts (`make setup-macos-signing`). The script generates a dedicated self-signed identity (`SoloQueue Code Signing`) in the login Keychain and pins its public SHA-256 fingerprint in `desktop/build/macos-signing-cert.sha256`. This maintains application identity continuity across local macOS updates without requiring Apple Developer ID notarization.

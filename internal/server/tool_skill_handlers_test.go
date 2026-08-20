@@ -56,7 +56,7 @@ Instructions for test catalog skill
 	mux := NewMux(tempDir, nil,
 		WithSkillRegistry(reg),
 		WithSkillDirs(dirs),
-		WithDistFS(os.DirFS(filepath.Join(tempDir, "store"))),
+		WithSkillFS(os.DirFS(filepath.Join(tempDir, "store", "skills"))),
 	)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(func() {

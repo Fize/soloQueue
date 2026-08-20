@@ -17,14 +17,14 @@ import (
 
 // FileChange represents a single changed file in the session.
 type FileChange struct {
-	Path     string     `json:"path"`           // relative path
-	Status   string     `json:"status"`         // "added" | "modified" | "deleted" | "renamed"
-	OldPath  string     `json:"old_path,omitempty"` // for renames
-	Additions int       `json:"additions"`      // added line count
-	Deletions int       `json:"deletions"`      // deleted line count
-	Binary   bool       `json:"binary"`         // true if binary file
-	SizeBytes int64     `json:"size_bytes,omitempty"` // file size (for binary files)
-	Hunks    []DiffHunk `json:"hunks,omitempty"` // line-level diff (text files only)
+	Path      string     `json:"path"`                 // relative path
+	Status    string     `json:"status"`               // "added" | "modified" | "deleted" | "renamed"
+	OldPath   string     `json:"old_path,omitempty"`   // for renames
+	Additions int        `json:"additions"`            // added line count
+	Deletions int        `json:"deletions"`            // deleted line count
+	Binary    bool       `json:"binary"`               // true if binary file
+	SizeBytes int64      `json:"size_bytes,omitempty"` // file size (for binary files)
+	Hunks     []DiffHunk `json:"hunks,omitempty"`      // line-level diff (text files only)
 }
 
 // DiffHunk represents a contiguous block of diff lines.
@@ -38,7 +38,7 @@ type DiffHunk struct {
 
 // DiffLine represents a single line in a diff hunk.
 type DiffLine struct {
-	Type    string `json:"type"`      // "add" | "del" | "ctx"
+	Type    string `json:"type"` // "add" | "del" | "ctx"
 	Content string `json:"content"`
 	OldNum  int    `json:"old_num,omitempty"` // 1-indexed old line number
 	NewNum  int    `json:"new_num,omitempty"` // 1-indexed new line number
