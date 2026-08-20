@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // delegatedTask represents a single async tool_call delegation task.
@@ -186,7 +186,10 @@ func (a *Agent) execToolsWithAsync(
 			if timeout <= 0 {
 				timeout = tools.DelegateDefaultTimeout
 			}
-			delCtx := iface.ContextWithBypassConfirm(turnState.callerCtx)
+			delCtx := turnState.callerCtx
+			if action.Context != nil {
+				delCtx = action.Context
+			}
 			delCtx, cancel := context.WithTimeout(delCtx, timeout)
 			defer cancel()
 
@@ -230,8 +233,7 @@ func (a *Agent) execToolsWithAsync(
 				replyCh <- delegateResult{err: err}
 				return
 			}
-			a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream succeeded, consuming events",
-			)
+			a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream succeeded, consuming events")
 
 			var content string
 			var finalErr error

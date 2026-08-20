@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -67,5 +68,69 @@ func TestDelegateTool_ExplicitOrInheritedResolution(t *testing.T) {
 	}
 	if got, err := dt.resolveWorkDir(ctx, ""); err != nil || got != parentDir {
 		t.Fatalf("inherited resolveWorkDir = %q, %v", got, err)
+	}
+}
+
+func TestDelegateTool_ExecuteAsyncAlwaysAsyncRejectsCycle(t *testing.T) {
+	var resolverCalls atomic.Int32
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		resolverCalls.Add(1)
+		return nil, false, nil
+	}
+	dt := NewDelegateTool(
+		"research",
+		time.Minute,
+		resolver,
+		nil,
+		nil,
+		WorkDirInheritOnly,
+		WithAlwaysAsyncDelegation(),
+	)
+	ctx := ContextWithDelegationChain(
+		iface.ContextWithWorkDir(context.Background(), "/parent/project"),
+		[]string{"engineering", "research"},
+	)
+
+	action, err := dt.ExecuteAsync(ctx, `{"target":"Engineering","task":"continue the loop","async":false}`)
+	if err == nil || !strings.Contains(err.Error(), "delegation cycle detected") {
+		t.Fatalf("ExecuteAsync error = %v, want delegation cycle error", err)
+	}
+	if action != nil {
+		t.Fatalf("ExecuteAsync action = %#v, want nil", action)
+	}
+	if got := resolverCalls.Load(); got != 0 {
+		t.Fatalf("resolver calls = %d, want 0 when cycle validation fails", got)
+	}
+}
+
+func TestDelegateTool_ExecuteAsyncAlwaysAsyncRejectsDepth(t *testing.T) {
+	var resolverCalls atomic.Int32
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		resolverCalls.Add(1)
+		return nil, false, nil
+	}
+	dt := NewDelegateTool(
+		"research",
+		time.Minute,
+		resolver,
+		nil,
+		nil,
+		WorkDirInheritOnly,
+		WithAlwaysAsyncDelegation(),
+	)
+	ctx := ContextWithDelegationChain(
+		iface.ContextWithWorkDir(context.Background(), "/parent/project"),
+		[]string{"planning", "engineering"},
+	)
+
+	action, err := dt.ExecuteAsync(ctx, `{"target":"research","task":"one more hop"}`)
+	if err == nil || !strings.Contains(err.Error(), "delegation depth limit reached") {
+		t.Fatalf("ExecuteAsync error = %v, want delegation depth error", err)
+	}
+	if action != nil {
+		t.Fatalf("ExecuteAsync action = %#v, want nil", action)
+	}
+	if got := resolverCalls.Load(); got != 0 {
+		t.Fatalf("resolver calls = %d, want 0 when depth validation fails", got)
 	}
 }
