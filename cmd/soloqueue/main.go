@@ -24,13 +24,15 @@ func rootCmd() *cobra.Command {
 		Short: "SoloQueue — AI multi-agent collaboration tool",
 		Long: `SoloQueue is an AI multi-agent collaboration tool built on the Actor model.
 
-Use 'soloqueue serve' to start the local HTTP/WebSocket server.`,
+Use 'soloqueue start' to start the backend and browser consoles together.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 
 	root.AddCommand(cli.VersionCmd(version))
 	root.AddCommand(cli.ServeCmd(version))
+	root.AddCommand(cli.StartCmd(version))
+	root.AddCommand(cli.WebCmd(version))
 	root.AddCommand(cli.WechatCmd(version))
 	root.AddCommand(cli.MemoryCmd())
 	root.AddCommand(cli.SkillsCmd())

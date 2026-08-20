@@ -1,82 +1,36 @@
-.PHONY: help build build-web build-desktop build-all build-all-win build-go build-go-win build-win package-desktop package-desktop-app repackage-desktop-app package-desktop-win setup-macos-signing check-macos-signing clean
-
-PLATFORM ?=
-GOOS =
-GOARCH =
-PLATFORM_FLAGS =
-ifeq ($(PLATFORM),mac)
-  PLATFORM_FLAGS = --mac
-  GOOS = darwin
-else ifeq ($(PLATFORM),win)
-  PLATFORM_FLAGS = --win
-  GOOS = windows
-  GOARCH = amd64
-else ifeq ($(PLATFORM),linux)
-  PLATFORM_FLAGS = --linux
-  GOOS = linux
-  GOARCH = amd64
-endif
+.PHONY: help build build-web build-status build-assets build-go build-go-win build-win start web clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-build-web: ## Build lightweight web portal (for Go embed)
-	cd portal && pnpm approve-builds esbuild
-	cd portal && pnpm install
-	cd portal && pnpm test
-	cd portal && pnpm build
-	rm -rf internal/server/dist && cp -r portal/dist internal/server/dist
-	rsync -a --exclude='.venv' --exclude='__pycache__' --exclude='*.pyc' skills/ internal/server/dist/skills
+build-web: ## Build the full browser Web Console
+	cd web && pnpm install --frozen-lockfile && pnpm test && pnpm build
+	rm -rf internal/assets/dist/web && cp -r web/dist internal/assets/dist/web
 
-build-desktop: ## Build rich web UI (for Electron desktop client)
-	cd desktop && pnpm approve-builds
-	cd desktop && pnpm install
-	cd desktop && pnpm build
+build-status: ## Build the read-only Status UI
+	cd status-ui && pnpm install --frozen-lockfile && pnpm test && pnpm build
+	rm -rf internal/assets/dist/status && cp -r status-ui/dist internal/assets/dist/status
 
-build: build-web ## Build Go binary with web portal embedded (Default binary build)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-s -w" -o soloqueue ./cmd/soloqueue
-	@if [ "$(GOOS)" = "windows" ]; then mv soloqueue.exe soloqueue; fi
+build-assets: build-web build-status ## Build both browser bundles and copy built-in Skills
+	rm -rf internal/assets/dist/skills && mkdir -p internal/assets/dist/skills
+	rsync -a --exclude='.venv' --exclude='__pycache__' --exclude='*.pyc' skills/ internal/assets/dist/skills/
 
-build-win: build-web ## Build Go binary for Windows with web portal embedded
-	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o soloqueue.exe ./cmd/soloqueue
-
-build-all: build build-desktop ## Full build: Go binary (with portal) AND desktop web UI
-
-build-all-win: build-win build-desktop ## Build all source artifacts for Windows
-	@if ! dpkg -l wine32:i386 >/dev/null 2>&1; then \
-		echo "ERROR: wine32 is required for Windows desktop build on Linux."; \
-		echo "Install:"; \
-		echo "  sudo dpkg --add-architecture i386 && sudo apt update \\"; \
-		echo "  && sudo apt install wine wine32:i386"; \
-		exit 1; \
-	fi
-	cd desktop && npx electron-builder build --config electron-builder.json --win
-
-build-go: ## Build Go binary only (assumes portal dist is already built)
+build-go: ## Build Go binary using already-built assets
 	go build -ldflags="-s -w" -o soloqueue ./cmd/soloqueue
 
-build-go-win: ## Build Go binary for Windows only (assumes portal dist is already built)
+build: build-assets build-go ## Build browser assets and Go binary
+
+build-win: build-assets ## Build Windows Go binary with embedded browser assets
 	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o soloqueue.exe ./cmd/soloqueue
 
-package-desktop: build-all ## Package Electron desktop client binaries (specify platform via PLATFORM=mac|win|linux, defaults to current OS)
-	cd desktop && npx electron-builder build --config electron-builder.json $(PLATFORM_FLAGS)
+build-go-win: build-go ## Compatibility alias for Windows-only Go build
 
-package-desktop-app: build-all ## Build and package the fixed-signed macOS app without creating a DMG
-	cd desktop && npx electron-builder build --config electron-builder.json --mac dir
+start: build ## Build and start backend + both browser UIs on one port
+	./soloqueue start
 
-repackage-desktop-app: ## Repackage the fixed-signed macOS app from existing Go and Desktop build outputs
-	@test -x soloqueue || { echo "ERROR: soloqueue is missing; run 'make build-all' first"; exit 1; }
-	@test -f desktop/dist/index.html || { echo "ERROR: desktop/dist is missing; run 'make build-all' first"; exit 1; }
-	cd desktop && npx electron-builder build --config electron-builder.json --mac dir
+web: build-web ## Build and start standalone Web Console
+	./soloqueue web
 
-package-desktop-win: build-all-win ## Alias: full Windows build including desktop installer
-
-setup-macos-signing: ## Create the fixed macOS signing identity and encrypted local backup
-	./scripts/setup-macos-signing-cert.sh --create
-
-check-macos-signing: ## Verify the fixed macOS signing identity against the pinned fingerprint
-	./scripts/setup-macos-signing-cert.sh --check
-
-clean: ## Remove all build artifacts
-	rm -rf soloqueue soloqueue.exe desktop/dist desktop/dist-desktop portal/dist internal/server/dist
+clean: ## Remove generated binaries and embedded frontend bundles
+	rm -rf soloqueue soloqueue.exe web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status internal/assets/dist/skills

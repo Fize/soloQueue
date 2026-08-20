@@ -80,7 +80,7 @@ func TestHTTP_GetSessionChanges_TildeExpansion(t *testing.T) {
 	log, _ := logger.System(logDir, logger.WithConsole(false), logger.WithFile(false))
 
 	l2Store := session.NewL2SessionStore(nil, tempHome, log)
-	
+
 	// Create an L2 session with a tilde-prefixed WorkDir: "~/my-project"
 	sessionID := "test-session-uuid"
 	info, err := l2Store.Create(context.Background(), sessionID, "dev", "test-proj", "~/my-project")

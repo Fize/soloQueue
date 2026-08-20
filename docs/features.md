@@ -65,7 +65,7 @@ nodes:
         terminal_status: completed
 ```
 
-The visual editor in the desktop client provides a graphic view while preserving the YAML file as the portable source of truth. Nodes execute in isolated environments, and run history is logged to SQLite.
+The visual editor in the Web Console provides a graphic view while preserving the YAML file as the portable source of truth. Nodes execute in isolated environments, and run history is logged to SQLite.
 
 ---
 

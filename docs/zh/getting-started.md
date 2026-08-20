@@ -17,9 +17,9 @@
 
 ## 安装与构建
 
-### 1. 嵌入式 Portal 与服务端（默认模式）
+### 1. 嵌入式浏览器应用（默认模式）
 
-构建 Web Portal、嵌入 Go 服务端并启动：
+构建 Web Console 和状态页、嵌入 Go 服务端并启动：
 
 ```bash
 git clone https://github.com/Fize/soloQueue.git
@@ -27,24 +27,23 @@ cd soloQueue
 
 make build
 export DEEPSEEK_API_KEY="your-api-key"
-./soloqueue serve
+./soloqueue start
 ```
 
 打开 `http://127.0.0.1:57647`。首次启动时，SoloQueue 会自动在 `~/.soloqueue/` 下创建工作目录并生成初始 `settings.yaml`。
 
-> **提示**：未运行 `make build-web` 直接使用 `go run ./cmd/soloqueue serve` 启动会导致浏览器 UI 为空白。
+> **提示**：生产构建前请运行 `make build-assets`，以嵌入 Web Console 和状态页。
 
-### 2. 桌面开发客户端
+### 2. 浏览器开发
 
-在独立终端中分别运行 Electron 桌面前端与后端：
+在独立终端中分别运行 Web Console 与后端：
 
 ```bash
 # 终端 1：后端服务
 go run ./cmd/soloqueue serve --port 8765 --verbose
 
-# 终端 2：桌面客户端
-cd desktop
-pnpm approve-builds
+# 终端 2：Web Console
+cd web
 pnpm install
 pnpm dev
 ```
@@ -55,12 +54,12 @@ Vite 开发服务器会自动把 `/api` 与 `/ws` 转发至 `http://localhost:87
 
 | 命令 | 产物描述 |
 | --- | --- |
-| `make build-web` | 构建 Web Portal 并复制到 `internal/server/dist/` |
-| `make build-go` | 构建 Go 二进制（要求 Portal 资源已存在） |
-| `make build` | 构建 Web Portal 及 Go 二进制 |
-| `make build-desktop` | 构建 Electron 桌面渲染资源 |
-| `make build-all` | 构建 Portal、Go 二进制及桌面渲染资源 |
-| `make package-desktop PLATFORM=mac` | 打包桌面客户端（支持 `mac`、`win` 或 `linux`） |
+| `make build-web` | 构建完整 Web Console |
+| `make build-go` | 构建 Go 二进制（要求浏览器资源已存在） |
+| `make build` | 构建浏览器资源及 Go 二进制 |
+| `make build-status` | 构建只读状态页 |
+| `make build-assets` | 构建 Web Console、状态页并嵌入 Skills |
+| `make start` | 构建并启动后端与两个浏览器前端 |
 
 ---
 
@@ -118,7 +117,7 @@ export SOLOQUEUE_AUTH_PASSWORD="replace-with-a-long-random-password"
 
 ## 故障排查
 
-- **Portal 界面空白**：依次运行 `make build-web` 与 `make build` 后重启服务。
+- **Web 界面空白**：依次运行 `make build-assets` 与 `make build` 后重启服务。
 - **端口被占用**：使用 `--port` 参数指定新端口（如 `./soloqueue serve --port 8765`）。
 - **模型无响应**：检查环境变量 API Key、核对 `model_routes` 配置，并查看服务端日志。
 - **远程访问 403**：确认已在 `settings.yaml` 或环境变量中配置 `auth.user` 与 `auth.password`。

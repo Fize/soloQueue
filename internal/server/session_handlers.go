@@ -853,7 +853,7 @@ func (m *Mux) handleCancelSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = sess.CancelCurrent("User requested cancellation from desktop app")
+	_ = sess.CancelCurrent("User requested cancellation")
 
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }

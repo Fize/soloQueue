@@ -8,10 +8,10 @@
 
 ## 1. 进程边界与分层架构
 
-SoloQueue 采用本地优先架构，由 Go 后端服务、Electron 桌面客户端（`desktop/`）以及内置嵌入式 Web Portal（构建于 `internal/server/dist/`）组成。
+SoloQueue 采用本地优先架构，由 Go 后端服务、完整浏览器 Web Console（`web/`）和独立只读状态页（`status-ui/`）组成。两个前端与内置 Skill Store 分别嵌入 `internal/assets/`。
 
 ```text
-桌面 / Portal 客户端
+Web Console / 状态页
        │ HTTP + WebSocket
        ▼
 HTTP 服务与认证中间件 (internal/server)
@@ -68,9 +68,3 @@ SoloQueue 将短期上下文与长期搜索和审计日志分离开来：
 
 - **QQ Bot (`internal/channel/qq`)**：实现腾讯 Bot Gateway 协议，处理被动回复窗口并维护主动发送限流队列。
 - **微信 iLink (`internal/channel/wechat`)**：通过腾讯官方 iLink Bot API 连接，支持长轮询更新流、二维码配对及 typing 状态保持。
-
----
-
-## 6. 维护者说明：macOS 代码签名
-
-对于本地 macOS 包构建，SoloQueue 提供了固定自签名脚本（`make setup-macos-signing`）。脚本在 Keychain 中创建专属自签名身份（`SoloQueue Code Signing`）并将公钥 SHA-256 指纹固定在 `desktop/build/macos-signing-cert.sha256`，保证应用在本地 macOS 更新过程中的身份连续性。

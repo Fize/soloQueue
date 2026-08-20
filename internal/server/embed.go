@@ -1,22 +1,11 @@
 package server
 
 import (
-	"embed"
 	"io/fs"
+
+	"github.com/xiaobaitu/soloqueue/internal/assets"
 )
 
-//go:embed all:dist
-var webDist embed.FS
-
-func distFS() fs.FS {
-	f, err := fs.Sub(webDist, "dist")
-	if err != nil {
-		panic(err)
-	}
-	return f
-}
-
-// DistFS returns the embedded filesystem containing web assets and skills.
-func DistFS() fs.FS {
-	return distFS()
-}
+// DistFS is retained as a source-compatible alias for integrations that used
+// the old combined bundle. New code must choose WebFS, StatusFS, or SkillsFS.
+func DistFS() fs.FS { return assets.SkillsFS() }

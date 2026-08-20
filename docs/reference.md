@@ -69,6 +69,12 @@ Starts the HTTP REST, WebSocket, and agent runtime server.
 - `--verbose, -v`: Enables verbose stderr logging.
 - `--bypass`: Globally bypasses tool confirmation prompts.
 
+### `soloqueue start`
+Starts the backend runtime, Web Console at `/`, and Status UI at `/status/` on one listener. It accepts the same host, port, verbose, and bypass flags as `serve`.
+
+### `soloqueue web`
+Starts only the standalone Web Console. Use `--backend` to set the backend URL; the default is `http://127.0.0.1:57647`.
+
 ### `soloqueue version`
 Prints the application version string.
 

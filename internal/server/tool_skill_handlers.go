@@ -11,9 +11,9 @@ import (
 	"sort"
 
 	"github.com/go-chi/chi/v5"
-	"gopkg.in/yaml.v3"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"gopkg.in/yaml.v3"
 )
 
 // ─── Tools Response Types ──────────────────────────────────────────────────
@@ -144,11 +144,11 @@ func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// findStoreSkillByID finds a skill in the embedded store by its catalog ID.
+// findStoreSkillByID finds a skill in the embedded Skill Store by its catalog ID.
 // Some skills have a catalog ID that differs from their directory name (e.g. case),
 // so we scan the store rather than assuming id == directory name.
 func findStoreSkillByID(fsys fs.FS, id string) (*skill.Skill, string, error) {
-	entries, err := fs.ReadDir(fsys, "skills")
+	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return nil, "", err
 	}
@@ -157,7 +157,7 @@ func findStoreSkillByID(fsys fs.FS, id string) (*skill.Skill, string, error) {
 			continue
 		}
 		dirName := e.Name()
-		mdPath := filepath.ToSlash(filepath.Join("skills", dirName, "SKILL.md"))
+		mdPath := filepath.ToSlash(filepath.Join(dirName, "SKILL.md"))
 		s, err := skill.ParseSkillMDFromFS(fsys, mdPath)
 		if err != nil {
 			continue
@@ -169,15 +169,15 @@ func findStoreSkillByID(fsys fs.FS, id string) (*skill.Skill, string, error) {
 	return nil, "", fmt.Errorf("skill %s not found in store FS", id)
 }
 
-// getStoreSkills retrieves store skills from the embedded distFS.
+// getStoreSkills retrieves store skills from the embedded Skill Store.
 func (m *Mux) getStoreSkills() ([]*skill.Skill, error) {
-	return skill.LoadSkillsFromFS(m.distFS, "skills")
+	return skill.LoadSkillsFromFS(m.skillFS, ".")
 }
 
 // installStoreSkill installs a skill from the embedded store into userSkillsDir.
 func (m *Mux) installStoreSkill(ctx context.Context, userSkillsDir, id string) error {
 	// Find the store skill by catalog ID, resolving directory name mismatches.
-	s, dirName, err := findStoreSkillByID(m.distFS, id)
+	s, dirName, err := findStoreSkillByID(m.skillFS, id)
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func (m *Mux) installStoreSkill(ctx context.Context, userSkillsDir, id string) e
 		return skill.InstallGithubSkill(ctx, s.Upstream, s.Branch, s.SubPath, userSkillsDir)
 	}
 
-	return skill.InstallSkillFromFS(m.distFS, "skills", userSkillsDir, dirName)
+	return skill.InstallSkillFromFS(m.skillFS, ".", userSkillsDir, dirName)
 }
 
 // handleListStoreSkills returns all available skills in the store catalog.
@@ -305,7 +305,7 @@ func (m *Mux) handleGetSkillDetail(w http.ResponseWriter, r *http.Request) {
 
 		// 2. Fallback to embedded filesystem
 		if parsed == nil {
-			s, _, findErr := findStoreSkillByID(m.distFS, id)
+			s, _, findErr := findStoreSkillByID(m.skillFS, id)
 			if findErr == nil {
 				parsed = s
 				err = nil
@@ -426,13 +426,12 @@ func (m *Mux) handleGetSkillFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Fallback to embedded filesystem
-	_, dirName, err := findStoreSkillByID(m.distFS, id)
+	_, dirName, err := findStoreSkillByID(m.skillFS, id)
 	if err != nil {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "skill folder not found"})
 		return
 	}
-	virtualDir := filepath.ToSlash(filepath.Join("skills", dirName))
-	files, err := skill.ListSkillFilesFromFS(m.distFS, virtualDir)
+	files, err := skill.ListSkillFilesFromFS(m.skillFS, dirName)
 	if err != nil {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "skill folder not found"})
 		return

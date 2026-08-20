@@ -17,9 +17,9 @@ This guide covers prerequisites, building from source, first-run configuration, 
 
 ## Installation & Build
 
-### 1. Embedded Web Portal & Server (Default)
+### 1. Embedded Browser Application (Default)
 
-Build the browser portal, embed it into the Go server, and launch:
+Build both browser bundles, embed them into the Go server, and launch:
 
 ```bash
 git clone https://github.com/Fize/soloQueue.git
@@ -27,24 +27,23 @@ cd soloQueue
 
 make build
 export DEEPSEEK_API_KEY="your-api-key"
-./soloqueue serve
+./soloqueue start
 ```
 
 Open `http://127.0.0.1:57647` in a browser. On initial launch, SoloQueue automatically creates the work directory at `~/.soloqueue/` and populates `settings.yaml`.
 
-> **Note**: Running `go run ./cmd/soloqueue serve` directly without building portal assets will result in a blank browser UI. Run `make build-web` first when portal UI is needed.
+> **Note**: Run `make build-assets` before a production Go build so both the Web Console and Status UI are embedded.
 
-### 2. Desktop Development Client
+### 2. Browser Development
 
-Run the desktop frontend (Electron + React) alongside the Go backend:
+Run the Web Console alongside the Go backend:
 
 ```bash
 # Terminal 1: Backend server
 go run ./cmd/soloqueue serve --port 8765 --verbose
 
-# Terminal 2: Desktop client
-cd desktop
-pnpm approve-builds
+# Terminal 2: Web Console
+cd web
 pnpm install
 pnpm dev
 ```
@@ -55,12 +54,12 @@ The Vite dev server proxies `/api` and `/ws` requests to `http://localhost:8765`
 
 | Command | Output |
 | --- | --- |
-| `make build-web` | Builds portal frontend and copies into `internal/server/dist/` |
-| `make build-go` | Builds Go binary (assumes portal assets exist) |
-| `make build` | Builds portal assets and Go binary |
-| `make build-desktop` | Builds Electron desktop renderer assets |
-| `make build-all` | Builds portal, Go binary, and desktop renderer |
-| `make package-desktop PLATFORM=mac` | Packages desktop application (`mac`, `win`, or `linux`) |
+| `make build-web` | Builds the full Web Console |
+| `make build-go` | Builds Go binary (assumes browser assets exist) |
+| `make build` | Builds browser assets and Go binary |
+| `make build-status` | Builds the read-only Status UI |
+| `make build-assets` | Builds Web Console, Status UI, and embeds Skills |
+| `make start` | Builds and starts backend plus both browser UIs |
 
 ---
 
@@ -118,7 +117,7 @@ Non-loopback requests require Basic Authentication when credentials are configur
 
 ## Troubleshooting
 
-- **Blank Web Portal**: Run `make build-web` and `make build`, then restart the server.
+- **Blank Web UI**: Run `make build-assets` and `make build`, then restart the server.
 - **Port In Use**: Specify a different port using `./soloqueue serve --port 8765`.
 - **No Model Response**: Verify provider API key, check `model_routes` mapping, and inspect server logs.
 - **Remote 403 Forbidden**: Ensure `auth.user` and `auth.password` are set before accessing via non-loopback IPs.

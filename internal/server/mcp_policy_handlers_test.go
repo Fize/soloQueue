@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
 func TestMCPPolicyHandlersRequireExplicitHostApprovalAndInvalidateChanges(t *testing.T) {

@@ -87,6 +87,59 @@ func TestHTTP_Auth(t *testing.T) {
 		}
 	}
 
+	// Auth discovery is public and reports whether this request needs Basic
+	// Auth. A local browser does not need to show a login gate.
+	{
+		req := httptest.NewRequest("GET", "/api/auth/status", nil)
+		req.Host = "localhost:8765"
+		req.RemoteAddr = "127.0.0.1:12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for local auth status, got %d", rec.Code)
+		}
+		var status authStatusResponse
+		if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+			t.Fatalf("decode local auth status: %v", err)
+		}
+		if status.Required || status.Scheme != "basic" {
+			t.Fatalf("local auth status = %+v, want required=false scheme=basic", status)
+		}
+	}
+
+	// A remote request can discover the configured auth scheme without sending
+	// credentials, then use the normal protected endpoint after login.
+	{
+		req := httptest.NewRequest("GET", "/api/auth/status", nil)
+		req.Host = "remote.example:8765"
+		req.RemoteAddr = "192.168.1.100:12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for remote auth status, got %d", rec.Code)
+		}
+		var status authStatusResponse
+		if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+			t.Fatalf("decode remote auth status: %v", err)
+		}
+		if !status.Required || status.Scheme != "basic" {
+			t.Fatalf("remote auth status = %+v, want required=true scheme=basic", status)
+		}
+	}
+
+	// Runtime discovery is also public so a standalone Web Console can learn
+	// its backend URL before it has credentials.
+	{
+		req := httptest.NewRequest("GET", "/api/runtime-config", nil)
+		req.Host = "remote.example:8765"
+		req.RemoteAddr = "192.168.1.100:12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for remote runtime config without auth, got %d", rec.Code)
+		}
+	}
+
 	// 2. Access via external IP (e.g. 192.168.1.100) -> 401 Unauthorized
 	{
 		req := httptest.NewRequest("GET", "/api/auth/check", nil)
