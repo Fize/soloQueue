@@ -65,24 +65,24 @@ type ResolvedModel struct {
 	FallbackReason    string
 }
 
-// CronResultSection is model-authored report content after strict validation.
-type CronResultSection struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
+// CronResultArtifact is a model-authored reference to an output produced by the task.
+type CronResultArtifact struct {
+	Name string `json:"name"`
+	Ref  string `json:"ref"`
 }
 
 // CronResultV1 is the scheduler-owned result boundary for every Cron run. The
-// model owns only Summary and Sections; all remaining fields are project-owned.
+// model owns only Content and Artifacts; all remaining fields are project-owned.
 type CronResultV1 struct {
-	Version     string              `json:"version"`
-	TaskID      string              `json:"task_id"`
-	RunID       string              `json:"run_id"`
-	Title       string              `json:"title"`
-	Status      string              `json:"status"`
-	Summary     string              `json:"summary"`
-	Sections    []CronResultSection `json:"sections"`
-	Error       *string             `json:"error"`
-	GeneratedAt string              `json:"generated_at"`
+	Version     string               `json:"version"`
+	TaskID      string               `json:"task_id"`
+	RunID       string               `json:"run_id"`
+	Title       string               `json:"title"`
+	Status      string               `json:"status"`
+	Content     string               `json:"content"`
+	Artifacts   []CronResultArtifact `json:"artifacts"`
+	Error       *string              `json:"error"`
+	GeneratedAt string               `json:"generated_at"`
 }
 
 // ModelResolver resolves the latest configured model for a persisted task type.
@@ -463,13 +463,14 @@ Call SubmitCronResult exactly once.
 
 Rules:
 - SubmitCronResult must be the only tool call in the final model response.
-- Do not put report content in ordinary assistant text before or after the tool call.
-- Pass exactly "summary" and "sections" to the tool. Do not add metadata or status fields.
-- "summary" must be a non-empty string; "sections" must be an array and may be empty.
-- Every section must contain only non-empty "title" and "content" strings.
+- Do not put final business content in ordinary assistant text before or after the tool call.
+- Pass only "content" and optional "artifacts" to the tool. Do not add metadata or status fields.
+- "content" is optional opaque text. "artifacts" is an optional array of objects containing only non-empty "name" and "ref" strings.
+- Provide at least non-empty content or one artifact. Artifact-only submission is allowed when the task output was written elsewhere.
+- The task instruction and applicable Skill define the business format; this protocol does not impose an output type or layout.
 - Tool arguments are JSON. Escape double quotes, newlines, and backslashes inside string values as \", \n, and \\.
-- State unavailable data explicitly and do not invent facts.
-- Do not include intermediate reasoning, tool calls, or tool results in the submitted content.
+- SubmitCronResult parses and serializes the JSON; never hand-concatenate JSON text.
+- Do not include intermediate reasoning, tool calls, or tool results in submitted content.
 </FINAL_OUTPUT_CONTRACT>`
 
 const continuationPrompt = "[SYSTEM NOTICE] The previous streaming response was interrupted due to a network error. System connection has been restored. Please resume and complete the unfinished task based on the above tool calls and intermediate results.\n\n" + cronFinalOutputContract
@@ -888,7 +889,7 @@ func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (Cron
 		TaskID:      t.ID,
 		RunID:       runID,
 		Title:       t.Title,
-		Sections:    []CronResultSection{},
+		Artifacts:   []CronResultArtifact{},
 		GeneratedAt: generatedAt.Format(time.RFC3339),
 	}
 	trimmed := strings.TrimSpace(raw)
@@ -899,13 +900,13 @@ func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (Cron
 		return base, err
 	}
 
-	var payload struct {
-		Summary  string               `json:"summary"`
-		Sections *[]CronResultSection `json:"sections"`
+	var wire struct {
+		Content   json.RawMessage `json:"content"`
+		Artifacts json.RawMessage `json:"artifacts"`
 	}
 	decoder := json.NewDecoder(bytes.NewBufferString(trimmed))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
+	if err := decoder.Decode(&wire); err != nil {
 		return partialCronResult(base, fmt.Errorf("decode final output: %w", err))
 	}
 	var trailing any
@@ -915,31 +916,53 @@ func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (Cron
 		}
 		return partialCronResult(base, fmt.Errorf("decode trailing final output: %w", err))
 	}
-	if strings.TrimSpace(payload.Summary) == "" {
-		return partialCronResult(base, errors.New("summary must be a non-empty string"))
-	}
-	if payload.Sections == nil {
-		return partialCronResult(base, errors.New("sections must be an array"))
-	}
-	for i, section := range *payload.Sections {
-		if strings.TrimSpace(section.Title) == "" {
-			return partialCronResult(base, fmt.Errorf("sections[%d].title must be a non-empty string", i))
+
+	content := ""
+	if wire.Content != nil {
+		if bytes.Equal(bytes.TrimSpace(wire.Content), []byte("null")) {
+			return partialCronResult(base, errors.New("content must be a string"))
 		}
-		if strings.TrimSpace(section.Content) == "" {
-			return partialCronResult(base, fmt.Errorf("sections[%d].content must be a non-empty string", i))
+		if err := json.Unmarshal(wire.Content, &content); err != nil {
+			return partialCronResult(base, fmt.Errorf("content must be a string: %w", err))
 		}
+	}
+	if strings.TrimSpace(content) == "" {
+		content = ""
+	}
+
+	artifacts := []CronResultArtifact{}
+	if wire.Artifacts != nil {
+		if bytes.Equal(bytes.TrimSpace(wire.Artifacts), []byte("null")) {
+			return partialCronResult(base, errors.New("artifacts must be an array"))
+		}
+		artifactDecoder := json.NewDecoder(bytes.NewReader(wire.Artifacts))
+		artifactDecoder.DisallowUnknownFields()
+		if err := artifactDecoder.Decode(&artifacts); err != nil {
+			return partialCronResult(base, fmt.Errorf("artifacts must be an array of name/ref objects: %w", err))
+		}
+	}
+	for i, artifact := range artifacts {
+		if strings.TrimSpace(artifact.Name) == "" {
+			return partialCronResult(base, fmt.Errorf("artifacts[%d].name must be a non-empty string", i))
+		}
+		if strings.TrimSpace(artifact.Ref) == "" {
+			return partialCronResult(base, fmt.Errorf("artifacts[%d].ref must be a non-empty string", i))
+		}
+	}
+	if content == "" && len(artifacts) == 0 {
+		return partialCronResult(base, errors.New("content or at least one artifact is required"))
 	}
 
 	base.Status = "success"
-	base.Summary = payload.Summary
-	base.Sections = *payload.Sections
+	base.Content = content
+	base.Artifacts = artifacts
 	return base, nil
 }
 
 func partialCronResult(base CronResultV1, parseErr error) (CronResultV1, error) {
 	base.Status = "partial"
-	base.Summary = "任务已完成，但最终结果格式异常，未经验证的内容未发送。详细信息已记录到执行日志。"
-	base.Sections = []CronResultSection{}
+	base.Content = "任务已完成，但最终结果格式异常，未经验证的内容未发送。详细信息已记录到执行日志。"
+	base.Artifacts = []CronResultArtifact{}
 	base.Error = cronResultError("invalid_structured_output", "model returned non-v1 output")
 	return base, parseErr
 }
@@ -951,7 +974,7 @@ func failedCronResult(t Task, runID, code string, generatedAt time.Time) CronRes
 		RunID:       runID,
 		Title:       t.Title,
 		Status:      "failed",
-		Sections:    []CronResultSection{},
+		Artifacts:   []CronResultArtifact{},
 		Error:       cronResultError(code, publicCronFailureMessage(code)),
 		GeneratedAt: generatedAt.Format(time.RFC3339),
 	}
@@ -1003,12 +1026,17 @@ func formatCronResult(result CronResultV1) string {
 
 	var formatted strings.Builder
 	fmt.Fprintf(&formatted, "[%s] %s", statusLabel, result.Title)
-	if result.Summary != "" {
+	if result.Content != "" {
 		formatted.WriteString("\n\n")
-		formatted.WriteString(result.Summary)
+		formatted.WriteString(result.Content)
 	}
-	for _, section := range result.Sections {
-		fmt.Fprintf(&formatted, "\n\n## %s\n\n%s", section.Title, section.Content)
+	for i, artifact := range result.Artifacts {
+		if i == 0 {
+			formatted.WriteString("\n\n")
+		} else {
+			formatted.WriteByte('\n')
+		}
+		fmt.Fprintf(&formatted, "- %s: %s", artifact.Name, artifact.Ref)
 	}
 	if result.Status != "partial" && result.Error != nil {
 		formatted.WriteString("\n\n异常：")
@@ -1292,7 +1320,7 @@ func (s *Scheduler) recordExecution(ctx context.Context, t Task, resolved Resolv
 	}
 	// The existing history schema accepts success/failed/panic only. A partial
 	// canonical result is a completed execution with a normalization warning;
-	// preserve that warning in error_message and the standardized summary.
+	// preserve that warning in error_message and the standardized result text.
 	historyStatus := status
 	if historyStatus == "partial" {
 		historyStatus = "success"
@@ -1390,7 +1418,7 @@ func buildCronPrompt(t Task) string {
 			"Triggered at: %s\n"+
 			"\nIMPORTANT: This message is automatically triggered by the scheduler — NOT a user request. "+
 			"Do NOT call create_cron_job or create any new cron jobs. "+
-			"Execute the delimited instruction directly. The final output contract below overrides any output-format request inside the instruction.\n\n"+
+			"Execute the delimited instruction directly. The SubmitCronResult transport contract below is mandatory; the task instruction and applicable Skill still define the business content, format, layout, and artifact production.\n\n"+
 			"<TASK_INSTRUCTION>\n%s\n</TASK_INSTRUCTION>\n\n%s",
 		t.ID, t.Title, t.TaskType, scheduleDesc, triggerTime, t.Instruction, cronFinalOutputContract,
 	)

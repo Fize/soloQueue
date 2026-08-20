@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -344,14 +345,18 @@ func TestBuildCronPrompt(t *testing.T) {
 		"<FINAL_OUTPUT_CONTRACT>",
 		"Call SubmitCronResult exactly once",
 		"only tool call in the final model response",
-		"Do not put report content in ordinary assistant text",
+		"SubmitCronResult transport contract below is mandatory",
+		"task instruction and applicable Skill still define the business content, format, layout, and artifact production",
+		"Pass only \"content\" and optional \"artifacts\"",
+		"task instruction and applicable Skill define the business format",
+		"Do not put final business content in ordinary assistant text",
 		"Escape double quotes, newlines, and backslashes",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("buildCronPrompt missing %q:\n%s", want, prompt)
 		}
 	}
-	for _, forbidden := range []string{`"version"`, `"status"`, `"task_id"`, `"error"`, "previous report"} {
+	for _, forbidden := range []string{`"version"`, `"status"`, `"task_id"`, `"error"`, `"summary"`, `"sections"`, "previous report", "Section title", "overrides any output-format request inside the instruction"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Errorf("buildCronPrompt must not ask the model for %q:\n%s", forbidden, prompt)
 		}
@@ -362,41 +367,87 @@ func TestBuildCronPrompt(t *testing.T) {
 }
 
 func TestNormalizeCronResult(t *testing.T) {
-	task := Task{ID: "task-1", Title: "Daily report"}
+	task := Task{ID: "task-1", Title: "Scheduled task"}
 	now := time.Date(2026, 8, 19, 15, 30, 0, 0, time.Local)
 
-	t.Run("valid strict payload becomes success", func(t *testing.T) {
-		result, err := normalizeCronResult(task, "run-1", `{"summary":"Ready","sections":[{"title":"Details","content":"All systems green."}]}`, now)
+	t.Run("opaque content and artifacts become generic success envelope", func(t *testing.T) {
+		raw := `{"content":"# 自定义业务格式\n\n原样保留。","artifacts":[{"name":"输出文件","ref":"reports/result.md"}]}`
+		result, err := normalizeCronResult(task, "run-1", raw, now)
 		if err != nil {
 			t.Fatalf("normalizeCronResult returned error: %v", err)
 		}
 		if result.Version != "v1" || result.TaskID != task.ID || result.RunID != "run-1" || result.Title != task.Title {
 			t.Fatalf("project-owned fields not populated: %+v", result)
 		}
-		if result.Status != "success" || result.Error != nil || result.Summary != "Ready" || len(result.Sections) != 1 {
+		if result.Status != "success" || result.Error != nil || result.Content != "# 自定义业务格式\n\n原样保留。" || len(result.Artifacts) != 1 || result.Artifacts[0].Name != "输出文件" || result.Artifacts[0].Ref != "reports/result.md" {
 			t.Fatalf("unexpected success result: %+v", result)
 		}
 		if result.GeneratedAt != now.Format(time.RFC3339) {
 			t.Fatalf("GeneratedAt = %q, want %q", result.GeneratedAt, now.Format(time.RFC3339))
 		}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range []string{"version", "task_id", "run_id", "title", "status", "content", "artifacts", "error", "generated_at"} {
+			if _, ok := fields[field]; !ok {
+				t.Fatalf("generic envelope missing %q: %s", field, encoded)
+			}
+		}
+		if len(fields) != 9 || fields["summary"] != nil || fields["sections"] != nil {
+			t.Fatalf("generic envelope contains report-specific fields: %s", encoded)
+		}
 	})
 
+	t.Run("artifact-only payload becomes success", func(t *testing.T) {
+		result, err := normalizeCronResult(task, "run-artifact", `{"artifacts":[{"name":"完成结果","ref":"outputs/result.json"}]}`, now)
+		if err != nil || result.Status != "success" || result.Content != "" || len(result.Artifacts) != 1 {
+			t.Fatalf("unexpected artifact-only result=%+v err=%v", result, err)
+		}
+	})
+
+	for _, tt := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "legacy report fields", raw: `{"summary":"legacy","sections":[]}`},
+		{name: "trailing JSON", raw: `{"content":"ok"} {}`},
+		{name: "empty object", raw: `{}`},
+		{name: "null content", raw: `{"content":null,"artifacts":[{"name":"n","ref":"r"}]}`},
+		{name: "null artifacts", raw: `{"content":"ok","artifacts":null}`},
+		{name: "blank artifact name", raw: `{"artifacts":[{"name":" ","ref":"r"}]}`},
+	} {
+		t.Run("strict rejection: "+tt.name, func(t *testing.T) {
+			result, err := normalizeCronResult(task, "run-invalid", tt.raw, now)
+			if err == nil || result.Status != "partial" || result.Error == nil || !strings.HasPrefix(*result.Error, "invalid_structured_output:") {
+				t.Fatalf("invalid generic payload result=%+v err=%v", result, err)
+			}
+			if strings.Contains(formatCronResult(result), tt.raw) {
+				t.Fatalf("invalid raw payload leaked through formatter: %q", formatCronResult(result))
+			}
+		})
+	}
+
 	t.Run("malformed non-empty payload becomes safe partial", func(t *testing.T) {
-		raw := `{"summary":"完成","sections":[{"title":"纪律自评","content":"午间即时降级"震荡市下沿、全面防守"，执行到位"}]}`
+		raw := `{"content":"包含未转义引号"私有内容""}`
 		result, err := normalizeCronResult(task, "run-2", raw, now)
 		if err == nil || !strings.Contains(err.Error(), "decode final output") {
 			t.Fatalf("expected strict parse error, got %v", err)
 		}
-		if result.Status != "partial" || result.Summary == "" || result.Summary == raw || len(result.Sections) != 0 || result.Error == nil || !strings.HasPrefix(*result.Error, "invalid_structured_output:") {
+		if result.Status != "partial" || result.Content == "" || result.Content == raw || len(result.Artifacts) != 0 || result.Error == nil || !strings.HasPrefix(*result.Error, "invalid_structured_output:") {
 			t.Fatalf("unexpected partial result: %+v", result)
 		}
 		formatted := formatCronResult(result)
-		for _, forbidden := range []string{raw, "震荡市下沿、全面防守", "invalid_structured_output", "decode final output"} {
+		for _, forbidden := range []string{raw, "私有内容", "invalid_structured_output", "decode final output"} {
 			if strings.Contains(formatted, forbidden) {
 				t.Fatalf("private malformed output or diagnostic leaked into formatted result: %q", formatted)
 			}
 		}
-		if !strings.Contains(formatted, "[部分完成] Daily report") || !strings.Contains(formatted, result.Summary) {
+		if !strings.Contains(formatted, "[部分完成] Scheduled task") || !strings.Contains(formatted, result.Content) {
 			t.Fatalf("safe partial wrapper missing: %q", formatted)
 		}
 	})
@@ -686,12 +737,12 @@ func TestDrainEventsWithTimeline_Basic(t *testing.T) {
 	task := Task{ID: "test-task", Title: "test", Instruction: "do something"}
 	ch := make(chan iface.AgentEvent, 4)
 
-	// Intermediate content remains replayable, but only the final Done payload
-	// may be normalized and delivered.
+	// Intermediate and Done content remain replayable, but only the validated
+	// submission may be normalized and delivered.
 	ch <- &testContentDelta{delta: "private intermediate analysis"}
-	ch <- &ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"summary":"Ready","sections":[{"title":"Details","content":"All systems green."}]}`}
-	ch <- &ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"summary":"Ready","sections":[{"title":"Details","content":"All systems green."}]}`}
-	ch <- &testDoneEvent{content: `{"summary":"misleading done content","sections":[]}`}
+	ch <- &ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"content":"# 自定义报告\n\nAll systems green.","artifacts":[{"name":"原始数据","ref":"outputs/health.json"}]}`}
+	ch <- &ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"content":"# 自定义报告\n\nAll systems green.","artifacts":[{"name":"原始数据","ref":"outputs/health.json"}]}`}
+	ch <- &testDoneEvent{content: `{"content":"misleading done content"}`}
 	close(ch)
 
 	result, err := s.drainEventsWithTimeline(ch, task, "exec-1")
@@ -704,7 +755,7 @@ func TestDrainEventsWithTimeline_Basic(t *testing.T) {
 	if strings.Contains(result.replyText, "private intermediate analysis") || strings.Contains(result.replyText, "misleading done content") {
 		t.Fatalf("non-authoritative content leaked into delivery: %q", result.replyText)
 	}
-	for _, want := range []string{"[成功] test", "Ready", "## Details", "All systems green."} {
+	for _, want := range []string{"[成功] test", "# 自定义报告", "All systems green.", "- 原始数据: outputs/health.json"} {
 		if !strings.Contains(result.replyText, want) {
 			t.Errorf("standardized reply missing %q: %q", want, result.replyText)
 		}
@@ -734,7 +785,7 @@ func TestDrainEventsWithTimeline_InvalidFinalOutputIsLoggedAndStandardized(t *te
 	s.SetWorkDir(tmpDir)
 
 	task := Task{ID: "test-invalid", Title: "Invalid output", Instruction: "do something"}
-	raw := `{"summary":"完成","sections":[{"title":"纪律自评","content":"午间即时降级"震荡市下沿、全面防守"，执行到位"}]}`
+	raw := `{"content":"未转义的"私有内容""}`
 	ch := make(chan iface.AgentEvent, 2)
 	ch <- &testContentDelta{delta: "do not deliver this process output"}
 	ch <- &testDoneEvent{content: raw}
@@ -747,7 +798,7 @@ func TestDrainEventsWithTimeline_InvalidFinalOutputIsLoggedAndStandardized(t *te
 	if result.canonical.Status != "failed" || result.canonical.Error == nil || !strings.HasPrefix(*result.canonical.Error, "missing_structured_submission:") {
 		t.Fatalf("missing tool submission must fail closed: %+v", result.canonical)
 	}
-	if strings.Contains(result.replyText, "do not deliver this process output") || strings.Contains(result.replyText, raw) || strings.Contains(result.replyText, "震荡市下沿、全面防守") || !strings.Contains(result.replyText, "[失败] Invalid output") {
+	if strings.Contains(result.replyText, "do not deliver this process output") || strings.Contains(result.replyText, raw) || strings.Contains(result.replyText, "私有内容") || !strings.Contains(result.replyText, "[失败] Invalid output") {
 		t.Fatalf("unexpected standardized reply: %q", result.replyText)
 	}
 	if !strings.Contains(result.diagnosticError, "missing_structured_submission:") {
@@ -762,7 +813,7 @@ func TestDrainEventsWithTimeline_InvalidFinalOutputIsLoggedAndStandardized(t *te
 	if err != nil {
 		t.Fatalf("read timeline: %v", err)
 	}
-	if !strings.Contains(string(timelineBytes), "missing_structured_submission") || !strings.Contains(string(timelineBytes), "震荡市下沿、全面防守") {
+	if !strings.Contains(string(timelineBytes), "missing_structured_submission") || !strings.Contains(string(timelineBytes), "私有内容") {
 		t.Fatalf("timeline must retain raw Done content and the scheduler failure:\n%s", timelineBytes)
 	}
 }
@@ -777,8 +828,8 @@ func TestDrainEventsWithTimelineRejectsInvalidAndDuplicateSubmissions(t *testing
 		{
 			name: "invalid submission result",
 			events: []iface.AgentEvent{
-				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"summary":"bad"}`},
-				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"summary":"bad"}`},
+				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"content":" "}`},
+				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"content":" "}`},
 				&testDoneEvent{content: "private done"},
 			},
 			want:      "invalid_structured_submission:",
@@ -787,7 +838,7 @@ func TestDrainEventsWithTimelineRejectsInvalidAndDuplicateSubmissions(t *testing
 		{
 			name: "tool execution error",
 			events: []iface.AgentEvent{
-				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"summary":"bad"}`},
+				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"content":"private invalid attempt"}`},
 				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Err: errors.New("private decoder detail at /secret/result")},
 				&testDoneEvent{content: "private done"},
 			},
@@ -797,7 +848,7 @@ func TestDrainEventsWithTimelineRejectsInvalidAndDuplicateSubmissions(t *testing
 		{
 			name: "orphan valid done",
 			events: []iface.AgentEvent{
-				&ToolExecDoneEvent{CallID: "orphan", Name: "SubmitCronResult", Result: `{"summary":"orphan secret","sections":[]}`},
+				&ToolExecDoneEvent{CallID: "orphan", Name: "SubmitCronResult", Result: `{"content":"orphan secret","artifacts":[]}`},
 			},
 			want:      "invalid_structured_submission:",
 			forbidden: []string{"orphan secret"},
@@ -805,8 +856,8 @@ func TestDrainEventsWithTimelineRejectsInvalidAndDuplicateSubmissions(t *testing
 		{
 			name: "mismatched call IDs",
 			events: []iface.AgentEvent{
-				&ToolExecStartEvent{CallID: "submit-start", Name: "SubmitCronResult", Args: `{"summary":"start secret","sections":[]}`},
-				&ToolExecDoneEvent{CallID: "submit-done", Name: "SubmitCronResult", Result: `{"summary":"mismatch secret","sections":[]}`},
+				&ToolExecStartEvent{CallID: "submit-start", Name: "SubmitCronResult", Args: `{"content":"start secret"}`},
+				&ToolExecDoneEvent{CallID: "submit-done", Name: "SubmitCronResult", Result: `{"content":"mismatch secret","artifacts":[]}`},
 			},
 			want:      "invalid_structured_submission:",
 			forbidden: []string{"start secret", "mismatch secret"},
@@ -814,7 +865,7 @@ func TestDrainEventsWithTimelineRejectsInvalidAndDuplicateSubmissions(t *testing
 		{
 			name: "start without done",
 			events: []iface.AgentEvent{
-				&ToolExecStartEvent{CallID: "unfinished", Name: "SubmitCronResult", Args: `{"summary":"unfinished secret","sections":[]}`},
+				&ToolExecStartEvent{CallID: "unfinished", Name: "SubmitCronResult", Args: `{"content":"unfinished secret"}`},
 			},
 			want:      "invalid_structured_submission:",
 			forbidden: []string{"unfinished secret"},
@@ -822,9 +873,9 @@ func TestDrainEventsWithTimelineRejectsInvalidAndDuplicateSubmissions(t *testing
 		{
 			name: "duplicate done",
 			events: []iface.AgentEvent{
-				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"summary":"first secret","sections":[]}`},
-				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"summary":"first secret","sections":[]}`},
-				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"summary":"duplicate done secret","sections":[]}`},
+				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"content":"first secret"}`},
+				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"content":"first secret","artifacts":[]}`},
+				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"content":"duplicate done secret","artifacts":[]}`},
 			},
 			want:      "invalid_structured_submission:",
 			forbidden: []string{"first secret", "duplicate done secret"},
@@ -832,9 +883,9 @@ func TestDrainEventsWithTimelineRejectsInvalidAndDuplicateSubmissions(t *testing
 		{
 			name: "duplicate start",
 			events: []iface.AgentEvent{
-				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"summary":"first start secret","sections":[]}`},
-				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"summary":"duplicate start secret","sections":[]}`},
-				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"summary":"otherwise valid secret","sections":[]}`},
+				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"content":"first start secret"}`},
+				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"content":"duplicate start secret"}`},
+				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"content":"otherwise valid secret","artifacts":[]}`},
 			},
 			want:      "invalid_structured_submission:",
 			forbidden: []string{"first start secret", "duplicate start secret", "otherwise valid secret"},
@@ -842,8 +893,8 @@ func TestDrainEventsWithTimelineRejectsInvalidAndDuplicateSubmissions(t *testing
 		{
 			name: "missing call IDs",
 			events: []iface.AgentEvent{
-				&ToolExecStartEvent{Name: "SubmitCronResult", Args: `{"summary":"missing start ID secret","sections":[]}`},
-				&ToolExecDoneEvent{Name: "SubmitCronResult", Result: `{"summary":"missing done ID secret","sections":[]}`},
+				&ToolExecStartEvent{Name: "SubmitCronResult", Args: `{"content":"missing start ID secret"}`},
+				&ToolExecDoneEvent{Name: "SubmitCronResult", Result: `{"content":"missing done ID secret","artifacts":[]}`},
 			},
 			want:      "invalid_structured_submission:",
 			forbidden: []string{"missing start ID secret", "missing done ID secret"},
@@ -851,10 +902,10 @@ func TestDrainEventsWithTimelineRejectsInvalidAndDuplicateSubmissions(t *testing
 		{
 			name: "two valid successes",
 			events: []iface.AgentEvent{
-				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"summary":"first","sections":[]}`},
-				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"summary":"first","sections":[]}`},
-				&ToolExecStartEvent{CallID: "submit-2", Name: "SubmitCronResult", Args: `{"summary":"second","sections":[]}`},
-				&ToolExecDoneEvent{CallID: "submit-2", Name: "SubmitCronResult", Result: `{"summary":"second","sections":[]}`},
+				&ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"content":"first"}`},
+				&ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"content":"first","artifacts":[]}`},
+				&ToolExecStartEvent{CallID: "submit-2", Name: "SubmitCronResult", Args: `{"content":"second"}`},
+				&ToolExecDoneEvent{CallID: "submit-2", Name: "SubmitCronResult", Result: `{"content":"second","artifacts":[]}`},
 				&testDoneEvent{content: "private done"},
 			},
 			want:      "invalid_structured_submission:",
@@ -893,10 +944,10 @@ func TestDrainEventsWithTimelineAcceptsInvalidThenCorrectedSubmission(t *testing
 	s := newTestScheduler(t)
 	s.SetWorkDir(t.TempDir())
 	ch := make(chan iface.AgentEvent, 5)
-	ch <- &ToolExecStartEvent{CallID: "submit-invalid", Name: "SubmitCronResult", Args: `{"summary":"private invalid attempt"}`}
+	ch <- &ToolExecStartEvent{CallID: "submit-invalid", Name: "SubmitCronResult", Args: `{"content":"private invalid attempt"}`}
 	ch <- &ToolExecDoneEvent{CallID: "submit-invalid", Name: "SubmitCronResult", Err: errors.New("private validation detail")}
-	ch <- &ToolExecStartEvent{CallID: "submit-corrected", Name: "SubmitCronResult", Args: `{"summary":"Corrected result","sections":[]}`}
-	ch <- &ToolExecDoneEvent{CallID: "submit-corrected", Name: "SubmitCronResult", Result: `{"summary":"Corrected result","sections":[]}`}
+	ch <- &ToolExecStartEvent{CallID: "submit-corrected", Name: "SubmitCronResult", Args: `{"content":"Corrected result"}`}
+	ch <- &ToolExecDoneEvent{CallID: "submit-corrected", Name: "SubmitCronResult", Result: `{"content":"Corrected result","artifacts":[]}`}
 	ch <- &testDoneEvent{content: "private misleading done"}
 	close(ch)
 
@@ -904,7 +955,7 @@ func TestDrainEventsWithTimelineAcceptsInvalidThenCorrectedSubmission(t *testing
 	if err != nil {
 		t.Fatalf("drainEventsWithTimeline: %v", err)
 	}
-	if result.canonical.Status != "success" || result.canonical.Summary != "Corrected result" || result.diagnosticError != "" {
+	if result.canonical.Status != "success" || result.canonical.Content != "Corrected result" || result.diagnosticError != "" {
 		t.Fatalf("corrected submission must succeed: %+v diagnostic=%q", result.canonical, result.diagnosticError)
 	}
 	for _, forbidden := range []string{"private invalid attempt", "private validation detail", "private misleading done"} {
@@ -941,18 +992,18 @@ func TestRunL1TaskDeliversCanonicalResults(t *testing.T) {
 	}{
 		{
 			name:           "valid structured output",
-			final:          `{"summary":"Ready","sections":[]}`,
+			final:          `{"content":"Reminder completed","artifacts":[]}`,
 			wantStatus:     "success",
 			wantMessage:    "[成功] Cron delivery",
 			wantCallbackOK: true,
 		},
 		{
 			name:            "invalid final output",
-			final:           `{"summary":"完成","sections":[{"title":"纪律自评","content":"午间即时降级"震荡市下沿、全面防守"，执行到位"}]}`,
+			final:           `{"content":"未转义的"私有内容""}`,
 			wantStatus:      "failed",
 			wantMessage:     "[失败] Cron delivery",
 			wantDiagnostic:  "missing_structured_submission:",
-			forbidInMessage: "震荡市下沿、全面防守",
+			forbidInMessage: "私有内容",
 		},
 		{
 			name:        "empty final output",
@@ -1042,6 +1093,58 @@ func TestRunL1TaskDeliversCanonicalResults(t *testing.T) {
 				t.Fatalf("raw diagnostic was not persisted: %+v", records[0])
 			}
 		})
+	}
+}
+
+func TestExecuteL2TaskDeliversGenericArtifactOnlyResult(t *testing.T) {
+	store := openTestDB(t)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title:       "Export snapshot",
+		TaskType:    "general",
+		Expression:  "0 8 * * *",
+		Instruction: "Export the current snapshot",
+		TargetAgent: "engineering",
+		NextRunAt:   time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	var messages []string
+	l2 := &mockSession{
+		idle:             true,
+		hasNotifyChannel: true,
+		askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+			ch := make(chan iface.AgentEvent, 3)
+			ch <- &ToolExecStartEvent{CallID: "submit-l2", Name: "SubmitCronResult", Args: `{"artifacts":[{"name":"Snapshot","ref":"outputs/snapshot.json"}]}`}
+			ch <- &ToolExecDoneEvent{CallID: "submit-l2", Name: "SubmitCronResult", Result: `{"content":"","artifacts":[{"name":"Snapshot","ref":"outputs/snapshot.json"}]}`}
+			ch <- &testDoneEvent{content: "private L2 Done content"}
+			close(ch)
+			return ch, nil
+		},
+		sendViaChannelFn: func(_ context.Context, text string) error {
+			messages = append(messages, text)
+			return nil
+		},
+	}
+	manager := &mockSessionManager{getSession: func(context.Context, string, string) (Session, bool, func(), error) {
+		return l2, false, nil, nil
+	}}
+	s := NewScheduler(store, manager, nil)
+	s.SetWorkDir(t.TempDir())
+	t.Cleanup(s.Stop)
+
+	s.executeL2Task(*task)
+
+	if len(messages) != 1 || !strings.Contains(messages[0], "[成功] Export snapshot") || !strings.Contains(messages[0], "- Snapshot: outputs/snapshot.json") {
+		t.Fatalf("generic L2 message = %q", messages)
+	}
+	if strings.Contains(messages[0], "private L2 Done content") {
+		t.Fatalf("ordinary Done leaked into L2 delivery: %q", messages[0])
+	}
+	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+	if err != nil || len(records) != 1 || records[0].Status != "success" {
+		t.Fatalf("L2 history err=%v records=%+v", err, records)
 	}
 }
 
