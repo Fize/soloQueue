@@ -15,34 +15,37 @@ import (
 const submitCronResultParameters = `{
   "type": "object",
   "additionalProperties": false,
-  "required": ["summary", "sections"],
   "properties": {
-    "summary": {"type": "string", "minLength": 1, "pattern": "\\S"},
-    "sections": {
+    "content": {"type": "string"},
+    "artifacts": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["title", "content"],
+        "required": ["name", "ref"],
         "properties": {
-          "title": {"type": "string", "minLength": 1, "pattern": "\\S"},
-          "content": {"type": "string", "minLength": 1, "pattern": "\\S"}
+          "name": {"type": "string", "minLength": 1, "pattern": "\\S"},
+          "ref": {"type": "string", "minLength": 1, "pattern": "\\S"}
         }
       }
     }
-  }
+  },
+  "anyOf": [
+    {"required": ["content"], "properties": {"content": {"type": "string", "pattern": "\\S"}}},
+    {"required": ["artifacts"], "properties": {"artifacts": {"type": "array", "minItems": 1}}}
+  ]
 }`
 
 type submitCronResultTool struct{}
 
-type submittedCronSection struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
+type submittedCronArtifact struct {
+	Name string `json:"name"`
+	Ref  string `json:"ref"`
 }
 
 type submittedCronResult struct {
-	Summary  string                 `json:"summary"`
-	Sections []submittedCronSection `json:"sections"`
+	Content   string                  `json:"content"`
+	Artifacts []submittedCronArtifact `json:"artifacts"`
 }
 
 func newSubmitCronResultTool() *submitCronResultTool {
@@ -52,7 +55,7 @@ func newSubmitCronResultTool() *submitCronResultTool {
 func (t *submitCronResultTool) Name() string { return "SubmitCronResult" }
 
 func (t *submitCronResultTool) Description() string {
-	return "Submit the final validated result for a scheduled Cron execution. Call exactly once after all work is complete."
+	return "Submit opaque final content and optional artifact references for a scheduled Cron execution. Call exactly once after all work is complete."
 }
 
 func (t *submitCronResultTool) Parameters() json.RawMessage {
@@ -65,13 +68,13 @@ func (t *submitCronResultTool) Execute(ctx context.Context, args string) (string
 		return "", errors.New("cron_result_submission_unauthorized")
 	}
 
-	var payload struct {
-		Summary  string                  `json:"summary"`
-		Sections *[]submittedCronSection `json:"sections"`
+	var wire struct {
+		Content   json.RawMessage `json:"content"`
+		Artifacts json.RawMessage `json:"artifacts"`
 	}
 	decoder := json.NewDecoder(bytes.NewBufferString(args))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
+	if err := decoder.Decode(&wire); err != nil {
 		return "", fmt.Errorf("invalid_cron_result_submission: decode arguments: %w", err)
 	}
 	var trailing any
@@ -81,22 +84,44 @@ func (t *submitCronResultTool) Execute(ctx context.Context, args string) (string
 		}
 		return "", fmt.Errorf("invalid_cron_result_submission: trailing arguments: %w", err)
 	}
-	if strings.TrimSpace(payload.Summary) == "" {
-		return "", errors.New("invalid_cron_result_submission: summary must be a non-empty string")
-	}
-	if payload.Sections == nil {
-		return "", errors.New("invalid_cron_result_submission: sections must be an array")
-	}
-	for i, section := range *payload.Sections {
-		if strings.TrimSpace(section.Title) == "" {
-			return "", fmt.Errorf("invalid_cron_result_submission: sections[%d].title must be a non-empty string", i)
+
+	content := ""
+	if wire.Content != nil {
+		if bytes.Equal(bytes.TrimSpace(wire.Content), []byte("null")) {
+			return "", errors.New("invalid_cron_result_submission: content must be a string")
 		}
-		if strings.TrimSpace(section.Content) == "" {
-			return "", fmt.Errorf("invalid_cron_result_submission: sections[%d].content must be a non-empty string", i)
+		if err := json.Unmarshal(wire.Content, &content); err != nil {
+			return "", fmt.Errorf("invalid_cron_result_submission: content must be a string: %w", err)
 		}
+	}
+	if strings.TrimSpace(content) == "" {
+		content = ""
 	}
 
-	canonical, err := json.Marshal(submittedCronResult{Summary: payload.Summary, Sections: *payload.Sections})
+	artifacts := []submittedCronArtifact{}
+	if wire.Artifacts != nil {
+		if bytes.Equal(bytes.TrimSpace(wire.Artifacts), []byte("null")) {
+			return "", errors.New("invalid_cron_result_submission: artifacts must be an array")
+		}
+		artifactDecoder := json.NewDecoder(bytes.NewReader(wire.Artifacts))
+		artifactDecoder.DisallowUnknownFields()
+		if err := artifactDecoder.Decode(&artifacts); err != nil {
+			return "", fmt.Errorf("invalid_cron_result_submission: artifacts must be an array of name/ref objects: %w", err)
+		}
+	}
+	for i, artifact := range artifacts {
+		if strings.TrimSpace(artifact.Name) == "" {
+			return "", fmt.Errorf("invalid_cron_result_submission: artifacts[%d].name must be a non-empty string", i)
+		}
+		if strings.TrimSpace(artifact.Ref) == "" {
+			return "", fmt.Errorf("invalid_cron_result_submission: artifacts[%d].ref must be a non-empty string", i)
+		}
+	}
+	if content == "" && len(artifacts) == 0 {
+		return "", errors.New("invalid_cron_result_submission: content or at least one artifact is required")
+	}
+
+	canonical, err := json.Marshal(submittedCronResult{Content: content, Artifacts: artifacts})
 	if err != nil {
 		return "", errors.New("invalid_cron_result_submission: serialization failed")
 	}
