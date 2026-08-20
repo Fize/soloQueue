@@ -321,7 +321,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		}), true, nil
 	}
 
-	dt := tools.NewDelegateTool("L1", 30*time.Minute, delegateResolver, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited)
+	dt := tools.NewDelegateTool("L1", 30*time.Minute, delegateResolver, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited, tools.WithAlwaysAsyncDelegation())
 	dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if s, ok := b.RT.SkillRegistry.GetSkill(skillID); ok {
 			return s.Instructions, s.Agent, s.Dir, true

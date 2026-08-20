@@ -114,6 +114,7 @@ type AsyncAction struct {
 	Target  iface.Locatable // target agent (already located)
 	Prompt  string          // task description to send
 	Timeout time.Duration   // delegation timeout
+	Context context.Context // optional target context; nil inherits the caller context
 }
 
 // AsyncTool is an optional interface that tools may implement to declare an asynchronous execution intent.

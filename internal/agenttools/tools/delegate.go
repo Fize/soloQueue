@@ -70,6 +70,18 @@ type delegateArgs struct {
 // LocateOrSpawnResolver resolves or spawns a target agent.
 type LocateOrSpawnResolver func(ctx context.Context, targetName, systemPrompt, modelID, task, workDir, skillID string) (loc iface.Locatable, spawned bool, err error)
 
+// DelegateToolOption configures a DelegateTool at construction time.
+type DelegateToolOption func(*DelegateTool)
+
+// WithAlwaysAsyncDelegation makes every delegation asynchronous, regardless
+// of the model-provided async argument. L1 uses this to preserve message
+// parallelism while L2/L3 retain the default synchronous behavior.
+func WithAlwaysAsyncDelegation() DelegateToolOption {
+	return func(dt *DelegateTool) {
+		dt.alwaysAsync = true
+	}
+}
+
 // DelegateTool delegates tasks to other agents or team leaders.
 // Statically named "delegate" to guarantee LLM Prompt Caching is never broken.
 type DelegateTool struct {
@@ -81,6 +93,7 @@ type DelegateTool struct {
 	LocateOrSpawn         LocateOrSpawnResolver
 	Reap                  func(loc iface.Locatable)
 	SkillInstructionsLook func(skillID string) (instructions string, agentName string, skillDir string, ok bool)
+	alwaysAsync           bool
 }
 
 var (
@@ -88,7 +101,7 @@ var (
 	_ AsyncTool = (*DelegateTool)(nil)
 )
 
-func NewDelegateTool(selfName string, timeout time.Duration, resolver LocateOrSpawnResolver, locator iface.AgentLocator, l *logger.Logger, workDirPolicy DelegateWorkDirPolicy) *DelegateTool {
+func NewDelegateTool(selfName string, timeout time.Duration, resolver LocateOrSpawnResolver, locator iface.AgentLocator, l *logger.Logger, workDirPolicy DelegateWorkDirPolicy, opts ...DelegateToolOption) *DelegateTool {
 	if l == nil {
 		var err error
 		l, err = logger.System("/tmp", logger.WithConsole(false), logger.WithFile(false))
@@ -96,7 +109,7 @@ func NewDelegateTool(selfName string, timeout time.Duration, resolver LocateOrSp
 			l = nil
 		}
 	}
-	return &DelegateTool{
+	dt := &DelegateTool{
 		SelfName:      selfName,
 		Timeout:       timeout,
 		LocateOrSpawn: resolver,
@@ -104,6 +117,12 @@ func NewDelegateTool(selfName string, timeout time.Duration, resolver LocateOrSp
 		WorkDirPolicy: workDirPolicy,
 		logger:        l,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(dt)
+		}
+	}
+	return dt
 }
 
 func (dt *DelegateTool) SetLogger(l *logger.Logger) {
@@ -179,6 +198,35 @@ func (dt *DelegateTool) resolveWorkDir(ctx context.Context, requested string) (s
 	return inherited, nil
 }
 
+func (dt *DelegateTool) prepareDelegationContext(ctx context.Context, target string) (context.Context, error) {
+	chain := DelegationChainFromContext(ctx)
+	for _, name := range chain {
+		if strings.EqualFold(name, target) {
+			if dt.logger != nil {
+				dt.logger.WarnContext(ctx, logger.CatTool, "delegate: cycle detected",
+					"self", dt.SelfName, "target", target, "chain", strings.Join(chain, " → "))
+			}
+			return nil, fmt.Errorf("delegate: delegation cycle detected (%s is already in chain: %s)",
+				target, strings.Join(append(chain, dt.SelfName), " → "))
+		}
+	}
+	if len(chain) >= maxPeerDepth {
+		if dt.logger != nil {
+			dt.logger.WarnContext(ctx, logger.CatTool, "delegate: depth limit exceeded",
+				"self", dt.SelfName, "target", target, "chain_len", len(chain))
+		}
+		return nil, fmt.Errorf("delegate: delegation depth limit reached (%d >= %d) — escalate to L1 instead",
+			len(chain), maxPeerDepth)
+	}
+
+	newChain := make([]string, 0, len(chain)+1)
+	if dt.SelfName != "" {
+		newChain = append(newChain, chain...)
+		newChain = append(newChain, dt.SelfName)
+	}
+	return ContextWithDelegationChain(ctx, newChain), nil
+}
+
 func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error) {
 	start := time.Now()
 
@@ -203,25 +251,10 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 		}
 	}
 
-	// 1. Peer cycle detection & depth limits
-	chain := DelegationChainFromContext(ctx)
-	for _, name := range chain {
-		if strings.EqualFold(name, dArgs.Target) {
-			if dt.logger != nil {
-				dt.logger.WarnContext(ctx, logger.CatTool, "delegate: cycle detected",
-					"self", dt.SelfName, "target", dArgs.Target, "chain", strings.Join(chain, " → "))
-			}
-			return "", fmt.Errorf("delegate: delegation cycle detected (%s is already in chain: %s)",
-				dArgs.Target, strings.Join(append(chain, dt.SelfName), " → "))
-		}
-	}
-	if len(chain) >= maxPeerDepth {
-		if dt.logger != nil {
-			dt.logger.WarnContext(ctx, logger.CatTool, "delegate: depth limit exceeded",
-				"self", dt.SelfName, "target", dArgs.Target, "chain_len", len(chain))
-		}
-		return "", fmt.Errorf("delegate: delegation depth limit reached (%d >= %d) — escalate to L1 instead",
-			len(chain), maxPeerDepth)
+	// 1. Peer cycle detection, depth limits, and child chain construction.
+	delCtx, err := dt.prepareDelegationContext(ctx, dArgs.Target)
+	if err != nil {
+		return "", err
 	}
 
 	// 2. Resolve work directory
@@ -255,14 +288,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (string, error
 		prompt = fmt.Sprintf("Context: %s\n\nTask: %s", dArgs.Context, dArgs.Task)
 	}
 
-	// 5. Build delegation context
-	newChain := make([]string, 0, len(chain)+1)
-	if dt.SelfName != "" {
-		newChain = append(newChain, chain...)
-		newChain = append(newChain, dt.SelfName)
-	}
-	delCtx := ContextWithDelegationChain(ctx, newChain)
-
+	// 5. Apply delegation timeout to the validated child context.
 	timeout := dt.Timeout
 	if timeout <= 0 {
 		timeout = DelegateDefaultTimeout
@@ -382,7 +408,7 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
 
-	if !dArgs.Async {
+	if !dArgs.Async && !dt.alwaysAsync {
 		return nil, nil
 	}
 
@@ -391,6 +417,10 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 	}
 	if dArgs.Task == "" {
 		return nil, fmt.Errorf("delegate async: task is required")
+	}
+	delCtx, err := dt.prepareDelegationContext(ctx, dArgs.Target)
+	if err != nil {
+		return nil, err
 	}
 
 	workDir, err := dt.resolveWorkDir(ctx, dArgs.WorkDir)
@@ -438,6 +468,7 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (*AsyncAc
 		Target:  target,
 		Prompt:  prompt,
 		Timeout: timeout,
+		Context: delCtx,
 	}, nil
 }
 

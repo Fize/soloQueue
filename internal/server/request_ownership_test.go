@@ -145,6 +145,16 @@ func TestBusySessionRejection(t *testing.T) {
 		Prompt:    "hello again",
 	})
 
+	// Check the pending queue before waiting on websocket delivery; under the
+	// race detector, the first request may otherwise finish and consume it.
+	sess := mgr.Session()
+	if sess == nil {
+		t.Fatal("session is nil")
+	}
+	if !sess.HasPending() {
+		t.Error("expected queued message in session pending queue")
+	}
+
 	// Client should receive chat_queued (message accepted, not rejected).
 	gotQueued := false
 	for i := 0; i < 4; i++ {
@@ -169,16 +179,6 @@ func TestBusySessionRejection(t *testing.T) {
 	}
 	if !gotQueued {
 		t.Fatal("expected chat_queued message")
-	}
-
-	// The message must have been queued on the session, ready for injection
-	// before the agent's next LLM call.
-	sess := mgr.Session()
-	if sess == nil {
-		t.Fatal("session is nil")
-	}
-	if !sess.HasPending() {
-		t.Error("expected queued message in session pending queue")
 	}
 
 	// Let the first request finish cleanly.
@@ -217,22 +217,6 @@ func (t *blockingDelegationTarget) Confirm(callID, choice string) error { return
 func (t *blockingDelegationTarget) ErrorCount() int32                   { return 0 }
 func (t *blockingDelegationTarget) LastError() string                   { return "" }
 
-type blockingDelegationTool struct {
-	target iface.Locatable
-}
-
-func (t *blockingDelegationTool) Name() string        { return "delegate" }
-func (t *blockingDelegationTool) Description() string { return "delegate a blocked test task" }
-func (t *blockingDelegationTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{"type":"object"}`)
-}
-func (t *blockingDelegationTool) Execute(ctx context.Context, args string) (string, error) {
-	return "", nil
-}
-func (t *blockingDelegationTool) ExecuteAsync(ctx context.Context, args string) (*tools.AsyncAction, error) {
-	return &tools.AsyncAction{Target: t.target, Prompt: "blocked task", Timeout: 5 * time.Second}, nil
-}
-
 func TestL1DesktopStartsSecondRequestBeforeDelegationCompletes(t *testing.T) {
 	workDir := t.TempDir()
 	log, err := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
@@ -243,12 +227,23 @@ func TestL1DesktopStartsSecondRequestBeforeDelegationCompletes(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	target := &blockingDelegationTarget{release: release}
+	delegate := tools.NewDelegateTool(
+		"l1-test",
+		5*time.Second,
+		func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+			return target, false, nil
+		},
+		nil,
+		log,
+		tools.WorkDirExplicitOrInherited,
+		tools.WithAlwaysAsyncDelegation(),
+	)
 	fakeLLM := &agenttest.FakeLLM{
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
 			Index:     0,
 			ID:        "call-delegate",
 			Name:      "delegate",
-			Arguments: `{"task":"blocked"}`,
+			Arguments: `{"target":"worker","task":"blocked"}`,
 		}}},
 		StreamDeltas: [][]string{nil, {"second request response"}, {"first request response"}},
 	}
@@ -256,7 +251,7 @@ func TestL1DesktopStartsSecondRequestBeforeDelegationCompletes(t *testing.T) {
 		agent.Definition{ID: "l1-test", Name: "L1 test"},
 		fakeLLM,
 		log,
-		agent.WithTools(&blockingDelegationTool{target: target}),
+		agent.WithTools(delegate),
 		agent.WithPriorityMailbox(),
 		agent.WithAgentWorkDir(workDir),
 	)

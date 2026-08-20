@@ -118,6 +118,181 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 	}
 }
 
+func TestAsyncDelegation_ChildToolRequiresConfirmation(t *testing.T) {
+	danger := newFakeConfirmableTool("danger", true, "approve dangerous operation?")
+	danger.result = `{"ok":true}`
+	child := startedAgentWithTools(t, &agenttest.FakeLLM{
+		ToolCallsByTurn: [][]llm.ToolCall{{{
+			ID:       "danger_call",
+			Type:     "function",
+			Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"dangerous"}`},
+		}}},
+		Responses: []string{"child done"},
+	}, danger)
+
+	delegate := &mockAsyncTool{
+		name: "delegate",
+		action: &tools.AsyncAction{
+			Target:  &LocatableAdapter{Agent: child},
+			Prompt:  "run child task",
+			Timeout: 5 * time.Second,
+		},
+	}
+	parent := NewAgent(
+		Definition{ID: "l1"},
+		&agenttest.FakeLLM{},
+		newTestLogger(t),
+		WithTools(delegate),
+		WithPriorityMailbox(),
+	)
+	if err := parent.Start(context.Background()); err != nil {
+		t.Fatalf("Start parent: %v", err)
+	}
+	t.Cleanup(func() { _ = parent.Stop(time.Second) })
+
+	out := make(chan AgentEvent, 64)
+	parent.execToolsWithAsync(context.Background(), 0, []llm.ToolCall{{
+		Type: "function",
+		ID:   "delegate_call",
+		Function: llm.FunctionCall{
+			Name:      "delegate",
+			Arguments: `{"task":"run child task"}`,
+		},
+	}}, out, ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer()))
+
+	var confirm ToolNeedsConfirmEvent
+	deadline := time.After(time.Second)
+	waiting := true
+	for waiting {
+		select {
+		case ev := <-out:
+			if got, ok := ev.(ToolNeedsConfirmEvent); ok {
+				confirm = got
+				waiting = false
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for child confirmation event")
+		}
+	}
+	if got := danger.CallCount(); got != 0 {
+		t.Fatalf("danger tool calls before confirmation = %d, want 0", got)
+	}
+
+	confirmed := false
+	for i := 0; i < 100; i++ {
+		if err := parent.Confirm(confirm.CallID, string(tools.ChoiceApprove)); err == nil {
+			confirmed = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !confirmed {
+		t.Fatal("parent confirmation proxy was not registered")
+	}
+	waitFor(t, time.Second, func() bool { return danger.CallCount() == 1 })
+}
+
+func TestAsyncDelegation_ExplicitBypassStillSkipsChildConfirmation(t *testing.T) {
+	danger := newFakeConfirmableTool("danger", true, "approve dangerous operation?")
+	danger.result = `{"ok":true}`
+	child := startedAgentWithTools(t, &agenttest.FakeLLM{
+		ToolCallsByTurn: [][]llm.ToolCall{{{
+			ID:       "danger_call",
+			Type:     "function",
+			Function: llm.FunctionCall{Name: "danger", Arguments: `{"cmd":"dangerous"}`},
+		}}},
+		Responses: []string{"child done"},
+	}, danger)
+	delegate := &mockAsyncTool{
+		name: "delegate",
+		action: &tools.AsyncAction{
+			Target:  &LocatableAdapter{Agent: child},
+			Prompt:  "run child task",
+			Timeout: 5 * time.Second,
+		},
+	}
+	parent := NewAgent(
+		Definition{ID: "l1"},
+		&agenttest.FakeLLM{},
+		newTestLogger(t),
+		WithTools(delegate),
+		WithPriorityMailbox(),
+	)
+	if err := parent.Start(context.Background()); err != nil {
+		t.Fatalf("Start parent: %v", err)
+	}
+	t.Cleanup(func() { _ = parent.Stop(time.Second) })
+
+	out := make(chan AgentEvent, 64)
+	parent.execToolsWithAsync(iface.ContextWithBypassConfirm(context.Background()), 0, []llm.ToolCall{{
+		Type: "function",
+		ID:   "delegate_call",
+		Function: llm.FunctionCall{
+			Name:      "delegate",
+			Arguments: `{"task":"run child task"}`,
+		},
+	}}, out, ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer()))
+
+	waitFor(t, time.Second, func() bool { return danger.CallCount() == 1 })
+	select {
+	case ev := <-out:
+		if _, ok := ev.(ToolNeedsConfirmEvent); ok {
+			t.Fatalf("explicit bypass unexpectedly emitted ToolNeedsConfirmEvent: %#v", ev)
+		}
+	default:
+	}
+}
+
+func TestAsyncDelegation_PassesAppendedDelegationChainToChild(t *testing.T) {
+	seenChain := make(chan []string, 1)
+	target := &mockLocatable{askFunc: func(ctx context.Context, _ string) (string, error) {
+		seenChain <- append([]string(nil), tools.DelegationChainFromContext(ctx)...)
+		return "done", nil
+	}}
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		return target, false, nil
+	}
+	delegate := tools.NewDelegateTool(
+		"l1",
+		5*time.Second,
+		resolver,
+		nil,
+		nil,
+		tools.WorkDirExplicitOrInherited,
+		tools.WithAlwaysAsyncDelegation(),
+	)
+	parent := NewAgent(
+		Definition{ID: "l1"},
+		&agenttest.FakeLLM{},
+		newTestLogger(t),
+		WithTools(delegate),
+		WithPriorityMailbox(),
+	)
+	if err := parent.Start(context.Background()); err != nil {
+		t.Fatalf("Start parent: %v", err)
+	}
+	t.Cleanup(func() { _ = parent.Stop(time.Second) })
+
+	out := make(chan AgentEvent, 64)
+	parent.execToolsWithAsync(context.Background(), 0, []llm.ToolCall{{
+		Type: "function",
+		ID:   "delegate_call",
+		Function: llm.FunctionCall{
+			Name:      "delegate",
+			Arguments: `{"target":"worker","task":"inspect","work_dir":"/tmp","async":false}`,
+		},
+	}}, out, ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer()))
+
+	select {
+	case chain := <-seenChain:
+		if got, want := strings.Join(chain, "/"), "l1"; got != want {
+			t.Fatalf("child delegation chain = %q, want %q", got, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for delegated child")
+	}
+}
+
 // ─── TestExecToolsWithAsync_MultipleAsyncTools ─────────────────────────────
 
 func TestExecToolsWithAsync_MultipleAsyncTools(t *testing.T) {

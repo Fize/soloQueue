@@ -711,7 +711,11 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			return &LocatableAdapter{Agent: child}, true, nil
 		}
 
-		dt := tools.NewDelegateTool(tmpl.ID, 25*time.Minute, delegateResolver, f.registry, f.log, workDirPolicy)
+		var delegateOpts []tools.DelegateToolOption
+		if tmpl.Group == "" {
+			delegateOpts = append(delegateOpts, tools.WithAlwaysAsyncDelegation())
+		}
+		dt := tools.NewDelegateTool(tmpl.ID, 25*time.Minute, delegateResolver, f.registry, f.log, workDirPolicy, delegateOpts...)
 		dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 			if s, ok := mergedSkillReg.GetSkill(skillID); ok {
 				return s.Instructions, s.Agent, s.Dir, true
