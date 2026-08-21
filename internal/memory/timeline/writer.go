@@ -42,7 +42,17 @@ func NewWriter(dir, baseName string, maxBytes int64, maxDays int, opts ...Writer
 // AppendMessage appends a message event.
 func (w *Writer) AppendMessage(msg *MessagePayload) error {
 	evt := newEvent(EventMessage)
-	msg.Timestamp = evt.Timestamp
+	// Preserve the timestamp assigned when the message first entered the
+	// context window. This keeps the timeline anchored to arrival time instead
+	// of replacing it with a later persistence time (for example, when a
+	// delegated result is written back after the delegation has already been
+	// displayed). Direct callers without an explicit timestamp retain the
+	// historical append-time behavior.
+	if msg.Timestamp == "" {
+		msg.Timestamp = evt.Timestamp
+	} else {
+		evt.Timestamp = msg.Timestamp
+	}
 	evt.Message = msg
 	return w.writeEvent(evt)
 }

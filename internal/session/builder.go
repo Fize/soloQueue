@@ -561,6 +561,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		if err := tl.AppendMessage(&timeline.MessagePayload{
 			Role:             string(msg.Role),
 			Content:          msg.Content,
+			Timestamp:        msg.Timestamp.Format(time.RFC3339Nano),
 			ReasoningContent: msg.ReasoningContent,
 			Name:             msg.Name,
 			ToolCallID:       msg.ToolCallID,
@@ -922,6 +923,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		if err := tl.AppendMessage(&timeline.MessagePayload{
 			Role:             string(msg.Role),
 			Content:          msg.Content,
+			Timestamp:        msg.Timestamp.Format(time.RFC3339Nano),
 			ReasoningContent: msg.ReasoningContent,
 			Name:             msg.Name,
 			ToolCallID:       msg.ToolCallID,
@@ -1109,6 +1111,7 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 		if err := tl.AppendMessage(&timeline.MessagePayload{
 			Role:             string(msg.Role),
 			Content:          msg.Content,
+			Timestamp:        msg.Timestamp.Format(time.RFC3339Nano),
 			ReasoningContent: msg.ReasoningContent,
 			Name:             msg.Name,
 			ToolCallID:       msg.ToolCallID,
