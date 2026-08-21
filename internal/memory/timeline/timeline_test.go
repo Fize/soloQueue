@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // ─── Writer: AppendMessage ───────────────────────────────────────────────────
@@ -47,6 +47,73 @@ func TestWriter_AppendMessage(t *testing.T) {
 	}
 	if evt.Control != nil {
 		t.Error("control should be nil for message event")
+	}
+}
+
+func TestWriter_AppendMessage_PreservesArrivalTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	defer w.Close()
+
+	arrival := "2026-08-21T10:00:00.123456Z"
+	if err := w.AppendMessage(&MessagePayload{
+		Role:      "assistant",
+		Content:   "delegation started",
+		Timestamp: arrival,
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	events := readEventsFromFile(t, timelineFile(dir))
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Timestamp != arrival {
+		t.Fatalf("event timestamp = %q, want arrival %q", events[0].Timestamp, arrival)
+	}
+	if events[0].Message == nil || events[0].Message.Timestamp != arrival {
+		t.Fatalf("message timestamp = %#v, want arrival %q", events[0].Message, arrival)
+	}
+}
+
+func TestWriter_DelegationTimelineKeepsStartBeforeResultAndReply(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	defer w.Close()
+
+	start := "2026-08-21T10:00:00.100000Z"
+	result := "2026-08-21T10:00:01.200000Z"
+	reply := "2026-08-21T10:00:01.300000Z"
+	call := []ToolCallRec{{ID: "delegation-1", Type: "function", Name: "delegate", Arguments: `{"task":"research"}`}}
+	for _, msg := range []*MessagePayload{
+		{Role: "assistant", ToolCalls: call, Timestamp: start},
+		{Role: "user", Content: "[Delegation Completed] result", ToolCallID: "delegation-1", Timestamp: result, IsEphemeral: true},
+		{Role: "assistant", Content: "final reply", Timestamp: reply},
+	} {
+		if err := w.AppendMessage(msg); err != nil {
+			t.Fatalf("AppendMessage: %v", err)
+		}
+	}
+
+	events := readEventsFromFile(t, timelineFile(dir))
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+	got := []string{events[0].Timestamp, events[1].Timestamp, events[2].Timestamp}
+	want := []string{start, result, reply}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("event[%d] timestamp = %q, want %q; got order %#v", i, got[i], want[i], got)
+		}
+	}
+	if events[0].Message == nil || len(events[0].Message.ToolCalls) != 1 || events[0].Message.ToolCalls[0].ID != "delegation-1" {
+		t.Fatalf("delegation start event moved or changed: %#v", events[0].Message)
 	}
 }
 
@@ -441,7 +508,7 @@ func TestReadTail_Rewind(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "turn A reply"})
 	time.Sleep(1 * time.Millisecond)
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B"})
-	
+
 	events := readEventsFromFile(t, timelineFile(dir))
 	targetTs := events[2].Timestamp // turn B
 
@@ -473,7 +540,7 @@ func TestReadTail_ConsecutiveRewinds(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "B"})
 	time.Sleep(1 * time.Millisecond)
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "C"})
-	
+
 	events := readEventsFromFile(t, timelineFile(dir))
 	tsA := events[0].Timestamp
 	tsB := events[1].Timestamp
@@ -503,7 +570,7 @@ func TestReadTail_SinglePairDeletion(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B"})
 	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply B"})
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn C"})
-	
+
 	events := readEventsFromFile(t, timelineFile(dir))
 	tsB_user := events[2].Timestamp
 	tsB_ai := events[3].Timestamp
@@ -531,7 +598,7 @@ func TestReadTail_InterleavedDeleteAndRewind(t *testing.T) {
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "B"})
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "C"})
 	w.AppendMessage(&MessagePayload{Role: "user", Content: "D"})
-	
+
 	events := readEventsFromFile(t, timelineFile(dir))
 	tsB := events[1].Timestamp
 	tsD := events[3].Timestamp
@@ -1027,6 +1094,7 @@ func TestPushHook_WritesToTimeline(t *testing.T) {
 		_ = w.AppendMessage(&MessagePayload{
 			Role:             string(msg.Role),
 			Content:          msg.Content,
+			Timestamp:        msg.Timestamp.Format(time.RFC3339Nano),
 			ReasoningContent: msg.ReasoningContent,
 			Name:             msg.Name,
 			ToolCallID:       msg.ToolCallID,
@@ -1063,6 +1131,9 @@ func TestPushHook_WritesToTimeline(t *testing.T) {
 	// user
 	if events[0].Message.Role != "user" || events[0].Message.Content != "hello" {
 		t.Errorf("event[0] = %+v", events[0].Message)
+	}
+	if events[0].Timestamp != events[0].Message.Timestamp {
+		t.Errorf("event[0] timestamp = %q, message timestamp = %q", events[0].Timestamp, events[0].Message.Timestamp)
 	}
 	// assistant with reasoning
 	if events[1].Message.ReasoningContent != "thinking..." {
