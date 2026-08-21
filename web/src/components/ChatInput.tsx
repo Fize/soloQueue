@@ -79,6 +79,7 @@ export function ChatInput({
 }: ChatInputProps) {
   const { t } = useTranslation()
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const groupRef = useRef<HTMLDivElement>(null)
   const projectRef = useRef<HTMLDivElement>(null)
   const branchRef = useRef<HTMLDivElement>(null)
@@ -320,60 +321,79 @@ export function ChatInput({
     }
   }, [])
 
+  const uploadImageFiles = useCallback((files: File[]) => {
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue
+
+      const id = Math.random().toString(36).substring(2, 9)
+      const previewUrl = URL.createObjectURL(file)
+
+      const newAttachment: Attachment = {
+        id,
+        file,
+        name: file.name || `image-${Date.now()}.png`,
+        previewUrl,
+        status: 'uploading',
+      }
+
+      setAttachments((prev) => [...prev, newAttachment])
+
+      uploadFile(file, activeSessionId)
+        .then((res) => {
+          setAttachments((prev) =>
+            prev.map((att) => (att.id === id ? { ...att, status: 'done', path: res.path } : att))
+          )
+        })
+        .catch((err) => {
+          console.error('Failed to upload image:', err)
+          toast.error(t('common.failedToUploadImage'))
+          setAttachments((prev) =>
+            prev.map((att) =>
+              att.id === id
+                ? { ...att, status: 'failed', error: err.message || 'Upload failed' }
+                : att
+            )
+          )
+        })
+    }
+  }, [activeSessionId, t])
+
   const handlePaste = useCallback(
-    async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const items = e.clipboardData.items
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const filesToUpload: File[] = []
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i]
-        if (item.type.indexOf('image') !== -1) {
-          const file = item.getAsFile()
-          if (file) {
-            filesToUpload.push(file)
-          }
-        }
+      for (const item of e.clipboardData.items) {
+        if (!item.type.startsWith('image/')) continue
+        const file = item.getAsFile()
+        if (file) filesToUpload.push(file)
       }
 
       if (filesToUpload.length === 0) return
 
       // Prevent pasting raw image content into textarea text
       e.preventDefault()
-
-      for (const file of filesToUpload) {
-        const id = Math.random().toString(36).substring(2, 9)
-        const previewUrl = URL.createObjectURL(file)
-
-        const newAttachment: Attachment = {
-          id,
-          file,
-          name: file.name || `image-${Date.now()}.png`,
-          previewUrl,
-          status: 'uploading',
-        }
-
-        setAttachments((prev) => [...prev, newAttachment])
-
-        uploadFile(file, activeSessionId)
-          .then((res) => {
-            setAttachments((prev) =>
-              prev.map((att) => (att.id === id ? { ...att, status: 'done', path: res.path } : att))
-            )
-          })
-          .catch((err) => {
-            console.error('Failed to upload pasted image:', err)
-            toast.error(t('common.failedToUploadImage'))
-            setAttachments((prev) =>
-              prev.map((att) =>
-                att.id === id
-                  ? { ...att, status: 'failed', error: err.message || 'Upload failed' }
-                  : att
-              )
-            )
-          })
-      }
+      uploadImageFiles(filesToUpload)
     },
-    [activeSessionId]
+    [uploadImageFiles]
   )
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    uploadImageFiles(Array.from(e.target.files || []))
+    // Allow selecting the same file again after removing it or an upload failure.
+    e.target.value = ''
+  }, [uploadImageFiles])
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (Array.from(e.dataTransfer.types).includes('Files')) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+    }
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return
+    e.preventDefault()
+    uploadImageFiles(Array.from(e.dataTransfer.files || []))
+  }, [uploadImageFiles])
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => {
@@ -498,9 +518,13 @@ export function ChatInput({
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-2">
       {/* Input card */}
-      <div className={cn(
-        "relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all shadow-sm focus-within:border-primary/30 focus-within:shadow-md"
-      )}>
+      <div
+        className={cn(
+          "relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all shadow-sm focus-within:border-primary/30 focus-within:shadow-md"
+        )}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
           {/* Attachments preview & Selected Element Badge */}
           <ChatInputAttachments
             attachments={attachments}
@@ -612,12 +636,22 @@ export function ChatInput({
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <button
                   type="button"
-                  onClick={() => toast.info(t('common.dragDropImages'))}
+                  onClick={() => fileInputRef.current?.click()}
                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer shrink-0 hidden sm:block"
                   title="Add context"
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileChange}
+                  className="hidden"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
                 {activeSessionId !== 'l1' && (
                 <button
                   type="button"

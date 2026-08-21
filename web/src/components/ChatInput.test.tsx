@@ -1,12 +1,29 @@
-import { render, screen } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatInput } from './ChatInput'
+import { uploadFile } from '@/lib/api'
 
 vi.mock('@/lib/api', () => ({
   getProjectBranches: vi.fn().mockResolvedValue(['main']),
   uploadFile: vi.fn(),
 }))
+
+const mockedUploadFile = vi.mocked(uploadFile)
+
+beforeEach(() => {
+  mockedUploadFile.mockReset()
+  mockedUploadFile.mockResolvedValue({ name: 'uploaded.png', path: '/uploads/uploaded.png', size: 10 })
+  let objectUrlId = 0
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    value: vi.fn(() => `blob:test-${++objectUrlId}`),
+  })
+  Object.defineProperty(URL, 'revokeObjectURL', {
+    configurable: true,
+    value: vi.fn(),
+  })
+})
 
 const project = {
   id: 'project-1',
@@ -120,5 +137,46 @@ describe('ChatInput workspace selector', () => {
     await user.type(input, '/compact{enter}')
 
     expect(onSend).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatInput image attachments', () => {
+  it('opens the image chooser and uploads selected images only', async () => {
+    const user = userEvent.setup()
+    const { container } = renderInput()
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    const clickSpy = vi.spyOn(fileInput, 'click')
+    const image = new File(['image'], 'screenshot.png', { type: 'image/png' })
+    const secondImage = new File(['image-2'], 'diagram.jpg', { type: 'image/jpeg' })
+    const text = new File(['text'], 'notes.txt', { type: 'text/plain' })
+
+    await user.click(screen.getByTitle('Add context'))
+    expect(clickSpy).toHaveBeenCalled()
+
+    fireEvent.change(fileInput, { target: { files: [image, secondImage, text] } })
+
+    expect(mockedUploadFile).toHaveBeenCalledTimes(2)
+    expect(mockedUploadFile).toHaveBeenCalledWith(image, undefined)
+    expect(mockedUploadFile).toHaveBeenCalledWith(secondImage, undefined)
+    expect(await screen.findAllByAltText('preview')).toHaveLength(2)
+  })
+
+  it('handles image drops, prevents browser navigation, and ignores non-images', () => {
+    const { getByPlaceholderText } = renderInput()
+    const image = new File(['image'], 'screenshot.png', { type: 'image/png' })
+    const text = new File(['text'], 'notes.txt', { type: 'text/plain' })
+    const textarea = getByPlaceholderText('Ask anything...')
+
+    const dropEvent = createEvent.drop(textarea, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [image, text],
+      },
+    })
+    fireEvent(textarea, dropEvent)
+
+    expect(dropEvent.defaultPrevented).toBe(true)
+    expect(mockedUploadFile).toHaveBeenCalledTimes(1)
+    expect(mockedUploadFile).toHaveBeenCalledWith(image, undefined)
   })
 })
