@@ -49,6 +49,10 @@ type Gateway struct {
 	cfg Config
 	log *logger.Logger
 
+	// gatewayURL overrides the configured endpoint in tests. Production
+	// gateways leave it nil and use cfg.GatewayURL().
+	gatewayURL func() string
+
 	mu        sync.Mutex
 	conn      *websocket.Conn
 	sessionID string
@@ -152,6 +156,9 @@ func (g *Gateway) Close() {
 
 func (g *Gateway) connectAndIdentify(ctx context.Context) error {
 	url := g.cfg.GatewayURL()
+	if g.gatewayURL != nil {
+		url = g.gatewayURL()
+	}
 
 	g.log.DebugContext(ctx, logger.CatApp, "qqbot connecting to gateway", "url", url)
 
@@ -193,7 +200,7 @@ func (g *Gateway) connectAndIdentify(ctx context.Context) error {
 		// Resume
 		seq := int(g.seq.Load())
 		resumeData := ResumeData{
-			Token:     accessToken,
+			Token:     "QQBot " + accessToken,
 			SessionID: g.sessionID,
 			Seq:       seq,
 		}
