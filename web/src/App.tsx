@@ -266,7 +266,7 @@ function App() {
               'shrink-0 h-full border-r transition-all duration-300 ease-out relative',
               sidebarCollapsed
                 ? 'w-0 border-transparent bg-transparent'
-                : 'w-[220px] border-border/40 bg-card/40 backdrop-blur-md overflow-hidden'
+                : 'w-[220px] border-border/40 bg-sidebar backdrop-blur-md overflow-hidden'
             )}
           >
             <Sidebar
