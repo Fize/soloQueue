@@ -3,10 +3,24 @@ package qq
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
+
+type testTokenProvider struct {
+	token string
+}
+
+func (p testTokenProvider) AccessToken(context.Context) (string, error) {
+	return p.token, nil
+}
 
 // testEventHandler captures the last QQMessage received.
 type testEventHandler struct {
@@ -26,6 +40,67 @@ func testLogger(t *testing.T) *logger.Logger {
 		t.Fatalf("create test logger: %v", err)
 	}
 	return l
+}
+
+func TestConnectAndIdentify_ResumePrefixesToken(t *testing.T) {
+	received := make(chan GatewayPayload, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		hello := GatewayPayload{
+			Op: OpHello,
+			D:  json.RawMessage(`{"heartbeat_interval":60000}`),
+		}
+		if err := conn.WriteJSON(hello); err != nil {
+			return
+		}
+
+		var payload GatewayPayload
+		if err := conn.ReadJSON(&payload); err == nil {
+			received <- payload
+		}
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	gw := &Gateway{
+		cfg:        Config{},
+		log:        testLogger(t),
+		tokens:     testTokenProvider{token: "access-token"},
+		sessionID:  "session-123",
+		gatewayURL: func() string { return wsURL },
+	}
+	gw.seq.Store(42)
+	defer gw.closeConn()
+
+	if err := gw.connectAndIdentify(context.Background()); err != nil {
+		t.Fatalf("connectAndIdentify() error = %v", err)
+	}
+
+	var payload GatewayPayload
+	select {
+	case payload = <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for Resume payload")
+	}
+
+	if payload.Op != OpResume {
+		t.Fatalf("gateway opcode = %d, want %d", payload.Op, OpResume)
+	}
+	var resume ResumeData
+	if err := json.Unmarshal(payload.D, &resume); err != nil {
+		t.Fatalf("decode resume payload: %v", err)
+	}
+	if resume.Token != "QQBot access-token" {
+		t.Errorf("resume token = %q, want %q", resume.Token, "QQBot access-token")
+	}
+	if resume.SessionID != "session-123" || resume.Seq != 42 {
+		t.Errorf("resume state = session %q seq %d, want session %q seq %d", resume.SessionID, resume.Seq, "session-123", 42)
+	}
 }
 
 func TestHandleAudioMessage_ValidJSON(t *testing.T) {
