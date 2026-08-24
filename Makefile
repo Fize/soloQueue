@@ -6,11 +6,11 @@ help: ## Show this help
 
 build-web: ## Build the full browser Web Console
 	cd web && pnpm install --frozen-lockfile && pnpm test && pnpm build
-	rm -rf internal/assets/dist/web && cp -r web/dist internal/assets/dist/web
+	rm -rf internal/assets/dist/web && mkdir -p internal/assets/dist && cp -r web/dist internal/assets/dist/web
 
 build-status: ## Build the read-only Status UI
 	cd status-ui && pnpm install --frozen-lockfile && pnpm test && pnpm build
-	rm -rf internal/assets/dist/status && cp -r status-ui/dist internal/assets/dist/status
+	rm -rf internal/assets/dist/status && mkdir -p internal/assets/dist && cp -r status-ui/dist internal/assets/dist/status
 
 build-assets: build-web build-status ## Build both browser bundles and copy built-in Skills
 	rm -rf internal/assets/dist/skills && mkdir -p internal/assets/dist/skills
