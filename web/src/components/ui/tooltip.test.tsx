@@ -18,4 +18,19 @@ describe('Tooltip', () => {
     await user.hover(screen.getByText('Hover me'))
     expect(await screen.findByText('Tooltip text')).toBeInTheDocument()
   })
+
+  it('composes with an existing interactive trigger without nesting buttons', () => {
+    render(
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger render={<button aria-label="Refresh cron tasks">Refresh</button>} />
+          <TooltipContent>Refresh tasks</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Refresh cron tasks' })
+    expect(trigger).toBeInTheDocument()
+    expect(trigger.querySelector('button')).toBeNull()
+  })
 })

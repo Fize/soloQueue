@@ -1,0 +1,19 @@
+{
+  "name": "SoloQueue",
+  "short_name": "SoloQueue",
+  "description": "Local-first agent workspace",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#181A22",
+  "background_color": "#181A22",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

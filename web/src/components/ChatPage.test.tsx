@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +10,16 @@ const mocks = vi.hoisted(() => ({
   deleteL2Session: vi.fn(),
   fetchLiveAgents: vi.fn(),
   fetchTeams: vi.fn(),
+  chatStreamSend: vi.fn().mockResolvedValue(undefined),
+  chatInputProps: {} as {
+    onSend?: (
+      text: string,
+      files?: { name: string; path: string }[],
+      group?: string,
+      projectPath?: string,
+      selectedElement?: unknown,
+    ) => Promise<void>;
+  },
   setInspectorPanelWidth: vi.fn(),
   runtimeStoreState: {
     connectionStatus: "connected",
@@ -17,6 +27,11 @@ const mocks = vi.hoisted(() => ({
     isDesignMode: false,
     status: null,
     setInspectorPanelWidth: vi.fn(),
+    setDesignMode: vi.fn(),
+  },
+  designPanelProps: {} as {
+    onResizeStart?: unknown;
+    onDesignContextChange?: (ctx: { activeDesignFile?: string; hasDrawings: boolean }) => void;
   },
 }));
 
@@ -91,7 +106,7 @@ vi.mock("@/stores/connectionStore", () => ({
 }));
 
 vi.mock("@/hooks/useChatStream", () => ({
-  useChatStream: () => ({ send: vi.fn(), cancel: vi.fn() }),
+  useChatStream: () => ({ send: mocks.chatStreamSend, cancel: vi.fn() }),
 }));
 
 vi.mock("@/hooks/useAgentStream", () => ({
@@ -145,10 +160,41 @@ vi.mock("@/components/ChatMessage", () => ({
   ),
 }));
 
-vi.mock("@/components/ChatInput", () => ({ ChatInput: () => <div /> }));
+vi.mock("@/components/ChatInput", () => ({
+  ChatInput: (props: typeof mocks.chatInputProps) => {
+    mocks.chatInputProps = props;
+    return <div data-testid="chat-input" />;
+  },
+}));
 vi.mock("@/components/chat/AgentWorkingIndicator", () => ({ AgentWorkingIndicator: () => <div /> }));
 vi.mock("./chat/SessionInspectorPanel", () => ({ SessionInspectorPanel: () => <div /> }));
-vi.mock("@/components/ChatDesignPanel", () => ({ ChatDesignPanel: () => <div /> }));
+vi.mock("@/components/ChatDesignPanel", () => ({
+  ChatDesignPanel: (props: {
+    isDesignMode: boolean;
+    onResizeStart?: unknown;
+    onDesignContextChange?: (ctx: { activeDesignFile?: string; hasDrawings: boolean }) => void;
+  }) => {
+    mocks.designPanelProps = props;
+    return <div data-testid="design-panel" data-design-mode={String(props.isDesignMode)} />;
+  },
+}));
+
+function setViewport(width: number, height: number) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+  window.dispatchEvent(new Event("resize"));
+}
+
+beforeEach(() => {
+  mocks.runtimeStoreState.isDesignMode = false;
+  mocks.runtimeStoreState.setDesignMode = vi.fn((enabled: boolean) => {
+    mocks.runtimeStoreState.isDesignMode = enabled;
+  });
+  mocks.chatStreamSend.mockClear();
+  mocks.chatInputProps = {};
+  mocks.designPanelProps = {};
+  setViewport(1024, 768);
+});
 
 describe("ChatPage", () => {
   it("renders an L2 channel stream without a Desktop request ID", async () => {
@@ -156,6 +202,87 @@ describe("ChatPage", () => {
 
     await waitFor(() =>
       expect(screen.getByText("channel L2 live output")).toBeInTheDocument(),
+    );
+  });
+
+  it("exits persisted Design Mode on Phone without mounting the design panel", async () => {
+    mocks.runtimeStoreState.isDesignMode = true;
+    setViewport(719, 800);
+
+    render(<ChatPage />);
+
+    await waitFor(() => expect(mocks.runtimeStoreState.setDesignMode).toHaveBeenCalledWith(false));
+    expect(screen.queryByTestId("design-panel")).not.toBeInTheDocument();
+  });
+
+  it("renders Pad portrait as a single-pane design layout", async () => {
+    mocks.runtimeStoreState.isDesignMode = true;
+    setViewport(999, 800);
+
+    render(<ChatPage />);
+
+    expect(await screen.findByTestId("design-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("design-panel").parentElement?.parentElement).toHaveClass("flex-col");
+    expect(screen.getByTestId("design-panel")).toHaveAttribute("data-design-mode", "true");
+    expect(mocks.designPanelProps.onResizeStart).toBeUndefined();
+  });
+
+  it("renders Pad landscape as a split-pane design layout", async () => {
+    mocks.runtimeStoreState.isDesignMode = true;
+    setViewport(1000, 800);
+
+    render(<ChatPage />);
+
+    expect(await screen.findByTestId("design-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("design-panel").closest("[data-design-layout]")).toHaveAttribute(
+      "data-design-layout",
+      "split",
+    );
+    expect(mocks.designPanelProps.onResizeStart).toEqual(expect.any(Function));
+  });
+
+  it("clears persisted Design Mode across a mounted Phone downgrade without resetting design data or re-entering", async () => {
+    localStorage.setItem("design-data-sentinel", "keep-me");
+    mocks.runtimeStoreState.isDesignMode = true;
+    setViewport(1000, 800);
+
+    render(<ChatPage />);
+
+    const panel = await screen.findByTestId("design-panel");
+    mocks.designPanelProps.onDesignContextChange?.({
+      activeDesignFile: "/workspace/design.html",
+      hasDrawings: true,
+    });
+
+    setViewport(1000, 599);
+    await waitFor(() => {
+      expect(screen.queryByTestId("design-panel")).not.toBeInTheDocument();
+      expect(mocks.runtimeStoreState.setDesignMode).toHaveBeenCalledWith(false);
+    });
+    expect(panel).not.toBeInTheDocument();
+    expect(localStorage.getItem("design-data-sentinel")).toBe("keep-me");
+
+    // The exact height boundary is capable again, but the user must opt back in.
+    setViewport(1000, 600);
+    expect(screen.queryByTestId("design-panel")).not.toBeInTheDocument();
+
+    // Orientation changes use the same capability path and must not re-enter.
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 720 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+    window.dispatchEvent(new Event("orientationchange"));
+    expect(screen.queryByTestId("design-panel")).not.toBeInTheDocument();
+
+    await mocks.chatInputProps.onSend?.("ordinary message", undefined, undefined, undefined, {
+      file_path: "/workspace/stale.html",
+      selector: "#stale",
+    });
+    expect(mocks.chatStreamSend).toHaveBeenCalledWith(
+      "ordinary message",
+      undefined,
+      "channel-l2",
+      undefined,
+      undefined,
+      false,
     );
   });
 });

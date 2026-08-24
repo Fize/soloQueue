@@ -10,6 +10,7 @@ import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
 import { cn, pathsMatch } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
+import { useWorkspaceCapabilities } from '@/hooks/useWorkspaceCapabilities'
 import { ChatInputAutocomplete, BUILTIN_SLASH_COMMANDS, type ChatInputAutocompleteHandle } from './ChatInputAutocomplete'
 import { ChatInputAttachments, type Attachment } from './ChatInputAttachments'
 
@@ -87,6 +88,7 @@ export function ChatInput({
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const setDesignMode = useRuntimeStore((s) => s.setDesignMode)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
+  const { canUseDesignMode } = useWorkspaceCapabilities()
 
   // ─── Autocomplete ref (access handleInput / handleKeyDown) ───────────────
   const acRef = useRef<ChatInputAutocompleteHandle>(null)
@@ -652,7 +654,7 @@ export function ChatInput({
                   tabIndex={-1}
                   aria-hidden="true"
                 />
-                {activeSessionId !== 'l1' && (
+                {activeSessionId !== 'l1' && canUseDesignMode && (
                 <button
                   type="button"
                   onClick={() => {
