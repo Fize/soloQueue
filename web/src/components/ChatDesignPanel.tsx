@@ -71,7 +71,7 @@ export interface ChatDesignPanelProps {
   isDesignMode: boolean;
   onDesignModeToggle: (enabled: boolean) => void;
   panelWidth: number;
-  onResizeStart: (e: React.MouseEvent) => void;
+  onResizeStart?: (e: React.MouseEvent) => void;
   isResizing?: boolean;
   selectedProjectPath: string;
   selectedGroup: string;

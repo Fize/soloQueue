@@ -14,6 +14,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useTranslation } from '@/lib/i18n'
 import { AuthGate } from '@/components/AuthGate'
+import { PWAInstallPrompt } from '@/components/PWAInstallPrompt'
 
 // Lazy-loaded route components — split into separate chunks for faster initial load
 const ChatPage = lazy(() => import('@/components/ChatPage').then((m) => ({ default: m.ChatPage })))
@@ -245,6 +246,7 @@ function App() {
             'text-sm font-medium bg-card border border-border text-foreground rounded-lg shadow-lg',
         }}
       />
+      <PWAInstallPrompt />
       <div className="flex h-full w-full bg-background overflow-hidden relative">
         {sidebarCollapsed && (
           <button

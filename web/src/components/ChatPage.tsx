@@ -35,6 +35,7 @@ import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
 import { StickyToolConfirmPanel } from "@/components/chat";
 import { recoverInFlightMessages } from "@/components/chat/recoverInFlightMessages";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
+import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -89,6 +90,18 @@ export function ChatPage() {
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed);
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode);
   const setDesignMode = useRuntimeStore((s) => s.setDesignMode);
+  const workspaceCapabilities = useWorkspaceCapabilities();
+  const designModeActive = isDesignMode && workspaceCapabilities.canUseDesignMode;
+  const isSinglePaneDesign = designModeActive && workspaceCapabilities.designLayout === "single";
+
+  // A persisted Design Mode must never survive into the Phone capability
+  // boundary. This only changes the mode flag; design files and preview data
+  // remain untouched.
+  useEffect(() => {
+    if (isDesignMode && !workspaceCapabilities.canUseDesignMode) {
+      setDesignMode(false);
+    }
+  }, [isDesignMode, setDesignMode, workspaceCapabilities.canUseDesignMode]);
 
   // Design context exposed by ChatDesignPanel (used in handleSend)
   const designContextRef = useRef<{ activeDesignFile?: string; hasDrawings: boolean }>({ activeDesignFile: undefined, hasDrawings: false });
@@ -100,19 +113,19 @@ export function ChatPage() {
     splitContainerRef,
     handleResizeStart,
     containerWidth,
-  } = useResizablePanes(isDesignMode, activeSessionId);
+  } = useResizablePanes(designModeActive, activeSessionId);
 
   const MIN_AREA_WIDTH = 200;
 
-  const prevIsDesignModeRef = useRef(isDesignMode);
+  const prevIsDesignModeRef = useRef(designModeActive);
   useEffect(() => {
     const wasDesignMode = prevIsDesignModeRef.current;
-    prevIsDesignModeRef.current = isDesignMode;
-    if (wasDesignMode && !isDesignMode) {
+    prevIsDesignModeRef.current = designModeActive;
+    if (wasDesignMode && !designModeActive) {
       setShowInspector(false);
       useRuntimeStore.getState().setInspectorPanelWidth(0);
     }
-  }, [isDesignMode]);
+  }, [designModeActive]);
 
   // L2 redesign states
   const [l2Groups, setL2Groups] = useState<string[]>([]);
@@ -244,7 +257,7 @@ export function ChatPage() {
   // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
   const MESSAGE_MAX_W = 768;
   const messageMaxWidth = useMemo(() => {
-    const panelVisible = (showInspector && activeSession) || isDesignMode;
+    const panelVisible = (showInspector && activeSession) || designModeActive;
     const mainContentWidth =
       containerWidth - (panelVisible ? panelWidth + 4 : 0); // 4px = handle width
     if (mainContentWidth <= 0) return MESSAGE_MAX_W;
@@ -252,7 +265,7 @@ export function ChatPage() {
       MIN_AREA_WIDTH - 32,
       Math.min(mainContentWidth * 0.85, MESSAGE_MAX_W),
     );
-  }, [showInspector, isDesignMode, activeSession, containerWidth, panelWidth]);
+  }, [showInspector, designModeActive, activeSession, containerWidth, panelWidth]);
 
   // Sync selected group and project path when active session data changes
   useEffect(() => {
@@ -463,9 +476,18 @@ export function ChatPage() {
       }
     }
 
-    const { activeDesignFile, hasDrawings } = designContextRef.current;
+    const { activeDesignFile, hasDrawings } = designModeActive
+      ? designContextRef.current
+      : { activeDesignFile: undefined, hasDrawings: false };
 
-    await send(text, files, targetSessionId, selectedElement, activeDesignFile, hasDrawings);
+    await send(
+      text,
+      files,
+      targetSessionId,
+      designModeActive ? selectedElement : undefined,
+      activeDesignFile,
+      hasDrawings,
+    );
     setDesignSelectedTarget(null);
   };
 
@@ -573,7 +595,7 @@ export function ChatPage() {
     onClearSelectedTarget: () => setDesignSelectedTarget(null),
   };
 
-  if (!activeSessionId && !isDesignMode) {
+  if (!activeSessionId && !designModeActive) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto bg-background select-none h-full w-full">
         <div
@@ -610,7 +632,11 @@ export function ChatPage() {
   }
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-background">
+    <div
+      className="flex h-full w-full overflow-hidden bg-background"
+      data-workspace={workspaceCapabilities.workspace}
+      data-design-layout={designModeActive ? workspaceCapabilities.designLayout : undefined}
+    >
       {/* Pane 3: Chat conversation bubble stream */}
       <div className="flex flex-1 flex-col overflow-hidden h-full bg-background relative">
         {/* Chat header — split into chat section + panel section when inspector is open */}
@@ -628,7 +654,7 @@ export function ChatPage() {
                 ? "flex-1 justify-between"
                 : "flex-1 justify-between",
               isResizing ? "transition-none" : "transition-all duration-300",
-              isDesignMode && "min-w-[320px]"
+              designModeActive && "min-w-[320px]"
             )}
           >
             <div className="flex items-center gap-2 min-w-0">
@@ -666,7 +692,7 @@ export function ChatPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {!showInspector && !isDesignMode && (
+              {!showInspector && !designModeActive && (
                 <button
                   onClick={() => toggleInspector(true)}
                   className="p-1.5 rounded-md hover:bg-foreground/5 transition-all cursor-pointer text-muted-foreground"
@@ -679,15 +705,15 @@ export function ChatPage() {
           </div>
 
           {/* Right section: panel header area — aligned to inspector width */}
-          {((showInspector && activeSession) || isDesignMode) && (
+          {((showInspector && activeSession) || designModeActive) && (
             <div
               className={cn(
                 "shrink-0 flex items-center justify-between h-full border-l border-border/30 bg-card/20 px-3",
                 isResizing ? "transition-none" : "transition-all duration-300"
               )}
-              style={{ width: isDesignMode ? panelWidth + 4 : panelWidth }}
+              style={{ width: isSinglePaneDesign ? undefined : designModeActive ? panelWidth + 4 : panelWidth }}
             >
-              {isDesignMode ? (
+              {designModeActive ? (
                 <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-2">
                     <Palette className="h-4 w-4 text-signal animate-pulse" />
@@ -754,19 +780,21 @@ export function ChatPage() {
           ref={splitContainerRef}
           className={cn(
             "flex flex-1 min-h-0 overflow-hidden relative",
+            isSinglePaneDesign ? "flex-col" : "flex-row",
             isResizing && "select-none",
           )}
+          data-design-layout={designModeActive ? workspaceCapabilities.designLayout : undefined}
         >
           {/* Conversation stream */}
           <div className={cn(
             "flex flex-col min-w-0 h-full overflow-hidden bg-background",
             isResizing ? "transition-none" : "transition-all duration-300",
-            isDesignMode ? "flex-1 min-w-[320px]" : "flex-1 min-w-0"
+            designModeActive ? "flex-1 min-w-[320px]" : "flex-1 min-w-0"
           )}>
             {finalMessages.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto bg-background">
                   <div
-                    className={`w-full flex flex-col items-center space-y-8 ${isDesignMode ? 'px-2' : 'px-4'} select-none`}
+                    className={`w-full flex flex-col items-center space-y-8 ${designModeActive ? 'px-2' : 'px-4'} select-none`}
                     style={{ maxWidth: messageMaxWidth }}
                   >
                   {/* Centered Heading */}
@@ -815,7 +843,7 @@ export function ChatPage() {
                 >
                   <div
                     ref={contentRef}
-                    className={`mx-auto w-full space-y-6 ${isDesignMode ? 'px-2' : 'px-4'}`}
+                    className={`mx-auto w-full space-y-6 ${designModeActive ? 'px-2' : 'px-4'}`}
                     style={{ maxWidth: messageMaxWidth }}
                   >
                     {activeSessionId && historyLoading[activeSessionId] && (
@@ -858,7 +886,7 @@ export function ChatPage() {
                         modelName={inputModelName}
                         taskLevel={inputTaskLevel}
                         delegating={delegating}
-                        compact={isDesignMode}
+                        compact={designModeActive}
                       />
                     )}
 
@@ -885,10 +913,10 @@ export function ChatPage() {
           </div>
 
           {/* Right Inspector panel or Design Preview */}
-          {((showInspector && activeSession) || isDesignMode) && (
+          {((showInspector && activeSession) || designModeActive) && (
             <>
               {/* Resize handle */}
-              {!isDesignMode && (
+              {!designModeActive && (
                 <div
                   onMouseDown={handleResizeStart}
                   className={cn(
@@ -899,12 +927,13 @@ export function ChatPage() {
               )}
               <div
                 className={cn(
-                  "border-l border-border/30 h-full overflow-hidden bg-card/5 flex flex-col shrink-0 relative",
+                  "h-full overflow-hidden bg-card/5 flex flex-col shrink-0 relative",
+                  isSinglePaneDesign ? "w-full flex-1 min-h-0 border-t" : "border-l",
                   isResizing ? "transition-none" : "transition-all duration-300",
                 )}
-                style={{ width: isDesignMode ? panelWidth + 4 : panelWidth }}
+                style={{ width: isSinglePaneDesign ? undefined : designModeActive ? panelWidth + 4 : panelWidth }}
               >
-                {isDesignMode && (
+                {designModeActive && !isSinglePaneDesign && (
                   <div
                     onMouseDown={handleResizeStart}
                     className={cn(
@@ -915,12 +944,12 @@ export function ChatPage() {
                 )}
                 {/* Panel content */}
                 <div className="flex-1 min-h-0 overflow-hidden">
-                  {isDesignMode ? (
+                  {designModeActive ? (
                     <ChatDesignPanel
-                      isDesignMode={isDesignMode}
+                      isDesignMode={designModeActive}
                       onDesignModeToggle={(enabled) => setDesignMode(enabled)}
                       panelWidth={panelWidth}
-                      onResizeStart={handleResizeStart}
+                      onResizeStart={isSinglePaneDesign ? undefined : handleResizeStart}
                       isResizing={isResizing}
                       selectedProjectPath={selectedProjectPath}
                       selectedGroup={selectedGroup}

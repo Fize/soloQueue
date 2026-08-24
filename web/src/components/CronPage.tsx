@@ -98,14 +98,16 @@ function TaskCard({
         {/* Left: switch + title and expression */}
         <div className="flex items-center gap-3 min-w-0">
           <Tooltip>
-            <TooltipTrigger>
-              <Switch
+            <TooltipTrigger
+              render={
+                <Switch
                 id={`cron-switch-${task.id}`}
                 checked={isActive}
                 onCheckedChange={() => onToggle(task)}
                 disabled={isCompleted || isToggling}
-              />
-            </TooltipTrigger>
+                />
+              }
+            />
             <TooltipContent>
               {isCompleted ? t('cron.completed') : isActive ? t('cron.clickToPause') : t('cron.clickToActivate')}
             </TooltipContent>
@@ -197,60 +199,68 @@ function TaskCard({
         <div className="flex items-center gap-0.5 shrink-0">
           {/* Task ID copy */}
           <Tooltip>
-            <TooltipTrigger>
-              <button
+            <TooltipTrigger
+              render={
+                <button
                 onClick={() => onCopyId(task.id)}
                 className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
-              >
+                >
                 {copiedId === task.id ? (
                   <Check className="h-3 w-3 text-[var(--success)]" />
                 ) : (
                   <Copy className="h-3 w-3" />
                 )}
                 <span className="hidden sm:block max-w-[64px] truncate">{task.id.slice(0, 8)}</span>
-              </button>
-            </TooltipTrigger>
+                </button>
+              }
+            />
             <TooltipContent>{copiedId === task.id ? t('cron.copied') : `${t('cron.copyId')}: ${task.id}`}</TooltipContent>
           </Tooltip>
 
           <Tooltip>
-            <TooltipTrigger>
-              <button
+            <TooltipTrigger
+              render={
+                <button
                 onClick={() => onViewHistory(task)}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 aria-label={t('cron.viewHistory')}
-              >
+                >
                 <History className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
+                </button>
+              }
+            />
             <TooltipContent>{t('cron.viewHistory')}</TooltipContent>
           </Tooltip>
 
           <div className="w-px h-4 bg-border/60 mx-1" />
 
           <Tooltip>
-            <TooltipTrigger>
-              <button
+            <TooltipTrigger
+              render={
+                <button
                 onClick={() => onEdit(task)}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 aria-label={t('cron.editTaskTooltip')}
-              >
+                >
                 <Edit className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
+                </button>
+              }
+            />
             <TooltipContent>{t('cron.editTaskTooltip')}</TooltipContent>
           </Tooltip>
 
           <Tooltip>
-            <TooltipTrigger>
-              <button
+            <TooltipTrigger
+              render={
+                <button
                 onClick={() => onDelete(task)}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                 aria-label={t('cron.deleteTaskTooltip')}
-              >
+                >
                 <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
+                </button>
+              }
+            />
             <TooltipContent>{t('cron.deleteTaskTooltip')}</TooltipContent>
           </Tooltip>
         </div>
@@ -611,17 +621,19 @@ export function CronPage() {
 
             <div className="flex items-center gap-2">
               <Tooltip>
-                <TooltipTrigger>
-                  <Button
+                <TooltipTrigger
+                  render={
+                    <Button
                     variant="outline"
                     size="icon-sm"
                     onClick={fetchTasks}
                     disabled={loading}
                     id="cron-refresh-btn"
-                  >
+                    >
                     <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-                  </Button>
-                </TooltipTrigger>
+                    </Button>
+                  }
+                />
                 <TooltipContent>{t('cron.refreshTooltip')}</TooltipContent>
               </Tooltip>
               <Button
