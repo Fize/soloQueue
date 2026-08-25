@@ -76,7 +76,7 @@ func (m *Mux) allowedRoots() []string {
 	workspaceDir := filepath.Join(m.workDir, "workspace")
 	roots = append(roots, workspaceDir)
 
-	// Generated images from ImageGenerate and ImageEdit tools.
+	// Generated images from ImageTool.
 	imagesDir := filepath.Join(m.workDir, "images")
 	roots = append(roots, imagesDir)
 	artifactsDir := filepath.Join(m.workDir, "artifacts")

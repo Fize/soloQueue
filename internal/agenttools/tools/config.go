@@ -160,7 +160,7 @@ type Config struct {
 	CronScope     CronAccessScope
 
 	// ── Image generation ─────────────────────────────────────
-	// ImageModels lists image generation models. If any model has Enabled set, the ImageGenerate tool is registered.
+	// ImageModels lists image generation/editing models. If any model has Enabled set, ImageTool is registered.
 	ImageModels []ImgModelCfg
 }
 

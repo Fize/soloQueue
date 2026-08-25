@@ -70,6 +70,6 @@ var (
 	// ErrImageGenFailed indicates image generation failed.
 	ErrImageGenFailed = errors.New("tools: image generation failed")
 
-	// ErrImageEditFailed indicates image editing/image generation failed.
-	ErrImageEditFailed = errors.New("tools: image edit failed")
+	// ErrImageToolEditFailed indicates an ImageTool editing request failed.
+	ErrImageToolEditFailed = errors.New("tools: image edit failed")
 )
