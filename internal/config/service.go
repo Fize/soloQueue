@@ -311,9 +311,14 @@ func Init(workDir string) (*GlobalService, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	// Note: we do not save defaults here. If settings.yaml does not exist,
-	// the runtime will surface a one-time notice; operators must create it
-	// before the server can serve config-aware requests.
+	settingsPath := filepath.Join(workDir, "settings.yaml")
+	if _, statErr := os.Stat(settingsPath); os.IsNotExist(statErr) {
+		if err := cfg.Save(); err != nil {
+			return nil, fmt.Errorf("save default config: %w", err)
+		}
+	} else if statErr != nil {
+		return nil, fmt.Errorf("stat config: %w", statErr)
+	}
 
 	return cfg, nil
 }

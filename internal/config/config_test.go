@@ -41,6 +41,58 @@ func TestLoader_Load_NoFile_UsesDefaults(t *testing.T) {
 	}
 }
 
+func TestInit_CreatesDefaultConfigWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Init(dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	path := filepath.Join(dir, "settings.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read generated config: %v", err)
+	}
+
+	var settings Settings
+	if err := yaml.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("unmarshal generated config: %v", err)
+	}
+	if settings.Log.Level != DefaultSettings().Log.Level {
+		t.Errorf("generated log level = %q, want %q", settings.Log.Level, DefaultSettings().Log.Level)
+	}
+}
+
+func TestInit_PreservesExistingConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	writeYAML(t, path, map[string]any{
+		"log": map[string]any{"level": "debug"},
+	})
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read original config: %v", err)
+	}
+
+	if _, err := Init(dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read existing config: %v", err)
+	}
+	if string(data) != string(before) {
+		t.Fatal("existing config was rewritten during init")
+	}
+	var settings Settings
+	if err := yaml.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("unmarshal existing config: %v", err)
+	}
+	if settings.Log.Level != "debug" {
+		t.Errorf("existing log level = %q, want debug", settings.Log.Level)
+	}
+}
+
 func TestLoader_Load_FromFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.yaml")
