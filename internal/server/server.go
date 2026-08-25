@@ -31,9 +31,9 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	_ "net/http/pprof"
 
@@ -69,7 +69,6 @@ type Mux struct {
 	templates         []agent.AgentTemplate
 	groupsDir         string // if set, groups are reloaded from disk on each request
 	hub               *Hub
-	wsTokens          sync.Map
 	toolsCfg          *tools.Config
 	skillReg          *skill.SkillRegistry
 	skillDirs         map[string]string // skill categories → paths, for on-demand reload
@@ -80,11 +79,8 @@ type Mux struct {
 	mcpManager        *mcp.Manager // MCP server manager for /api/mcp/available endpoint
 	sessionMgr        *session.SessionManager
 	l2Store           *session.L2SessionStore // L2 multi-session store (nil if not configured)
-	authConfig        config.AuthConfig
-	effectiveAuthUser string
-	effectiveAuthPass string
-	teamstore         *store.Store // team/agent DB store; nil if not backed by SQLite
-	onConfigChange    func() error // callback on LLM config update
+	teamstore         *store.Store            // team/agent DB store; nil if not backed by SQLite
+	onConfigChange    func() error            // callback on LLM config update
 	simEngine         *simulation.SimulationEngine
 	sharedDB          *db.DB // for metric reporting
 	workflowStore     *workflow.Store
@@ -190,14 +186,6 @@ func WithMCPLoader(loader *mcp.Loader) MuxOption {
 // WithMCPManager sets the MCP server manager for /api/mcp/available endpoint.
 func WithMCPManager(mgr *mcp.Manager) MuxOption {
 	return func(m *Mux) { m.mcpManager = mgr }
-}
-
-// WithAuthConfig sets the auth configuration.
-// An empty User disables authentication.
-func WithAuthConfig(cfg config.AuthConfig) MuxOption {
-	return func(m *Mux) {
-		m.authConfig = cfg
-	}
 }
 
 // WithTeamStore sets the team/agent SQLite store for CRUD endpoints.
@@ -324,10 +312,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Use(al.Middleware)
 	}
 
-	// ── Auth middleware (always registered; localhost bypasses, remote requires auth) ──
-	m.resolveEffectiveAuth()
-	r.Use(m.tokenAuthMiddleware)
-
 	// WebSocket
 	r.Get("/ws", m.handleWebSocket)
 
@@ -355,11 +339,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Delete("/l2/{id}", m.handleDeleteL2Session)
 		r.Get("/l2/{id}/changes", m.handleGetSessionChanges)
 	})
-
-	// Auth check
-	r.Get("/api/auth/status", m.handleAuthStatus)
-	r.Get("/api/auth/check", m.handleAuthCheck)
-	r.Get("/api/auth/token", m.handleGetWSToken)
 
 	// Health check
 	r.Get("/healthz", m.handleHealth)
@@ -700,18 +679,39 @@ func (m *Mux) logError(ctx context.Context, msg string, err error) {
 	m.log.LogError(ctx, logger.CatHTTP, msg, err)
 }
 
-// corsMiddleware handles CORS for the Web UI dev server.
+// corsMiddleware permits the local Vite and standalone Web Console origins.
+// External origins are passed through without CORS headers so a reverse proxy
+// can apply its own deployment policy.
 func (m *Mux) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "*")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin == "" {
+			next.ServeHTTP(w, r)
 			return
+		}
+
+		w.Header().Add("Vary", "Origin")
+		if isLoopbackOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isLoopbackOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // maxBodyMiddleware limits the request body size to maxBytes.

@@ -19,12 +19,8 @@ import {
 function ConnectionModeSection() {
   const mode = useConnectionStore((s) => s.mode)
   const remoteUrl = useConnectionStore((s) => s.remoteUrl)
-  const username = useConnectionStore((s) => s.username)
-  const password = useConnectionStore((s) => s.password)
   const setMode = useConnectionStore((s) => s.setMode)
   const setRemoteUrl = useConnectionStore((s) => s.setRemoteUrl)
-  const setUsername = useConnectionStore((s) => s.setUsername)
-  const setPassword = useConnectionStore((s) => s.setPassword)
   const { t } = useTranslation()
 
   return (
@@ -65,7 +61,7 @@ function ConnectionModeSection() {
         </p>
       </div>
 
-      {/* Remote URL and Credentials input */}
+      {/* Remote URL input */}
       {mode === 'remote' && (
         <div className="space-y-4">
           <div>
@@ -81,32 +77,6 @@ function ConnectionModeSection() {
             <p className="text-xs text-muted-foreground mt-1.5">
               {t('connection.remoteUrlDesc')}
             </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-foreground/70 mb-2 block">
-                {t('connection.usernameOpt')}
-              </label>
-              <Input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
-                className="font-mono text-sm"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-foreground/70 mb-2 block">
-                {t('connection.passwordOpt')}
-              </label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="font-mono text-sm"
-              />
-            </div>
           </div>
         </div>
       )}

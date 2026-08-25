@@ -12,7 +12,7 @@ export default defineConfig({
     },
   },
   server: {
-    host: '0.0.0.0', // Allow remote access
+    host: '127.0.0.1',
     port: 5174, // Running on a different port than the Web Console (5173)
     proxy: {
       '/api': 'http://localhost:8765',

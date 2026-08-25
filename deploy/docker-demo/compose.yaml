@@ -1,0 +1,23 @@
+services:
+  soloqueue:
+    build:
+      context: ../..
+      dockerfile: deploy/docker-demo/Dockerfile
+    command: ["start", "--port", "57647"]
+    environment:
+      HOME: /home/soloqueue
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - soloqueue-data:/home/soloqueue/.soloqueue
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - soloqueue
+    network_mode: service:soloqueue
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  soloqueue-data:

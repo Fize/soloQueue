@@ -11,7 +11,7 @@ python3 -m pip install playwright
 python3 -m playwright install chromium
 python3 /Users/xiaobaitu/.agents/skills/webapp-testing/scripts/with_server.py \
   --server "go run ./cmd/soloqueue serve --port 8765 --bypass" --port 8765 \
-  --server "cd web && pnpm dev --host 127.0.0.1" --port 5173 \
+  --server "cd web && pnpm dev" --port 5173 \
   -- python3 e2e/test_web_console.py
 ```
 

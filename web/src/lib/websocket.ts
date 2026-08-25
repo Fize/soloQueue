@@ -12,7 +12,6 @@ import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useChatStore } from '@/stores/chatStore'
-import { request } from '@/lib/api/core'
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
 
@@ -98,27 +97,7 @@ class WebSocketManager {
     this.intentionalClose = false
 
     const connection = useConnectionStore.getState()
-    let token = ''
-    // The combined `start` mode is same-origin but can still be reached via
-    // a remote Host. In that case auth/status has already put the browser in
-    // the authenticated state and the token endpoint must use Basic Auth too.
-    if (connection.authState === 'required' || connection.authState === 'authenticated' || connection.mode === 'remote') {
-      try {
-        const data = await request<{ token: string }>('/auth/token')
-        token = data.token
-      } catch {
-        // HTTP auth failures update the connection store and render the login
-        // gate. Do not attempt a second unauthenticated socket handshake.
-        return
-      }
-    }
-
-    let url = connection.getEffectiveWsUrl()
-    if (token) {
-      url += `?token=${encodeURIComponent(token)}`
-    }
-
-    this.ws = new WebSocket(url)
+    this.ws = new WebSocket(connection.getEffectiveWsUrl())
 
     this.ws.onopen = () => {
       this.reconnectDelay = 1000

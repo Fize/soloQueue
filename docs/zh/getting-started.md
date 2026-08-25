@@ -2,7 +2,7 @@
 
 [English](../getting-started.md) | 简体中文
 
-本指南涵盖环境前置条件、源码构建、首次运行配置、远程访问设置及常见故障排查。
+本指南涵盖环境前置条件、源码构建、首次运行配置、本地开发及常见故障排查。
 
 ---
 
@@ -82,36 +82,15 @@ Vite 开发服务器会自动把 `/api` 与 `/ws` 转发至 `http://localhost:87
 
 ---
 
-## 远程访问与安全
+## 服务边界
 
-默认情况下，SoloQueue 仅绑定 `127.0.0.1:57647`，回环请求自动绕过认证。
+SoloQueue 只绑定 `127.0.0.1`，不提供 HTTP 认证、TLS 或公网监听能力。
+本地 Web Console 与状态页使用内置同源路由；Vite 和独立 Web Console
+开发模式通过受限的回环 CORS 访问后端。
 
-### 监听非回环网卡
-
-在外部网卡监听服务：
-
-```bash
-./soloqueue serve --host 0.0.0.0 --port 57647
-```
-
-### 配置 HTTP 认证
-
-在 `settings.yaml` 中配置 Basic Auth 凭据：
-
-```yaml
-auth:
-  user: soloqueue
-  password: replace-with-a-long-random-password
-```
-
-或者通过环境变量注入：
-
-```bash
-export SOLOQUEUE_AUTH_USER="soloqueue"
-export SOLOQUEUE_AUTH_PASSWORD="replace-with-a-long-random-password"
-```
-
-配置凭据后，非回环请求必须通过 Basic Auth 认证。若未配置凭据且尝试远程访问，服务将返回 `403 Forbidden`。
+如果需要远程访问，请使用 nginx 或其他部署入口代理 Web Console、REST
+API、WebSocket 和状态页。外部认证、TLS、CORS、限流和访问日志都由该
+入口负责。`deploy/docker-demo/` 仅展示本地 nginx 拓扑，不是生产部署模板。
 
 ---
 
@@ -120,5 +99,5 @@ export SOLOQUEUE_AUTH_PASSWORD="replace-with-a-long-random-password"
 - **Web 界面空白**：依次运行 `make build-assets` 与 `make build` 后重启服务。
 - **端口被占用**：使用 `--port` 参数指定新端口（如 `./soloqueue serve --port 8765`）。
 - **模型无响应**：检查环境变量 API Key、核对 `model_routes` 配置，并查看服务端日志。
-- **远程访问 403**：确认已在 `settings.yaml` 或环境变量中配置 `auth.user` 与 `auth.password`。
+- **远程访问**：配置外部反向代理，并保持 SoloQueue 监听回环地址。
 - **工具操作被阻断**：阅读卡片提示，或在 `settings.yaml` 的 `tools` 区段调整 Shell/路径策略。

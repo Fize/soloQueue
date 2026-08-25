@@ -22,7 +22,7 @@ personal project rather than a production-ready enterprise platform.
 - SoloQueue supports task routing, workflows, memory, skills, MCP/LSP tools,
   scheduled tasks, and channel delivery.
 - SoloQueue provides a full browser Web Console plus an embedded read-only Status UI for
-  local or controlled remote use.
+  local use. Remote access is provided through a user-managed reverse proxy.
 
 ## Non-goals
 
@@ -72,6 +72,12 @@ cd web && pnpm install && pnpm dev
 
 The Web Console development server proxies API and WebSocket traffic to port
 `8765`. The Status UI can be developed independently with `cd status-ui && pnpm dev`.
+
+SoloQueue services bind to `127.0.0.1` and do not provide application HTTP
+authentication. If remote access is needed, place nginx or another ingress in
+front of the service and configure authentication, TLS, CORS, and WebSocket
+proxying there. The Docker setup under `deploy/docker-demo/` is a local demo
+with nginx and SoloQueue sharing one network namespace.
 
 ## Useful commands
 

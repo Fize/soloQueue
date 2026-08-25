@@ -97,23 +97,6 @@ export interface TeamListResponse {
   teams: TeamInfo[];
 }
 
-// ─── Auth Types ───────────────────────────────────────────────────────────────
-
-export interface LoginRequest {
-  user: string;
-  password: string;
-}
-
-export interface LoginResponse {
-  token: string;
-  user: string;
-}
-
-export interface AuthCheckResponse {
-  authenticated: boolean;
-  user?: string;
-}
-
 // ─── Runtime Types ───────────────────────────────────────────────────────────
 
 export type Segment =

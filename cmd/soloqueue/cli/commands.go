@@ -48,7 +48,6 @@ func StartCmd(version string) *cobra.Command { return serveCmd("start", version,
 
 func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Command {
 	var port int
-	var host string
 	var verbose bool
 	var bypass bool
 	cmd := &cobra.Command{
@@ -72,7 +71,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			defer log.Close()
 
 			log.Info(logger.CatApp, "soloqueue serve starting",
-				"host", host, "port", port, "version", version)
+				"host", "127.0.0.1", "port", port, "version", version)
 
 			if tools.IsRTKEnabled() {
 				log.Info(logger.CatApp, "RTK command is available; Bash tool will compress outputs using RTK")
@@ -228,9 +227,9 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			}
 
 			// Create RuntimeMetrics (shared by Mux + Hub) for serve mode.
-			listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 			if err != nil {
-				return fmt.Errorf("listen %s:%d: %w", host, port, err)
+				return fmt.Errorf("listen 127.0.0.1:%d: %w", port, err)
 			}
 			actualAddr := listener.Addr().String()
 			runtimeMetrics := &server.RuntimeMetrics{HTTPAddr: actualAddr}
@@ -255,7 +254,6 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				server.WithMCPLoader(mcpLoaderFromRT(rt)),
 				server.WithMCPManager(rt.MCPManager),
 				server.WithTeamStore(rt.TeamStore),
-				server.WithAuthConfig(settings.Auth),
 				server.WithOnConfigChange(func() error {
 					if err := rt.OnConfigChange(); err != nil {
 						return err
@@ -372,7 +370,6 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 	}
 
 	cmd.Flags().IntVarP(&port, "port", "p", 57647, "HTTP server port (57647 = default, 0 = random)")
-	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "HTTP server host")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print logs to console (stderr)")
 	cmd.Flags().BoolVar(&bypass, "bypass", false, "bypass all tool confirmations for all agents")
 	return cmd
@@ -382,14 +379,14 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 // runtime. The frontend calls --backend directly; no reverse proxy is used.
 func WebCmd(version string) *cobra.Command {
 	var port int
-	var host, backendURL string
+	var backendURL string
 	cmd := &cobra.Command{
 		Use:   "web",
 		Short: "Start the standalone Web Console",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 			if err != nil {
-				return fmt.Errorf("listen %s:%d: %w", host, port, err)
+				return fmt.Errorf("listen 127.0.0.1:%d: %w", port, err)
 			}
 			fmt.Println(listener.Addr().String())
 			srv := &http.Server{Handler: server.NewWebHandler(assets.WebFS(), backendURL)}
@@ -408,7 +405,6 @@ func WebCmd(version string) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVarP(&port, "port", "p", 57648, "Web server port (0 = random)")
-	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "Web server host")
 	cmd.Flags().StringVar(&backendURL, "backend", "http://127.0.0.1:57647", "Backend URL used by the browser")
 	_ = version // retained for command registration symmetry and future banner use
 	return cmd

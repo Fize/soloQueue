@@ -64,7 +64,6 @@ interface CronTaskStatus {
 
 // Architectural Decision: Websocket polling & reconnection strategy.
 // Reconnect interval fixed at 2s to maintain low latency without overwhelming local Go server.
-// Token fetch is graceful — if /api/auth/token fails (e.g., auth disabled in dev), fallback to unauthenticated WS.
 const RECONNECT_DELAY = 2000
 const MAX_NOTIFICATIONS = 3
 const NOTIFICATION_TTL = 5000
@@ -123,25 +122,11 @@ export default function App() {
   }, [])
 
   // ── WebSocket connect ──
-  const connect = async () => {
+  const connect = () => {
     if (wsRef.current) return
 
-    let token = ''
-    try {
-      const res = await fetch('/api/auth/token')
-      if (res.ok) {
-        const data = await res.json()
-        token = data.token
-      }
-    } catch {
-      // server might not have auth, continue without token
-    }
-
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    let url = `${proto}//${window.location.host}/ws`
-    if (token) url += `?token=${encodeURIComponent(token)}`
-
-    const ws = new WebSocket(url)
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws`)
     wsRef.current = ws
 
     ws.onopen = () => {

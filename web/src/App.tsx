@@ -13,7 +13,6 @@ import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useTranslation } from '@/lib/i18n'
-import { AuthGate } from '@/components/AuthGate'
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt'
 
 // Lazy-loaded route components — split into separate chunks for faster initial load
@@ -337,15 +336,7 @@ function App() {
 export default function AppWithRouter() {
   return (
     <HashRouter>
-      <AuthenticatedApp />
+      <App />
     </HashRouter>
   )
-}
-
-function AuthenticatedApp() {
-  const authState = useConnectionStore((state) => state.authState)
-  if (authState !== 'not_required' && authState !== 'authenticated') {
-    return <AuthGate />
-  }
-  return <App />
 }

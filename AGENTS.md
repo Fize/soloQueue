@@ -210,8 +210,7 @@ LLM-driven conversation summaries triggered on context window compaction. `Manag
 2. **`filterCompletePairs`** removes orphaned tool_calls from LLM payloads to prevent HTTP 400 errors.
 3. **`inFlight atomic.Int32` CAS lock** in Session ensures only one concurrent Ask per session. Returns `ErrSessionBusy`.
 4. **`runJob` goroutine catches panics** via `defer/recover`. Agent's `RunCommand` with `Cancel` not nil must use `exec.CommandContext`.
-5. **Auth tokens are in-memory only** — server restart invalidates all sessions. 24h expiry, no idle timeout.
-6. **Web UI auth token** stored in `localStorage` under `soloqueue_token`. No refresh — 401 triggers auto-logout.
+5. **HTTP boundary** — production commands bind only to `127.0.0.1`; external authentication, TLS, CORS, and public access belong to a user-managed ingress.
 
 ## Key patterns
 

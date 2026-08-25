@@ -14,7 +14,7 @@ SoloQueue 采用本地优先架构，由 Go 后端服务、完整浏览器 Web C
 Web Console / 状态页
        │ HTTP + WebSocket
        ▼
-HTTP 服务与认证中间件 (internal/server)
+HTTP 服务与回环 CORS (internal/server)
        │
        ▼
 Session Manager (internal/session)
