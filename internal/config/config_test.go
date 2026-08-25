@@ -444,26 +444,6 @@ func TestGlobalService_Watch_InvalidYAMLLogsReloadFailure(t *testing.T) {
 	t.Fatalf("reload failure was not written to %s", logPath)
 }
 
-func TestLoader_ReadFromDisk(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.yaml")
-	writeYAML(t, path, map[string]any{
-		"auth": map[string]any{"user": "alice"},
-	})
-
-	loader, err := NewLoader(DefaultSettings(), path)
-	if err != nil {
-		t.Fatalf("new loader: %v", err)
-	}
-	settings, err := loader.ReadFromDisk()
-	if err != nil {
-		t.Fatalf("read from disk: %v", err)
-	}
-	if settings.Auth.User != "alice" {
-		t.Errorf("auth user = %q, want alice", settings.Auth.User)
-	}
-}
-
 func TestExpandPath_Tilde(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	got, err := expandPath("~/.soloqueue/settings.yaml")

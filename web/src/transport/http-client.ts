@@ -35,9 +35,6 @@ function buildHeaders(options: RequestInit | undefined): Headers {
 }
 
 async function throwAPIError(response: Response): Promise<never> {
-  if (response.status === 401 || response.status === 403) {
-    useConnectionStore.getState().setAuthFailure(response.status)
-  }
   const body = await response.text()
   let message = response.statusText || `HTTP ${response.status}`
   let code: string | undefined
@@ -69,16 +66,14 @@ async function send(
     ...rest
   } = options || {}
   const headers = buildHeaders(options)
-  const authHeader = useConnectionStore.getState().getAuthHeader()
-  if (authHeader && !headers.has('Authorization')) {
-    headers.set('Authorization', authHeader)
-  }
   try {
     return await fetch(resolveUrl(path, root), {
       ...rest,
       headers,
       mode: 'cors',
-      credentials: 'omit',
+      // Let the deployment boundary decide whether browser-managed credentials
+      // (for example an nginx session cookie) apply to this request.
+      credentials: options?.credentials ?? 'include',
       cache: 'no-store',
     })
   } catch (err) {

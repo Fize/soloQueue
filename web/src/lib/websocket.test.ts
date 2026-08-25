@@ -22,8 +22,6 @@ beforeEach(() => {
   useConnectionStore.setState({
     mode: 'local',
     remoteUrl: '',
-    username: '',
-    password: '',
     backendReady: true,
     backendStatus: { running: true, pid: null, uptime: 0 },
   })
@@ -31,17 +29,7 @@ beforeEach(() => {
   wsManager.disconnect()
   mockWSServer = null
 
-  // Mock global fetch so /api/auth/token works in jsdom
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-    const url = typeof input === 'string' ? input : (input as Request).url
-    if (url.includes('/api/auth/token')) {
-      return new Response(JSON.stringify({ token: 'test-token' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-    return new Response('{}', { status: 200 })
-  })
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }))
 
   // Mock WebSocket: capture the instance so we can manually fire onopen/onmessage
   vi.stubGlobal(
@@ -196,34 +184,16 @@ describe('websocket', () => {
     await vi.waitFor(() => {
       expect(useRuntimeStore.getState().connectionStatus).toBe('connected')
     })
-    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('/api/auth/token'))).toBe(false)
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
   })
 
-  it('fetches a one-time token only for remote connections', async () => {
-    useConnectionStore.setState({
-      mode: 'remote',
-      remoteUrl: 'https://remote.example',
-      username: 'alice',
-    })
+  it('opens a remote WebSocket without an application token', async () => {
+    useConnectionStore.setState({ mode: 'remote', remoteUrl: 'https://remote.example' })
 
     await wsManager.connect()
 
-    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('/api/auth/token'))).toBe(true)
-    expect(mockWSServer?.url).toBe('wss://remote.example/ws?token=test-token')
-  })
-
-  it('fetches a one-time token for authenticated same-origin start connections', async () => {
-    useConnectionStore.setState({
-      mode: 'local',
-      authState: 'authenticated',
-      username: 'alice',
-      password: 'secret',
-    })
-
-    await wsManager.connect()
-
-    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('/api/auth/token'))).toBe(true)
-    expect(mockWSServer?.url).toBe('ws://localhost:3000/ws?token=test-token')
+    expect(mockWSServer?.url).toBe('wss://remote.example/ws')
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
   })
 
   it('subscribe to runtime handler and receive updates via store', async () => {

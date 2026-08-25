@@ -2,7 +2,7 @@
 
 English | [简体中文](zh/getting-started.md)
 
-This guide covers prerequisites, building from source, first-run configuration, remote access setup, and common troubleshooting.
+This guide covers prerequisites, building from source, first-run configuration, local development, and common troubleshooting.
 
 ---
 
@@ -82,36 +82,18 @@ When an agent tool call matches a confirmation policy (e.g., shell command execu
 
 ---
 
-## Remote Access & Security
+## Service Boundary
 
-By default, SoloQueue binds to `127.0.0.1:57647` and loopback requests bypass authentication.
+SoloQueue binds only to `127.0.0.1`. It does not provide HTTP authentication,
+TLS, or a public listener. The local Web Console and Status UI use the
+embedded same-origin routes, while Vite and the standalone Web Console use
+loopback CORS to reach the backend during development.
 
-### Binding Non-Loopback Interfaces
-
-To listen on external network interfaces:
-
-```bash
-./soloqueue serve --host 0.0.0.0 --port 57647
-```
-
-### Configuring Authentication
-
-Set HTTP Basic Auth credentials in `settings.yaml`:
-
-```yaml
-auth:
-  user: soloqueue
-  password: replace-with-a-long-random-password
-```
-
-Or pass via environment variables:
-
-```bash
-export SOLOQUEUE_AUTH_USER="soloqueue"
-export SOLOQUEUE_AUTH_PASSWORD="replace-with-a-long-random-password"
-```
-
-Non-loopback requests require Basic Authentication when credentials are configured. If no credentials are set, non-loopback requests are rejected with `403 Forbidden`.
+For remote access, configure nginx or another deployment ingress to proxy the
+Web Console, REST API, WebSocket, and Status UI. The ingress owns external
+authentication, TLS, CORS, rate limiting, and access logging. The Docker demo
+in `deploy/docker-demo/` shows the local nginx topology and is not a production
+deployment.
 
 ---
 
@@ -120,5 +102,5 @@ Non-loopback requests require Basic Authentication when credentials are configur
 - **Blank Web UI**: Run `make build-assets` and `make build`, then restart the server.
 - **Port In Use**: Specify a different port using `./soloqueue serve --port 8765`.
 - **No Model Response**: Verify provider API key, check `model_routes` mapping, and inspect server logs.
-- **Remote 403 Forbidden**: Ensure `auth.user` and `auth.password` are set before accessing via non-loopback IPs.
+- **Remote access**: Configure the external reverse proxy and keep SoloQueue bound to its loopback address.
 - **Tool Blocked**: Review tool confirmation cards or inspect `settings.yaml` under `tools` section for shell/file path policy blocks.

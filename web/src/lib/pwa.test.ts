@@ -63,7 +63,7 @@ describe('PWA static contract', () => {
 
   it('keeps the service worker cache boundary explicit', async () => {
     const worker = await import('../../public/sw.js?raw')
-    expect(worker.default).toContain("CACHE_NAME = 'soloqueue-shell-v1'")
+    expect(worker.default).toContain("CACHE_NAME = 'soloqueue-shell-v2'")
     expect(worker.default).toContain('function isStaticAssetRequest')
     expect(worker.default).toContain("STATIC_DESTINATIONS")
     expect(worker.default).toContain("request.destination")

@@ -46,7 +46,6 @@ model_routes:
 
 | 区段 | 用途说明 |
 | --- | --- |
-| `auth` | 非回环 HTTP 请求的 Basic Auth 身份认证凭据 |
 | `providers` | OpenAI 兼容 API Endpoint 定义与重试参数 |
 | `models` | 模型定义、上下文窗口、生成参数及思考 (thinking) 参数 |
 | `model_routes` | 任务类型路由映射 (`general`, `engineering`, `research`, `classifier`, `fallback`) |
@@ -63,14 +62,13 @@ model_routes:
 主执行文件为 `soloqueue`。运行 `soloqueue --help` 查看完整子命令。
 
 ### `soloqueue serve`
-启动 HTTP REST、WebSocket 及 Agent 运行时服务：
+在 `127.0.0.1` 启动 HTTP REST、WebSocket 及 Agent 运行时服务：
 - `--port, -p`：监听端口（默认 `57647`；`0` 表示随机端口）。
-- `--host`：绑定地址（默认 `127.0.0.1`）。
 - `--verbose, -v`：启用详细的 stderr 日志输出。
 - `--bypass`：全局绕过工具确认提示。
 
 ### `soloqueue start`
-在一个监听器中启动后端运行时、`/` 下的 Web Console 和 `/status/` 下的状态页。支持与 `serve` 相同的 host、port、verbose 和 bypass 参数。
+在一个 `127.0.0.1` 监听器中启动后端运行时、`/` 下的 Web Console 和 `/status/` 下的状态页。支持与 `serve` 相同的 port、verbose 和 bypass 参数。
 
 ### `soloqueue web`
 只启动独立 Web Console。使用 `--backend` 设置后端地址，默认值为 `http://127.0.0.1:57647`。

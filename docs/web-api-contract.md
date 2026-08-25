@@ -21,7 +21,18 @@ All commands default to `127.0.0.1`; `serve` and `start` default to port `57647`
 
 ## Origin policy
 
-HTTP CORS remains open: `Access-Control-Allow-Origin: *`, all REST methods, and requested headers. WebSocket upgrades use the same open policy (`CheckOrigin` always returns true). Authentication and existing localhost/remote rules remain unchanged.
+The application emits CORS headers only for `localhost`, `127.0.0.1`, and
+`::1` origins, with the requesting loopback origin echoed in
+`Access-Control-Allow-Origin`. It includes `Vary: Origin`, allows the REST
+methods and `Content-Type`/`Accept` request headers used by the browser UI. It
+allows browser-managed credentials for loopback requests, but the application
+does not issue or validate any credentials. Non-loopback requests continue
+through the application without application CORS headers so an external
+reverse proxy can apply its own policy, including credential handling.
+
+WebSocket connections accept loopback origins, same-host origins presented by
+a reverse proxy, and requests without an Origin header. The application does
+not provide HTTP authentication or WebSocket tokens.
 
 ## Browser project paths
 

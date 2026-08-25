@@ -1,4 +1,4 @@
-const CACHE_NAME = 'soloqueue-shell-v1'
+const CACHE_NAME = 'soloqueue-shell-v2'
 const APP_SHELL = ['/index.html', '/']
 const STATIC_DESTINATIONS = new Set(['script', 'style', 'image', 'font', 'manifest'])
 const STATIC_PATHS = new Set(['/manifest.webmanifest', '/favicon.ico', '/logo.png', '/sw.js'])

@@ -3,114 +3,81 @@ import { useConnectionStore } from './connectionStore'
 
 describe('connectionStore', () => {
   beforeEach(() => {
+    localStorage.clear()
+    vi.restoreAllMocks()
     useConnectionStore.setState({
       mode: 'local',
       remoteUrl: '',
-      username: '',
-      password: '',
-      authState: 'checking',
-      authError: null,
+      backendReady: false,
+      backendStatus: { running: false, pid: null, uptime: null },
+      saving: false,
+      isChecking: false,
+      connectionError: null,
     })
   })
 
-  describe('getEffectiveBaseUrl', () => {
-    it('returns empty string in local mode (dev)', () => {
-      useConnectionStore.setState({ mode: 'local' })
-      const url = useConnectionStore.getState().getEffectiveBaseUrl()
-      expect(url).toBe('')
+  it('allows deployment credentials in local mode', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ backend_url: '' }),
     })
+    vi.stubGlobal('fetch', fetchMock)
 
-    it('returns remote URL stripping trailing slash', () => {
-      useConnectionStore.setState({ mode: 'remote', remoteUrl: 'http://example.com/' })
-      const url = useConnectionStore.getState().getEffectiveBaseUrl()
-      expect(url).toBe('http://example.com')
+    await useConnectionStore.getState().loadConfig()
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/runtime-config', {
+      cache: 'no-store',
+      credentials: 'include',
     })
+    expect(useConnectionStore.getState().getEffectiveBaseUrl()).toBe('')
   })
 
-  it('loads browser-stored connection settings without persisting a password', async () => {
+  it('loads and persists the standalone remote backend URL with deployment credentials', async () => {
     localStorage.setItem('soloqueue_connection_mode', 'remote')
-    localStorage.setItem('soloqueue_remote_url', 'https://remote.example')
-    localStorage.setItem('soloqueue_remote_username', 'alice')
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
+    localStorage.setItem('soloqueue_remote_url', 'https://remote.example/')
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ backend_url: '' }) })
+    vi.stubGlobal('fetch', fetchMock)
 
     await useConnectionStore.getState().loadConfig()
 
     expect(useConnectionStore.getState()).toMatchObject({
       mode: 'remote',
-      remoteUrl: 'https://remote.example',
-      username: 'alice',
-      password: '',
+      remoteUrl: 'https://remote.example/',
     })
-    expect(localStorage.getItem('soloqueue_remote_password')).toBeNull()
+    expect(useConnectionStore.getState().getEffectiveBaseUrl()).toBe('https://remote.example')
+    expect(fetchMock).toHaveBeenCalledWith('https://remote.example/api/runtime-config', {
+      cache: 'no-store',
+      credentials: 'include',
+    })
+
+    await useConnectionStore.getState().saveConfig()
+    expect(localStorage.getItem('soloqueue_connection_mode')).toBe('remote')
+    expect(localStorage.getItem('soloqueue_remote_url')).toBe('https://remote.example/')
   })
 
-  it('discovers remote auth independently of connection mode', async () => {
-    localStorage.setItem('soloqueue_connection_mode', 'local')
-    useConnectionStore.setState({ username: '', password: '' })
+  it('uses the configured backend returned by standalone web', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn()
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ backend_url: '' }) })
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ required: true, scheme: 'basic' }) })
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ backend_url: 'http://127.0.0.1:57647/' }),
+      })
     )
 
     await useConnectionStore.getState().loadConfig()
 
-    expect(useConnectionStore.getState().authState).toBe('required')
-    expect(useConnectionStore.getState().getAuthHeader()).toBeUndefined()
-
-    useConnectionStore.getState().setUsername('alice')
-    useConnectionStore.getState().setPassword('secret')
-    expect(useConnectionStore.getState().getAuthHeader()).toBe(`Basic ${btoa('alice:secret')}`)
-  })
-
-  it('recognizes browser-cached Basic Auth on load and after refresh', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ backend_url: '' }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ required: true, authenticated: true, scheme: 'basic' }),
-      })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ backend_url: '' }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ required: true, authenticated: true, scheme: 'basic' }),
-      })
-    vi.stubGlobal('fetch', fetchMock)
-
-    await useConnectionStore.getState().loadConfig()
-    expect(useConnectionStore.getState()).toMatchObject({
-      authState: 'authenticated',
-      password: '',
-    })
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      '/api/auth/status',
-      expect.objectContaining({ credentials: 'same-origin' })
-    )
-
-    // A reload reconstructs the store without a password. The browser's Basic
-    // Auth cache must still be enough to avoid a second login gate.
-    useConnectionStore.setState({ password: '', authState: 'checking' })
-    await useConnectionStore.getState().loadConfig()
-    expect(useConnectionStore.getState()).toMatchObject({
-      authState: 'authenticated',
-      password: '',
-    })
+    expect(useConnectionStore.getState().getEffectiveBaseUrl()).toBe('http://127.0.0.1:57647')
   })
 
   describe('getEffectiveWsUrl', () => {
     it('converts http remote URL to ws', () => {
       useConnectionStore.setState({ mode: 'remote', remoteUrl: 'http://example.com' })
-      const url = useConnectionStore.getState().getEffectiveWsUrl()
-      expect(url).toBe('ws://example.com/ws')
+      expect(useConnectionStore.getState().getEffectiveWsUrl()).toBe('ws://example.com/ws')
     })
 
     it('converts https remote URL to wss', () => {
       useConnectionStore.setState({ mode: 'remote', remoteUrl: 'https://example.com' })
-      const url = useConnectionStore.getState().getEffectiveWsUrl()
-      expect(url).toBe('wss://example.com/ws')
+      expect(useConnectionStore.getState().getEffectiveWsUrl()).toBe('wss://example.com/ws')
     })
   })
 })

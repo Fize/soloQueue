@@ -46,7 +46,6 @@ model_routes:
 
 | Section | Purpose |
 | --- | --- |
-| `auth` | Basic Auth credentials for non-loopback HTTP requests |
 | `providers` | OpenAI-compatible API endpoint definitions and retries |
 | `models` | Model definitions, context windows, generation, and thinking parameters |
 | `model_routes` | Task type routing mappings (`general`, `engineering`, `research`, `classifier`, `fallback`) |
@@ -63,14 +62,13 @@ model_routes:
 The primary binary is `soloqueue`. Run `soloqueue --help` for complete subcommand options.
 
 ### `soloqueue serve`
-Starts the HTTP REST, WebSocket, and agent runtime server.
+Starts the HTTP REST, WebSocket, and agent runtime server on `127.0.0.1`.
 - `--port, -p`: Listening port (default: `57647`; `0` for random port).
-- `--host`: Bind address (default: `127.0.0.1`).
 - `--verbose, -v`: Enables verbose stderr logging.
 - `--bypass`: Globally bypasses tool confirmation prompts.
 
 ### `soloqueue start`
-Starts the backend runtime, Web Console at `/`, and Status UI at `/status/` on one listener. It accepts the same host, port, verbose, and bypass flags as `serve`.
+Starts the backend runtime, Web Console at `/`, and Status UI at `/status/` on one `127.0.0.1` listener. It accepts the same port, verbose, and bypass flags as `serve`.
 
 ### `soloqueue web`
 Starts only the standalone Web Console. Use `--backend` to set the backend URL; the default is `http://127.0.0.1:57647`.
@@ -100,6 +98,10 @@ soloqueue wechat login --id personal --name "Personal WeChat" [--bind-type l1|l2
 ---
 
 ## 3. Data Directory & Backup
+
+The HTTP service has no application authentication or public listener. Put
+external authentication, TLS, CORS, and access policy in a user-managed
+reverse proxy.
 
 Application data resides in `~/.soloqueue/` (or directory specified by `SOLOQUEUE_WORK_DIR`):
 

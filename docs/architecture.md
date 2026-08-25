@@ -14,7 +14,7 @@ SoloQueue is structured as a local-first application comprising a Go backend ser
 Web Console / Status UI
        │ HTTP + WebSocket
        ▼
-HTTP Server & Auth Middleware (internal/server)
+HTTP Server & Loopback CORS (internal/server)
        │
        ▼
 Session Manager (internal/session)

@@ -8,14 +8,12 @@ describe('http client', () => {
     useConnectionStore.setState({
       mode: 'local',
       remoteUrl: '',
-      username: '',
-      password: '',
       backendReady: true,
       backendStatus: { running: true, pid: null, uptime: 0 },
     })
   })
 
-  it('uses the API path and sends no auth in local mode', async () => {
+  it('uses the API path without application auth headers', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })))
 
     await request<{ ok: boolean }>('/status')
@@ -23,35 +21,7 @@ describe('http client', () => {
     const [url, init] = vi.mocked(fetch).mock.calls[0]
     expect(url).toBe('/api/status')
     expect(new Headers((init as RequestInit).headers).has('Authorization')).toBe(false)
-  })
-
-  it('adds in-memory Basic Auth for remote browser requests', async () => {
-    useConnectionStore.setState({
-      mode: 'remote',
-      remoteUrl: 'https://remote.example',
-      username: 'alice',
-      password: 'secret',
-    })
-    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })))
-
-    await request<{ ok: boolean }>('/status')
-
-    const headers = new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers)
-    expect(headers.get('Authorization')).toBe(`Basic ${btoa('alice:secret')}`)
-  })
-
-  it('adds in-memory Basic Auth for same-origin start requests', async () => {
-    useConnectionStore.setState({
-      mode: 'local',
-      username: 'alice',
-      password: 'secret',
-    })
-    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })))
-
-    await request<{ ok: boolean }>('/status')
-
-    const headers = new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers)
-    expect(headers.get('Authorization')).toBe(`Basic ${btoa('alice:secret')}`)
+    expect((init as RequestInit).credentials).toBe('include')
   })
 
   it('keeps root health checks outside the API prefix', async () => {

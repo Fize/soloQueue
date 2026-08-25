@@ -68,9 +68,8 @@ func (l *httpAccessLogger) logRequest(r *http.Request, ww middleware.WrapRespons
 	entry := accessEntry{
 		Timestamp: time.Now().Format(time.RFC3339Nano),
 		Method:    r.Method,
-		// Log only the path. RequestURI includes the query string, which would
-		// expose one-time WebSocket tokens (and potentially other credentials)
-		// in the access log.
+		// Log only the path. RequestURI includes the query string, which may
+		// contain credentials belonging to a user-managed reverse proxy.
 		Path:       requestPathForLog(r),
 		Status:     ww.Status(),
 		DurationMs: duration.Milliseconds(),

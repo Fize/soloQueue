@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -30,8 +32,27 @@ func validateChatPrompt(prompt string) error {
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	// Allow all origins — this is a local-only server.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin:     checkWebSocketOrigin,
+}
+
+func checkWebSocketOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return false
+	}
+	// Standalone Web Console and Vite use different loopback ports from the
+	// backend, so loopback origins are allowed independently of the port.
+	if isLoopbackOrigin(origin) {
+		return true
+	}
+	// A reverse proxy presents the browser's external Host to the backend.
+	// Same-host origins are therefore valid without making arbitrary origins
+	// valid for direct backend access.
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 // ─── WebSocket Handler ──────────────────────────────────────────────────────

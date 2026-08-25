@@ -66,7 +66,7 @@ Instructions for test catalog skill
 
 	client := srv.Client()
 
-	// Ensure we restore loopback headers to bypass auth
+	// Keep the request origin local to match the application listener contract.
 	setLoopbackHeaders := func(req *http.Request) {
 		req.Host = "localhost:8765"
 		req.Header.Set("X-Forwarded-For", "127.0.0.1")

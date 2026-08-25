@@ -57,7 +57,6 @@ type SpeechConfig struct {
 
 type Settings struct {
 	Session     SessionConfig     `json:"session" yaml:"session,omitempty"`
-	Auth        AuthConfig        `json:"auth" yaml:"auth,omitempty"`
 	Log         LogConfig         `json:"log" yaml:"log,omitempty"`
 	Tools       ToolsConfig       `json:"tools" yaml:"tools,omitempty"`
 	Providers   []LLMProvider     `json:"providers" yaml:"providers,omitempty"`
@@ -126,15 +125,6 @@ func (c QQBotConfig) ToQQBotConfig() qqbot.Config {
 		Intents:   c.Intents,
 		Sandbox:   c.Sandbox,
 	}
-}
-
-// ─── Auth ─────────────────────────────────────────────────────────────────────
-
-// AuthConfig configures HTTP authentication.
-// If User is empty, authentication is disabled.
-type AuthConfig struct {
-	User     string `json:"user" yaml:"user,omitempty"`
-	Password string `json:"-" yaml:"password,omitempty"`
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -389,7 +379,6 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		value   interface{}
 	}{
 		{"session", "Session settings", s.Session},
-		{"auth", "HTTP basic authentication", s.Auth},
 		{"log", "Logging settings", s.Log},
 		{"providers", "LLM providers", s.Providers},
 		{"models", "LLM models", s.Models},
