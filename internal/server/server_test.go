@@ -86,6 +86,16 @@ func TestHTTP_Auth(t *testing.T) {
 			t.Errorf("expected 200 OK for localhost loopback, got %d", rec.Code)
 		}
 	}
+	{
+		req := httptest.NewRequest("GET", "/api/auth/check", nil)
+		req.Host = "127.0.0.1:8765"
+		req.RemoteAddr = "127.0.0.1:12345"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for 127.0.0.1 loopback, got %d", rec.Code)
+		}
+	}
 
 	// Auth discovery is public and reports whether this request needs Basic
 	// Auth. A local browser does not need to show a login gate.
@@ -102,8 +112,8 @@ func TestHTTP_Auth(t *testing.T) {
 		if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
 			t.Fatalf("decode local auth status: %v", err)
 		}
-		if status.Required || status.Scheme != "basic" {
-			t.Fatalf("local auth status = %+v, want required=false scheme=basic", status)
+		if status.Required || !status.Authenticated || status.Scheme != "basic" {
+			t.Fatalf("local auth status = %+v, want required=false authenticated=true scheme=basic", status)
 		}
 	}
 
@@ -122,8 +132,29 @@ func TestHTTP_Auth(t *testing.T) {
 		if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
 			t.Fatalf("decode remote auth status: %v", err)
 		}
-		if !status.Required || status.Scheme != "basic" {
-			t.Fatalf("remote auth status = %+v, want required=true scheme=basic", status)
+		if !status.Required || status.Authenticated || status.Scheme != "basic" {
+			t.Fatalf("remote auth status = %+v, want required=true authenticated=false scheme=basic", status)
+		}
+	}
+
+	// Auth discovery also reports an already-authenticated browser request so
+	// the Web Console does not render a second login gate after Basic Auth.
+	{
+		req := httptest.NewRequest("GET", "/api/auth/status", nil)
+		req.Host = "remote.example:8765"
+		req.RemoteAddr = "192.168.1.100:12345"
+		req.SetBasicAuth("admin", "password123")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for authenticated remote auth status, got %d", rec.Code)
+		}
+		var status authStatusResponse
+		if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+			t.Fatalf("decode authenticated remote auth status: %v", err)
+		}
+		if !status.Required || !status.Authenticated || status.Scheme != "basic" {
+			t.Fatalf("authenticated remote auth status = %+v, want required=true authenticated=true scheme=basic", status)
 		}
 	}
 
@@ -177,15 +208,28 @@ func TestHTTP_Auth(t *testing.T) {
 		}
 	}
 
-	// 5. Readiness probe via external IP without auth -> 200 OK (auth-exempt)
+	// 5. Readiness probe via external IP is protected because it exposes
+	// backend status and the configured work directory.
 	{
 		req := httptest.NewRequest("GET", "/healthz", nil)
 		req.Host = "192.168.1.100:8765"
 		req.RemoteAddr = "192.168.1.100:12345"
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized for /healthz without auth, got %d", rec.Code)
+		}
+	}
+
+	{
+		req := httptest.NewRequest("GET", "/healthz", nil)
+		req.Host = "192.168.1.100:8765"
+		req.RemoteAddr = "192.168.1.100:12345"
+		req.SetBasicAuth("admin", "password123")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
-			t.Errorf("expected 200 OK for /healthz without auth, got %d", rec.Code)
+			t.Errorf("expected 200 OK for authenticated /healthz, got %d", rec.Code)
 		}
 	}
 
@@ -224,6 +268,36 @@ func TestHTTP_Auth(t *testing.T) {
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("expected 503 Service Unavailable for authenticated external WebSocket access, got %d", rec.Code)
 		}
+	}
+}
+
+func TestHTTP_RemoteAccessWithoutAuthDoesNotExposeConfigurationOrStatus(t *testing.T) {
+	workDir := t.TempDir()
+	mux := NewMux(workDir, nil)
+	defer mux.Close()
+
+	for _, path := range []string{"/", "/healthz", "/api/auth/status", "/api/auth/check", "/api/runtime-config"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Host = "remote.example:8765"
+			req.RemoteAddr = "192.168.1.100:12345"
+			rec := httptest.NewRecorder()
+
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+			}
+			body := rec.Body.String()
+			if body != `{"error":"login failed"}` {
+				t.Fatalf("body = %q, want generic login failure", body)
+			}
+			for _, secret := range []string{"remote access not configured", `"status"`, workDir} {
+				if strings.Contains(body, secret) {
+					t.Fatalf("body %q exposes %q", body, secret)
+				}
+			}
+		})
 	}
 }
 
