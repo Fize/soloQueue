@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"io"
 	"net"
@@ -20,8 +21,9 @@ type authCheckResponse struct {
 }
 
 type authStatusResponse struct {
-	Required bool   `json:"required"`
-	Scheme   string `json:"scheme"`
+	Required      bool   `json:"required"`
+	Authenticated bool   `json:"authenticated"`
+	Scheme        string `json:"scheme"`
 }
 
 // handleAuthStatus is intentionally public so a browser can decide whether to
@@ -29,9 +31,11 @@ type authStatusResponse struct {
 // answer is request-specific: localhost is already trusted by the middleware,
 // while a remote request must authenticate when credentials are configured.
 func (m *Mux) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	local := isLocalhostAccess(r)
 	m.writeJSON(w, http.StatusOK, authStatusResponse{
-		Required: m.effectiveAuthUser != "" && !isLocalhostAccess(r),
-		Scheme:   "basic",
+		Required:      m.effectiveAuthUser != "" && !local,
+		Authenticated: local || m.hasValidBasicAuth(r),
+		Scheme:        "basic",
 	})
 }
 
@@ -64,7 +68,7 @@ func (m *Mux) handleGetWSToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveEffectiveAuth sets m.effectiveAuthUser and m.effectiveAuthPass.
-// Priority: settings.yaml [auth] → SOLOQUEUE_AUTH_USER/PASSWORD env vars → auto-generated.
+// Priority: settings.yaml [auth] → SOLOQUEUE_AUTH_USER/PASSWORD env vars.
 func (m *Mux) resolveEffectiveAuth() {
 	// 1. settings.yaml [auth]
 	if m.authConfig.User != "" {
@@ -90,15 +94,6 @@ func (m *Mux) resolveEffectiveAuth() {
 // WebSocket connections may use a one-time ?token= query parameter instead.
 func (m *Mux) tokenAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// These endpoints contain no protected application data and are needed by
-		// the browser before it has credentials. Auth status is request-specific
-		// (localhost is already trusted); runtime-config only exposes the backend
-		// URL used by the web command.
-		if r.URL.Path == "/healthz" || r.URL.Path == "/api/auth/status" || r.URL.Path == "/api/runtime-config" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
 		// Localhost always bypasses auth
 		if isLocalhostAccess(r) {
 			next.ServeHTTP(w, r)
@@ -107,8 +102,15 @@ func (m *Mux) tokenAuthMiddleware(next http.Handler) http.Handler {
 
 		// Auth not configured — deny all remote access
 		if m.effectiveAuthUser == "" {
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(`{"error":"remote access not configured"}`))
+			writeLoginFailed(w)
+			return
+		}
+
+		// These bootstrap endpoints are needed before the browser can make normal
+		// authenticated API requests. They are public only after remote access has
+		// been configured; auth status validates any supplied credentials itself.
+		if r.URL.Path == "/api/auth/status" || r.URL.Path == "/api/runtime-config" {
+			next.ServeHTTP(w, r)
 			return
 		}
 
@@ -127,8 +129,7 @@ func (m *Mux) tokenAuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Basic Auth
-		user, password, ok := r.BasicAuth()
-		if !ok || user != m.effectiveAuthUser || password != m.effectiveAuthPass {
+		if !m.hasValidBasicAuth(r) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="SoloQueue"`)
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":"unauthorized"}`))
@@ -136,6 +137,25 @@ func (m *Mux) tokenAuthMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func writeLoginFailed(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = io.WriteString(w, `{"error":"login failed"}`)
+}
+
+func (m *Mux) hasValidBasicAuth(r *http.Request) bool {
+	if m.effectiveAuthUser == "" {
+		return false
+	}
+	user, password, ok := r.BasicAuth()
+	if !ok {
+		return false
+	}
+	userMatches := subtle.ConstantTimeCompare([]byte(user), []byte(m.effectiveAuthUser)) == 1
+	passwordMatches := subtle.ConstantTimeCompare([]byte(password), []byte(m.effectiveAuthPass)) == 1
+	return userMatches && passwordMatches
 }
 
 func isLocalhostAccess(r *http.Request) bool {

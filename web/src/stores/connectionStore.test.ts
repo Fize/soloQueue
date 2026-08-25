@@ -8,6 +8,8 @@ describe('connectionStore', () => {
       remoteUrl: '',
       username: '',
       password: '',
+      authState: 'checking',
+      authError: null,
     })
   })
 
@@ -60,6 +62,42 @@ describe('connectionStore', () => {
     useConnectionStore.getState().setUsername('alice')
     useConnectionStore.getState().setPassword('secret')
     expect(useConnectionStore.getState().getAuthHeader()).toBe(`Basic ${btoa('alice:secret')}`)
+  })
+
+  it('recognizes browser-cached Basic Auth on load and after refresh', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ backend_url: '' }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ required: true, authenticated: true, scheme: 'basic' }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ backend_url: '' }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ required: true, authenticated: true, scheme: 'basic' }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await useConnectionStore.getState().loadConfig()
+    expect(useConnectionStore.getState()).toMatchObject({
+      authState: 'authenticated',
+      password: '',
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/auth/status',
+      expect.objectContaining({ credentials: 'same-origin' })
+    )
+
+    // A reload reconstructs the store without a password. The browser's Basic
+    // Auth cache must still be enough to avoid a second login gate.
+    useConnectionStore.setState({ password: '', authState: 'checking' })
+    await useConnectionStore.getState().loadConfig()
+    expect(useConnectionStore.getState()).toMatchObject({
+      authState: 'authenticated',
+      password: '',
+    })
   })
 
   describe('getEffectiveWsUrl', () => {

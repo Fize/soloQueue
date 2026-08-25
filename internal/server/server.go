@@ -612,24 +612,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "route not found"})
 			return
 		}
-		// Localhost (127.0.0.1, ::1) bypasses auth.
-		if !isLocalhostAccess(r) {
-			// Auth not configured — deny all remote access
-			if m.effectiveAuthUser == "" {
-				w.WriteHeader(http.StatusForbidden)
-				w.Write([]byte(`{"error":"remote access not configured"}`))
-				return
-			}
-			// Remote access requires Basic Auth
-			user, password, ok := r.BasicAuth()
-			if !ok || user != m.effectiveAuthUser || password != m.effectiveAuthPass {
-				w.Header().Set("WWW-Authenticate", `Basic realm="SoloQueue Portal"`)
-				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(`{"error":"unauthorized"}`))
-				return
-			}
-		}
-
 		if strings.HasPrefix(r.URL.Path, "/status") && m.frontendMode != FrontendWeb {
 			path := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/status"), "/")
 			if path != "" {

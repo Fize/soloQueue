@@ -177,15 +177,18 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     try {
       const response = await fetch(`${base || ''}/api/auth/status`, {
         cache: 'no-store',
-        credentials: 'omit',
+        // In combined `start` mode, the browser has already completed Basic
+        // Auth for the HTML document. Reuse that same-origin credential here
+        // so the app does not render a second login gate after load or refresh.
+        credentials: 'same-origin',
       })
       if (!response.ok) {
         set({ authState: 'error', authError: 'Cannot determine backend authentication status.' })
         return
       }
-      const status = (await response.json()) as { required?: boolean }
+      const status = (await response.json()) as { required?: boolean; authenticated?: boolean }
       set({
-        authState: status.required ? 'required' : 'not_required',
+        authState: status.authenticated ? 'authenticated' : status.required ? 'required' : 'not_required',
         authError: null,
       })
     } catch {
