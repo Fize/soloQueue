@@ -104,9 +104,7 @@ export function ToolCallSegment({
           )}
           {!segment.error &&
             segment.result &&
-            (segment.name === 'ImageGenerate' ||
-              segment.name === 'ImageEdit' ||
-              segment.name === 'SendFile') && (
+            (segment.name === 'ImageTool' || segment.name === 'SendFile') && (
               <ImageResultPreviews
                 result={segment.result}
                 toolName={segment.name}
@@ -134,7 +132,7 @@ export function extractImagePaths(result: string, toolName: string): string[] {
       if (parsed.status === 'success' && parsed.file_type === 'image' && parsed.path) {
         return [parsed.path]
       }
-    } else {
+    } else if (toolName === 'ImageTool') {
       if (
         parsed.status === 'completed' &&
         Array.isArray(parsed.local_paths) &&
@@ -142,11 +140,22 @@ export function extractImagePaths(result: string, toolName: string): string[] {
       ) {
         return parsed.local_paths
       }
+      if (
+        parsed.status === 'completed' &&
+        Array.isArray(parsed.image_urls) &&
+        parsed.image_urls.length > 0
+      ) {
+        return parsed.image_urls
+      }
     }
   } catch {
     // Ignore JSON parsing errors
   }
   return []
+}
+
+function imageSource(path: string): string {
+  return /^https?:\/\//i.test(path) ? path : getFileUrl(path)
 }
 
 export function MessageImageGallery({
@@ -182,7 +191,7 @@ export function MessageImageGallery({
       </div>
       <div className={`grid ${compact ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'} gap-2`}>
         {imagePaths.map((path, i) => {
-          const url = getFileUrl(path)
+          const url = imageSource(path)
           return (
             <a
               key={i}
@@ -226,7 +235,7 @@ export function ImageResultPreviews({
       </div>
       <div className="grid grid-cols-1 gap-2">
         {paths.map((path, i) => {
-          const url = getFileUrl(path)
+          const url = imageSource(path)
           return (
             <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block">
               <img

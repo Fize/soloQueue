@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -39,9 +41,10 @@ var providers = map[string]imageProvider{
 // ─── Constants ─────────────────────────────────────────────────────────
 
 const (
-	maxPolls     = 150              // 5 minutes / 2s
-	pollInterval = 2 * time.Second  //
-	httpTimeout  = 30 * time.Second // per-request timeout
+	maxPolls      = 150              // 5 minutes / 2s
+	pollInterval  = 2 * time.Second  //
+	httpTimeout   = 30 * time.Second // per-request timeout
+	maxImageBytes = 32 << 20         // maximum persisted image response size
 )
 
 // ─── tencentProvider (TC3-HMAC-SHA256) ────────────────────────────────
@@ -264,55 +267,104 @@ func sha256Hex(s string) string {
 // ─── Image saving ─────────────────────────────────────────────────────
 
 var imgDir string
-var artifactDir string
 
 func init() {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = os.TempDir()
 	}
-	artifactDir = filepath.Join(home, ".soloqueue", "artifacts")
-	imgDir = artifactDir
+	imgDir = filepath.Join(home, ".soloqueue", "artifacts")
 }
 
-func saveImages(ctx context.Context, exec *Executor, urls []string, log *logger.Logger) []string {
-	var paths []string
-	for i, url := range urls {
-		fname := urlBaseName(url, i+1)
-		fpath := filepath.Join(imgDir, fname)
+func saveImages(ctx context.Context, exec *Executor, results []string, log *logger.Logger) []string {
+	return saveImageResults(ctx, exec, results, log)
+}
 
-		if err := downloadTo(ctx, exec, url, fpath); err != nil {
+func saveImageResults(ctx context.Context, exec *Executor, results []string, log *logger.Logger) []string {
+	var paths []string
+	for i, result := range results {
+		fname := urlBaseName(result, i+1)
+		fpath := ""
+
+		var err error
+		if isURL(result) {
+			fname, err = uniqueImageName(fname)
+			if err == nil {
+				fpath = filepath.Join(imgDir, fname)
+				err = downloadTo(ctx, exec, result, fpath)
+			}
+		} else {
+			var data []byte
+			data, fname, err = decodeBase64Image(result, i+1)
+			if err == nil {
+				fname, err = uniqueImageName(fname)
+				if err == nil {
+					fpath = filepath.Join(imgDir, fname)
+					err = writeImage(ctx, exec, fpath, data)
+				}
+			}
+		}
+		if err != nil {
 			if log != nil {
-				log.WarnContext(ctx, logger.CatTool, "image_gen: save failed",
-					"url", url, "path", fpath, "err", err.Error())
+				log.WarnContext(ctx, logger.CatTool, "image_tool: save failed",
+					"path", fpath, "err", err.Error())
 			}
 			continue
 		}
 		paths = append(paths, fpath)
 		if log != nil {
-			log.InfoContext(ctx, logger.CatTool, "image_gen: saved",
-				"url", url, "path", fpath)
+			log.InfoContext(ctx, logger.CatTool, "image_tool: saved", "path", fpath)
 		}
 	}
 	return paths
 }
 
-func saveEditedImage(ctx context.Context, exec *Executor, url string, log *logger.Logger) []string {
-	fname := urlBaseName(url, 1)
-	fpath := filepath.Join(artifactDir, fname)
+func uniqueImageName(name string) (string, error) {
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(filepath.Base(name), ext)
+	random := make([]byte, 12)
+	if _, err := rand.Read(random); err != nil {
+		return "", fmt.Errorf("generate artifact name: %w", err)
+	}
+	return fmt.Sprintf("%s_%s%s", stem, hex.EncodeToString(random), ext), nil
+}
 
-	if err := downloadTo(ctx, exec, url, fpath); err != nil {
-		if log != nil {
-			log.InfoContext(ctx, logger.CatTool, "image_edit: save failed",
-				"url", url, "path", fpath, "err", err.Error())
+func decodeBase64Image(value string, seq int) ([]byte, string, error) {
+	ext := ".jpg"
+	encoded := value
+	if strings.HasPrefix(value, "data:") {
+		comma := strings.Index(value, ",")
+		if comma < 0 || !strings.Contains(value[:comma], ";base64") {
+			return nil, "", fmt.Errorf("invalid base64 image data URI")
 		}
-		return nil
+		mediaType := strings.TrimPrefix(strings.SplitN(value[:comma], ";", 2)[0], "data:")
+		switch mediaType {
+		case "image/png":
+			ext = ".png"
+		case "image/webp":
+			ext = ".webp"
+		case "image/gif":
+			ext = ".gif"
+		case "image/jpeg", "image/jpg":
+			ext = ".jpg"
+		}
+		encoded = value[comma+1:]
 	}
-	if log != nil {
-		log.InfoContext(ctx, logger.CatTool, "image_edit: saved",
-			"url", url, "path", fpath)
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, "", fmt.Errorf("decode base64 image: %w", err)
 	}
-	return []string{fpath}
+	return data, fmt.Sprintf("image_%d%s", seq, ext), nil
+}
+
+func writeImage(ctx context.Context, exec *Executor, fpath string, data []byte) error {
+	if err := exec.MkdirAll(ctx, filepath.Dir(fpath)); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+	if _, err := exec.WriteFile(ctx, fpath, data, WriteFileOptions{Overwrite: false, MaxSize: int64(len(data))}); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	return nil
 }
 
 func urlBaseName(rawURL string, seq int) string {
@@ -340,15 +392,18 @@ func downloadTo(ctx context.Context, exec *Executor, url, fpath string) error {
 	if err := exec.MkdirAll(ctx, filepath.Dir(fpath)); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	resp, err := exec.HTTPGet(ctx, url, HTTPOptions{})
+	resp, err := exec.HTTPGet(ctx, url, HTTPOptions{Timeout: httpTimeout, MaxBody: maxImageBytes})
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("download status %d", resp.StatusCode)
 	}
+	if int64(len(resp.Body)) > maxImageBytes {
+		return fmt.Errorf("download too large: %d bytes > %d", len(resp.Body), maxImageBytes)
+	}
 	if _, err := exec.WriteFile(ctx, fpath, resp.Body, WriteFileOptions{
-		Overwrite: true,
+		Overwrite: false,
 		MaxSize:   int64(len(resp.Body)),
 	}); err != nil {
 		return fmt.Errorf("write file: %w", err)
@@ -357,12 +412,32 @@ func downloadTo(ctx context.Context, exec *Executor, url, fpath string) error {
 }
 
 func doPost(ctx context.Context, exec *Executor, url string, body string, headers map[string]string) ([]byte, error) {
-	resp, err := exec.HTTPPost(ctx, url, body, HTTPOptions{Headers: headers, MaxBody: 64 << 10})
+	requestCtx, cancel := context.WithTimeout(ctx, httpTimeout)
+	defer cancel()
+	resp, err := exec.HTTPPost(requestCtx, url, body, HTTPOptions{Timeout: httpTimeout, Headers: headers, MaxBody: 64 << 10})
 	if err != nil {
-		return nil, fmt.Errorf("http post %s: %w", url, err)
+		return nil, &httpTransportError{url: url, err: err}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("http post %s: status %d, body: %s", url, resp.StatusCode, string(resp.Body))
+		return nil, &httpStatusError{url: url, status: resp.StatusCode, body: string(resp.Body)}
 	}
 	return resp.Body, nil
+}
+
+type httpTransportError struct {
+	url string
+	err error
+}
+
+func (e *httpTransportError) Error() string { return fmt.Sprintf("http post %s: %v", e.url, e.err) }
+func (e *httpTransportError) Unwrap() error { return e.err }
+
+type httpStatusError struct {
+	url    string
+	status int
+	body   string
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("http post %s: status %d, body: %s", e.url, e.status, e.body)
 }

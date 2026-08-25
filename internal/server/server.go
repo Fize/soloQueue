@@ -325,7 +325,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Route("/api/session", func(r chi.Router) {
 		r.Get("/", m.handleGetSessionStatus)
 		r.Post("/ask", m.handleAskSession)
-		// r.Post("/ask/stream", m.handleAskStream) // deprecated: replaced by WebSocket chat_send
 		r.Post("/upload", m.handleUploadFile)
 		r.Get("/history", m.handleSessionHistory)
 		r.Post("/cancel", m.handleCancelSession)
@@ -670,13 +669,6 @@ func (m *Mux) writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 	_, _ = w.Write(data)
 	_, _ = w.Write([]byte("\n"))
-}
-
-func (m *Mux) logError(ctx context.Context, msg string, err error) {
-	if m.log == nil {
-		return
-	}
-	m.log.LogError(ctx, logger.CatHTTP, msg, err)
 }
 
 // corsMiddleware permits the local Vite and standalone Web Console origins.

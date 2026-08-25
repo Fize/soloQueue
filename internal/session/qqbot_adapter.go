@@ -221,7 +221,7 @@ func (b *channelAdapterBase) consumeAskStreamEventsWithDelegation(
 			}
 
 		case agent.ToolExecDoneEvent:
-			if (e.Name == "ImageGenerate" || e.Name == "ImageEdit") && e.Result != "" {
+			if e.Name == "ImageTool" && e.Result != "" {
 				urls := parseImageGenResult(e.Result)
 				if len(urls) > 0 {
 					imageURLs = append(imageURLs, urls...)
@@ -619,7 +619,7 @@ func (a *ErrorChannelAdapter) SetChannelSenderData(channelType string, metadata 
 
 // ─── Parsers ─────────────────────────────────────────────────────────────────
 
-// parseImageGenResult extracts image URLs from an ImageGenerate tool result JSON.
+// parseImageGenResult extracts image URLs from an ImageTool result JSON.
 func parseImageGenResult(raw string) []string {
 	var r struct {
 		Status    string   `json:"status"`

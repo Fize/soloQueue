@@ -800,39 +800,6 @@ func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) 
 	return s.askWithTaskModelPrompt(ctx, t, sess, s.buildTaskPrompt(t))
 }
 
-// askWithTaskModelStream is like askWithTaskModel but uses AskStream so the
-// result writes to the session timeline and triggers channel bridge delivery.
-func (s *Scheduler) askWithTaskModelStreamPrompt(ctx context.Context, t Task, sess Session, prompt string) (ResolvedModel, <-chan iface.AgentEvent, error) {
-	if s.modelResolver == nil {
-		ch, err := sess.AskStream(ctx, prompt)
-		return ResolvedModel{}, ch, err
-	}
-	resolved, err := s.modelResolver(t.TaskType)
-	if err != nil {
-		return ResolvedModel{}, nil, fmt.Errorf("%w: resolve task type %s: %v", errTaskModelResolution, t.TaskType, err)
-	}
-	routed, ok := sess.(modelRoutedSession)
-	if !ok {
-		return resolved, nil, fmt.Errorf("%w: session does not support model routing", errTaskModelResolution)
-	}
-	s.logger.Info(logger.CatApp, "cron: resolved task model",
-		"task_id", t.ID,
-		"title", t.Title,
-		"task_type", t.TaskType,
-		"requested_task_type", resolved.RequestedTaskType,
-		"provider_id", resolved.Params.ProviderID,
-		"model_id", resolved.Params.ModelID,
-		"used_fallback", resolved.UsedFallback,
-		"fallback_reason", resolved.FallbackReason,
-	)
-	ch, err := routed.AskStreamWithModel(ctx, prompt, &resolved.Params)
-	return resolved, ch, err
-}
-
-func (s *Scheduler) askWithTaskModelStream(ctx context.Context, t Task, sess Session) (ResolvedModel, <-chan iface.AgentEvent, error) {
-	return s.askWithTaskModelStreamPrompt(ctx, t, sess, s.buildTaskPrompt(t))
-}
-
 // buildTaskPrompt builds the prompt for a task.
 func (s *Scheduler) buildTaskPrompt(t Task) string {
 	return buildCronPrompt(t)
@@ -1005,13 +972,6 @@ func diagnosticCronError(code string, err error) string {
 func cronResultError(code, message string) *string {
 	value := code + ": " + message
 	return &value
-}
-
-func cronResultErrorMessage(result CronResultV1) string {
-	if result.Error == nil {
-		return ""
-	}
-	return *result.Error
 }
 
 func formatCronResult(result CronResultV1) string {

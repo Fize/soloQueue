@@ -304,11 +304,11 @@ func TestConsumeAskStreamEvents_ImageGenResult(t *testing.T) {
 
 	ch := make(chan iface.AgentEvent, 3)
 	ch <- agent.ToolExecDoneEvent{
-		Name:   "ImageGenerate",
+		Name:   "ImageTool",
 		Result: `{"status":"completed","image_urls":["https://example.com/img.png"]}`,
 	}
 	ch <- agent.ToolExecDoneEvent{
-		Name:   "ImageEdit",
+		Name:   "LegacyImageTool",
 		Result: `{"status":"completed","image_urls":["https://example.com/edit.png"]}`,
 	}
 	ch <- agent.DoneEvent{}
@@ -318,11 +318,11 @@ func TestConsumeAskStreamEvents_ImageGenResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("consumeAskStreamEvents: %v", err)
 	}
-	if len(result.ImageURLs) != 2 {
-		t.Errorf("expected 2 image URLs, got %d: %v", len(result.ImageURLs), result.ImageURLs)
+	if len(result.ImageURLs) != 1 {
+		t.Errorf("expected only the ImageTool URL, got %d: %v", len(result.ImageURLs), result.ImageURLs)
 	}
-	if len(result.MediaList) != 2 {
-		t.Errorf("expected 2 media items, got %d", len(result.MediaList))
+	if len(result.MediaList) != 1 {
+		t.Errorf("expected only the ImageTool media item, got %d", len(result.MediaList))
 	}
 }
 

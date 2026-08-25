@@ -66,8 +66,7 @@ export function getToolCallSummary(name: string, argsStr: string): string {
         return args.pattern || args.SearchPath || ''
       case 'WebFetch':
         return args.url || ''
-      case 'ImageEdit':
-      case 'ImageGenerate':
+      case 'ImageTool':
         return args.prompt || ''
       case 'inspect_agent':
         return args.agent_id || args.name || ''
@@ -140,7 +139,7 @@ export function getToolCallSummary(name: string, argsStr: string): string {
                 ? ['pattern', 'SearchPath']
                 : name === 'WebFetch'
                   ? ['url']
-                  : ['ImageEdit', 'ImageGenerate'].includes(name)
+                  : name === 'ImageTool'
                     ? ['prompt']
                     : ['WebSearch', 'RecallMemory'].includes(name)
                       ? ['query']
