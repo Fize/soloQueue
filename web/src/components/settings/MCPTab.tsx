@@ -87,16 +87,20 @@ export function MCPTab() {
     setExpanded((prev) => ({ ...prev, [i]: !prev[i] }))
   }
 
+  const updateLocal = (transform: (servers: MCPServerConfig[]) => MCPServerConfig[]) => {
+    setLocal((prev) => transform(prev ?? local))
+  }
+
   const update = (i: number, patch: Partial<MCPServerConfig>) => {
-    setLocal((prev) => prev!.map((s, j) => (j === i ? { ...s, ...patch } : s)))
+    updateLocal((servers) => servers.map((s, j) => (j === i ? { ...s, ...patch } : s)))
   }
 
   const remove = (i: number) => {
-    setLocal((prev) => prev!.filter((_, j) => j !== i))
+    updateLocal((servers) => servers.filter((_, j) => j !== i))
   }
 
   const add = () => {
-    setLocal((prev) => [...prev!, emptyServer()])
+    updateLocal((servers) => [...servers, emptyServer()])
     setExpanded((prev) => ({ ...prev, [local.length]: true }))
   }
 
