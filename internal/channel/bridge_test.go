@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
@@ -18,6 +19,23 @@ type busySession struct{ fakeSession }
 type attachmentSession struct {
 	fakeSession
 	files []ctxwin.FileAttachment
+}
+
+type transcribedAudioSession struct {
+	fakeSession
+	files     []ctxwin.FileAttachment
+	saveCalls int
+}
+
+func (s *transcribedAudioSession) AskStream(ctx context.Context, prompt string, _ OnIntermediateFunc) (*AskStreamResult, error) {
+	s.prompt = prompt
+	s.files, _ = ctx.Value(ctxwin.FilesContextKey).([]ctxwin.FileAttachment)
+	return &AskStreamResult{Content: "reply"}, nil
+}
+
+func (s *transcribedAudioSession) SaveUploadedFile(context.Context, string, []byte) (string, error) {
+	s.saveCalls++
+	return "/tmp/voice.silk", nil
 }
 
 func (s *attachmentSession) AskStream(ctx context.Context, prompt string, _ OnIntermediateFunc) (*AskStreamResult, error) {
@@ -173,6 +191,77 @@ func TestTextBridgeAddsSavedImageToFilesContext(t *testing.T) {
 
 	if len(sess.files) != 1 || sess.files[0].Name != "image.jpg" || sess.files[0].Path != "/tmp/saved-image.jpg" {
 		t.Fatalf("files context = %#v", sess.files)
+	}
+}
+
+func TestTextBridgeForwardsServerTranscribedAudioAsTextOnly(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sess := &transcribedAudioSession{}
+	bridge := NewTextBridge(sess, &fakeSender{}, log, "1.0.0", false, nil)
+	bridge.OnMessage(context.Background(), Message{
+		Channel: "wechat", UserID: "user", Text: "server transcript",
+		Attachments: []Attachment{{Kind: AttachmentAudio, Name: "voice.silk", Transcript: "server transcript", Data: []byte("silk")}},
+	})
+
+	if sess.prompt != "server transcript" {
+		t.Fatalf("prompt = %q", sess.prompt)
+	}
+	if sess.saveCalls != 0 {
+		t.Fatalf("SaveUploadedFile calls = %d", sess.saveCalls)
+	}
+	if len(sess.files) != 0 {
+		t.Fatalf("files context = %#v", sess.files)
+	}
+}
+
+func TestTextBridgeForwardsLocallyTranscribedAudioAsTextOnly(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sess := &transcribedAudioSession{}
+	bridge := NewTextBridge(sess, &fakeSender{}, log, "1.0.0", false, nil)
+	transcribeCalls := 0
+	bridge.SetVoiceTranscriber(func(context.Context, []byte) (string, error) {
+		transcribeCalls++
+		return "local transcript", nil
+	})
+	bridge.OnMessage(context.Background(), Message{
+		Channel: "wechat", UserID: "user",
+		Attachments: []Attachment{{Kind: AttachmentAudio, Name: "voice.silk", Data: []byte("silk")}},
+	})
+
+	if transcribeCalls != 1 {
+		t.Fatalf("voice transcriber calls = %d", transcribeCalls)
+	}
+	if sess.prompt != "local transcript" {
+		t.Fatalf("prompt = %q", sess.prompt)
+	}
+	if sess.saveCalls != 0 {
+		t.Fatalf("SaveUploadedFile calls = %d", sess.saveCalls)
+	}
+	if len(sess.files) != 0 {
+		t.Fatalf("files context = %#v", sess.files)
+	}
+}
+
+func TestTextBridgePreservesAudioAttachmentWhenLocalTranscriptionFails(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sess := &transcribedAudioSession{}
+	bridge := NewTextBridge(sess, &fakeSender{}, log, "1.0.0", false, nil)
+	bridge.SetVoiceTranscriber(func(context.Context, []byte) (string, error) {
+		return "", errors.New("transcription failed")
+	})
+	bridge.OnMessage(context.Background(), Message{
+		Channel: "wechat", UserID: "user",
+		Attachments: []Attachment{{Kind: AttachmentAudio, Name: "voice.silk", Data: []byte("silk")}},
+	})
+
+	if sess.saveCalls != 1 {
+		t.Fatalf("SaveUploadedFile calls = %d", sess.saveCalls)
+	}
+	if len(sess.files) != 1 || sess.files[0].Name != "voice.silk" {
+		t.Fatalf("files context = %#v", sess.files)
+	}
+	if !strings.Contains(sess.prompt, "User uploaded attachments") || !strings.Contains(sess.prompt, "voice.silk") {
+		t.Fatalf("prompt = %q", sess.prompt)
 	}
 }
 
