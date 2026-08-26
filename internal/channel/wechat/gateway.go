@@ -78,6 +78,9 @@ func (g *Gateway) dispatch(ctx context.Context, raw Message) {
 		return
 	}
 	for i := range raw.ItemList {
+		if raw.ItemList[i].Type == 3 && raw.ItemList[i].VoiceItem != nil && strings.TrimSpace(raw.ItemList[i].VoiceItem.Text) != "" {
+			continue
+		}
 		media := mediaFromItem(raw.ItemList[i])
 		if media == nil {
 			continue

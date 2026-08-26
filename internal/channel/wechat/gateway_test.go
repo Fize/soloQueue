@@ -98,6 +98,41 @@ func TestGatewayDispatchDownloadsAndDecryptsInboundImage(t *testing.T) {
 	}
 }
 
+func TestGatewayDispatchSkipsDownloadForServerTranscribedVoice(t *testing.T) {
+	downloadCalls := 0
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		downloadCalls++
+		return &http.Response{StatusCode: http.StatusInternalServerError, Status: "500 Internal Server Error", Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}, nil
+	})
+	client := NewClientWithHTTP(Config{BotID: "bot-a", CDNBaseURL: "https://cdn.test"}, &http.Client{Transport: transport})
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	received := make(chan channel.Message, 1)
+	gateway := NewGateway(Config{BotID: "bot-a"}, client, channel.HandlerFunc(func(_ context.Context, msg channel.Message) {
+		received <- msg
+	}), log)
+	t.Cleanup(gateway.Close)
+	gateway.dispatch(context.Background(), Message{
+		MessageID: 8, FromUserID: "user-a", SessionID: "chat-a", MessageType: 1, ContextToken: "reply-a",
+		ItemList: []MessageItem{{Type: 3, VoiceItem: &VoiceItem{
+			Text:  "  server transcript  ",
+			Media: &CDNMedia{EncryptQueryParam: "q", AESKey: base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))},
+		}}},
+	})
+
+	var got channel.Message
+	select {
+	case got = <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for transcribed voice")
+	}
+	if downloadCalls != 0 {
+		t.Fatalf("media download calls = %d", downloadCalls)
+	}
+	if got.Text != "server transcript" || len(got.Attachments) != 1 || got.Attachments[0].Transcript != "server transcript" || len(got.Attachments[0].Data) != 0 {
+		t.Fatalf("normalized message = %#v", got)
+	}
+}
+
 func TestGatewayBuffersComplementaryMessagesForOneSecond(t *testing.T) {
 	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
 	received := make(chan channel.Message, 2)

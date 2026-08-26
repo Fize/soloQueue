@@ -154,6 +154,15 @@ func (b *TextBridge) preparePrompt(ctx context.Context, msg Message) (string, co
 	var fileAttachments []ctxwin.FileAttachment
 	var images []llm.ImageContent
 	for i, attachment := range msg.Attachments {
+		if attachment.Kind == AttachmentAudio && strings.TrimSpace(attachment.Transcript) != "" {
+			if !strings.Contains(msg.Text, attachment.Transcript) {
+				if prompt.Len() > 0 {
+					prompt.WriteString("\n")
+				}
+				prompt.WriteString(attachment.Transcript)
+			}
+			continue
+		}
 		if attachment.Kind == AttachmentAudio && strings.TrimSpace(attachment.Transcript) == "" && len(attachment.Data) > 0 && b.transcribeVoice != nil {
 			transcript, err := b.transcribeVoice(ctx, attachment.Data)
 			if err != nil {
@@ -161,6 +170,13 @@ func (b *TextBridge) preparePrompt(ctx context.Context, msg Message) (string, co
 			} else {
 				attachment.Transcript = strings.TrimSpace(transcript)
 			}
+		}
+		if attachment.Kind == AttachmentAudio && attachment.Transcript != "" {
+			if prompt.Len() > 0 {
+				prompt.WriteString("\n")
+			}
+			prompt.WriteString(attachment.Transcript)
+			continue
 		}
 		name := filepath.Base(strings.TrimSpace(attachment.Name))
 		if name == "." || name == "" {
