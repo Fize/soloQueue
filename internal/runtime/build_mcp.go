@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
+	lsp "github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	lsp "github.com/xiaobaitu/soloqueue/internal/agenttools/mcp/lsp"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
 )
 
 // gatherMCPServerNames collects enabled MCP server names, applying the optional
@@ -65,12 +65,7 @@ func (bc *buildContext) buildMCP() {
 		if err := mcpLoader.Watch(); err != nil {
 			bc.log.Warn(logger.CatMCP, "failed to watch mcp.json for hot-reload", "err", err.Error())
 		}
-		mcpMgr = mcp.NewManagerWithPolicy(
-			mcpLoader,
-			mcp.NewPolicyStore(bc.sharedDB),
-			bc.executor,
-			bc.log,
-		)
+		mcpMgr = mcp.NewManagerWithExecutor(mcpLoader, bc.executor, bc.log)
 	}
 	bc.mcpLoader = mcpLoader
 	bc.mcpMgr = mcpMgr

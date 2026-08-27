@@ -1,14 +1,13 @@
-import { useCallback, useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useMCPConfigStore } from '@/stores/mcpConfigStore'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
-import { approveMCPPolicy, getMCPPolicies, revokeMCPPolicy } from '@/lib/api'
 import { toast } from 'sonner'
-import { Save, Plus, Trash2, ChevronDown, ChevronRight, ShieldCheck } from 'lucide-react'
-import type { MCPServerConfig, MCPConfig, MCPPolicy } from '@/types'
+import { Save, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
+import type { MCPServerConfig, MCPConfig } from '@/types'
 
 function emptyServer(): MCPServerConfig {
   return { name: '', command: '', args: [], transport: 'stdio', enabled: true }
@@ -42,31 +41,9 @@ export function MCPTab() {
   const saving = useMCPConfigStore((state) => state.saving)
   const [localOverride, setLocal] = useState<MCPServerConfig[] | null>(null)
   const [expanded, setExpanded] = useState<Record<number, boolean>>({})
-  const [policies, setPolicies] = useState<Record<string, MCPPolicy>>({})
-  const [policySaving, setPolicySaving] = useState<string | null>(null)
-
-  const refreshPolicies = useCallback(async () => {
-    try {
-      const response = await getMCPPolicies()
-      setPolicies(
-        Object.fromEntries(response.policies.map((policy) => [policy.server_name, policy]))
-      )
-    } catch {
-      // Older backends may not expose policy lifecycle APIs yet.
-    }
-  }, [])
 
   useEffect(() => {
     fetchConfig()
-    void getMCPPolicies()
-      .then((response) => {
-        setPolicies(
-          Object.fromEntries(response.policies.map((policy) => [policy.server_name, policy]))
-        )
-      })
-      .catch(() => {
-        // Older backends may not expose policy lifecycle APIs yet.
-      })
   }, [fetchConfig])
 
   const local = localOverride ?? (config ? fromWire(config) : null)
@@ -78,7 +55,6 @@ export function MCPTab() {
   const handleSave = async () => {
     try {
       await save(toWire(local))
-      await refreshPolicies()
       toast.success(t('mcp.saved'))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('mcp.saveFailed'))
@@ -106,36 +82,6 @@ export function MCPTab() {
     setExpanded((prev) => ({ ...prev, [local.length]: true }))
   }
 
-  const approvePolicy = async (serverName: string) => {
-    if (!serverName) return
-    if (!window.confirm(t('mcp.hostConfirm'))) {
-      return
-    }
-    setPolicySaving(serverName)
-    try {
-      const policy = await approveMCPPolicy(serverName)
-      setPolicies((prev) => ({ ...prev, [serverName]: policy }))
-      toast.success(t('mcp.policyApproved'))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('mcp.policyFailed'))
-    } finally {
-      setPolicySaving(null)
-    }
-  }
-
-  const revokePolicy = async (serverName: string) => {
-    setPolicySaving(serverName)
-    try {
-      await revokeMCPPolicy(serverName)
-      await refreshPolicies()
-      toast.success(t('mcp.policyRevoked'))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('mcp.policyFailed'))
-    } finally {
-      setPolicySaving(null)
-    }
-  }
-
   return (
     <div className="space-y-6">
       <div>
@@ -152,7 +98,6 @@ export function MCPTab() {
       <div className="space-y-3">
         {local.map((srv, i) => {
           const open = expanded[i] ?? false
-          const policy = policies[srv.name]
           return (
             <div key={i} className="border rounded-lg bg-card p-4 shadow-sm">
               <div className="flex items-center justify-between">
@@ -205,39 +150,6 @@ export function MCPTab() {
                     <span className="text-[10px] text-muted-foreground">{t('mcp.argsHelp')}</span>
                   </div>
                   <Input label={t('mcp.transport')} value={srv.transport} disabled />
-                  <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                      <ShieldCheck className="h-4 w-4" /> {t('mcp.hostExecution')}
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">
-                      {t('mcp.hostExecutionDesc')}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground">
-                        {policy?.state === 'approved'
-                          ? t('mcp.policyApprovedState')
-                          : t('mcp.policyNeedsReview')}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={!srv.name || policySaving === srv.name}
-                        onClick={() => approvePolicy(srv.name)}
-                      >
-                        {t('mcp.approveHost')}
-                      </Button>
-                      {policy?.state === 'approved' && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={policySaving === srv.name}
-                          onClick={() => revokePolicy(srv.name)}
-                        >
-                          {t('mcp.revokeApproval')}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
                   <div className="flex flex-col gap-1.5">
                     <Label>{t('mcp.envVars')}</Label>
                     <div className="space-y-1 mb-1">

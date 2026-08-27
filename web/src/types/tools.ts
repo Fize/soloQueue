@@ -70,20 +70,6 @@ export interface MCPAvailableResponse {
   servers: MCPServerInfo[];
 }
 
-export interface MCPPolicy {
-  scope: string;
-  server_name: string;
-  state: 'needs_review' | 'approved' | 'revoked';
-  revision: number;
-  definition_digest: string;
-  approved_at?: string;
-  updated_at?: string;
-}
-
-export interface MCPPolicyListResponse {
-  policies: MCPPolicy[];
-}
-
 // ─── File Types ─────────────────────────────────────────────────────────────────
 
 export interface FileInfo {

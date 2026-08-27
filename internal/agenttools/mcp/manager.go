@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
@@ -20,25 +22,22 @@ type Manager struct {
 	virtualTools map[string]func() []tools.Tool // in-process tool providers
 	mu           sync.RWMutex
 	log          *logger.Logger
-	policies     *PolicyStore
 	executor     *tools.Executor
 }
 
 // NewManager creates a new Manager.
 func NewManager(loader *Loader, log *logger.Logger) *Manager {
-	return NewManagerWithPolicy(loader, nil, nil, log)
+	return NewManagerWithExecutor(loader, nil, log)
 }
 
-// NewManagerWithPolicy creates the production manager. mcp.json remains the
-// server definition source.
-func NewManagerWithPolicy(loader *Loader, policies *PolicyStore, executor *tools.Executor, log *logger.Logger) *Manager {
+// NewManagerWithExecutor creates a manager using the shared process launcher.
+func NewManagerWithExecutor(loader *Loader, executor *tools.Executor, log *logger.Logger) *Manager {
 	return &Manager{
 		loader:       loader,
 		clients:      make(map[string]*Client),
 		toolMap:      make(map[string][]tools.Tool),
 		virtualTools: make(map[string]func() []tools.Tool),
 		log:          log,
-		policies:     policies,
 		executor:     executor,
 	}
 }
@@ -66,8 +65,9 @@ func (m *Manager) GetTools(ctx context.Context, serverName string) []tools.Tool 
 // project-level config override. If the override config contains the server, it takes
 // precedence over the global config (project-level covers global).
 func (m *Manager) GetToolsWithOverride(ctx context.Context, serverName string, overrideCfg *Config) []tools.Tool {
-	scope, workDir, projectOverride := m.resolveScope(ctx, serverName, overrideCfg)
-	instanceKey := mcpInstanceKey(scope, workDir, serverName)
+	workDir := m.resolveWorkDir(ctx)
+	serverCfg, configSource := m.effectiveServerConfig(serverName, overrideCfg)
+	instanceKey := mcpInstanceKey(workDir, serverName, configSource, serverCfg)
 
 	// Fast path for virtual providers is global and in-process.
 	m.mu.RLock()
@@ -99,28 +99,6 @@ func (m *Manager) GetToolsWithOverride(ctx context.Context, serverName string, o
 		return tools
 	}
 
-	// 1. Check override config first (project-level takes precedence)
-	var serverCfg *ServerConfig
-	if projectOverride {
-		for i := range overrideCfg.Servers {
-			if overrideCfg.Servers[i].Name == serverName {
-				serverCfg = &overrideCfg.Servers[i]
-				break
-			}
-		}
-	}
-
-	// 2. Fall back to global config
-	if serverCfg == nil {
-		cfg := m.loader.Get()
-		for i := range cfg.Servers {
-			if cfg.Servers[i].Name == serverName {
-				serverCfg = &cfg.Servers[i]
-				break
-			}
-		}
-	}
-
 	if serverCfg == nil || !serverCfg.Enabled {
 		if m.log != nil {
 			m.log.Warn(logger.CatMCP, "MCP server not found or disabled",
@@ -135,23 +113,6 @@ func (m *Manager) GetToolsWithOverride(ctx context.Context, serverName string, o
 	if executor == nil {
 		executor = tools.NewExecutor()
 	}
-	if m.policies != nil {
-		policy, err := m.policies.Effective(ctx, scope, *serverCfg)
-		if err != nil || policy.State != PolicyApproved {
-			if m.log != nil {
-				fields := []any{"server", serverName, "scope", scope}
-				if err != nil {
-					fields = append(fields, "err", err.Error())
-				} else {
-					fields = append(fields, "state", policy.State)
-				}
-				m.log.Warn(logger.CatMCP, "MCP policy is not approved", fields...)
-			}
-			m.toolMap[instanceKey] = nil
-			return nil
-		}
-	}
-
 	client := NewClientWithExecutor(*serverCfg, executor, workDir, m.log)
 	if err := client.Connect(ctx); err != nil {
 		if m.log != nil {
@@ -185,8 +146,7 @@ func (m *Manager) Reload(ctx context.Context) error {
 	}
 	cfg := m.loader.Get()
 
-	// Definition changes invalidate digest-bound approvals. Tear down all
-	// external instances so the next use re-evaluates policy before launch.
+	// Tear down external instances so the next use applies the reloaded config.
 	for key, client := range m.clients {
 		if err := client.Disconnect(); err != nil && m.log != nil {
 			m.log.Warn(logger.CatMCP, "error disconnecting MCP server",
@@ -204,58 +164,36 @@ func (m *Manager) Reload(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) resolveScope(ctx context.Context, serverName string, overrideCfg *Config) (scope, workDir string, projectOverride bool) {
-	workDir = iface.WorkDirFromContext(ctx)
+func (m *Manager) resolveWorkDir(ctx context.Context) string {
+	workDir := iface.WorkDirFromContext(ctx)
 	if workDir == "" {
 		workDir, _ = os.Getwd()
 	}
-	workDir = filepath.Clean(workDir)
+	return filepath.Clean(workDir)
+}
+
+func (m *Manager) effectiveServerConfig(serverName string, overrideCfg *Config) (*ServerConfig, string) {
 	if overrideCfg != nil {
 		for i := range overrideCfg.Servers {
 			if overrideCfg.Servers[i].Name == serverName {
-				return "project:" + workDir, workDir, true
+				return &overrideCfg.Servers[i], "project"
 			}
 		}
 	}
-	return "global", workDir, false
-}
-
-// StopInstance revokes the live grant by terminating the matching process and
-// clearing cached wrappers. Policy persistence is handled by PolicyStore.
-func (m *Manager) StopInstance(scope, serverName string) {
-	normalizedScope := NormalizePolicyScope(scope)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for key, client := range m.clients {
-		keyScope, _, keyServer, ok := parseMCPInstanceKey(key)
-		if !ok || keyScope != normalizedScope || keyServer != serverName {
-			continue
-		}
-		_ = client.Disconnect()
-		delete(m.clients, key)
-		delete(m.toolMap, key)
-	}
-	for key := range m.toolMap {
-		keyScope, _, keyServer, ok := parseMCPInstanceKey(key)
-		if ok && keyScope == normalizedScope && keyServer == serverName {
-			delete(m.toolMap, key)
+	cfg := m.loader.Get()
+	for i := range cfg.Servers {
+		if cfg.Servers[i].Name == serverName {
+			return &cfg.Servers[i], "global"
 		}
 	}
+	return nil, "global"
 }
 
-func mcpInstanceKey(scope, workDir, serverName string) string {
-	return NormalizePolicyScope(scope) + "\x00" + filepath.Clean(workDir) + "\x00" + serverName
+func mcpInstanceKey(workDir, serverName, configSource string, cfg *ServerConfig) string {
+	definition, _ := json.Marshal(cfg)
+	digest := sha256.Sum256(definition)
+	return filepath.Clean(workDir) + "\x00" + serverName + "\x00" + configSource + "\x00" + hex.EncodeToString(digest[:])
 }
-
-func parseMCPInstanceKey(key string) (scope, workDir, serverName string, ok bool) {
-	parts := strings.SplitN(key, "\x00", 3)
-	if len(parts) != 3 {
-		return "", "", "", false
-	}
-	return parts[0], parts[1], parts[2], true
-}
-
-func (m *Manager) PolicyStore() *PolicyStore { return m.policies }
 
 // Shutdown disconnects all MCP clients.
 func (m *Manager) Shutdown() {

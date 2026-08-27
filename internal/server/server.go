@@ -570,9 +570,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Get("/api/mcp", m.handleGetMCPConfig)
 	r.Patch("/api/mcp", m.handleUpdateMCPConfig)
 	r.Get("/api/mcp/available", m.handleGetAvailableMCPServers)
-	r.Get("/api/mcp/policies", m.handleGetMCPPolicies)
-	r.Put("/api/mcp/policies/{serverName}", m.handleApproveMCPPolicy)
-	r.Delete("/api/mcp/policies/{serverName}", m.handleRevokeMCPPolicy)
 
 	// File routes (read-only access to plan directory and team workspaces)
 	r.Get("/api/files/content", m.handleGetFileContent)

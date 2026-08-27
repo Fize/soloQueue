@@ -20,8 +20,6 @@ import type {
   SkillInfo,
   MCPConfig,
   MCPAvailableResponse,
-  MCPPolicy,
-  MCPPolicyListResponse,
 } from "@/types";
 import { request, requestText } from "./core";
 
@@ -300,29 +298,6 @@ export async function updateMCPConfig(config: MCPConfig): Promise<MCPConfig> {
 
 export async function getAvailableMCPServers(): Promise<MCPAvailableResponse> {
   return request<MCPAvailableResponse>("/mcp/available");
-}
-
-export async function getMCPPolicies(): Promise<MCPPolicyListResponse> {
-  return request<MCPPolicyListResponse>("/mcp/policies?scope=global");
-}
-
-export async function approveMCPPolicy(serverName: string): Promise<MCPPolicy> {
-  return request<MCPPolicy>(`/mcp/policies/${encodeURIComponent(serverName)}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      scope: "global",
-      confirm_host_access: true,
-    }),
-  });
-}
-
-export async function revokeMCPPolicy(serverName: string): Promise<void> {
-  await request<void>(
-    `/mcp/policies/${encodeURIComponent(serverName)}?scope=global`,
-    {
-      method: "DELETE",
-    },
-  );
 }
 
 // ─── Skill Management & Store APIs ──────────────────────────────────────────

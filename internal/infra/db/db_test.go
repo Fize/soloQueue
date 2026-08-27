@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -55,7 +54,7 @@ func TestOpen_SubdirectoryCreation(t *testing.T) {
 	db.Close()
 }
 
-func TestOpenRejectsIncompatibleMCPPolicySchema(t *testing.T) {
+func TestOpenDropsObsoleteMCPTableWithoutTouchingOtherData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "incompatible.db")
 	raw, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -63,18 +62,12 @@ func TestOpenRejectsIncompatibleMCPPolicySchema(t *testing.T) {
 	}
 	_, err = raw.Exec(`
 		CREATE TABLE mcp_policies (
-			scope TEXT NOT NULL,
-			server_name TEXT NOT NULL,
-			state TEXT NOT NULL,
-			revision INTEGER NOT NULL DEFAULT 1,
-			definition_digest TEXT NOT NULL,
-			approved_at TEXT NOT NULL DEFAULT '',
-			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-			PRIMARY KEY (scope, server_name)
+			legacy_value TEXT NOT NULL
 		);
-		INSERT INTO mcp_policies (
-			scope, server_name, state, definition_digest, approved_at
-		) VALUES ('global', 'fixture', 'approved', 'digest', '2026-08-27T00:00:00Z');
+		INSERT INTO mcp_policies (legacy_value) VALUES ('obsolete');
+		CREATE TABLE preserved_data (value TEXT NOT NULL);
+		INSERT INTO preserved_data (value) VALUES ('keep me');
+		CREATE INDEX idx_mcp_policies_state ON preserved_data(value);
 		PRAGMA user_version = 20;
 	`)
 	if err != nil {
@@ -85,25 +78,81 @@ func TestOpenRejectsIncompatibleMCPPolicySchema(t *testing.T) {
 	}
 
 	database, err := Open(path)
-	if err == nil {
-		database.Close()
-		t.Fatal("Open accepted an incompatible MCP policy schema")
+	if err != nil {
+		t.Fatalf("Open with obsolete MCP table = %v", err)
 	}
-	if !strings.Contains(err.Error(), "recreate the database") {
-		t.Fatalf("Open error = %q, want recreate-database guidance", err)
+	defer database.Close()
+
+	var tableCount int
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'table' AND name = ?
+	`, "mcp_policies").Scan(&tableCount); err != nil {
+		t.Fatal(err)
+	}
+	if tableCount != 0 {
+		t.Fatalf("obsolete MCP table count = %d, want 0", tableCount)
 	}
 
-	raw, err = sql.Open("sqlite", path)
+	var preserved string
+	if err := database.QueryRow(`SELECT value FROM preserved_data`).Scan(&preserved); err != nil {
+		t.Fatal(err)
+	}
+	if preserved != "keep me" {
+		t.Fatalf("preserved data = %q, want %q", preserved, "keep me")
+	}
+	var indexCount int
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_mcp_policies_state'
+	`).Scan(&indexCount); err != nil {
+		t.Fatal(err)
+	}
+	if indexCount != 1 {
+		t.Fatalf("unrelated same-named index count = %d, want 1", indexCount)
+	}
+}
+
+func TestOpenCurrentSchemaDoesNotReserveObsoleteNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "current.db")
+	database, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer raw.Close()
-	var version int
-	if err := raw.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+	if _, err := database.Exec(`
+		CREATE TABLE mcp_policies (value TEXT NOT NULL);
+		INSERT INTO mcp_policies (value) VALUES ('preserve reuse');
+		CREATE TABLE unrelated_index_owner (value TEXT NOT NULL);
+		CREATE INDEX idx_mcp_policies_state ON unrelated_index_owner(value);
+	`); err != nil {
+		database.Close()
 		t.Fatal(err)
 	}
-	if version != 20 {
-		t.Fatalf("schema version = %d, want 20", version)
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(path)
+	if err != nil {
+		t.Fatalf("reopen current schema = %v", err)
+	}
+	defer database.Close()
+	var value string
+	if err := database.QueryRow(`SELECT value FROM mcp_policies`).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	if value != "preserve reuse" {
+		t.Fatalf("reused table value = %q, want %q", value, "preserve reuse")
+	}
+	var indexCount int
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_mcp_policies_state'
+	`).Scan(&indexCount); err != nil {
+		t.Fatal(err)
+	}
+	if indexCount != 1 {
+		t.Fatalf("reused index count = %d, want 1", indexCount)
 	}
 }
 

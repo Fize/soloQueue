@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 21
+const schemaVersion = 22
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -91,17 +91,6 @@ func (d *DB) GetChannelSenderData(targetID, channelType string) (string, error) 
 	}
 	return metadata, nil
 }
-
-const mcpPoliciesTableBody = `(
-	scope TEXT NOT NULL,
-	server_name TEXT NOT NULL,
-	state TEXT NOT NULL CHECK(state IN ('needs_review','approved','revoked')),
-	revision INTEGER NOT NULL DEFAULT 1,
-	definition_digest TEXT NOT NULL,
-	approved_at TEXT NOT NULL DEFAULT '',
-	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-	PRIMARY KEY (scope, server_name)
-)`
 
 // snapshot contains the full idempotent DDL for all live tables.
 const snapshot = `
@@ -182,11 +171,6 @@ CREATE TABLE IF NOT EXISTS team_memory_owners (
 	created_at TEXT NOT NULL DEFAULT (datetime('now')),
 	updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
--- MCP host approval is intentionally separate from protocol-compatible
--- mcp.json definitions. Approval is bound to the exact definition digest.
-CREATE TABLE IF NOT EXISTS mcp_policies ` + mcpPoliciesTableBody + `;
-CREATE INDEX IF NOT EXISTS idx_mcp_policies_state ON mcp_policies(state);
 
 -- mem_entries (BM25 memory store)
 CREATE TABLE IF NOT EXISTS mem_entries (
@@ -545,9 +529,16 @@ func (d *DB) migrate() error {
 	if err != nil {
 		return fmt.Errorf("begin migration: %w", err)
 	}
-	if err := validateMCPPoliciesSchema(tx); err != nil {
+	var priorVersion int
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&priorVersion); err != nil {
 		_ = tx.Rollback()
-		return err
+		return fmt.Errorf("read user_version: %w", err)
+	}
+	if priorVersion < 22 {
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS mcp_policies`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("remove obsolete MCP table: %w", err)
+		}
 	}
 	if _, err := tx.Exec(snapshot); err != nil {
 		_ = tx.Rollback()
@@ -1179,24 +1170,6 @@ func (d *DB) migrate() error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration: %w", err)
-	}
-	return nil
-}
-
-func validateMCPPoliciesSchema(tx *sql.Tx) error {
-	var tableSQL string
-	err := tx.QueryRow(`
-		SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mcp_policies'
-	`).Scan(&tableSQL)
-	if err == sql.ErrNoRows {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("inspect mcp_policies table: %w", err)
-	}
-	want := "CREATE TABLE mcp_policies " + mcpPoliciesTableBody
-	if strings.Join(strings.Fields(tableSQL), " ") != strings.Join(strings.Fields(want), " ") {
-		return fmt.Errorf("mcp_policies schema is incompatible; recreate the database")
 	}
 	return nil
 }
