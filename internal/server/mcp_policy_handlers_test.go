@@ -31,7 +31,7 @@ func TestMCPPolicyHandlersRequireExplicitHostApprovalAndInvalidateChanges(t *tes
 	}
 	if err := loader.Set(func(cfg *mcp.Config) {
 		cfg.Servers = []mcp.ServerConfig{{
-			Name: "browser", Command: "browser-mcp", Transport: "stdio", Enabled: true,
+			Name: "browser", Command: "browser-mcp", Env: map[string]string{"TOKEN": "never-return-this-secret"}, Transport: "stdio", Enabled: true,
 		}}
 	}); err != nil {
 		t.Fatal(err)
@@ -46,27 +46,50 @@ func TestMCPPolicyHandlersRequireExplicitHostApprovalAndInvalidateChanges(t *tes
 	if response.Code != http.StatusOK {
 		t.Fatalf("GET policies status = %d body=%s", response.Code, response.Body.String())
 	}
+	if bytes.Contains(response.Body.Bytes(), []byte("never-return-this-secret")) {
+		t.Fatal("GET policy response exposed an MCP environment secret")
+	}
 
 	request = newLocalhostRequest(http.MethodPut, "/api/mcp/policies/browser",
-		bytes.NewBufferString(`{"scope":"global","runtime":"host"}`))
+		bytes.NewBufferString(`{"scope":"global"}`))
 	response = httptest.NewRecorder()
 	mux.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("host without confirmation status = %d", response.Code)
 	}
 
+	// Approval accepts only the documented request fields.
 	request = newLocalhostRequest(http.MethodPut, "/api/mcp/policies/browser",
-		bytes.NewBufferString(`{"scope":"global","runtime":"sandbox"}`))
+		bytes.NewBufferString(`{"scope":"global","confirm_host_access":true,"unexpected_option":true}`))
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("approval with unknown field status = %d body=%s", response.Code, response.Body.String())
+	}
+
+	request = newLocalhostRequest(http.MethodPut, "/api/mcp/policies/browser",
+		bytes.NewBufferString(`{"scope":"global","confirm_host_access":true} {}`))
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("approval with trailing JSON status = %d body=%s", response.Code, response.Body.String())
+	}
+
+	request = newLocalhostRequest(http.MethodPut, "/api/mcp/policies/browser",
+		bytes.NewBufferString(`{"scope":"global","confirm_host_access":true}`))
 	response = httptest.NewRecorder()
 	mux.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
-		t.Fatalf("sandbox approval status = %d body=%s", response.Code, response.Body.String())
+		t.Fatalf("host approval status = %d body=%s", response.Code, response.Body.String())
+	}
+	if bytes.Contains(response.Body.Bytes(), []byte("never-return-this-secret")) {
+		t.Fatal("approval response exposed an MCP environment secret")
 	}
 	var approved mcp.Policy
 	if err := json.Unmarshal(response.Body.Bytes(), &approved); err != nil {
 		t.Fatal(err)
 	}
-	if approved.State != mcp.PolicyApproved || approved.Runtime != tools.RuntimeSandbox {
+	if approved.State != mcp.PolicyApproved {
 		t.Fatalf("approved policy = %#v", approved)
 	}
 

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // Manager manages multiple LSP client instances, routing tool calls
@@ -135,8 +135,7 @@ func (m *Manager) Shutdown() {
 }
 
 // Restart terminates all active language servers and starts them again through
-// the currently selected runtime. It is used when Host/Sandbox configuration
-// changes so no process remains in the old boundary.
+// the shared host Executor.
 func (m *Manager) Restart(ctx context.Context) error {
 	m.mu.RLock()
 	defs := make([]ServerDef, 0, len(m.defs))

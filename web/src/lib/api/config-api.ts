@@ -22,7 +22,6 @@ import type {
   MCPAvailableResponse,
   MCPPolicy,
   MCPPolicyListResponse,
-  MCPRuntimeType,
 } from "@/types";
 import { request, requestText } from "./core";
 
@@ -33,12 +32,14 @@ export async function getConfig(): Promise<AppConfig> {
 }
 
 export async function getConfigToml(): Promise<string> {
-  return requestText('/config/toml');
+  return requestText("/config/toml");
 }
 
 // ─── DB-backed Config APIs ──────────────────────────────────────────────────
 
-export async function listProviders(options?: RequestInit): Promise<LLMProvider[]> {
+export async function listProviders(
+  options?: RequestInit,
+): Promise<LLMProvider[]> {
   return request<LLMProvider[]>("/config/providers", options);
 }
 
@@ -89,18 +90,21 @@ export async function updateModel(
   });
 }
 
-export async function deleteModel(providerId: string, id: string): Promise<void> {
+export async function deleteModel(
+  providerId: string,
+  id: string,
+): Promise<void> {
   await request(`/config/models/${providerId}/${id}`, { method: "DELETE" });
 }
 
 export async function getModelRoutes(): Promise<ModelRoutesConfig> {
-	return request<ModelRoutesConfig>("/config/model-routes");
+  return request<ModelRoutesConfig>("/config/model-routes");
 }
 
 export async function updateModelRoutes(
-	data: ModelRoutesConfig,
+  data: ModelRoutesConfig,
 ): Promise<ModelRoutesConfig> {
-	return request<ModelRoutesConfig>("/config/model-routes", {
+  return request<ModelRoutesConfig>("/config/model-routes", {
     method: "PUT",
     body: JSON.stringify(data),
   });
@@ -163,19 +167,34 @@ export async function startWeChatLogin(
   });
 }
 
-export async function getWeChatLogin(sessionId: string): Promise<WeChatLoginSnapshot> {
-  return request<WeChatLoginSnapshot>(`/channels/wechat/login/${encodeURIComponent(sessionId)}`);
+export async function getWeChatLogin(
+  sessionId: string,
+): Promise<WeChatLoginSnapshot> {
+  return request<WeChatLoginSnapshot>(
+    `/channels/wechat/login/${encodeURIComponent(sessionId)}`,
+  );
 }
 
-export async function submitWeChatVerification(sessionId: string, code: string): Promise<void> {
-  return request<void>(`/channels/wechat/login/${encodeURIComponent(sessionId)}/verification`, {
-    method: "POST",
-    body: JSON.stringify({ code }),
-  });
+export async function submitWeChatVerification(
+  sessionId: string,
+  code: string,
+): Promise<void> {
+  return request<void>(
+    `/channels/wechat/login/${encodeURIComponent(sessionId)}/verification`,
+    {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    },
+  );
 }
 
 export async function cancelWeChatLogin(sessionId: string): Promise<void> {
-  return request<void>(`/channels/wechat/login/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  return request<void>(
+    `/channels/wechat/login/${encodeURIComponent(sessionId)}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 export async function getLSPMCPConfig(): Promise<LSPMCPConfig> {
@@ -247,7 +266,9 @@ export async function getSpeechStatus(): Promise<SpeechStatus> {
   return request<SpeechStatus>("/config/speech/status");
 }
 
-export async function installSpeech(model?: string): Promise<SpeechInstallResponse> {
+export async function installSpeech(
+  model?: string,
+): Promise<SpeechInstallResponse> {
   return request<SpeechInstallResponse>("/config/speech/install", {
     method: "POST",
     body: JSON.stringify({ model }),
@@ -285,18 +306,12 @@ export async function getMCPPolicies(): Promise<MCPPolicyListResponse> {
   return request<MCPPolicyListResponse>("/mcp/policies?scope=global");
 }
 
-export async function approveMCPPolicy(
-  serverName: string,
-  runtime: MCPRuntimeType,
-  networkEnabled = false,
-): Promise<MCPPolicy> {
+export async function approveMCPPolicy(serverName: string): Promise<MCPPolicy> {
   return request<MCPPolicy>(`/mcp/policies/${encodeURIComponent(serverName)}`, {
     method: "PUT",
     body: JSON.stringify({
       scope: "global",
-      runtime,
-      network_enabled: networkEnabled,
-      confirm_host_access: runtime === "host",
+      confirm_host_access: true,
     }),
   });
 }
@@ -304,7 +319,9 @@ export async function approveMCPPolicy(
 export async function revokeMCPPolicy(serverName: string): Promise<void> {
   await request<void>(
     `/mcp/policies/${encodeURIComponent(serverName)}?scope=global`,
-    { method: "DELETE" },
+    {
+      method: "DELETE",
+    },
   );
 }
 

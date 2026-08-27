@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   save: vi.fn(),
   getMCPPolicies: vi.fn(),
+  approveMCPPolicy: vi.fn(),
+  revokeMCPPolicy: vi.fn(),
 }))
 
 vi.mock('@/stores/mcpConfigStore', () => ({
@@ -29,9 +31,9 @@ vi.mock('@/stores/mcpConfigStore', () => ({
 }))
 
 vi.mock('@/lib/api', () => ({
-  approveMCPPolicy: vi.fn(),
+  approveMCPPolicy: mocks.approveMCPPolicy,
   getMCPPolicies: mocks.getMCPPolicies,
-  revokeMCPPolicy: vi.fn(),
+  revokeMCPPolicy: mocks.revokeMCPPolicy,
 }))
 
 vi.mock('@/lib/i18n', () => ({
@@ -48,6 +50,13 @@ describe('MCPTab', () => {
     mocks.fetch.mockResolvedValue(undefined)
     mocks.save.mockResolvedValue(undefined)
     mocks.getMCPPolicies.mockResolvedValue({ policies: [] })
+    mocks.approveMCPPolicy.mockResolvedValue({
+      scope: 'global',
+      server_name: 'existing',
+      state: 'approved',
+      revision: 1,
+      definition_digest: 'digest',
+    })
   })
 
   it('adds an expanded server without losing servers loaded from config', () => {
@@ -111,5 +120,29 @@ describe('MCPTab', () => {
         },
       })
     )
+  })
+
+  it('shows only explicit host execution approval controls', () => {
+    render(<MCPTab />)
+
+    fireEvent.click(screen.getByRole('button', { name: /existing/ }))
+
+    expect(screen.getByText('mcp.hostExecution')).toBeInTheDocument()
+    expect(screen.getByText('mcp.hostExecutionDesc')).toBeInTheDocument()
+  })
+
+  it('requires browser confirmation before approving host access', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    render(<MCPTab />)
+    fireEvent.click(screen.getByRole('button', { name: /existing/ }))
+
+    const approve = screen.getByRole('button', { name: 'mcp.approveHost' })
+    fireEvent.click(approve)
+    expect(mocks.approveMCPPolicy).not.toHaveBeenCalled()
+
+    fireEvent.click(approve)
+    await waitFor(() => expect(mocks.approveMCPPolicy).toHaveBeenCalledWith('existing'))
+    expect(confirm).toHaveBeenCalledWith('mcp.hostConfirm')
+    confirm.mockRestore()
   })
 })

@@ -149,7 +149,7 @@ func TestAbsPath_WorkDirPathItselfRelative(t *testing.T) {
 }
 
 func TestAbsPath_AnyPathAllowed(t *testing.T) {
-	// Without sandbox restriction, any absolute path should be normalizable
+	// Any absolute path should be normalizable.
 	abs, err := absPath("/etc/passwd", "")
 	if err != nil {
 		t.Fatalf("absPath('/etc/passwd'): %v", err)

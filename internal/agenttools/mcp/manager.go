@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // Manager orchestrates MCP server lifecycle and tool enumeration.
@@ -256,15 +256,6 @@ func parseMCPInstanceKey(key string) (scope, workDir, serverName string, ok bool
 }
 
 func (m *Manager) PolicyStore() *PolicyStore { return m.policies }
-
-func (m *Manager) HostExceptionCount() int {
-	if m.policies != nil {
-		if count, err := m.policies.CountApprovedHost(context.Background()); err == nil {
-			return count
-		}
-	}
-	return 0
-}
 
 // Shutdown disconnects all MCP clients.
 func (m *Manager) Shutdown() {

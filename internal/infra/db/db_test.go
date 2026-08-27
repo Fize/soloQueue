@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -31,7 +32,17 @@ func TestOpen_File(t *testing.T) {
 	if _, statErr := os.Stat(path); statErr != nil {
 		t.Errorf("database file not created: %v", statErr)
 	}
-	db.Close()
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = Open(path)
+	if err != nil {
+		t.Fatalf("Open current schema = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestOpen_SubdirectoryCreation(t *testing.T) {
@@ -42,6 +53,58 @@ func TestOpen_SubdirectoryCreation(t *testing.T) {
 		t.Fatalf("Open should create subdirectory: %v", err)
 	}
 	db.Close()
+}
+
+func TestOpenRejectsIncompatibleMCPPolicySchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "incompatible.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.Exec(`
+		CREATE TABLE mcp_policies (
+			scope TEXT NOT NULL,
+			server_name TEXT NOT NULL,
+			state TEXT NOT NULL,
+			revision INTEGER NOT NULL DEFAULT 1,
+			definition_digest TEXT NOT NULL,
+			approved_at TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (scope, server_name)
+		);
+		INSERT INTO mcp_policies (
+			scope, server_name, state, definition_digest, approved_at
+		) VALUES ('global', 'fixture', 'approved', 'digest', '2026-08-27T00:00:00Z');
+		PRAGMA user_version = 20;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := Open(path)
+	if err == nil {
+		database.Close()
+		t.Fatal("Open accepted an incompatible MCP policy schema")
+	}
+	if !strings.Contains(err.Error(), "recreate the database") {
+		t.Fatalf("Open error = %q, want recreate-database guidance", err)
+	}
+
+	raw, err = sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	var version int
+	if err := raw.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 20 {
+		t.Fatalf("schema version = %d, want 20", version)
+	}
 }
 
 func TestOpenMigratesLegacyScheduledTasksToTaskTypes(t *testing.T) {
@@ -257,8 +320,8 @@ func TestOpenMigratesMemoryRevisionMetadataV20(t *testing.T) {
 	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 20 {
-		t.Fatalf("schema version = %d, want 20", version)
+	if version != schemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, schemaVersion)
 	}
 }
 

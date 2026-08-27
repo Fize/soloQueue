@@ -671,7 +671,7 @@ func (s *Store) List() ([]WorkflowMeta, error)
 - 拒绝越过 Store.Dir 的 symlink。
 - 文件大小、node 数、edge 数、prompt 长度均有限制。
 - `List` 对单个坏文件返回带错误的 metadata，不应让全部列表失败。
-- workflow YAML 是本机受信配置，但仍不能绕过现有 sandbox、tool confirmation 和 model enablement。
+- workflow YAML 是本机受信配置，但仍不能绕过现有 tool confirmation 和 model enablement。
 
 ---
 
