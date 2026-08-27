@@ -10,8 +10,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
-// stdioProcessTransport keeps the MCP wire protocol unchanged while launching the
-// stdio process through the shared host Executor.
+// stdioProcessTransport keeps the MCP wire protocol unchanged while using the shared process launcher.
 type stdioProcessTransport struct {
 	*transport.Stdio
 

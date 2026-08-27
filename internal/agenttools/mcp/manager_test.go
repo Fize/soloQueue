@@ -2,53 +2,87 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 )
 
 func TestMCPInstanceKeySeparatesWorkspaces(t *testing.T) {
 	t.Parallel()
 	projectA := filepath.Join(t.TempDir(), "a")
 	projectB := filepath.Join(t.TempDir(), "b")
+	cfg := &ServerConfig{Name: "files", Command: "files", Enabled: true}
 
-	keyA := mcpInstanceKey("global", projectA, "files")
-	keyB := mcpInstanceKey("global", projectB, "files")
+	keyA := mcpInstanceKey(projectA, "files", "global", cfg)
+	keyB := mcpInstanceKey(projectB, "files", "global", cfg)
 	if keyA == keyB {
 		t.Fatal("global MCP instances must not be shared across workspaces")
 	}
-
-	scope, workDir, serverName, ok := parseMCPInstanceKey(keyA)
-	if !ok || scope != "global" || workDir != filepath.Clean(projectA) || serverName != "files" {
-		t.Fatalf("unexpected parsed key: %q %q %q %v", scope, workDir, serverName, ok)
-	}
 }
 
-func TestManagerStopInstanceClearsEveryWorkspace(t *testing.T) {
-	t.Parallel()
+type cachedTestTool struct{ name string }
+
+func (t cachedTestTool) Name() string                                  { return t.name }
+func (cachedTestTool) Description() string                             { return "cached test tool" }
+func (cachedTestTool) Parameters() json.RawMessage                     { return nil }
+func (cachedTestTool) Execute(context.Context, string) (string, error) { return "", nil }
+
+func TestManager_GetToolsWithOverride_GlobalThenDisabledProjectDoNotShareCache(t *testing.T) {
 	loader, err := NewLoader("", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := NewManager(loader, nil)
-	keyA := mcpInstanceKey("global", "/project/a", "files")
-	keyB := mcpInstanceKey("global", "/project/b", "files")
-	other := mcpInstanceKey("global", "/project/a", "browser")
-	manager.toolMap[keyA] = []tools.Tool{}
-	manager.toolMap[keyB] = []tools.Tool{}
-	manager.toolMap[other] = []tools.Tool{}
-
-	manager.StopInstance("global", "files")
-
-	if _, ok := manager.toolMap[keyA]; ok {
-		t.Fatal("workspace A instance was not cleared")
+	global := ServerConfig{
+		Name: "same", Command: "global-command", Args: []string{"global"},
+		Env: map[string]string{"SOURCE": "global"}, Transport: "stdio", Enabled: true,
 	}
-	if _, ok := manager.toolMap[keyB]; ok {
-		t.Fatal("workspace B instance was not cleared")
+	loader.current = Config{Servers: []ServerConfig{global}}
+	mgr := NewManager(loader, nil)
+	workDir := t.TempDir()
+	ctx := iface.ContextWithWorkDir(context.Background(), workDir)
+	globalTools := []tools.Tool{cachedTestTool{name: "global"}}
+	mgr.toolMap[mcpInstanceKey(workDir, global.Name, "global", &global)] = globalTools
+
+	if got := mgr.GetToolsWithOverride(ctx, global.Name, nil); len(got) != 1 || got[0].Name() != "global" {
+		t.Fatalf("global lookup = %v, want cached global tool", got)
 	}
-	if _, ok := manager.toolMap[other]; !ok {
-		t.Fatal("unrelated server instance was cleared")
+	project := &Config{Servers: []ServerConfig{{
+		Name: "same", Command: "project-command", Args: []string{"project"},
+		Env: map[string]string{"SOURCE": "project"}, Transport: "stdio", Enabled: false,
+	}}}
+	if got := mgr.GetToolsWithOverride(ctx, global.Name, project); got != nil {
+		t.Fatalf("disabled project override reused global cache: %v", got)
+	}
+}
+
+func TestManager_GetToolsWithOverride_DisabledProjectThenGlobalDoNotShareCache(t *testing.T) {
+	loader, err := NewLoader("", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	global := ServerConfig{
+		Name: "same", Command: "global-command", Args: []string{"global"},
+		Env: map[string]string{"SOURCE": "global"}, Transport: "stdio", Enabled: true,
+	}
+	loader.current = Config{Servers: []ServerConfig{global}}
+	mgr := NewManager(loader, nil)
+	workDir := t.TempDir()
+	ctx := iface.ContextWithWorkDir(context.Background(), workDir)
+	globalTools := []tools.Tool{cachedTestTool{name: "global"}}
+	mgr.toolMap[mcpInstanceKey(workDir, global.Name, "global", &global)] = globalTools
+	project := &Config{Servers: []ServerConfig{{
+		Name: "same", Command: "project-command", Args: []string{"project"},
+		Env: map[string]string{"SOURCE": "project"}, Transport: "stdio", Enabled: false,
+	}}}
+
+	if got := mgr.GetToolsWithOverride(ctx, global.Name, project); got != nil {
+		t.Fatalf("disabled project lookup = %v, want nil", got)
+	}
+	if got := mgr.GetToolsWithOverride(ctx, global.Name, nil); len(got) != 1 || got[0].Name() != "global" {
+		t.Fatalf("global lookup was suppressed by project cache: %v", got)
 	}
 }
 

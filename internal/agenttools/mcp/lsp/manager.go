@@ -135,7 +135,7 @@ func (m *Manager) Shutdown() {
 }
 
 // Restart terminates all active language servers and starts them again through
-// the shared host Executor.
+// the shared process launcher.
 func (m *Manager) Restart(ctx context.Context) error {
 	m.mu.RLock()
 	defs := make([]ServerDef, 0, len(m.defs))

@@ -47,7 +47,7 @@ func NewClient(id, languageID, rootURI, command string, args []string, log *logg
 	return NewClientWithExecutor(id, languageID, rootURI, command, args, uriToPath(rootURI), tools.NewExecutor(), log)
 }
 
-// NewClientWithExecutor creates an LSP client whose process is launched on the host via Executor.
+// NewClientWithExecutor creates an LSP client using the shared process launcher.
 func NewClientWithExecutor(
 	id, languageID, rootURI, command string,
 	args []string,

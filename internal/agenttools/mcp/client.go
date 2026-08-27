@@ -29,8 +29,7 @@ func NewClient(cfg ServerConfig, log *logger.Logger) *Client {
 	return NewClientWithExecutor(cfg, tools.NewExecutor(), "", log)
 }
 
-// NewClientWithExecutor creates a protocol-compatible MCP client whose stdio
-// process is launched on the host via Executor.
+// NewClientWithExecutor creates a protocol-compatible MCP client using the shared process launcher.
 func NewClientWithExecutor(cfg ServerConfig, executor *tools.Executor, workDir string, log *logger.Logger) *Client {
 	if executor == nil {
 		executor = tools.NewExecutor()
