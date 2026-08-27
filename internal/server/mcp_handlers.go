@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // handleGetMCPConfig returns the current mcp.json contents.
@@ -115,10 +115,8 @@ func (m *Mux) handleGetMCPPolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateMCPPolicyRequest struct {
-	Scope             string            `json:"scope"`
-	Runtime           tools.RuntimeType `json:"runtime"`
-	ConfirmHostAccess bool              `json:"confirm_host_access"`
-	NetworkEnabled    bool              `json:"network_enabled"`
+	Scope             string `json:"scope"`
+	ConfirmHostAccess bool   `json:"confirm_host_access"`
 }
 
 // PUT /api/mcp/policies/{serverName}
@@ -128,21 +126,28 @@ func (m *Mux) handleApproveMCPPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req updateMCPPolicyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
 		return
 	}
-	req.Scope = mcp.NormalizePolicyScope(req.Scope)
-	if req.Runtime == tools.RuntimeHost && !req.ConfirmHostAccess {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "host runtime requires confirm_host_access=true"})
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: request body must contain exactly one object"})
 		return
 	}
-	if req.Runtime != tools.RuntimeHost && req.Runtime != tools.RuntimeSandbox {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runtime must be host or sandbox"})
+	req.Scope = mcp.NormalizePolicyScope(req.Scope)
+	if !req.ConfirmHostAccess {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "MCP host access requires confirm_host_access=true"})
 		return
 	}
 
 	serverName := strings.TrimSpace(chi.URLParam(r, "serverName"))
+	if serverName == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "MCP server name is required"})
+		return
+	}
 	cfg, err := m.mcpConfigForPolicyScope(req.Scope)
 	if err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -159,9 +164,7 @@ func (m *Mux) handleApproveMCPPolicy(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "MCP server not found"})
 		return
 	}
-	policy, err := m.mcpManager.PolicyStore().Approve(
-		r.Context(), req.Scope, *serverCfg, req.Runtime, req.NetworkEnabled,
-	)
+	policy, err := m.mcpManager.PolicyStore().Approve(r.Context(), req.Scope, *serverCfg)
 	if err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

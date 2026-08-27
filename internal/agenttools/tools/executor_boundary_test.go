@@ -10,7 +10,7 @@ import (
 func TestModelToolsDoNotBypassExecutor(t *testing.T) {
 	t.Parallel()
 
-	allowHostRuntime := map[string]bool{
+	allowDirectHostAccess := map[string]bool{
 		"exec.go":                    true,
 		"exec_unix.go":               true,
 		"exec_windows.go":            true,
@@ -45,7 +45,7 @@ func TestModelToolsDoNotBypassExecutor(t *testing.T) {
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") ||
-			strings.HasSuffix(name, "_test.go") || allowHostRuntime[name] {
+			strings.HasSuffix(name, "_test.go") || allowDirectHostAccess[name] {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Clean(name))
@@ -55,7 +55,7 @@ func TestModelToolsDoNotBypassExecutor(t *testing.T) {
 		source := string(data)
 		for _, token := range forbidden {
 			if strings.Contains(source, token) {
-				t.Errorf("%s bypasses ToolRuntime with %q", name, token)
+				t.Errorf("%s bypasses Executor with %q", name, token)
 			}
 		}
 	}

@@ -8,7 +8,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 )
 
-func TestPolicyLifecycleBindsApprovalToDefinitionAndRuntime(t *testing.T) {
+func TestPolicyLifecycleBindsHostApprovalToDefinition(t *testing.T) {
 	db, err := db.Open(filepath.Join(t.TempDir(), "policy.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -26,15 +26,15 @@ func TestPolicyLifecycleBindsApprovalToDefinitionAndRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.State != PolicyNeedsReview || policy.Runtime != "host" {
+	if policy.State != PolicyNeedsReview {
 		t.Fatalf("missing policy = %#v", policy)
 	}
 
-	policy, err = store.Approve(ctx, "global", cfg, "host")
+	policy, err = store.Approve(ctx, "global", cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.State != PolicyApproved || policy.Runtime != "host" || policy.Revision != 1 {
+	if policy.State != PolicyApproved || policy.Revision != 1 {
 		t.Fatalf("approved policy = %#v", policy)
 	}
 
@@ -48,12 +48,11 @@ func TestPolicyLifecycleBindsApprovalToDefinitionAndRuntime(t *testing.T) {
 		t.Fatalf("changed definition should need review: %#v", policy)
 	}
 
-	policy, err = store.Approve(ctx, "global", changed, "host", true)
+	policy, err = store.Approve(ctx, "global", changed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.State != PolicyApproved || policy.Runtime != "host" ||
-		!policy.NetworkEnabled || policy.Revision != 2 {
+	if policy.State != PolicyApproved || policy.Revision != 2 {
 		t.Fatalf("reapproved policy = %#v", policy)
 	}
 

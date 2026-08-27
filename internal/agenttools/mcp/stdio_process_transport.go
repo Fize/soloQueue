@@ -10,9 +10,9 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
-// runtimeTransport keeps the MCP wire protocol unchanged while delegating the
-// stdio process boundary to HostRuntime or SandboxRuntime.
-type runtimeTransport struct {
+// stdioProcessTransport keeps the MCP wire protocol unchanged while launching the
+// stdio process through the shared host Executor.
+type stdioProcessTransport struct {
 	*transport.Stdio
 
 	executor *tools.Executor
@@ -22,11 +22,11 @@ type runtimeTransport struct {
 	process tools.Process
 }
 
-func newRuntimeTransport(executor *tools.Executor, spec tools.ProcessSpec) *runtimeTransport {
-	return &runtimeTransport{executor: executor, spec: spec}
+func newStdioProcessTransport(executor *tools.Executor, spec tools.ProcessSpec) *stdioProcessTransport {
+	return &stdioProcessTransport{executor: executor, spec: spec}
 }
 
-func (t *runtimeTransport) Start(ctx context.Context) error {
+func (t *stdioProcessTransport) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.process != nil {
@@ -57,7 +57,7 @@ func (t *runtimeTransport) Start(ctx context.Context) error {
 	return nil
 }
 
-func (t *runtimeTransport) Close() error {
+func (t *stdioProcessTransport) Close() error {
 	t.mu.Lock()
 	process := t.process
 	stdio := t.Stdio

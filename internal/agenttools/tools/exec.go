@@ -20,22 +20,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
-// RuntimeType represents execution runtime mode.
-type RuntimeType = string
-
-const (
-	RuntimeHost    RuntimeType = "host"
-	RuntimeSandbox RuntimeType = "sandbox"
-)
-
-// ToolRuntime is an alias to Executor for compatibility.
-type ToolRuntime = Executor
-
-// NewHostRuntime creates a new Executor instance.
-func NewHostRuntime() *Executor {
-	return NewExecutor()
-}
-
 // RunCommandOptions contains command execution options.
 type RunCommandOptions struct {
 	Timeout          time.Duration
@@ -173,14 +157,6 @@ type Executor struct {
 func NewExecutor() *Executor {
 	return &Executor{}
 }
-
-// NewSandbox is a compatibility constructor alias for NewExecutor.
-func NewSandbox() *Executor {
-	return NewExecutor()
-}
-
-// Sandbox is a type alias for Executor to maintain backwards compatibility.
-type Sandbox = Executor
 
 // SetLogger sets the logger; nil disables logging.
 func (e *Executor) SetLogger(l *logger.Logger) {

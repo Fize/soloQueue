@@ -9,7 +9,7 @@ import (
 )
 
 func TestRunCommand_Windows_EchoPwd(t *testing.T) {
-	s := &Sandbox{}
+	s := NewExecutor()
 	opts := RunCommandOptions{}
 	res, err := s.RunCommand(context.Background(), "echo %cd%", opts)
 	if err != nil {
@@ -21,7 +21,7 @@ func TestRunCommand_Windows_EchoPwd(t *testing.T) {
 }
 
 func TestRunCommand_Windows_Echo(t *testing.T) {
-	s := &Sandbox{}
+	s := NewExecutor()
 	opts := RunCommandOptions{}
 	res, err := s.RunCommand(context.Background(), "echo hello windows", opts)
 	if err != nil {
@@ -33,7 +33,7 @@ func TestRunCommand_Windows_Echo(t *testing.T) {
 }
 
 func TestRunCommand_Windows_NotFound(t *testing.T) {
-	s := &Sandbox{}
+	s := NewExecutor()
 	opts := RunCommandOptions{}
 	_, err := s.RunCommand(context.Background(), "nonexistentcmd12345", opts)
 	if err == nil {
@@ -42,7 +42,7 @@ func TestRunCommand_Windows_NotFound(t *testing.T) {
 }
 
 func TestRunCommand_Windows_Cancel(t *testing.T) {
-	s := &Sandbox{}
+	s := NewExecutor()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	opts := RunCommandOptions{}

@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 import { approveMCPPolicy, getMCPPolicies, revokeMCPPolicy } from '@/lib/api'
 import { toast } from 'sonner'
-import { Save, Plus, Trash2, ChevronDown, ChevronRight, ShieldCheck, Monitor } from 'lucide-react'
-import type { MCPServerConfig, MCPConfig, MCPPolicy, MCPRuntimeType } from '@/types'
+import { Save, Plus, Trash2, ChevronDown, ChevronRight, ShieldCheck } from 'lucide-react'
+import type { MCPServerConfig, MCPConfig, MCPPolicy } from '@/types'
 
 function emptyServer(): MCPServerConfig {
   return { name: '', command: '', args: [], transport: 'stdio', enabled: true }
@@ -43,14 +43,14 @@ export function MCPTab() {
   const [localOverride, setLocal] = useState<MCPServerConfig[] | null>(null)
   const [expanded, setExpanded] = useState<Record<number, boolean>>({})
   const [policies, setPolicies] = useState<Record<string, MCPPolicy>>({})
-  const [runtimeChoice, setRuntimeChoice] = useState<Record<string, MCPRuntimeType>>({})
-  const [networkChoice, setNetworkChoice] = useState<Record<string, boolean>>({})
   const [policySaving, setPolicySaving] = useState<string | null>(null)
 
   const refreshPolicies = useCallback(async () => {
     try {
       const response = await getMCPPolicies()
-      setPolicies(Object.fromEntries(response.policies.map((policy) => [policy.server_name, policy])))
+      setPolicies(
+        Object.fromEntries(response.policies.map((policy) => [policy.server_name, policy]))
+      )
     } catch {
       // Older backends may not expose policy lifecycle APIs yet.
     }
@@ -60,7 +60,9 @@ export function MCPTab() {
     fetchConfig()
     void getMCPPolicies()
       .then((response) => {
-        setPolicies(Object.fromEntries(response.policies.map((policy) => [policy.server_name, policy])))
+        setPolicies(
+          Object.fromEntries(response.policies.map((policy) => [policy.server_name, policy]))
+        )
       })
       .catch(() => {
         // Older backends may not expose policy lifecycle APIs yet.
@@ -104,14 +106,14 @@ export function MCPTab() {
     setExpanded((prev) => ({ ...prev, [local.length]: true }))
   }
 
-  const approvePolicy = async (serverName: string, runtime: MCPRuntimeType, networkEnabled: boolean) => {
+  const approvePolicy = async (serverName: string) => {
     if (!serverName) return
-    if (runtime === 'host' && !window.confirm(t('mcp.hostConfirm'))) {
+    if (!window.confirm(t('mcp.hostConfirm'))) {
       return
     }
     setPolicySaving(serverName)
     try {
-      const policy = await approveMCPPolicy(serverName, runtime, networkEnabled)
+      const policy = await approveMCPPolicy(serverName)
       setPolicies((prev) => ({ ...prev, [serverName]: policy }))
       toast.success(t('mcp.policyApproved'))
     } catch (err) {
@@ -138,9 +140,7 @@ export function MCPTab() {
     <div className="space-y-6">
       <div>
         <h2 className="text-sm font-bold text-foreground">{t('mcp.servers')}</h2>
-        <p className="text-[10px] text-muted-foreground">
-          {t('mcp.serversDesc')}
-        </p>
+        <p className="text-[10px] text-muted-foreground">{t('mcp.serversDesc')}</p>
       </div>
 
       {local.length === 0 && (
@@ -153,8 +153,6 @@ export function MCPTab() {
         {local.map((srv, i) => {
           const open = expanded[i] ?? false
           const policy = policies[srv.name]
-          const selectedRuntime = runtimeChoice[srv.name] ?? policy?.runtime ?? 'sandbox'
-          const networkEnabled = networkChoice[srv.name] ?? policy?.network_enabled ?? false
           return (
             <div key={i} className="border rounded-lg bg-card p-4 shadow-sm">
               <div className="flex items-center justify-between">
@@ -204,57 +202,16 @@ export function MCPTab() {
                       }
                       placeholder={t('mcp.argsPlaceholder')}
                     />
-                    <span className="text-[10px] text-muted-foreground">
-                      {t('mcp.argsHelp')}
-                    </span>
+                    <span className="text-[10px] text-muted-foreground">{t('mcp.argsHelp')}</span>
                   </div>
                   <Input label={t('mcp.transport')} value={srv.transport} disabled />
-                  <div className="space-y-2">
-                    <Label>{t('mcp.runtime')}</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setRuntimeChoice((prev) => ({ ...prev, [srv.name]: 'sandbox' }))}
-                        className={`rounded-lg border p-3 text-left ${
-                          selectedRuntime === 'sandbox' ? 'border-primary bg-primary/5' : 'border-border'
-                        }`}
-                      >
-                        <span className="flex items-center gap-2 text-sm font-medium">
-                          <ShieldCheck className="h-4 w-4" /> {t('mcp.runtimeSandbox')}
-                        </span>
-                        <span className="mt-1 block text-[10px] text-muted-foreground">
-                          {t('mcp.runtimeSandboxDesc')}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRuntimeChoice((prev) => ({ ...prev, [srv.name]: 'host' }))}
-                        className={`rounded-lg border p-3 text-left ${
-                          selectedRuntime === 'host' ? 'border-amber-500 bg-amber-500/5' : 'border-border'
-                        }`}
-                      >
-                        <span className="flex items-center gap-2 text-sm font-medium">
-                          <Monitor className="h-4 w-4" /> {t('mcp.runtimeHost')}
-                        </span>
-                        <span className="mt-1 block text-[10px] text-muted-foreground">
-                          {t('mcp.runtimeHostDesc')}
-                        </span>
-                      </button>
+                  <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <ShieldCheck className="h-4 w-4" /> {t('mcp.hostExecution')}
                     </div>
-                    {selectedRuntime === 'sandbox' && (
-                      <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                        <div>
-                          <div className="text-xs font-medium">{t('mcp.network')}</div>
-                          <div className="text-[10px] text-muted-foreground">{t('mcp.networkDesc')}</div>
-                        </div>
-                        <Switch
-                          checked={networkEnabled}
-                          onCheckedChange={(enabled) =>
-                            setNetworkChoice((prev) => ({ ...prev, [srv.name]: enabled }))
-                          }
-                        />
-                      </div>
-                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      {t('mcp.hostExecutionDesc')}
+                    </p>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-muted-foreground">
                         {policy?.state === 'approved'
@@ -263,11 +220,11 @@ export function MCPTab() {
                       </span>
                       <Button
                         size="sm"
-                        variant={selectedRuntime === 'host' ? 'destructive' : 'outline'}
+                        variant="destructive"
                         disabled={!srv.name || policySaving === srv.name}
-                        onClick={() => approvePolicy(srv.name, selectedRuntime, networkEnabled)}
+                        onClick={() => approvePolicy(srv.name)}
                       >
-                        {t('mcp.approveRuntime')}
+                        {t('mcp.approveHost')}
                       </Button>
                       {policy?.state === 'approved' && (
                         <Button
@@ -276,7 +233,7 @@ export function MCPTab() {
                           disabled={policySaving === srv.name}
                           onClick={() => revokePolicy(srv.name)}
                         >
-                          {t('mcp.revokeRuntime')}
+                          {t('mcp.revokeApproval')}
                         </Button>
                       )}
                     </div>

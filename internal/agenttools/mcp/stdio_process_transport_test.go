@@ -11,11 +11,11 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
-func TestRuntimeTransportPreservesMCPStdioProtocol(t *testing.T) {
+func TestStdioProcessTransportPreservesMCPProtocol(t *testing.T) {
 	cfg := ServerConfig{
-		Name:      "runtime-test",
+		Name:      "process-test",
 		Command:   os.Args[0],
-		Args:      []string{"-test.run=TestMCPRuntimeHelperProcess", "--"},
+		Args:      []string{"-test.run=TestMCPProcessHelperProcess", "--"},
 		Env:       map[string]string{"SOLOQUEUE_MCP_HELPER": "1"},
 		Transport: "stdio",
 		Enabled:   true,
@@ -28,7 +28,7 @@ func TestRuntimeTransportPreservesMCPStdioProtocol(t *testing.T) {
 	defer client.Disconnect()
 
 	if !client.IsConnected() {
-		t.Fatal("client did not connect through runtime transport")
+		t.Fatal("client did not connect through stdio process transport")
 	}
 	list := client.ListTools()
 	if len(list) != 1 || list[0].Name != "echo" {
@@ -43,7 +43,7 @@ func TestRuntimeTransportPreservesMCPStdioProtocol(t *testing.T) {
 	}
 }
 
-func TestMCPRuntimeHelperProcess(t *testing.T) {
+func TestMCPProcessHelperProcess(t *testing.T) {
 	if os.Getenv("SOLOQUEUE_MCP_HELPER") != "1" {
 		return
 	}
@@ -64,7 +64,7 @@ func TestMCPRuntimeHelperProcess(t *testing.T) {
 			result = map[string]any{
 				"protocolVersion": "2025-03-26",
 				"capabilities":    map[string]any{"tools": map[string]any{}},
-				"serverInfo":      map[string]any{"name": "runtime-test", "version": "1.0.0"},
+				"serverInfo":      map[string]any{"name": "process-test", "version": "1.0.0"},
 			}
 		case "tools/list":
 			result = map[string]any{"tools": []any{

@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 20
+const schemaVersion = 21
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -91,6 +91,17 @@ func (d *DB) GetChannelSenderData(targetID, channelType string) (string, error) 
 	}
 	return metadata, nil
 }
+
+const mcpPoliciesTableBody = `(
+	scope TEXT NOT NULL,
+	server_name TEXT NOT NULL,
+	state TEXT NOT NULL CHECK(state IN ('needs_review','approved','revoked')),
+	revision INTEGER NOT NULL DEFAULT 1,
+	definition_digest TEXT NOT NULL,
+	approved_at TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+	PRIMARY KEY (scope, server_name)
+)`
 
 // snapshot contains the full idempotent DDL for all live tables.
 const snapshot = `
@@ -172,20 +183,9 @@ CREATE TABLE IF NOT EXISTS team_memory_owners (
 	updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- MCP runtime policy is intentionally separate from protocol-compatible
--- mcp.json definitions. Approval is bound to definition digest + runtime.
-CREATE TABLE IF NOT EXISTS mcp_policies (
-	scope TEXT NOT NULL,
-	server_name TEXT NOT NULL,
-	runtime TEXT NOT NULL CHECK(runtime IN ('host','sandbox')),
-	network_enabled INTEGER NOT NULL DEFAULT 0,
-	state TEXT NOT NULL CHECK(state IN ('needs_review','approved','revoked')),
-	revision INTEGER NOT NULL DEFAULT 1,
-	definition_digest TEXT NOT NULL,
-	approved_at TEXT NOT NULL DEFAULT '',
-	updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-	PRIMARY KEY (scope, server_name)
-);
+-- MCP host approval is intentionally separate from protocol-compatible
+-- mcp.json definitions. Approval is bound to the exact definition digest.
+CREATE TABLE IF NOT EXISTS mcp_policies ` + mcpPoliciesTableBody + `;
 CREATE INDEX IF NOT EXISTS idx_mcp_policies_state ON mcp_policies(state);
 
 -- mem_entries (BM25 memory store)
@@ -544,6 +544,10 @@ func (d *DB) migrate() error {
 	tx, err := d.Begin()
 	if err != nil {
 		return fmt.Errorf("begin migration: %w", err)
+	}
+	if err := validateMCPPoliciesSchema(tx); err != nil {
+		_ = tx.Rollback()
+		return err
 	}
 	if _, err := tx.Exec(snapshot); err != nil {
 		_ = tx.Rollback()
@@ -1080,18 +1084,6 @@ func (d *DB) migrate() error {
 		WHERE typeof(vision) != 'integer'
 	`)
 
-	hasMCPNetworkPolicy, err := tableHasColumn(tx, "mcp_policies", "network_enabled")
-	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("inspect mcp_policies network_enabled column: %w", err)
-	}
-	if !hasMCPNetworkPolicy {
-		if _, err := tx.Exec(`ALTER TABLE mcp_policies ADD COLUMN network_enabled INTEGER NOT NULL DEFAULT 0`); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("migrate mcp_policies network capability: %w", err)
-		}
-	}
-
 	// v17: usage analytics intentionally excludes pricing. Rebuild databases
 	// created by v16 so future telemetry cannot retain cost information.
 	hasEstimatedCost, err := tableHasColumn(tx, "llm_call_metrics", "estimated_cost_microusd")
@@ -1187,6 +1179,24 @@ func (d *DB) migrate() error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration: %w", err)
+	}
+	return nil
+}
+
+func validateMCPPoliciesSchema(tx *sql.Tx) error {
+	var tableSQL string
+	err := tx.QueryRow(`
+		SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mcp_policies'
+	`).Scan(&tableSQL)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect mcp_policies table: %w", err)
+	}
+	want := "CREATE TABLE mcp_policies " + mcpPoliciesTableBody
+	if strings.Join(strings.Fields(tableSQL), " ") != strings.Join(strings.Fields(want), " ") {
+		return fmt.Errorf("mcp_policies schema is incompatible; recreate the database")
 	}
 	return nil
 }

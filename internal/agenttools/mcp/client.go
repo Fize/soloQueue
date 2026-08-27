@@ -9,8 +9,8 @@ import (
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // Client manages a single MCP server connection via stdio transport.
@@ -48,7 +48,7 @@ func (c *Client) Connect(ctx context.Context) error {
 		return nil // already connected
 	}
 
-	stdioTransport := newRuntimeTransport(c.executor, tools.ProcessSpec{
+	stdioTransport := newStdioProcessTransport(c.executor, tools.ProcessSpec{
 		Command:          c.cfg.Command,
 		Args:             c.cfg.Args,
 		Env:              c.cfg.Env,
@@ -182,7 +182,7 @@ func (c *Client) reconnect(ctx context.Context) error {
 		c.tools = nil
 	}
 
-	stdioTransport := newRuntimeTransport(c.executor, tools.ProcessSpec{
+	stdioTransport := newStdioProcessTransport(c.executor, tools.ProcessSpec{
 		Command:          c.cfg.Command,
 		Args:             c.cfg.Args,
 		Env:              c.cfg.Env,

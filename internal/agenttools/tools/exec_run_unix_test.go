@@ -12,7 +12,7 @@ import (
 
 func TestRunCommand_WorkingDirectory(t *testing.T) {
 	ctx := context.Background()
-	s := NewSandbox()
+	s := NewExecutor()
 
 	res, err := s.RunCommand(ctx, "pwd", RunCommandOptions{})
 	if err != nil {
@@ -48,7 +48,7 @@ func TestRunCommand_WorkingDirectory(t *testing.T) {
 
 func TestRunCommand_DefaultWorkingDirectory(t *testing.T) {
 	ctx := context.Background()
-	s := NewSandbox()
+	s := NewExecutor()
 
 	res, err := s.RunCommand(ctx, `echo "$PWD"`, RunCommandOptions{})
 	if err != nil {
