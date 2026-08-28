@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -115,6 +116,71 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 
 	if results[0] != "" {
 		t.Errorf("results[0] changed to %q after async completion, want empty placeholder", results[0])
+	}
+}
+
+func TestAsyncDelegationPropagatesPersistenceCallbackFailure(t *testing.T) {
+	persistErr := errors.New("persist callback failed")
+	finishInput := make(chan error, 1)
+	asyncTool := &mockAsyncTool{name: "delegate", action: &tools.AsyncAction{
+		Target: &mockLocatable{askFunc: func(context.Context, string) (string, error) { return "done", nil }},
+		Prompt: "task", Timeout: time.Second,
+		OnEvent:  func(iface.AgentEvent) error { return persistErr },
+		OnFinish: func(err error) error { finishInput <- err; return persistErr },
+	}}
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t), WithTools(asyncTool), WithPriorityMailbox())
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+	a.execToolsWithAsync(context.Background(), 0, []llm.ToolCall{{ID: "call", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{}`}}}, make(chan AgentEvent, 64), cw)
+	select {
+	case err := <-finishInput:
+		if !errors.Is(err, persistErr) {
+			t.Fatalf("OnFinish input=%v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("OnFinish did not receive event persistence failure")
+	}
+}
+
+func TestAsyncDelegationPanicFinishesExactlyOnceAndReplies(t *testing.T) {
+	var finishCalls atomic.Int32
+	finishErr := make(chan error, 1)
+	asyncTool := &mockAsyncTool{name: "delegate", action: &tools.AsyncAction{
+		Target: &mockLocatable{askStreamFunc: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+			panic("async target exploded")
+		}},
+		Prompt: "task", Timeout: time.Second,
+		OnFinish: func(err error) error {
+			finishCalls.Add(1)
+			finishErr <- err
+			return nil
+		},
+	}}
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t), WithTools(asyncTool), WithPriorityMailbox())
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	a.execToolsWithAsync(context.Background(), 0, []llm.ToolCall{{ID: "call", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{}`}}}, make(chan AgentEvent, 64), ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer()))
+	select {
+	case err := <-finishErr:
+		if err == nil || !strings.Contains(err.Error(), "async target exploded") {
+			t.Fatalf("OnFinish input = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("async panic did not invoke OnFinish")
+	}
+	waitFor(t, time.Second, func() bool {
+		a.turnMu.RLock()
+		defer a.turnMu.RUnlock()
+		_, pending := a.asyncTurns[0]
+		return !pending
+	})
+	if got := finishCalls.Load(); got != 1 {
+		t.Fatalf("OnFinish calls = %d, want 1", got)
 	}
 }
 
@@ -834,7 +900,7 @@ func TestDelegateTool_ExecuteAsync(t *testing.T) {
 	resolver := func(ctx context.Context, targetName, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
 		return target, false, nil
 	}
-	dt := tools.NewDelegateTool("dev", 5*time.Minute, resolver, nil, nil, tools.WorkDirExplicitOrInherited)
+	dt := tools.NewDelegateTool("dev", 5*time.Minute, resolver, nil, nil, tools.WorkDirExplicitOrInherited, tools.WithAlwaysAsyncDelegation())
 
 	action, err := dt.ExecuteAsync(context.Background(), `{"target":"dev","task":"test","work_dir":"/tmp","async":true}`)
 	if err != nil {
@@ -855,7 +921,7 @@ func TestDelegateTool_ExecuteAsync(t *testing.T) {
 }
 
 func TestDelegateTool_ExecuteAsync_InvalidArgs(t *testing.T) {
-	dt := tools.NewDelegateTool("dev", 5*time.Minute, nil, nil, nil, tools.WorkDirInheritOnly)
+	dt := tools.NewDelegateTool("dev", 5*time.Minute, nil, nil, nil, tools.WorkDirInheritOnly, tools.WithAlwaysAsyncDelegation())
 
 	// Empty task
 	_, err := dt.ExecuteAsync(context.Background(), `{"target":"dev","task":"","async":true}`)
@@ -871,7 +937,7 @@ func TestDelegateTool_ExecuteAsync_InvalidArgs(t *testing.T) {
 }
 
 func TestDelegateTool_ExecuteAsync_NoLocatorOrSpawnFn(t *testing.T) {
-	dt := tools.NewDelegateTool("dev", 5*time.Minute, nil, nil, nil, tools.WorkDirInheritOnly)
+	dt := tools.NewDelegateTool("dev", 5*time.Minute, nil, nil, nil, tools.WorkDirInheritOnly, tools.WithAlwaysAsyncDelegation())
 
 	_, err := dt.ExecuteAsync(context.Background(), `{"target":"dev","task":"test","async":true}`)
 	if err == nil {
@@ -1663,8 +1729,7 @@ func TestAsyncTurn_FallbackSync(t *testing.T) {
 	}
 }
 
-// TestDelegateTool_SyncAndAsync verifies that DelegateTool behaves correctly
-// for both synchronous and asynchronous invocations.
+// TestDelegateTool_SyncAndAsync verifies that scheduling is constructor policy.
 func TestDelegateTool_SyncAndAsync(t *testing.T) {
 	// Mock target agent to return a fixed output
 	target := &mockLocatable{
@@ -1721,9 +1786,10 @@ func TestDelegateTool_SyncAndAsync(t *testing.T) {
 		t.Errorf("Execute with skill_id output = %q, want 'agent-output'", output)
 	}
 
-	// 2. Test asynchronous invocation (async=true)
+	// 2. Framework-forced asynchronous invocation.
 	expectedPrompt = "do code review"
-	action, err = tool.ExecuteAsync(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":"/tmp","async":true}`)
+	asyncTool := tools.NewDelegateTool("caller", 5*time.Minute, resolver, nil, nil, tools.WorkDirExplicitOrInherited, tools.WithAlwaysAsyncDelegation())
+	action, err = asyncTool.ExecuteAsync(context.Background(), `{"target":"my-dynamic-agent","task_name":"review diff","system_prompt":"do code review","task":"review diff","work_dir":"/tmp"}`)
 	if err != nil {
 		t.Fatalf("ExecuteAsync err: %v", err)
 	}

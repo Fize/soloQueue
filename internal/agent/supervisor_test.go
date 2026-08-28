@@ -7,7 +7,33 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 )
+
+func TestSupervisorWireSpawnFnsPreservesPeerLeaderResolver(t *testing.T) {
+	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}
+	peer := NewAgent(Definition{ID: "security", Name: "Security"}, fakeLLM, nil)
+	resolverCalls := 0
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		resolverCalls++
+		return &LocatableAdapter{Agent: peer}, true, nil
+	}
+	dt := tools.NewDelegateTool("engineering", time.Minute, resolver, nil, nil, tools.WorkDirExplicitOrInherited)
+	workDir := t.TempDir()
+	leader := NewAgent(Definition{ID: "engineering"}, fakeLLM, nil, WithTools(dt), WithAgentWorkDir(workDir))
+	registry := NewRegistry(nil)
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, nil, WithWorkDir(t.TempDir()))
+	sv := NewSupervisor(leader, factory, nil)
+	sv.WireSpawnFns([]AgentTemplate{{ID: "engineering", IsLeader: true}, {ID: "security", IsLeader: true}})
+
+	loc, _, err := dt.LocateOrSpawn(context.Background(), "security", "", "", "audit", workDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolverCalls != 1 || loc.(*LocatableAdapter).Agent != peer {
+		t.Fatalf("peer resolver calls=%d loc=%T", resolverCalls, loc)
+	}
+}
 
 func TestSupervisor_New(t *testing.T) {
 	fakeLLM := &agenttest.FakeLLM{Responses: []string{"ok"}}

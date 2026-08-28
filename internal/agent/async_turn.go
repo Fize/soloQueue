@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -151,6 +152,13 @@ func (a *Agent) execToolsWithAsync(
 		}
 
 		results[i] = formatDelegationStarted(tc)
+		if action.DispatchID != "" {
+			results[i] += "\nDispatch ID: " + action.DispatchID
+			a.emit(ctx, out, ContentDeltaEvent{
+				Iter:  iter,
+				Delta: fmt.Sprintf("Delegation started. Dispatch ID: %s\n", action.DispatchID),
+			})
+		}
 
 		targetInstanceID := ""
 		type instanceIDer interface {
@@ -182,6 +190,36 @@ func (a *Agent) execToolsWithAsync(
 
 		// Collect asynchronous start closures (not yet 'go'd!)
 		asyncActions = append(asyncActions, func() {
+			start := time.Now()
+			result := delegateResult{}
+			var completeOnce sync.Once
+			complete := func() {
+				completeOnce.Do(func() {
+					if action.OnFinish != nil {
+						var callbackErr error
+						func() {
+							defer func() {
+								if recovered := recover(); recovered != nil {
+									callbackErr = fmt.Errorf("async finish callback panicked: %v", recovered)
+								}
+							}()
+							callbackErr = action.OnFinish(result.err)
+						}()
+						result.err = errors.Join(result.err, callbackErr)
+					}
+					result.duration = time.Since(start)
+					replyCh <- result
+				})
+			}
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					panicErr := fmt.Errorf("async delegation panicked: %v", recovered)
+					a.RecordError(panicErr)
+					result.err = errors.Join(result.err, panicErr)
+				}
+				complete()
+			}()
+
 			timeout := action.Timeout
 			if timeout <= 0 {
 				timeout = tools.DelegateDefaultTimeout
@@ -209,11 +247,15 @@ func (a *Agent) execToolsWithAsync(
 					)
 				}
 			})
+			defer func() {
+				close(relayCh)
+				<-relayDone
+			}()
 
 			// --- Use AskStream + manual consumption instead of Ask ---
-			start := time.Now()
 			evCh, err := action.Target.AskStream(delCtx, action.Prompt)
 			if err != nil {
+				result.err = err
 				if delCtx.Err() == context.DeadlineExceeded {
 					if s, ok := action.Target.(interface{ Stop(time.Duration) error }); ok {
 						go func() { _ = s.Stop(5 * time.Second) }()
@@ -222,15 +264,12 @@ func (a *Agent) execToolsWithAsync(
 				a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream failed",
 					"err", err.Error(),
 				)
-				close(relayCh)
-				<-relayDone
 				// Ensure the target agent is reaped even when AskStream fails
 				// (e.g., due to context cancellation). Without this, spawned
 				// L2/L3 agents leak when /cancel fires.
 				if dn, ok := action.Target.(iface.DoneNotifier); ok {
 					dn.OnDelegationDone()
 				}
-				replyCh <- delegateResult{err: err}
 				return
 			}
 			a.logInfo(delCtx, logger.CatTool, "async-goroutine: AskStream succeeded, consuming events")
@@ -240,6 +279,9 @@ func (a *Agent) execToolsWithAsync(
 			for ev := range evCh {
 				if ev == nil {
 					continue
+				}
+				if action.OnEvent != nil {
+					finalErr = errors.Join(finalErr, action.OnEvent(ev))
 				}
 
 				select {
@@ -284,8 +326,9 @@ func (a *Agent) execToolsWithAsync(
 				}
 			}
 
-			close(relayCh)
-			<-relayDone
+			if finalErr == nil && delCtx.Err() != nil {
+				finalErr = delCtx.Err()
+			}
 
 			// Stop target agent if delegation timed out.
 			if delCtx.Err() == context.DeadlineExceeded {
@@ -299,8 +342,8 @@ func (a *Agent) execToolsWithAsync(
 				dn.OnDelegationDone()
 			}
 
-			dur := time.Since(start)
-			replyCh <- delegateResult{content: content, err: finalErr, duration: dur}
+			result.content = content
+			result.err = finalErr
 		})
 
 		results[i] = "" // placeholder

@@ -15,6 +15,18 @@ import (
 
 // ─── Writer: AppendMessage ───────────────────────────────────────────────────
 
+func TestWriterDir(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if got := w.Dir(); got != dir {
+		t.Fatalf("Dir() = %q, want %q", got, dir)
+	}
+}
+
 func TestWriter_AppendMessage(t *testing.T) {
 	dir := t.TempDir()
 	w, err := NewWriter(dir, "timeline", 0, 0)
