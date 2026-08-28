@@ -87,6 +87,31 @@ func TestHTTP_AuthRoutesRemoved(t *testing.T) {
 	}
 }
 
+func TestHTTP_WorkflowRoutesRemoved(t *testing.T) {
+	mux := NewMux(t.TempDir(), nil)
+	defer mux.Close()
+
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/api/workflows"},
+		{method: http.MethodPost, path: "/api/workflows"},
+		{method: http.MethodGet, path: "/api/workflows/example"},
+		{method: http.MethodPost, path: "/api/workflows/example/run"},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.path, func(t *testing.T) {
+			req := httptest.NewRequest(test.method, test.path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestHTTP_TeamAgents(t *testing.T) {
 	tempDir := t.TempDir()
 	groupsDir := filepath.Join(tempDir, "groups")

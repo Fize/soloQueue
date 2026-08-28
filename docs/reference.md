@@ -109,7 +109,7 @@ Application data resides in `~/.soloqueue/` (or directory specified by `SOLOQUEU
 | --- | --- |
 | `settings.yaml` | Application configuration and active settings |
 | `mcp.json` | External MCP server definitions |
-| `soloqueue.db` | Shared SQLite database (teams, workflows, cron, memory) |
+| `soloqueue.db` | Shared SQLite database (teams, cron, memory) |
 | `logs/` | HTTP, application, timeline JSONL, and scheduled task logs |
 | `agents/` / `groups/` | User agent templates and team definitions |
 | `skills/` | Installed custom skills |

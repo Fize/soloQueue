@@ -25,7 +25,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team"
-	workflowtool "github.com/xiaobaitu/soloqueue/internal/workflow/tool"
 )
 
 func timelineTemporalParts(parts []ctxwin.TemporalPart) []timeline.TemporalPartPayload {
@@ -357,16 +356,6 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				allTools = append(allTools, mcpTools...)
 			}
 		}
-	}
-
-	// Workflow tools for L1 (v1)
-	if b.RT.WorkflowStore != nil && b.RT.WorkflowEngine != nil {
-		allTools = append(allTools,
-			workflowtool.NewListTool(b.RT.WorkflowStore, sessLog),
-			workflowtool.NewRunToolWithManager(b.RT.WorkflowStore, b.RT.WorkflowRuns, sessLog),
-			workflowtool.NewGetTool(b.RT.WorkflowRuns),
-			workflowtool.NewWaitTool(b.RT.WorkflowRuns),
-		)
 	}
 
 	a = agent.NewAgent(def, llmClient, sessLog,

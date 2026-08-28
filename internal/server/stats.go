@@ -407,7 +407,7 @@ func (m *Mux) parseStatsQuery(w http.ResponseWriter, r *http.Request, withRange 
 		value string
 		valid []string
 	}{
-		{"origin", query.Origin, []string{"desktop", "api", "qq", "wechat", "cron", "workflow", "simulation", "system"}},
+		{"origin", query.Origin, []string{"desktop", "api", "qq", "wechat", "cron", "simulation", "system"}},
 		{"usage_type", query.UsageType, []string{"chat", "router", "compactor", "memory", "simulation"}},
 		{"task_type", query.TaskType, []string{"general", "engineering", "research"}},
 		{"status", query.Status, []string{"success", "error", "cancelled", "timeout"}},
@@ -598,7 +598,7 @@ func buildStatsMeta(query statsQuery, bucketSize string, rows []db.LLMCallMetric
 }
 
 func isKnownOrigin(value string) bool {
-	return containsString([]string{"desktop", "api", "qq", "wechat", "cron", "workflow", "simulation", "system"}, value)
+	return containsString([]string{"desktop", "api", "qq", "wechat", "cron", "simulation", "system"}, value)
 }
 
 func isKnownStatus(value string) bool {

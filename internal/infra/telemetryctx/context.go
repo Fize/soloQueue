@@ -26,7 +26,6 @@ const (
 	OriginQQ         = "qq"
 	OriginWechat     = "wechat"
 	OriginCron       = "cron"
-	OriginWorkflow   = "workflow"
 	OriginSimulation = "simulation"
 	OriginSystem     = "system"
 )

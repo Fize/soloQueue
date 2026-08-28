@@ -7,7 +7,7 @@
 我在学习和实践 Harness Engineering 的过程中构建了 SoloQueue，也参考了
 [OpenClaw](https://github.com/openclaw/openclaw) 的一些实践。现在我把它作为
 一个完整的软件在日常使用，用来探索任务路由、委派、工具、Skills、Memory、
-Workflow、定时任务、消息渠道和运行观测如何协同工作。
+定时任务、消息渠道和运行观测如何协同工作。
 
 我目前主要面向希望学习或运行自托管 Agent Harness 的开发者分享 SoloQueue。
 我仍然把它作为持续演进的个人项目，不把它定位为企业级生产平台、多租户 SaaS
@@ -17,7 +17,7 @@ Workflow、定时任务、消息渠道和运行观测如何协同工作。
 
 - 使用本地优先的运行时维护长期 Agent 会话。
 - 使用团队、Agent 模板、委派和工具确认构建多智能体工作台。
-- 支持通过任务路由、Workflow、Memory、Skills、MCP/LSP、定时任务和消息渠道进行
+- 支持通过任务路由、Memory、Skills、MCP/LSP、定时任务和消息渠道进行
   Harness Engineering 实验。
 - 提供完整的浏览器 Web Console 和独立的嵌入式只读状态页。
 

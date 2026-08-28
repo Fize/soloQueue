@@ -2,7 +2,7 @@
 
 English | [简体中文](zh/features.md)
 
-This document details SoloQueue's key capabilities: project workspace management, team & agent customization, model routing, YAML workflows, scheduled tasks, messaging channels, and skills/MCP extensions.
+This document details SoloQueue's key capabilities: project workspace management, team & agent customization, model routing, scheduled tasks, messaging channels, and skills/MCP extensions.
 
 ---
 
@@ -39,37 +39,7 @@ Classification uses local fast-track rules first (detecting code blocks, traceba
 
 ---
 
-## 4. Workflows (YAML DAG)
-
-Repeatable multi-agent workflows are defined as YAML directed acyclic graphs (DAGs):
-
-```yaml
-name: docs-check
-description: Review documentation and report actionable gaps
-version: "1"
-defaults:
-  node_timeout: 20m
-  max_node_runs: 3
-agents:
-  reviewer:
-    template: reviewer
-entry:
-  - inspect
-nodes:
-  - id: inspect
-    agent: reviewer
-    prompt: Review repository documentation and list gaps.
-    outputs:
-      completed:
-        to: []
-        terminal_status: completed
-```
-
-The visual editor in the Web Console provides a graphic view while preserving the YAML file as the portable source of truth. Nodes execute in isolated environments, and run history is logged to SQLite.
-
----
-
-## 5. Scheduled Tasks (Cron)
+## 4. Scheduled Tasks (Cron)
 
 Cron tasks run recurring or one-off prompts through the standard session, routing, and tool verification policies:
 
@@ -79,7 +49,7 @@ Cron tasks run recurring or one-off prompts through the standard session, routin
 
 ---
 
-## 6. Messaging Channels
+## 5. Messaging Channels
 
 SoloQueue bridges agent runtimes to messaging platforms without creating disconnected memory systems:
 
@@ -90,7 +60,7 @@ Channel notifications for Cron runs are delivered on a best-effort basis; the We
 
 ---
 
-## 7. Skills, MCP, and LSP Extensions
+## 6. Skills, MCP, and LSP Extensions
 
 Extend built-in tools without modifying core runtime code:
 

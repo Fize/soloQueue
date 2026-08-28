@@ -22,7 +22,6 @@ import {
   Brain,
   Shield,
   Loader2,
-  Workflow,
   PanelLeftClose,
 } from 'lucide-react'
 import { cycleTheme } from '@/lib/theme'
@@ -33,7 +32,6 @@ import { useTranslation } from '@/lib/i18n'
 
 const mainNav = [
   { to: '/simulations', icon: Play, key: 'sidebar.simulations' as const },
-  { to: '/workflows', icon: Workflow, key: 'sidebar.workflows' as const },
   { to: '/cron', icon: Clock, key: 'sidebar.scheduledTasks' as const },
   { to: '/stats', icon: BarChart2, key: 'sidebar.usageStats' as const },
 ]

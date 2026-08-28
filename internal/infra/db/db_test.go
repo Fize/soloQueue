@@ -44,6 +44,25 @@ func TestOpen_File(t *testing.T) {
 	}
 }
 
+func TestOpenFreshDatabaseDoesNotCreateWorkflowSchema(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "fresh.db"))
+	if err != nil {
+		t.Fatalf("Open fresh database = %v", err)
+	}
+	defer database.Close()
+
+	var count int
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE (type = 'table' OR type = 'index') AND name LIKE 'workflow_%'
+	`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("fresh database workflow schema objects = %d, want 0", count)
+	}
+}
+
 func TestOpen_SubdirectoryCreation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "test.db")

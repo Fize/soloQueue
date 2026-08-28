@@ -22,7 +22,6 @@ const (
 	OriginQQ         = telemetryctx.OriginQQ
 	OriginWechat     = telemetryctx.OriginWechat
 	OriginCron       = telemetryctx.OriginCron
-	OriginWorkflow   = telemetryctx.OriginWorkflow
 	OriginSimulation = telemetryctx.OriginSimulation
 	OriginSystem     = telemetryctx.OriginSystem
 

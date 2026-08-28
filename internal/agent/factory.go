@@ -350,9 +350,8 @@ func (f *DefaultFactory) memoryAccessForEngine(ctx context.Context, tmpl AgentTe
 }
 
 // ResolveTemplate returns the current DB-backed agent template by ID.
-// Workflow execution uses this instead of constructing an empty synthetic
-// agent, so the selected agent's prompt, model, permissions, skills, and MCP
-// servers are preserved.
+// Runtime callers use it so the selected agent's prompt, model, permissions,
+// skills, and MCP servers are preserved.
 func (f *DefaultFactory) ResolveTemplate(ctx context.Context, id string) (AgentTemplate, bool) {
 	if f.teamstore != nil {
 		agents, err := f.teamstore.ListAgents(ctx)

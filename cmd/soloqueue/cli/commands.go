@@ -263,7 +263,6 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 					return nil
 				}),
 				server.WithSimulationEngine(rt.SimulationEngine),
-				server.WithWorkflow(rt.WorkflowStore, rt.WorkflowRuns),
 				server.WithSharedDB(rt.SharedDB),
 			)
 

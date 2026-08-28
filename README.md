@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md)
 
 I built SoloQueue as a complete application while learning and practicing
 Harness Engineering. Inspired by [OpenClaw](https://github.com/openclaw/openclaw),
-I use it to explore how routing, delegation, tools, skills, memory, workflows,
+I use it to explore how routing, delegation, tools, skills, memory,
 scheduled tasks, messaging channels, and observability can work together in
 one long-running personal agent system.
 
@@ -19,7 +19,7 @@ personal project rather than a production-ready enterprise platform.
 - SoloQueue runs a local-first runtime for persistent agent sessions.
 - SoloQueue uses a multi-agent workspace with teams, agent templates, delegation, and
   tool confirmations.
-- SoloQueue supports task routing, workflows, memory, skills, MCP/LSP tools,
+- SoloQueue supports task routing, memory, skills, MCP/LSP tools,
   scheduled tasks, and channel delivery.
 - SoloQueue provides a full browser Web Console plus an embedded read-only Status UI for
   local use. Remote access is provided through a user-managed reverse proxy.

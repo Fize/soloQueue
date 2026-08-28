@@ -18,7 +18,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
-func TestBuilderBuild_RegistersResolveProjectForL1(t *testing.T) {
+func TestBuilderBuild_RegistersExpectedL1Tools(t *testing.T) {
 	workDir := t.TempDir()
 	cfg, err := config.New(workDir)
 	if err != nil {
@@ -56,6 +56,11 @@ func TestBuilderBuild_RegistersResolveProjectForL1(t *testing.T) {
 	}
 	if !hasToolSpec(a, "Remember") || !hasToolSpec(a, "RecallMemory") {
 		t.Fatal("L1 tools do not include L1-bound memory capabilities")
+	}
+	for _, removed := range []string{"workflow_list", "workflow_run", "workflow_get", "workflow_wait"} {
+		if hasToolSpec(a, removed) {
+			t.Fatalf("L1 tools still include removed tool %q", removed)
+		}
 	}
 }
 
