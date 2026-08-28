@@ -79,6 +79,76 @@ func TestWriter_AppendMessage_PreservesArrivalTimestamp(t *testing.T) {
 	}
 }
 
+func TestTimelineRoundTripPreservesTimestampExposureAndRawContent(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	receivedAt := "2026-08-27T09:35:59+08:00"
+	if err := w.AppendMessage(&MessagePayload{
+		Role:            "user",
+		Content:         "remind me",
+		Timestamp:       receivedAt,
+		ExposeTimestamp: true,
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	segments, _, err := ReadTail(dir, "timeline", 0, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if len(segments) != 1 || len(segments[0].Messages) != 1 {
+		t.Fatalf("segments = %#v, want one message", segments)
+	}
+	stored := segments[0].Messages[0]
+	if stored.Content != "remind me" || !stored.ExposeTimestamp {
+		t.Fatalf("stored message = %#v, want raw content and timestamp exposure", stored)
+	}
+
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	ReplayInto(cw, segments)
+	replayed, ok := cw.MessageAt(0)
+	if !ok || replayed.Content != "remind me" || !replayed.ExposeTimestamp {
+		t.Fatalf("replayed message = %#v, ok = %v", replayed, ok)
+	}
+}
+
+func TestTimelineRoundTripPreservesAggregatedTemporalParts(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	if err := w.AppendMessage(&MessagePayload{
+		Role:    "user",
+		Content: "channel\n\nweb",
+		TemporalParts: []TemporalPartPayload{
+			{Content: "channel", Timestamp: "2026-08-27T09:35:59+08:00", ExposeTimestamp: true},
+			{Content: "web"},
+		},
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	segments, _, err := ReadTail(dir, "timeline", 0, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	ReplayInto(cw, segments)
+	msg, ok := cw.MessageAt(0)
+	if !ok || msg.Content != "channel\n\nweb" || len(msg.TemporalParts) != 2 || !msg.TemporalParts[0].ExposeTimestamp || msg.TemporalParts[1].ExposeTimestamp {
+		t.Fatalf("replayed message = %#v, want raw aggregate and mixed temporal parts", msg)
+	}
+}
+
 func TestWriter_DelegationTimelineKeepsStartBeforeResultAndReply(t *testing.T) {
 	dir := t.TempDir()
 	w, err := NewWriter(dir, "timeline", 0, 0)

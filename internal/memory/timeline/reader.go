@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger/rotating"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // ─── Segment ─────────────────────────────────────────────────────────────────
@@ -359,6 +359,24 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 		} else if ts, err := time.Parse(time.RFC3339, msg.Timestamp); err == nil {
 			opts = append(opts, ctxwin.WithTimestamp(ts))
 		}
+	}
+	if msg.ExposeTimestamp {
+		opts = append(opts, ctxwin.WithExposeTimestamp(true))
+	}
+	if len(msg.TemporalParts) > 0 {
+		parts := make([]ctxwin.TemporalPart, 0, len(msg.TemporalParts))
+		for _, part := range msg.TemporalParts {
+			var ts time.Time
+			if part.Timestamp != "" {
+				ts, _ = time.Parse(time.RFC3339Nano, part.Timestamp)
+			}
+			parts = append(parts, ctxwin.TemporalPart{
+				Content:         part.Content,
+				Timestamp:       ts,
+				ExposeTimestamp: part.ExposeTimestamp,
+			})
+		}
+		opts = append(opts, ctxwin.WithTemporalParts(parts))
 	}
 
 	cw.Push(ctxwin.MessageRole(msg.Role), msg.Content, opts...)

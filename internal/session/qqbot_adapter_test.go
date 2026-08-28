@@ -162,6 +162,49 @@ func TestSessionAskAdapterPersistsFilesContextOnUserMessage(t *testing.T) {
 	t.Fatal("user file metadata missing from timeline push hook")
 }
 
+func TestSessionAskAdapterMarksL1ChannelTemporalContext(t *testing.T) {
+	testLog := newTestLog(t)
+	fake := &agenttest.FakeLLM{Responses: []string{"final-response"}}
+	pushed := make(chan ctxwin.Message, 4)
+	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		a := agent.NewAgent(agent.Definition{ID: "agent-" + teamID}, fake, nil)
+		if err := a.Start(ctx); err != nil {
+			return nil, nil, nil, err
+		}
+		cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer(), ctxwin.WithPushHook(func(msg ctxwin.Message) {
+			pushed <- msg
+		}))
+		return a, cw, nil, nil
+	}
+	mgr := NewSessionManager(factory, testLog)
+	t.Cleanup(func() { mgr.Shutdown(time.Second) })
+	if _, err := mgr.Init(context.Background(), "team-a"); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	adapter := NewChannelAdapter(mgr, testLog)
+	before := time.Now()
+	if _, err := adapter.AskStream(context.Background(), "remind me", nil); err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	after := time.Now()
+
+	close(pushed)
+	for msg := range pushed {
+		if msg.Role != ctxwin.RoleUser {
+			continue
+		}
+		if msg.Content != "remind me" || !msg.ExposeTimestamp {
+			t.Fatalf("user message = %#v, want raw eligible channel input", msg)
+		}
+		if msg.Timestamp.Before(before) || msg.Timestamp.After(after) {
+			t.Fatalf("timestamp = %v, want original receive time between %v and %v", msg.Timestamp, before, after)
+		}
+		return
+	}
+	t.Fatal("user message was not pushed")
+}
+
 func TestSessionAskAdapter_SaveUploadedFile(t *testing.T) {
 	testLog := newTestLog(t)
 	fake := &agenttest.FakeLLM{Responses: []string{"r"}}
@@ -374,16 +417,27 @@ func TestChannelTurnDoesNotEnterRouteLessPendingQueue(t *testing.T) {
 
 func TestSameChannelRoutePreservesPendingMerge(t *testing.T) {
 	testLog := newTestLog(t)
-	sess := &Session{logger: testLog, pending: &PendingQueue{}, channelRouteKey: "qq\x00bot\x00chat\x00user", channelRouteOwners: 1}
+	route := "qq\x00bot\x00chat\x00user"
+	sess := &Session{logger: testLog, pending: &PendingQueue{}, channelRouteKey: route, channelRouteOwners: 1}
 	sess.inFlight.Store(1)
 	base := &channelAdapterBase{log: testLog}
+	receivedAt := time.Date(2026, time.August, 27, 9, 35, 59, 0, time.Local)
 	ctx := channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{Channel: "qq", AccountID: "bot", ConversationID: "chat", UserID: "user"})
+	ctx = withTemporalExposure(ctx, receivedAt)
 	_, _, err := base.askChannelStream(ctx, sess, "follow-up")
 	if !errors.Is(err, ErrQueued) {
 		t.Fatalf("err = %v", err)
 	}
 	if got := sess.pending.Len(); got != 1 {
 		t.Fatalf("pending length = %d, want 1", got)
+	}
+	drained := sess.pending.Drain()
+	if len(drained.Parts) != 1 {
+		t.Fatalf("pending drain = %#v, want one message", drained)
+	}
+	message := drained.Parts[0]
+	if message.Prompt != "follow-up" || !message.ExposeTimestamp || !message.ReceivedAt.Equal(receivedAt) {
+		t.Fatalf("pending message = %#v, want original temporal metadata", message)
 	}
 }
 

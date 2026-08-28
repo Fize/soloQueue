@@ -5,20 +5,23 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
+	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
 
 func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
 	out := make([]LLMMessage, 0, len(payload))
 	for _, p := range payload {
 		content := p.Content
-		if p.Role == "user" && !p.Timestamp.IsZero() {
-			content = fmt.Sprintf("[%s] %s", p.Timestamp.Format("2006-01-02 15:04:05"), p.Content)
+		if p.Role == "user" && len(p.TemporalParts) > 0 {
+			content = renderTemporalAggregate(content, p.TemporalParts)
+		} else if p.Role == "user" {
+			content = renderTemporalContent(content, p.Timestamp, p.ExposeTimestamp)
 		}
 		out = append(out, LLMMessage{
 			Role:             p.Role,
@@ -31,6 +34,40 @@ func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
 		})
 	}
 	return out
+}
+
+func renderTemporalAggregate(content string, parts []ctxwin.TemporalPart) string {
+	var out strings.Builder
+	cursor := 0
+	for _, part := range parts {
+		if part.Content == "" {
+			continue
+		}
+		index := strings.Index(content[cursor:], part.Content)
+		if index < 0 {
+			continue
+		}
+		index += cursor
+		out.WriteString(content[cursor:index])
+		out.WriteString(renderTemporalContent(part.Content, part.Timestamp, part.ExposeTimestamp))
+		cursor = index + len(part.Content)
+	}
+	if cursor == 0 {
+		return content
+	}
+	out.WriteString(content[cursor:])
+	return out.String()
+}
+
+func renderTemporalContent(content string, timestamp time.Time, expose bool) string {
+	if !expose || timestamp.IsZero() {
+		return content
+	}
+	prefix := fmt.Sprintf("[%s] ", timestamp.Format("2006-01-02 15:04:05"))
+	if strings.HasPrefix(content, prefix) {
+		return content
+	}
+	return prefix + content
 }
 
 // buildMessages assembles system + user messages. Empty systemPrompt is skipped.

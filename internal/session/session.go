@@ -50,6 +50,12 @@ var (
 
 type rejectBusyQueueKey struct{}
 
+type temporalExposureKey struct{}
+
+type temporalExposure struct {
+	receivedAt time.Time
+}
+
 // WithRejectBusyQueue marks a desktop request that must be rejected rather
 // than inserted into the session pending queue when the session is busy.
 func WithRejectBusyQueue(ctx context.Context) context.Context {
@@ -59,6 +65,36 @@ func WithRejectBusyQueue(ctx context.Context) context.Context {
 func rejectsBusyQueue(ctx context.Context) bool {
 	v, _ := ctx.Value(rejectBusyQueueKey{}).(bool)
 	return v
+}
+
+func withTemporalExposure(ctx context.Context, receivedAt time.Time) context.Context {
+	return context.WithValue(ctx, temporalExposureKey{}, temporalExposure{receivedAt: receivedAt})
+}
+
+func temporalExposureFromContext(ctx context.Context) (temporalExposure, bool) {
+	value, ok := ctx.Value(temporalExposureKey{}).(temporalExposure)
+	return value, ok && !value.receivedAt.IsZero()
+}
+
+func inputPushOptions(ctx context.Context) []ctxwin.PushOption {
+	metadata, ok := temporalExposureFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	return []ctxwin.PushOption{
+		ctxwin.WithTimestamp(metadata.receivedAt),
+		ctxwin.WithExposeTimestamp(true),
+	}
+}
+
+func (s *Session) enqueuePending(ctx context.Context, prompt string) {
+	message := PendingMessage{Prompt: prompt}
+	metadata, ok := temporalExposureFromContext(ctx)
+	if ok {
+		message.ReceivedAt = metadata.receivedAt
+		message.ExposeTimestamp = true
+	}
+	s.pending.EnqueueMessage(message)
 }
 
 // Version is the current version of soloqueue. It is set at startup by the main command.
@@ -242,25 +278,34 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	// Wire pending message drainer so the agent injects queued messages
 	// before each LLM API call.
 	if cw != nil {
-		cw.SetPendingDrainer(func() string {
-			if pending := s.pending.Drain(); pending != "" {
-				trimmed := strings.TrimSpace(pending)
-				lower := strings.ToLower(trimmed)
-				switch lower {
-				case "/cancel", "/compact", "/help", "/?", "/clear", "/version":
-					s.logger.WarnContext(context.Background(), logger.CatApp, "pending drain: dropping stale slash command",
-						"target_id", s.TargetID,
-						"command", lower,
-					)
-					return ""
-				}
-				s.logger.InfoContext(context.Background(), logger.CatApp, "pending messages injected into context window",
-					"target_id", s.TargetID,
-					"prompt_len", len(pending),
-				)
-				return pending
+		cw.SetPendingDrainer(func() ctxwin.PendingInput {
+			pending := s.pending.Drain()
+			if pending.Content == "" {
+				return ctxwin.PendingInput{}
 			}
-			return ""
+			trimmed := strings.TrimSpace(pending.Content)
+			lower := strings.ToLower(trimmed)
+			switch lower {
+			case "/cancel", "/compact", "/help", "/?", "/clear", "/version":
+				s.logger.WarnContext(context.Background(), logger.CatApp, "pending drain: dropping stale slash command",
+					"target_id", s.TargetID,
+					"command", lower,
+				)
+				return ctxwin.PendingInput{}
+			}
+			parts := make([]ctxwin.TemporalPart, len(pending.Parts))
+			for i, part := range pending.Parts {
+				parts[i] = ctxwin.TemporalPart{
+					Content:         part.Prompt,
+					Timestamp:       part.ReceivedAt,
+					ExposeTimestamp: part.ExposeTimestamp,
+				}
+			}
+			s.logger.InfoContext(context.Background(), logger.CatApp, "pending messages injected into context window",
+				"target_id", s.TargetID,
+				"prompt_len", len(pending.Content),
+			)
+			return ctxwin.PendingInput{Content: pending.Content, TemporalParts: parts}
 		})
 	}
 
@@ -1139,7 +1184,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 			"target_id", s.TargetID,
 			"prompt_len", len(prompt),
 		)
-		s.pending.Enqueue(prompt)
+		s.enqueuePending(ctx, prompt)
 		return "", ErrQueued
 	}
 	defer s.inFlight.Store(0)
@@ -1160,7 +1205,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	s.cw.Resize(effectiveCW, 0, 0)
 	cwLenBeforeTurn := s.cw.Len()
 	s.maybeInjectPersonaState()
-	s.cw.Push(ctxwin.RoleUser, prompt)
+	s.cw.Push(ctxwin.RoleUser, prompt, inputPushOptions(ctx)...)
 	s.mu.Unlock()
 
 	s.logger.DebugContext(ctx, logger.CatApp, "ask: prompt pushed to context window",
@@ -1242,7 +1287,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				"target_id", s.TargetID,
 			)
 			if !rejectsBusyQueue(ctx) {
-				s.pending.Enqueue(prompt)
+				s.enqueuePending(ctx, prompt)
 			}
 			return nil, ErrQueued
 		}
@@ -1251,7 +1296,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		// post-completion loadHistory. Without this the user's prompt is
 		// silently dropped from the chat UI.
 		s.maybeInjectPersonaState()
-		s.cw.Push(ctxwin.RoleUser, prompt)
+		s.cw.Push(ctxwin.RoleUser, prompt, inputPushOptions(ctx)...)
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
 			defer close(out)
@@ -1298,7 +1343,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				"target_id", s.TargetID,
 			)
 			if !rejectsBusyQueue(ctx) {
-				s.pending.Enqueue(prompt)
+				s.enqueuePending(ctx, prompt)
 			}
 			return nil, ErrQueued
 		}
@@ -1366,7 +1411,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			"prompt_len", len(prompt),
 		)
 		if !rejectsBusyQueue(ctx) {
-			s.pending.Enqueue(prompt)
+			s.enqueuePending(ctx, prompt)
 		}
 		return nil, ErrQueued
 	}
@@ -1464,7 +1509,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	cwLenBeforeTurn := s.cw.Len()
 	// Extract images from context if present (e.g., from qbot image uploads).
 	// Images are passed as []llm.ImageContent via context.WithValue.
-	var pushOpts []ctxwin.PushOption
+	pushOpts := inputPushOptions(ctx)
 	if files, ok := ctx.Value(ctxwin.FilesContextKey).([]ctxwin.FileAttachment); ok && len(files) > 0 {
 		pushOpts = append(pushOpts, ctxwin.WithFiles(files))
 	}

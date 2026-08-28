@@ -45,18 +45,27 @@ type FileAttachment struct {
 	Path string `json:"path"`
 }
 
+// TemporalPartPayload preserves timing metadata for one component of an aggregated user turn.
+type TemporalPartPayload struct {
+	Content         string `json:"content"`
+	Timestamp       string `json:"ts,omitempty"`
+	ExposeTimestamp bool   `json:"expose_timestamp,omitempty"`
+}
+
 // MessagePayload represents the payload for a message event.
 type MessagePayload struct {
-	Role             string           `json:"role"`                   // system/user/assistant/tool
-	Content          string           `json:"content"`                // Message content
-	ReasoningContent string           `json:"reasoning,omitempty"`    // DeepSeek reasoning
-	Name             string           `json:"name,omitempty"`         // Tool name (role=tool)
-	ToolCallID       string           `json:"tool_call_id,omitempty"` // Tool call ID (role=tool)
-	ToolCalls        []ToolCallRec    `json:"tool_calls,omitempty"`   // tool_calls when role is assistant
-	Files            []FileAttachment `json:"files,omitempty"`        // Attached files metadata (role=user)
-	IsEphemeral      bool             `json:"ephemeral,omitempty"`    // Marks verbose tool output
-	AgentID          string           `json:"agent_id,omitempty"`     // Reserved for multi-agent systems
-	Timestamp        string           `json:"ts,omitempty"`           // Original message timestamp (RFC3339Nano)
+	Role             string                `json:"role"`                       // system/user/assistant/tool
+	Content          string                `json:"content"`                    // Message content
+	ReasoningContent string                `json:"reasoning,omitempty"`        // DeepSeek reasoning
+	Name             string                `json:"name,omitempty"`             // Tool name (role=tool)
+	ToolCallID       string                `json:"tool_call_id,omitempty"`     // Tool call ID (role=tool)
+	ToolCalls        []ToolCallRec         `json:"tool_calls,omitempty"`       // tool_calls when role is assistant
+	Files            []FileAttachment      `json:"files,omitempty"`            // Attached files metadata (role=user)
+	IsEphemeral      bool                  `json:"ephemeral,omitempty"`        // Marks verbose tool output
+	AgentID          string                `json:"agent_id,omitempty"`         // Reserved for multi-agent systems
+	Timestamp        string                `json:"ts,omitempty"`               // Original message timestamp (RFC3339Nano)
+	ExposeTimestamp  bool                  `json:"expose_timestamp,omitempty"` // Allows replay to restore LLM-visible temporal context.
+	TemporalParts    []TemporalPartPayload `json:"temporal_parts,omitempty"`
 }
 
 // ─── ControlPayload ─────────────────────────────────────────────────────────

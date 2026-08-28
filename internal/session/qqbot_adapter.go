@@ -373,6 +373,8 @@ func (a *SessionAskAdapter) SetChannelMediaSender(channelType string, fn func(co
 
 // AskStream implements channel.SessionProvider.
 func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onIntermediate channel.OnIntermediateFunc) (*channel.AskStreamResult, error) {
+	receivedAt := time.Now()
+	ctx = withTemporalExposure(ctx, receivedAt)
 	ctx = withChannelTelemetry(ctx)
 	sess := a.mgr.Session()
 	if sess == nil {
