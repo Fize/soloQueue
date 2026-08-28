@@ -141,9 +141,8 @@ type AsyncTool interface {
 // after every Execute call. If it returns true, the agent completes the current
 // turn without proceeding to the next LLM iteration — even if err != nil.
 //
-// This is used by workflow_handoff so that the workflow engine can receive the
-// handoff result without the agent calling additional tools or making another
-// LLM API call.
+// This lets orchestration tools receive a structured result without the agent
+// calling additional tools or making another LLM API call.
 type TurnTerminator interface {
 	Tool
 	// TerminatesTurn reports whether this execution ends the current turn.

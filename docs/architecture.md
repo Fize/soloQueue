@@ -23,7 +23,7 @@ Session Manager (internal/session)
        │       ├── Task Router & Model Clients (internal/router, internal/llm)
        │       ├── Native Tools, Skills, MCP/LSP (internal/agenttools)
        │       └── Tool Confirmation Interlock
-       ├── Workflow, Cron & Simulation Runtimes (internal/workflow, internal/cron)
+       ├── Cron & Simulation Runtimes (internal/cron, internal/simulation)
        ├── Channel Bridges (internal/channel/qq, internal/channel/wechat)
        └── Memory, Timeline, SQLite DB & Logger (internal/infra, internal/memory)
 ```

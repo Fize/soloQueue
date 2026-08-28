@@ -2,7 +2,7 @@
 
 [English](../features.md) | 简体中文
 
-本文档详细说明 SoloQueue 的核心能力：项目与会话管理、团队与 Agent 模版、模型路由、YAML 工作流、定时任务、消息渠道以及 Skills/MCP 扩展。
+本文档详细说明 SoloQueue 的核心能力：项目与会话管理、团队与 Agent 模版、模型路由、定时任务、消息渠道以及 Skills/MCP 扩展。
 
 ---
 
@@ -39,37 +39,7 @@ Agent 的执行依赖于工作目录中的 Agent 模板与团队定义：
 
 ---
 
-## 4. 工作流 (YAML DAG)
-
-可重复的多智能体任务被定义为 YAML 有向无环图 (DAG)：
-
-```yaml
-name: docs-check
-description: 检查项目文档并输出缺失项
-version: "1"
-defaults:
-  node_timeout: 20m
-  max_node_runs: 3
-agents:
-  reviewer:
-    template: reviewer
-entry:
-  - inspect
-nodes:
-  - id: inspect
-    agent: reviewer
-    prompt: 检查仓库文档并列出缺失项。
-    outputs:
-      completed:
-        to: []
-        terminal_status: completed
-```
-
-Web 控制台中的可视化编辑器提供直观的图表视图，同时保持 YAML 文件作为可移植的唯一事实来源。节点在隔离环境中运行，运行记录实时保存至 SQLite。
-
----
-
-## 5. 定时任务 (Cron)
+## 4. 定时任务 (Cron)
 
 Cron 任务通过标准的会话、路由和工具确认策略执行周期性或一次性 Prompt：
 
@@ -79,7 +49,7 @@ Cron 任务通过标准的会话、路由和工具确认策略执行周期性或
 
 ---
 
-## 6. 消息渠道
+## 5. 消息渠道
 
 SoloQueue 将 Agent 运行时桥接到外部消息平台，复用同一套会话与记忆系统：
 
@@ -90,7 +60,7 @@ SoloQueue 将 Agent 运行时桥接到外部消息平台，复用同一套会话
 
 ---
 
-## 7. Skills、MCP 与 LSP 扩展
+## 6. Skills、MCP 与 LSP 扩展
 
 在不改变核心代码的前提下扩展内置工具层：
 

@@ -145,7 +145,6 @@ def main() -> int:
             for label, marker in [
                 ("Assistant", "Assistant"),
                 ("Simulations", "Sandbox Simulations"),
-                ("Workflows", "Author and manage YAML DAG workflows"),
                 ("Cron Jobs", "Cron Jobs"),
                 ("Usage Statistics", "Usage Statistics"),
             ]:
@@ -157,14 +156,13 @@ def main() -> int:
                 expected_url = {
                     "Assistant": "#/assistant",
                     "Simulations": "#/simulations",
-                    "Workflows": "#/workflows",
                     "Cron Jobs": "#/cron",
                     "Usage Statistics": "?stats_range=30d",
                 }[label]
                 assert expected_url in page.url, f"{label} route mismatch: {page.url}"
             page.goto(f"{suite.base_url}/#/settings/general", wait_until="networkidle")
             assert "General Preferences" in page.locator("body").inner_text(), page.locator("body").inner_text()[:300]
-            return "assistant, simulations, workflows, cron, statistics, settings"
+            return "assistant, simulations, cron, statistics, settings"
 
         suite.run("primary navigation and settings", nav)
 

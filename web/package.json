@@ -14,9 +14,6 @@
   "dependencies": {},
   "devDependencies": {
     "@base-ui/react": "^1.4.1",
-    "@dnd-kit/core": "^6.3.1",
-    "@dnd-kit/sortable": "^10.0.0",
-    "@dnd-kit/utilities": "^3.2.2",
     "@eslint/js": "^10",
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/inter": "^5.2.8",
@@ -36,7 +33,6 @@
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@vitejs/plugin-react": "^4",
-    "@xyflow/react": "^12.11.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "d3-drag": "^3.0.0",
@@ -68,7 +64,6 @@
     "typescript-eslint": "^8.59.3",
     "vite": "^7",
     "vitest": "^4.1.10",
-    "yaml": "^2.9.0",
     "zustand": "^5.0.13"
   }
 }

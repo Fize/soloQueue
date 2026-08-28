@@ -397,7 +397,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			return false
 		}
 
-		// TurnTerminator: a tool (e.g. workflow_handoff) signaled that this turn
+		// TurnTerminator: a tool signaled that this turn
 		// is complete. Emit DoneEvent and exit the tool loop.
 		if a.turnTerminated.Load() {
 			a.turnTerminated.Store(false)

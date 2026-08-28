@@ -242,6 +242,18 @@ func TestStatsRejectsInvalidTimezone(t *testing.T) {
 	}
 }
 
+func TestStatsRejectsRemovedWorkflowOrigin(t *testing.T) {
+	database := openStatsTestDB(t)
+	mux := NewMux(t.TempDir(), nil, WithSharedDB(database))
+	defer mux.Close()
+
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, newStatsRequest("/api/stats/overview?origin=workflow"))
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid_origin") {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func openStatsTestDB(t *testing.T) *db.DB {
 	t.Helper()
 	database, err := db.Open(filepath.Join(t.TempDir(), "stats.db"))

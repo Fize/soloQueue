@@ -49,12 +49,6 @@ go test -run TestReplayInto ./internal/timeline/...  # single test
 
 Use `rtk go test ./...` for compact output (hides pass lines, shows only failures).
 
-Workflow tests require explicit cache control:
-```bash
-GOCACHE=/tmp/soloqueue-go-cache go test ./internal/workflow/... -count=1
-GOCACHE=/tmp/soloqueue-go-cache go test -race ./internal/workflow/... -count=1
-```
-
 ### Frontend lint & tests
 
 ```bash
@@ -166,15 +160,10 @@ internal/session/       session manager (single active, inFlight atomic CAS)
 internal/simulation/    Generative Agents simulation engine
 internal/team/          auto-reload for LLM-written agent/group files
 internal/team/store/    filesystem-backed team & agent persistence
-internal/workflow/      YAML DAG workflow engine (v1) with outcome routing + bounded loops
 web/                    Full browser Web Console (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
 status-ui/              Independent read-only backend status page
 skills/                 Bundled skill definitions, copied into embedded dist at build time
 ```
-
-### Workflow engine (`internal/workflow/`)
-
-YAML-defined DAG workflows with outcome-based routing and bounded loops. Each node is an agent task with input/output mapping. `Store` persists workflow state to SQLite. `Engine` executes DAG nodes, `Graph` resolves dependencies, and `Schema`/`Validate` handle definition parsing and validation.
 
 ### Simulation engine (`internal/simulation/`)
 

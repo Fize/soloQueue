@@ -105,7 +105,7 @@ soloqueue wechat login --id personal --name "Personal WeChat" [--bind-type l1|l2
 | --- | --- |
 | `settings.yaml` | 应用配置与当前活动设置 |
 | `mcp.json` | 外部 MCP Server 定义 |
-| `soloqueue.db` | 共享 SQLite 数据库（团队、工作流、Cron、记忆） |
+| `soloqueue.db` | 共享 SQLite 数据库（团队、Cron、记忆） |
 | `logs/` | HTTP、应用日志、时间线 JSONL 及定时任务日志 |
 | `agents/` / `groups/` | 用户 Agent 模板与团队定义 |
 | `skills/` | 已安装的自定义 Skills |
