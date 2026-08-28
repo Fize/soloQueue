@@ -2,6 +2,7 @@ package ctxwin
 
 import (
 	"testing"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
@@ -553,5 +554,29 @@ func TestContextWindowReplacePrimarySystemPreservesHistory(t *testing.T) {
 	}
 	if payload[1].Role != string(RoleUser) || payload[1].Content != "hello" {
 		t.Fatalf("history message = %+v", payload[1])
+	}
+}
+
+func TestBuildPayloadPreservesTimestampExposure(t *testing.T) {
+	cw := newTestCW(10000, 1000)
+	cw.Push(RoleUser, "hello", WithExposeTimestamp(true))
+
+	payload := cw.BuildPayload()
+	if len(payload) != 1 || !payload[0].ExposeTimestamp {
+		t.Fatalf("payload = %#v, want timestamp exposure preserved", payload)
+	}
+}
+
+func TestTemporalMetadataDoesNotChangeRawTokenAccounting(t *testing.T) {
+	cw := newTestCW(10000, 1000)
+	cw.Push(RoleUser, "hello", WithTimestamp(time.Date(2026, time.August, 27, 9, 35, 59, 0, time.Local)), WithExposeTimestamp(true))
+
+	msg, ok := cw.MessageAt(0)
+	if !ok {
+		t.Fatal("message missing")
+	}
+	want := cw.tokenizer.Count("hello")
+	if msg.Tokens != want {
+		t.Fatalf("message tokens = %d, want raw-content baseline %d", msg.Tokens, want)
 	}
 }

@@ -28,6 +28,25 @@ import (
 	workflowtool "github.com/xiaobaitu/soloqueue/internal/workflow/tool"
 )
 
+func timelineTemporalParts(parts []ctxwin.TemporalPart) []timeline.TemporalPartPayload {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]timeline.TemporalPartPayload, len(parts))
+	for i, part := range parts {
+		var timestamp string
+		if !part.Timestamp.IsZero() {
+			timestamp = part.Timestamp.Format(time.RFC3339Nano)
+		}
+		out[i] = timeline.TemporalPartPayload{
+			Content:         part.Content,
+			Timestamp:       timestamp,
+			ExposeTimestamp: part.ExposeTimestamp,
+		}
+	}
+	return out
+}
+
 // Builder encapsulates session creation logic. Each Build() call produces
 // an independent session with its own agent, context window, and timeline writer.
 type Builder struct {
@@ -569,6 +588,8 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 			Files:            files,
 			IsEphemeral:      msg.IsEphemeral,
 			AgentID:          agentID,
+			ExposeTimestamp:  msg.ExposeTimestamp,
+			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline append failed",
 				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
@@ -931,6 +952,8 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 			Files:            files,
 			IsEphemeral:      msg.IsEphemeral,
 			AgentID:          agentID,
+			ExposeTimestamp:  msg.ExposeTimestamp,
+			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline append failed",
 				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
@@ -1119,6 +1142,8 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 			Files:            files,
 			IsEphemeral:      msg.IsEphemeral,
 			AgentID:          agentID,
+			ExposeTimestamp:  msg.ExposeTimestamp,
+			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline append failed",
 				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)

@@ -63,10 +63,13 @@ func (cw *ContextWindow) truncateMiddleOut() bool {
 			)
 		}
 
-		newContent := tryJSONTruncate(msg.Content, cw.tokenizer)
+		originalContent := msg.Content
+		newContent := tryJSONTruncate(originalContent, cw.tokenizer)
 		if newContent == "" {
 			// JSON parsing failed or no truncation needed, fall back to character-level truncation
-			newContent = charLevelTruncate(msg.Content, 0.10, 0.20)
+			newContent, msg.TemporalParts = truncateTemporalContent(originalContent, msg.TemporalParts, 0.10, 0.20)
+		} else if newContent != originalContent {
+			msg.TemporalParts = nil
 		}
 		msg.Content = newContent
 
@@ -352,9 +355,10 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 
 // aggressiveTruncateLastTurn aggressively truncates messages within the last turn.
 // It attempts in the following priority:
-//   1. More aggressive head-tail truncation for IsEphemeral messages (keeping 5% head + 5% tail).
-//   2. Aggressive truncation for non-ephemeral long messages (keeping 10% head + 10% tail).
-//   3. If still exceeding, replace the content of the longest message with a placeholder "[content omitted]".
+//  1. More aggressive head-tail truncation for IsEphemeral messages (keeping 5% head + 5% tail).
+//  2. Aggressive truncation for non-ephemeral long messages (keeping 10% head + 10% tail).
+//  3. If still exceeding, replace the content of the longest message with a placeholder "[content omitted]".
+//
 // Returns the actual number of tokens saved.
 func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 	initialTokens := cw.currentTokens
@@ -365,10 +369,11 @@ func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 		if !msg.IsEphemeral || msg.Tokens <= ephemeralTruncateThreshold {
 			continue
 		}
-		newContent := charLevelTruncate(msg.Content, 0.05, 0.05)
+		newContent, retainedParts := truncateTemporalContent(msg.Content, msg.TemporalParts, 0.05, 0.05)
 		if newContent != msg.Content {
 			oldTokens := msg.Tokens
 			msg.Content = newContent
+			msg.TemporalParts = retainedParts
 			msg.Tokens = cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
 			if msg.Tokens < 1 {
 				msg.Tokens = 1
@@ -389,10 +394,11 @@ func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 		if msg.IsEphemeral || msg.Tokens <= ephemeralTruncateThreshold {
 			continue
 		}
-		newContent := charLevelTruncate(msg.Content, 0.10, 0.10)
+		newContent, retainedParts := truncateTemporalContent(msg.Content, msg.TemporalParts, 0.10, 0.10)
 		if newContent != msg.Content {
 			oldTokens := msg.Tokens
 			msg.Content = newContent
+			msg.TemporalParts = retainedParts
 			msg.Tokens = cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
 			if msg.Tokens < 1 {
 				msg.Tokens = 1
@@ -420,6 +426,7 @@ func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 		msg := &cw.messages[maxIdx]
 		oldTokens := msg.Tokens
 		msg.Content = "[content omitted: too large to fit in context window]"
+		msg.TemporalParts = nil
 		msg.Tokens = cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
 		if msg.Tokens < 1 {
 			msg.Tokens = 1
@@ -515,6 +522,7 @@ func (cw *ContextWindow) pruneOlderTurnsEphemeralContent(protectTurns int) {
 
 		if newContent != msg.Content {
 			msg.Content = newContent
+			msg.TemporalParts = nil
 			msg.Tokens = cw.tokenizer.EstimateByLen(msg.Content) + cw.tokenizer.EstimateByLen(msg.ReasoningContent)
 			if msg.Tokens < 1 {
 				msg.Tokens = 1

@@ -32,6 +32,27 @@ type FileAttachment struct {
 	Path string
 }
 
+// TemporalPart retains one component of an aggregated pending user turn.
+type TemporalPart struct {
+	Content         string
+	Timestamp       time.Time
+	ExposeTimestamp bool
+}
+
+// PendingInput is one aggregate queued user turn with per-message temporal metadata.
+type PendingInput struct {
+	Content       string
+	TemporalParts []TemporalPart
+}
+
+func truncateTemporalContent(content string, parts []TemporalPart, headRatio, tailRatio float64) (string, []TemporalPart) {
+	truncated := charLevelTruncate(content, headRatio, tailRatio)
+	if truncated == content {
+		return content, parts
+	}
+	return truncated, nil
+}
+
 // ─── PayloadMessage ─────────────────────────────────────────────────────────
 
 // PayloadMessage is the return type of BuildPayload
@@ -47,6 +68,8 @@ type PayloadMessage struct {
 	ToolCallID       string
 	ToolCalls        []llm.ToolCall
 	Timestamp        time.Time // Original message timestamp (used for memory and other time-sensitive contexts)
+	ExposeTimestamp  bool      // Allows the LLM boundary to render temporal context for eligible channel input.
+	TemporalParts    []TemporalPart
 }
 
 // ─── MessageRole ────────────────────────────────────────────────────────────
@@ -80,6 +103,8 @@ type Message struct {
 	ToolCallID       string             // Tool call ID (role=tool)
 	ToolCalls        []llm.ToolCall     // Tool calls when role=assistant
 	Timestamp        time.Time          // Timestamp when the message was pushed; restored from timeline events during replay
+	ExposeTimestamp  bool               // Restricts LLM-visible temporal context to explicitly eligible input.
+	TemporalParts    []TemporalPart     // Components of one aggregated pending user turn.
 }
 
 // ─── PushOption ─────────────────────────────────────────────────────────────
@@ -125,6 +150,16 @@ func WithToolCalls(tcs []llm.ToolCall) PushOption {
 // WithTimestamp sets the message timestamp (for restoring original time during timeline replay)
 func WithTimestamp(ts time.Time) PushOption {
 	return func(m *Message) { m.Timestamp = ts }
+}
+
+// WithExposeTimestamp marks input whose receive time should be visible to the LLM.
+func WithExposeTimestamp(expose bool) PushOption {
+	return func(m *Message) { m.ExposeTimestamp = expose }
+}
+
+// WithTemporalParts preserves per-message timing inside one aggregated user turn.
+func WithTemporalParts(parts []TemporalPart) PushOption {
+	return func(m *Message) { m.TemporalParts = append([]TemporalPart(nil), parts...) }
 }
 
 // ─── PushHook ───────────────────────────────────────────────────────────────
@@ -208,7 +243,7 @@ type ContextWindow struct {
 	replayMode    bool           // disable pushHook during replay
 	log           *logger.Logger // optional logger for message tracking
 	summarizing   atomic.Bool    // true while async compression is in progress
-	pendingDrain  func() string  // callback to drain session pending queue (set once at construction)
+	pendingDrain  func() PendingInput
 }
 
 // NewContextWindow creates a context window
@@ -281,7 +316,7 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 	// Capacity check & eviction
 	capacity := cw.maxTokens - cw.bufferTokens
 	if msg.Tokens > capacity || len(msg.Content) > cw.maxTokens {
-		msg.Content = charLevelTruncate(msg.Content, 0.02, 0.02)
+		msg.Content, msg.TemporalParts = truncateTemporalContent(msg.Content, msg.TemporalParts, 0.02, 0.02)
 		msg.Tokens = cw.tokenizer.Count(msg.Content) + cw.tokenizer.Count(msg.ReasoningContent)
 		if len(msg.ToolCalls) > 0 {
 			msg.Tokens += cw.tokenizer.Count(toolCallsToJSON(msg.ToolCalls))
@@ -427,6 +462,8 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 				ToolCallID:       m.ToolCallID,
 				ToolCalls:        m.ToolCalls,
 				Timestamp:        m.Timestamp,
+				ExposeTimestamp:  m.ExposeTimestamp,
+				TemporalParts:    append([]TemporalPart(nil), m.TemporalParts...),
 			})
 		} else if m.Role == RoleTool && m.ToolCallID != "" {
 			if !valid[m.ToolCallID] {
@@ -443,6 +480,8 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 				ToolCallID:       m.ToolCallID,
 				ToolCalls:        m.ToolCalls,
 				Timestamp:        m.Timestamp,
+				ExposeTimestamp:  m.ExposeTimestamp,
+				TemporalParts:    append([]TemporalPart(nil), m.TemporalParts...),
 			})
 		} else {
 			// user or assistant(content) message
@@ -466,6 +505,8 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 				ToolCallID:       m.ToolCallID,
 				ToolCalls:        m.ToolCalls,
 				Timestamp:        m.Timestamp,
+				ExposeTimestamp:  m.ExposeTimestamp,
+				TemporalParts:    append([]TemporalPart(nil), m.TemporalParts...),
 			})
 		}
 	}
@@ -746,11 +787,9 @@ func (cw *ContextWindow) SetReplayMode(on bool) {
 	cw.replayMode = on
 }
 
-// SetPendingDrainer sets the function used to drain pending user messages
-// from the session queue. Called once during construction before the CW is
-// shared. The function is not guarded by CW's mutex — it is read without
-// a lock in DrainPending, which is safe because it is set once at startup.
-func (cw *ContextWindow) SetPendingDrainer(fn func() string) {
+// SetPendingDrainer sets the function used to drain pending user messages.
+// It is set once during construction before the context window is shared.
+func (cw *ContextWindow) SetPendingDrainer(fn func() PendingInput) {
 	cw.pendingDrain = fn
 }
 
@@ -764,9 +803,15 @@ func (cw *ContextWindow) DrainPending() {
 	if cw.pendingDrain == nil {
 		return
 	}
-	if pending := cw.pendingDrain(); pending != "" {
-		cw.Push(RoleUser, pending)
+	pending := cw.pendingDrain()
+	if pending.Content == "" {
+		return
 	}
+	opts := make([]PushOption, 0, 1)
+	if len(pending.TemporalParts) > 0 {
+		opts = append(opts, WithTemporalParts(pending.TemporalParts))
+	}
+	cw.Push(RoleUser, pending.Content, opts...)
 }
 
 // Recalculate recomputes the sum of all message token estimates from scratch.
