@@ -22,7 +22,9 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	toolset "github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
+	"github.com/xiaobaitu/soloqueue/internal/dispatch"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
@@ -160,11 +162,13 @@ type Session struct {
 	Router   TaskRouterFunc // Optional: task routing classifier (nil = no routing, use default model)
 	Created  time.Time
 
-	mu        sync.Mutex
-	cw        *ctxwin.ContextWindow // Replaces original history, manages full conversation context
-	tl        *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
-	logger    *logger.Logger        // Session-level logger
-	metaStore ChannelMetadataStore  // Optional: for persisting channel sender metadata
+	mu              sync.Mutex
+	cw              *ctxwin.ContextWindow // Replaces original history, manages full conversation context
+	tl              *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
+	dispatchManager *dispatch.Manager
+	dispatchInitErr error
+	logger          *logger.Logger       // Session-level logger
+	metaStore       ChannelMetadataStore // Optional: for persisting channel sender metadata
 
 	// pending queue: new messages enqueue when session is busy, popped and injected
 	// into ContextWindow before the agent's next LLM API call in the tool loop, merging consecutive messages
@@ -274,6 +278,20 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 		askStreamHistory: a.AskStreamWithHistory,
 	}
 	s.lastActive.Store(time.Now().UnixNano())
+	if tl != nil {
+		manager, err := dispatch.NewManager(tl.Dir(), id)
+		if err != nil {
+			s.dispatchInitErr = fmt.Errorf("session: dispatch manager initialization failed: %w", err)
+			l.Warn(logger.CatApp, "session: dispatch manager unavailable", "err", err.Error())
+		} else {
+			s.dispatchManager = manager
+			if a != nil && !a.HasTool("inspect_delegation") {
+				if err := a.RegisterTool(toolset.NewInspectDelegationTool()); err != nil {
+					l.Warn(logger.CatTool, "session: register inspect_delegation failed", "err", err.Error())
+				}
+			}
+		}
+	}
 
 	// Wire pending message drainer so the agent injects queued messages
 	// before each LLM API call.
@@ -614,6 +632,13 @@ func (s *Session) withSessionTelemetry(ctx context.Context) context.Context {
 	return telemetry.WithTelemetryMetadata(ctx, metadata)
 }
 
+func (s *Session) withDispatchScope(ctx context.Context) context.Context {
+	if s.dispatchManager == nil {
+		return ctx
+	}
+	return dispatch.WithScope(ctx, dispatch.Scope{Manager: s.dispatchManager})
+}
+
 // AskIsolated executes a prompt in a clean context: it calls the underlying
 // agent directly without pushing to the session's ContextWindow or timeline.
 // This is used by the cron scheduler so scheduled tasks run without polluting
@@ -623,9 +648,13 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 	// Inject telemetry context
 	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
 	ctx = s.withSessionTelemetry(ctx)
+	ctx = s.withDispatchScope(ctx)
 
 	if s.closed.Load() {
 		return nil, ErrSessionClosed
+	}
+	if s.dispatchInitErr != nil {
+		return nil, s.dispatchInitErr
 	}
 	ctx = iface.ContextWithIsQBot(ctx, s.IsQBot())
 	ctx = iface.ContextWithMediaDelivery(ctx, s.HasNotifyChannel())
@@ -1174,10 +1203,14 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	// Inject telemetry context
 	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
 	ctx = s.withSessionTelemetry(ctx)
+	ctx = s.withDispatchScope(ctx)
 
 	if s.closed.Load() {
 		s.logger.DebugContext(ctx, logger.CatApp, "ask rejected: session closed")
 		return "", ErrSessionClosed
+	}
+	if s.dispatchInitErr != nil {
+		return "", s.dispatchInitErr
 	}
 	if !s.inFlight.CompareAndSwap(0, 1) {
 		s.logger.InfoContext(ctx, logger.CatApp, "ask rejected: session busy, message queued",
@@ -1269,6 +1302,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		s.logger.DebugContext(ctx, logger.CatApp, "askstream rejected: session closed")
 		return nil, ErrSessionClosed
 	}
+	if s.dispatchInitErr != nil {
+		return nil, s.dispatchInitErr
+	}
 
 	trimmed := strings.TrimSpace(prompt)
 	lowerTrimmed := strings.ToLower(trimmed)
@@ -1276,6 +1312,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	// Inject telemetry context
 	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
 	ctx = s.withSessionTelemetry(ctx)
+	ctx = s.withDispatchScope(ctx)
 
 	// ── Pre-inFlight slash command intercept (always immediate, never queued) ──
 	switch lowerTrimmed {

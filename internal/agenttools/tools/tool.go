@@ -111,10 +111,13 @@ const (
 // to do asynchronously" — it does not start a goroutine. The framework
 // is fully responsible for scheduling.
 type AsyncAction struct {
-	Target  iface.Locatable // target agent (already located)
-	Prompt  string          // task description to send
-	Timeout time.Duration   // delegation timeout
-	Context context.Context // optional target context; nil inherits the caller context
+	Target     iface.Locatable // target agent (already located)
+	Prompt     string          // task description to send
+	Timeout    time.Duration   // delegation timeout
+	Context    context.Context // optional target context; nil inherits the caller context
+	DispatchID string
+	OnEvent    func(iface.AgentEvent) error
+	OnFinish   func(error) error
 }
 
 // AsyncTool is an optional interface that tools may implement to declare an asynchronous execution intent.

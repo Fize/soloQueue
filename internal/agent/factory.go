@@ -713,8 +713,14 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		var delegateOpts []tools.DelegateToolOption
 		if tmpl.Group == "" {
 			delegateOpts = append(delegateOpts, tools.WithAlwaysAsyncDelegation())
+		} else {
+			delegateOpts = append(delegateOpts, tools.WithPeerTarget(func(target string) bool {
+				peer, ok := findLeaderTemplate(templates, target)
+				return ok && peer.ID != tmpl.ID
+			}))
 		}
 		dt := tools.NewDelegateTool(tmpl.ID, 25*time.Minute, delegateResolver, f.registry, f.log, workDirPolicy, delegateOpts...)
+		dt.PeerLocateOrSpawn = delegateResolver
 		dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 			if s, ok := mergedSkillReg.GetSkill(skillID); ok {
 				return s.Instructions, s.Agent, s.Dir, true
@@ -811,6 +817,9 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			}
 			allTools = append(allTools, mcpTools...)
 		}
+	}
+	if !strings.HasPrefix(tmpl.ID, "sim-") {
+		allTools = append(allTools, tools.NewInspectDelegationTool())
 	}
 
 	// 4. Build Option list
@@ -1136,8 +1145,9 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString("## MANDATORY Delegation Chain\n\n")
 		b.WriteString("You MUST follow this exact priority chain, in order, without skipping levels:\n\n")
 		b.WriteString("1. **Your Team Workers (FIRST)** — Delegate ALL sub-tasks that match a worker's domain. This is non-negotiable. Self-executing worker-level work is FORBIDDEN.\n\n")
-		b.WriteString("2. **Peer Teams (SECOND)** — If NO team worker can handle the sub-task, you MUST check all peer teams listed below. If a peer team's domain matches, you MUST delegate via `request_team_help(name, task, context)`. Skipping peer teams and going directly to self-execution is FORBIDDEN.\n\n")
+		b.WriteString("2. **Peer Teams (SECOND)** — If NO team worker can handle the sub-task, you MUST check all peer teams listed below. If a peer team's domain matches, you MUST call `delegate(target, task_name, task, context)`. The framework records this lateral call as peer help. Skipping peer teams and going directly to self-execution is FORBIDDEN.\n\n")
 		b.WriteString("3. **Self-execute (LAST RESORT)** — Only when BOTH team workers AND all peer teams are unsuitable. Self-execution is a delegation failure. Minimize it.\n\n")
+		b.WriteString("Every delegate call MUST include a concise, stable `task_name`. Use `inspect_delegation` to answer status or progress questions; never create another delegate call merely to check existing work.\n\n")
 		b.WriteString("## Available Peer Teams\n\n")
 		for _, peer := range peerLeaders {
 			desc := peer.Description

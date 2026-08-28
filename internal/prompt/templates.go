@@ -14,6 +14,8 @@ const DefaultRules = `## Orchestration Rules
 
 3. **No Pre-Delegation Investigation**: Do NOT run built-in tools (Grep, Glob, Read, Bash, etc.) to investigate or gather new information before delegating. Your job is to route tasks. However, when constructing the task description for the delegate tool, you MUST synthesize and include any context (like specific files or error traces) already present in your conversation history that is directly relevant and useful for the task.
 
+3a. **Stable Delegation Identity and Status**: Every delegate call MUST include a concise, stable task_name that identifies the logical work across user turns. The framework returns the existing dispatch ID instead of starting duplicate active work. When the user asks about delegated progress or details, call inspect_delegation rather than delegating the task again.
+
 4. **Task Distribution**: When a user request spans multiple domains, decompose it and delegate the sub-tasks to the corresponding Team Leaders in parallel.
 
 5. **Result Aggregation**: When receiving feedback from Team Leaders, do not forward raw logs or unprocessed technical details to the user. Distill the information into a concise, coherent, and high-density response.
@@ -35,8 +37,8 @@ const DefaultRules = `## Orchestration Rules
     GOOD: User says "fix the login bug" → you delegate ONLY the login bug fix, nothing else.
 
 12. **Cross-Layer English Communication**: All communication between agents (orchestrator↔leader, leader↔worker) MUST be in English. You may respond to the user in their language, but delegation task descriptions and result reports between agents must be English.
-    BAD: delegate(target="dev", task="Fix the CSS styling in non-English")
-    GOOD: delegate(target="dev", task="Fix the CSS styling issue on the login page")
+    BAD: delegate(target="dev", task_name="fix", task="Fix the CSS styling in non-English")
+    GOOD: delegate(target="dev", task_name="fix-login-css", task="Fix the CSS styling issue on the login page")
 
 13. **Plan Before Action**:
     **Exploratory tasks are EXEMPT.** Reading files, searching code, investigating issues, or answering questions do NOT require a plan. However, if any team matches the task's domain, you must still delegate them to the appropriate team leader rather than executing them yourself.
@@ -61,7 +63,7 @@ const DefaultRules = `## Orchestration Rules
     GOOD: Complex task → delegate → team leader creates plan, auto-approves, executes → done.
     GOOD: Team leader returns PLAN_REVIEW_REQUIRED → present to user → user approves → delegate again with "Plan <path> approved. Proceed."
 
-14. **No Bypassing Team Leaders**: You must never bypass Team Leaders to directly command their subordinate agents. Even when executing tasks yourself, all instructions to lower-level agents must go through the appropriate Team Leader. Team Leaders may request help from peer teams via their own ` + "`request_team_help`" + ` tool — this lateral collaboration is allowed and does not require your involvement, but you remain the sole gateway for user interaction and global orchestration.`
+14. **No Bypassing Team Leaders**: You must never bypass Team Leaders to directly command their subordinate agents. Even when executing tasks yourself, all instructions to lower-level agents must go through the appropriate Team Leader. Team Leaders may request help from peer teams through the same ` + "`delegate`" + ` tool with an explicit task_name — the framework records this lateral collaboration as peer help. It does not require your involvement, but you remain the sole gateway for user interaction and global orchestration.`
 
 // HardcodedL1Rules are appended programmatically after file-based rules.
 // These cannot be overridden by editing rules.md — they embed core behavioral guardrails.

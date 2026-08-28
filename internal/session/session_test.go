@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,12 +17,66 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
+	"github.com/xiaobaitu/soloqueue/internal/dispatch"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
+
+func TestSessionOwnsDispatchManagerAndClearRetainsArtifacts(t *testing.T) {
+	root := t.TempDir()
+	tw, err := timeline.NewWriter(root, "timeline", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tw.Close() })
+	a := agent.NewAgent(agent.Definition{ID: "test-agent"}, &agenttest.FakeLLM{}, nil, agent.WithTools(syncEchoTool{}))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	s := NewSession("session-1", "default", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), tw, nil)
+	if s.dispatchManager == nil || !a.HasTool("inspect_delegation") {
+		t.Fatal("session must create its dispatch manager and inspection tool")
+	}
+	created, err := s.dispatchManager.Begin(dispatch.BeginInput{TaskName: "retain", Task: "Retain this.", Requester: "L1", Executor: "dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	metaPath := filepath.Join(root, "delegations", created.Record.ID, "meta.json")
+	if _, err := os.Stat(metaPath); err != nil {
+		t.Fatalf("soft clear removed dispatch artifact: %v", err)
+	}
+}
+
+func TestSessionRejectsAskWhenDispatchManagerInitializationFails(t *testing.T) {
+	root := t.TempDir()
+	tw, err := timeline.NewWriter(root, "timeline", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tw.Close() })
+	if err := os.WriteFile(filepath.Join(root, "delegations"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := agent.NewAgent(agent.Definition{ID: "test-agent"}, &agenttest.FakeLLM{Responses: []string{"must not run"}}, nil, agent.WithTools(syncEchoTool{}))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	s := NewSession("session-1", "default", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), tw, nil)
+	if _, err := s.Ask(context.Background(), "hello"); err == nil || !strings.Contains(err.Error(), "dispatch manager") {
+		t.Fatalf("Ask error=%v", err)
+	}
+	if _, err := s.AskStream(context.Background(), "hello"); err == nil || !strings.Contains(err.Error(), "dispatch manager") {
+		t.Fatalf("AskStream error=%v", err)
+	}
+}
 
 // ─── Test helpers ──────────────────────────────────────────────────────
 

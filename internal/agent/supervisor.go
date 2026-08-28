@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // ─── Supervisor ────────────────────────────────────────────────────────────
@@ -33,7 +33,6 @@ type childSlot struct {
 	cw        *ctxwin.ContextWindow
 	createdAt time.Time
 }
-
 
 func NewSupervisor(agent *Agent, factory AgentFactory, log *logger.Logger) *Supervisor {
 	return &Supervisor{
@@ -167,7 +166,6 @@ func (s *Supervisor) ReapAll(timeout time.Duration) []error {
 	return errs
 }
 
-
 func (s *Supervisor) Children() []*Agent {
 	s.childMu.RLock()
 	defer s.childMu.RUnlock()
@@ -206,9 +204,7 @@ func (s *Supervisor) SetGroup(g string) { s.group = g }
 // Group returns the team group name.
 func (s *Supervisor) Group() string { return s.group }
 
-
 func (s *Supervisor) Agent() *Agent { return s.agent }
-
 
 func (s *Supervisor) ChildCount() int {
 	s.childMu.RLock()
@@ -238,7 +234,15 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 	}
 	if t, ok := l2.tools.Get("delegate"); ok {
 		if dt, ok2 := t.(*tools.DelegateTool); ok2 {
+			if dt.PeerLocateOrSpawn == nil {
+				dt.PeerLocateOrSpawn = dt.LocateOrSpawn
+			}
 			dt.LocateOrSpawn = func(ctx context.Context, targetName, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
+				for _, candidate := range allTemplates {
+					if candidate.IsLeader && candidate.ID != l2.Def.ID && strings.EqualFold(candidate.ID, targetName) && dt.PeerLocateOrSpawn != nil {
+						return dt.PeerLocateOrSpawn(ctx, targetName, systemPrompt, modelID, task, workDir, skillID)
+					}
+				}
 				if loc, ok := s.factory.Registry().LocateIdleInWorkDir(targetName, s.Agent().WorkDir); ok {
 					return loc, false, nil
 				}

@@ -14,6 +14,7 @@ import (
 type Writer struct {
 	rw     *rotating.DateSizeWriter
 	logger *logger.Logger
+	dir    string
 }
 
 // WriterOption is an optional configuration for Writer.
@@ -32,12 +33,15 @@ func NewWriter(dir, baseName string, maxBytes int64, maxDays int, opts ...Writer
 	if err != nil {
 		return nil, fmt.Errorf("timeline: open rotating writer: %w", err)
 	}
-	w := &Writer{rw: rw}
+	w := &Writer{rw: rw, dir: dir}
 	for _, opt := range opts {
 		opt(w)
 	}
 	return w, nil
 }
+
+// Dir returns the session timeline directory owned by this writer.
+func (w *Writer) Dir() string { return w.dir }
 
 // AppendMessage appends a message event.
 func (w *Writer) AppendMessage(msg *MessagePayload) error {
