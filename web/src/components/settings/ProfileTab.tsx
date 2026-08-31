@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Save, Heart, Scale, Eye, Pencil, Loader2, FileText } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
 
@@ -144,6 +145,8 @@ function CustomRulesSection() {
   const [editingFile, setEditingFile] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const { t } = useTranslation()
 
   const loadRules = useCallback(async () => {
@@ -178,16 +181,20 @@ function CustomRulesSection() {
     }
   }
 
-  const handleDelete = async (filename: string) => {
-    if (!window.confirm(t('profile.deleteRuleConfirm'))) return
+  const handleDelete = async () => {
+    if (!deleteTarget || deleting) return
     try {
-      await deleteGlobalRule(filename)
-      if (editingFile === filename) {
+      setDeleting(true)
+      await deleteGlobalRule(deleteTarget)
+      if (editingFile === deleteTarget) {
         setEditingFile(null)
       }
       await loadRules()
+      setDeleteTarget(null)
     } catch (e) {
       console.error(e)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -259,7 +266,7 @@ function CustomRulesSection() {
               </div>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => startEdit(file.filename)}>{t('common.edit')}</Button>
-                <Button size="sm" variant="destructive" onClick={() => handleDelete(file.filename)}>{t('profile.deleteRule')}</Button>
+                <Button size="sm" variant="destructive" onClick={() => setDeleteTarget(file.filename)}>{t('profile.deleteRule')}</Button>
               </div>
             </div>
           ))}
@@ -287,6 +294,17 @@ function CustomRulesSection() {
           />
         </div>
       )}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null)
+        }}
+        title={t('profile.deleteRule')}
+        message={t('profile.deleteRuleConfirm')}
+        confirmLabel={t('profile.deleteRule')}
+        loading={deleting}
+        onConfirm={handleDelete}
+      />
     </div>
   )
 }
