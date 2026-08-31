@@ -11,6 +11,7 @@ import { SegmentView, LoadingIndicator } from './chat/SegmentView'
 import { WorkedSegment } from './chat/WorkedSegment'
 import { DelegationGroupView } from './chat/DelegationGroupView'
 import { MessageImageGallery } from './chat/ToolCallSegment'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 export interface ChatMessageProps {
   message: ChatMessage
@@ -31,6 +32,8 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
   const deleteSessionMessages = useChatStore((s) => s.deleteSessionMessages)
   const currentSessionId = sessionId || activeSessionId
   const compact = isDesignMode
+  const [confirmAction, setConfirmAction] = useState<'rewind' | 'delete' | null>(null)
+  const [actionLoading, setActionLoading] = useState(false)
   const modelColorVar = useMemo(() => getModelColorVar(isUser ? undefined : modelName), [isUser, modelName])
   // Memoize the grouping so that re-renders caused by stable references
   // (e.g. parent re-render that didn't change segments) skip the work, and
@@ -38,31 +41,24 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
   // do not change the structural shape of the segments.
   const grouped = useMemo(() => groupSegments(message.segments), [message.segments])
 
-  const handleRewind = async () => {
-    if (!currentSessionId || !message.timestamp) return
-    const text = extractFullContent(message)
-    const confirmMsg = t('chat.confirmRewind') || 'Are you sure you want to rewind the session to this point? The text will be moved to the input box for editing, but history after this point will be truncated.'
-    if (!window.confirm(confirmMsg)) return
-
+  const handleConfirmAction = async () => {
+    if (!confirmAction || actionLoading || !currentSessionId || !message.timestamp) return
+    setActionLoading(true)
     try {
-      await rewindSession(currentSessionId, message.timestamp)
-      window.dispatchEvent(new CustomEvent('fill-chat-input', { detail: text }))
-      toast.success(t('chat.rewindSuccess') || 'Session rewound successfully')
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to rewind session')
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!currentSessionId || !message.timestamp) return
-    const confirmMsg = t('chat.confirmDelete') || 'Are you sure you want to delete this message? The AI response pair will also be deleted.'
-    if (!window.confirm(confirmMsg)) return
-
-    try {
-      await deleteSessionMessages(currentSessionId, [message.timestamp])
-      toast.success(t('chat.deleteSuccess') || 'Message deleted successfully')
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to delete message')
+      if (confirmAction === 'rewind') {
+        await rewindSession(currentSessionId, message.timestamp)
+        window.dispatchEvent(new CustomEvent('fill-chat-input', { detail: extractFullContent(message) }))
+        toast.success(t('chat.rewindSuccess') || 'Session rewound successfully')
+      } else {
+        await deleteSessionMessages(currentSessionId, [message.timestamp])
+        toast.success(t('chat.deleteSuccess') || 'Message deleted successfully')
+      }
+      setConfirmAction(null)
+    } catch (error) {
+      const fallback = confirmAction === 'rewind' ? 'Failed to rewind session' : 'Failed to delete message'
+      toast.error(error instanceof Error ? error.message : fallback)
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -225,7 +221,7 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
                 <>
                   <button
                     type="button"
-                    onClick={handleRewind}
+                    onClick={() => setConfirmAction('rewind')}
                     className="p-1 rounded text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
                     title={t('chat.rewindAndEdit') || 'Rewind & Edit'}
                   >
@@ -233,7 +229,7 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
                   </button>
                   <button
                     type="button"
-                    onClick={handleDelete}
+                    onClick={() => setConfirmAction('delete')}
                     className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
                     title={t('chat.deleteMessage') || 'Delete'}
                   >
@@ -246,6 +242,17 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmAction !== null}
+        onOpenChange={(open) => {
+          if (!open && !actionLoading) setConfirmAction(null)
+        }}
+        title={confirmAction === 'rewind' ? t('chat.rewindAndEdit') : t('chat.deleteMessage')}
+        message={confirmAction === 'rewind' ? t('chat.confirmRewind') : t('chat.confirmDelete')}
+        confirmLabel={confirmAction === 'rewind' ? t('common.confirm') : t('chat.deleteMessage')}
+        loading={actionLoading}
+        onConfirm={handleConfirmAction}
+      />
     </div>
   )
 }
@@ -376,7 +383,12 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(text)
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
+        await navigator.clipboard.writeText(text)
+      } catch {
+        copyTextWithDom(text)
+      }
       setCopied(true)
       toast.success(label === 'Copy' ? t('common.copiedToClipboard') : t('common.copiedSuccess'))
       setTimeout(() => setCopied(false), 2000)
@@ -393,6 +405,23 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
       {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
     </button>
   )
+}
+
+function copyTextWithDom(text: string) {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.readOnly = true
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+
+  try {
+    if (!document.execCommand?.('copy')) throw new Error('DOM copy failed')
+  } finally {
+    textarea.remove()
+  }
 }
 
 function extractFullContent(msg: ChatMessage): string {
