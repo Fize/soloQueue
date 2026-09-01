@@ -264,25 +264,6 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
               }
             />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">
-              {t('config.toolsConfirmCommandRegex')}
-            </label>
-            <Input
-              type="text"
-              placeholder={t('config.toolsConfirmCommandPlaceholder')}
-              value={config.shellConfirmRegexes?.join(', ') || ''}
-              onChange={(e) =>
-                onChange({
-                  ...config,
-                  shellConfirmRegexes: e.target.value
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                })
-              }
-            />
-          </div>
         </div>
       </div>
     </div>

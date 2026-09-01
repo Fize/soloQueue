@@ -341,9 +341,6 @@ function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
       }
     }
 
-    if (seg.type === 'tool_confirm') {
-      continue
-    }
 
     const isDelegation =
       seg.type === 'delegation' || 

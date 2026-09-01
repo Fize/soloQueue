@@ -141,8 +141,6 @@ function SegmentViewInner({
           onUserInteraction={onUserInteraction}
         />
       )
-    case 'tool_confirm':
-      return null
     case 'delegation':
       return <SubagentCard segment={segment} />
     case 'error':

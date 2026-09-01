@@ -249,14 +249,6 @@ describe('chatStore', () => {
           task: 'write report',
           status: 'running' as const,
         },
-        {
-          type: 'tool_confirm' as const,
-          callId: 'confirm-1',
-          name: 'Write',
-          prompt: 'Allow write?',
-          allowInSession: false,
-          resolved: false,
-        },
       ],
     }
     const parallelMessage = {
@@ -265,14 +257,6 @@ describe('chatStore', () => {
       timestamp: '',
       segments: [
         { type: 'tool_call' as const, callId: 'read-2', name: 'Read', args: '{}', done: false },
-        {
-          type: 'tool_confirm' as const,
-          callId: 'confirm-2',
-          name: 'Shell',
-          prompt: 'Allow command?',
-          allowInSession: false,
-          resolved: false,
-        },
       ],
     }
     useChatStore.setState({ messages: { [sid]: [ownedMessage, parallelMessage] } })

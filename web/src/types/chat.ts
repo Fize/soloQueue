@@ -67,15 +67,6 @@ export interface WSToolDone {
   duration_ms: number;
 }
 
-export interface WSToolConfirm {
-  type: "tool_confirm";
-  request_id: string;
-  call_id: string;
-  name: string;
-  prompt: string;
-  allow_in_session: boolean;
-}
-
 export interface WSChatDone {
   type: "chat_done";
   request_id: string;
@@ -156,7 +147,6 @@ export type WSMessage =
   | WSReasoningChunk
   | WSToolStart
   | WSToolDone
-  | WSToolConfirm
   | WSChatDone
   | WSChatError
   | WSChatQueued
@@ -187,17 +177,9 @@ export interface ClientChatCancel {
   session_id: string;
 }
 
-export interface ClientToolConfirm {
-  type: "tool_confirm";
-  call_id: string;
-  choice: string;
-  session_id: string;
-}
-
 export type ClientMessage =
   | ClientChatSend
-  | ClientChatCancel
-  | ClientToolConfirm;
+  | ClientChatCancel;
 
 // ─── Chat Types ────────────────────────────────────────────────────────────
 
@@ -256,16 +238,7 @@ export type ChatSegment =
       durationMs?: number;
       resultContent?: string;
     }
-  | { type: "error"; text: string }
-  | {
-      type: "tool_confirm";
-      callId: string;
-      name: string;
-      prompt: string;
-      allowInSession: boolean;
-      resolved: boolean;
-      choice?: string;
-    };
+  | { type: "error"; text: string };
 
 export interface SessionListResponse {
   sessions: ChatSession[];
@@ -289,7 +262,6 @@ export interface SessionHistorySegment {
     | "tool_call"
     | "delegation"
     | "error"
-    | "tool_confirm"
     | "compact";
   text?: string;
   call_id?: string;
@@ -302,10 +274,6 @@ export interface SessionHistorySegment {
   status?: string;
   agent_name?: string;
   task?: string;
-  prompt?: string;
-  allow_in_session?: boolean;
-  resolved?: boolean;
-  choice?: string;
 }
 
 export interface SessionHistoryMessage {

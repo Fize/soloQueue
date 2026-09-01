@@ -397,7 +397,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [isLeader, setIsLeader] = useState(false)
   const [model, setModel] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
-  const [permission, setPermission] = useState(true)
   const [mcpServers, setMcpServers] = useState<string[]>([])
   const [skillIds, setSkillIds] = useState<string[]>([])
   const [qqChannel, setQqChannel] = useState('')
@@ -432,7 +431,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setIsLeader(editAgent.is_leader)
         setModel(editAgent.model || '')
         setSystemPrompt(editAgent.system_prompt || '')
-        setPermission(editAgent.permission)
         setMcpServers(editAgent.mcp_servers || [])
         setSkillIds(editAgent.skill_ids || [])
         const channels = editAgent.channels || {}
@@ -446,7 +444,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setIsLeader(false)
         setModel('')
         setSystemPrompt('')
-        setPermission(true)
         setMcpServers([])
         setSkillIds([])
         setQqChannel('')
@@ -535,7 +532,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           is_leader: isLeader,
           model: model || undefined,
           system_prompt: systemPrompt || undefined,
-          permission,
           mcp_servers: mcpServers.length > 0 ? mcpServers : undefined,
           skill_ids: skillIds.length > 0 ? skillIds : undefined,
           channels: channelsPayload,
@@ -549,7 +545,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           is_leader: isLeader,
           model: model || undefined,
           system_prompt: systemPrompt || undefined,
-          permission,
           mcp_servers: mcpServers.length > 0 ? mcpServers : undefined,
           skill_ids: skillIds.length > 0 ? skillIds : undefined,
           channels: channelsPayload,
@@ -563,7 +558,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
     } finally {
       setSaving(false)
     }
-  }, [name, description, teamName, isLeader, model, systemPrompt, permission, mcpServers, skillIds, qqChannel, wechatChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
+  }, [name, description, teamName, isLeader, model, systemPrompt, mcpServers, skillIds, qqChannel, wechatChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -722,24 +717,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
               </p>
             </div>
 
-            <div className="flex flex-col gap-2 rounded-lg border border-border p-3 bg-muted/5">
-              <div className="flex items-center justify-between">
-                <Label
-                  className="text-xs font-semibold cursor-pointer text-foreground"
-                  htmlFor="permission-switch"
-                >
-                  {t('teams.bypassConfirm')}
-                </Label>
-                <Switch
-                  id="permission-switch"
-                  checked={permission}
-                  onCheckedChange={setPermission}
-                />
-              </div>
-              <p className="text-[10px] text-muted-foreground leading-normal">
-                {t('teams.bypassConfirmDesc')}
-              </p>
-            </div>
           </div>
 
           {/* Channel Binding */}
@@ -1204,11 +1181,6 @@ export default function TeamsTab() {
                     {agent.is_leader && (
                       <Badge variant="primary" className="text-[10px]">
                         {t('teams.leader')}
-                      </Badge>
-                    )}
-                    {agent.permission && (
-                      <Badge variant="success" className="text-[10px]">
-                        {t('teams.bypass')}
                       </Badge>
                     )}
                   </div>

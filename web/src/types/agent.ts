@@ -183,7 +183,6 @@ export interface AgentResponse {
   is_leader: boolean;
   model: string;
   system_prompt: string;
-  permission: boolean;
   mcp_servers: string[];
   skill_ids: string[];
   channels?: Record<string, string>;
@@ -253,7 +252,6 @@ export interface CreateAgentRequest {
   is_leader?: boolean;
   model?: string;
   system_prompt?: string;
-  permission?: boolean;
   mcp_servers?: string[];
   skill_ids?: string[];
   channels?: Record<string, string>;
@@ -266,7 +264,6 @@ export interface UpdateAgentRequest {
   is_leader?: boolean;
   model?: string;
   system_prompt?: string;
-  permission?: boolean;
   mcp_servers?: string[];
   skill_ids?: string[];
   channels?: Record<string, string> | null;
