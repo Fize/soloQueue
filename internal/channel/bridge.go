@@ -128,7 +128,7 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 			return
 		default:
 			b.log.WarnContext(ctx, logger.CatApp, "channel session request failed", "channel", msg.Channel, "err", err.Error())
-			b.send(ctx, msg, errorReply+err.Error())
+			b.send(ctx, msg, errorReply+UserFacingError(err))
 		}
 		return
 	}
@@ -254,19 +254,22 @@ func (b *TextBridge) handleCommand(ctx context.Context, msg Message) bool {
 		b.send(ctx, msg, "SoloQueue "+b.version)
 	case "/cancel":
 		if err := b.sess.CancelCurrent("user requested cancellation"); err != nil {
-			b.send(ctx, msg, errorReply+err.Error())
+			b.log.WarnContext(ctx, logger.CatApp, "channel cancel failed", "channel", msg.Channel, "err", err.Error())
+			b.send(ctx, msg, errorReply+UserFacingError(err))
 		} else {
 			b.send(ctx, msg, "Current task cancelled.")
 		}
 	case "/clear":
 		if err := b.sess.Clear(ctx); err != nil {
-			b.send(ctx, msg, errorReply+err.Error())
+			b.log.WarnContext(ctx, logger.CatApp, "channel clear failed", "channel", msg.Channel, "err", err.Error())
+			b.send(ctx, msg, errorReply+UserFacingError(err))
 		} else {
 			b.send(ctx, msg, "Context cleared.")
 		}
 	case "/compact":
 		if err := b.sess.Compact(ctx); err != nil {
-			b.send(ctx, msg, errorReply+err.Error())
+			b.log.WarnContext(ctx, logger.CatApp, "channel compact failed", "channel", msg.Channel, "err", err.Error())
+			b.send(ctx, msg, errorReply+UserFacingError(err))
 		} else {
 			b.send(ctx, msg, "Context compressed.")
 		}

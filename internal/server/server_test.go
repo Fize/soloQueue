@@ -29,6 +29,31 @@ func startTestServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
+func TestTriggerOnConfigChangePassesCommittedSettings(t *testing.T) {
+	cfg, err := config.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed, err := cfg.Set(func(settings *config.Settings) {
+		settings.Log.Level = "debug"
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got config.Settings
+	mux := &Mux{
+		configSvc: cfg,
+		onConfigChange: func(settings config.Settings) error {
+			got = settings
+			return nil
+		},
+	}
+	mux.triggerOnConfigChange()
+	if got.Log.Level != committed.Log.Level {
+		t.Fatalf("callback log level = %q, want committed %q", got.Log.Level, committed.Log.Level)
+	}
+}
+
 func TestHTTP_Health(t *testing.T) {
 	srv := startTestServer(t)
 	resp, err := http.Get(srv.URL + "/healthz")

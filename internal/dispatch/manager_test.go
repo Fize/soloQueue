@@ -10,6 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 func TestManagerBeginPersistsAndDeduplicatesActiveWork(t *testing.T) {
@@ -69,6 +72,84 @@ func TestManagerBeginPersistsAndDeduplicatesActiveWork(t *testing.T) {
 	conflict.Task = "Replace the cache implementation."
 	if _, err := m.Begin(conflict); !errors.Is(err, ErrActiveConflict) {
 		t.Fatalf("changed-content Begin error = %v, want ErrActiveConflict", err)
+	}
+}
+
+func TestFinishPersistsTypedWatchdogTerminalCode(t *testing.T) {
+	for _, code := range []runwatch.Code{
+		runwatch.CodeDelegationOrphaned,
+		runwatch.CodeModelSemanticStalled,
+		runwatch.CodeCancelledByUser,
+	} {
+		t.Run(string(code), func(t *testing.T) {
+			m, err := NewManager(t.TempDir(), "session-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := m.Begin(BeginInput{TaskName: string(code), Task: "typed terminal", Requester: "L1", Executor: "worker"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cause := &runwatch.Cause{Code: code, OperationID: created.Record.ID}
+			if err := m.Finish(created.Record.ID, StatusInterrupted, cause); err != nil {
+				t.Fatal(err)
+			}
+			record, ok := m.Get(created.Record.ID)
+			if !ok || record.TerminalCode != string(code) {
+				t.Fatalf("record = %#v, want terminal_code %q", record, code)
+			}
+		})
+	}
+}
+
+func TestBeginAndStructuralProgressPersistAuthoritativeRunCorrelation(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "session-correlation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := m.Begin(BeginInput{TaskName: "correlate", Task: "work", Requester: "L1", Executor: "worker", RunID: "run-root", Phase: "delegating"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Record.RunID != "run-root" || created.Record.Phase != "delegating" || created.Record.LastProgressAt.IsZero() {
+		t.Fatalf("created record lacks correlation: %+v", created.Record)
+	}
+	if err := m.AppendProgress(created.Record.ID, "agent_event:done", nil, "run-root", "worker_done"); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := m.Get(created.Record.ID)
+	if rec.RunID != "run-root" || rec.Phase != "worker_done" || !rec.LastProgressAt.After(created.Record.LastProgressAt) {
+		t.Fatalf("structural progress not durable: %+v", rec)
+	}
+}
+
+func TestManager_CheckpointCoalescesHighFrequencyProgress(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "session-checkpoint")
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	created, err := m.Begin(BeginInput{TaskName: "stream", Task: "Stream tokens", Requester: "L1", Executor: "worker"})
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	writeCount := 0
+	originalWrite := m.writeEvent
+	m.writeEvent = func(file *os.File, data []byte) (int, error) {
+		writeCount++
+		return originalWrite(file, data)
+	}
+
+	for range 1_000 {
+		if err := m.Checkpoint(created.Record.ID, "run-1", "streaming", 30*time.Second); err != nil {
+			t.Fatalf("Checkpoint() error = %v", err)
+		}
+	}
+	if writeCount > 1 {
+		t.Fatalf("1,000 progress pulses produced %d durable writes", writeCount)
+	}
+	record, ok := m.Get(created.Record.ID)
+	if !ok || record.RunID != "run-1" || record.Phase != "streaming" || record.LastProgressAt.IsZero() {
+		t.Fatalf("checkpoint record = %+v, found=%v", record, ok)
 	}
 }
 
@@ -174,7 +255,7 @@ func TestManagerRestartRepairsProjectionAndInterruptsActiveWork(t *testing.T) {
 	if !ok {
 		t.Fatal("restarted manager did not load dispatch")
 	}
-	if record.Status != StatusInterrupted || record.Kind != KindPeerHelp {
+	if record.Status != StatusInterrupted || record.Kind != KindPeerHelp || record.TerminalCode != "interrupted_by_restart" {
 		t.Fatalf("reconciled record = %#v", record)
 	}
 	if record.RootID != "dlg_root" || record.ParentID != "dlg_parent" {

@@ -333,7 +333,7 @@ func (m *Mux) handleUpdateModelRoutes(w http.ResponseWriter, r *http.Request) {
 
 func (m *Mux) triggerOnConfigChange() {
 	if m.onConfigChange != nil {
-		if err := m.onConfigChange(); err != nil && m.log != nil {
+		if err := m.onConfigChange(m.configSvc.Get()); err != nil && m.log != nil {
 			m.log.WarnContext(rContext(), logger.CatConfig, "onConfigChange callback failed", "err", err.Error())
 		}
 	}

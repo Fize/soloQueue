@@ -26,8 +26,7 @@ const msgQueueInterval = 1700 * time.Millisecond
 
 // startQQBots creates QQ Bot gateways with dedicated loggers and rate-limiting
 // queues. Returns empty slices when no QQ bot is enabled.
-func startQQBots(cfg *config.GlobalService, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) ([]*qqbot.Gateway, []*qqbot.MessageQueue, []*qqbot.SessionBridge) {
-	settings := cfg.Get()
+func startQQBots(settings config.Settings, mgr *session.SessionManager, l2Store *session.L2SessionStore, rt *runtime.Stack, workDir string, version string, mainLog *logger.Logger, supervisorsFn func() []*agent.Supervisor, registry *agent.Registry) ([]*qqbot.Gateway, []*qqbot.MessageQueue, []*qqbot.SessionBridge) {
 	var gateways []*qqbot.Gateway
 	var queues []*qqbot.MessageQueue
 	var bridges []*qqbot.SessionBridge
@@ -215,6 +214,11 @@ func NewQQBotManager(cfg *config.GlobalService, mgr *session.SessionManager, l2S
 
 // Reload stops all running gateways and starts fresh ones from current config.
 func (m *QQBotManager) Reload() {
+	m.ReloadWithSettings(m.cfg.Get())
+}
+
+// ReloadWithSettings rebuilds gateways from an accepted settings snapshot.
+func (m *QQBotManager) ReloadWithSettings(settings config.Settings) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -231,7 +235,7 @@ func (m *QQBotManager) Reload() {
 		}
 	}
 
-	gateways, queues, bridges := startQQBots(m.cfg, m.mgr, m.l2Store, m.rt, m.workDir, m.version, m.mainLog, m.supervisorsFn, m.registry)
+	gateways, queues, bridges := startQQBots(settings, m.mgr, m.l2Store, m.rt, m.workDir, m.version, m.mainLog, m.supervisorsFn, m.registry)
 	m.gateways = gateways
 	m.queues = queues
 	m.bridges = bridges

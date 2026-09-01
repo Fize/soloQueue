@@ -12,18 +12,14 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/dispatch"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // --- Delegate constants ---
 
 const (
-	// DelegateDefaultTimeout is the default delegation task timeout.
-	DelegateDefaultTimeout = 25 * time.Minute
-
-	// DelegateMaxTimeout is the maximum allowed delegation task timeout.
-	DelegateMaxTimeout = 30 * time.Minute
-
 	// maxPeerDepth limits how many L2→L2 hops a single task can make.
 	maxPeerDepth = 2
 )
@@ -90,20 +86,31 @@ func WithPeerTarget(match func(string) bool) DelegateToolOption {
 	return func(dt *DelegateTool) { dt.isPeerTarget = match }
 }
 
+func WithProgressCheckpointInterval(interval time.Duration) DelegateToolOption {
+	return func(dt *DelegateTool) {
+		if interval > 0 {
+			dt.progressCheckpointInterval = interval
+		}
+	}
+}
+
 // DelegateTool delegates tasks to other agents or team leaders.
 // Statically named "delegate" to guarantee LLM Prompt Caching is never broken.
 type DelegateTool struct {
-	SelfName              string
-	Timeout               time.Duration
-	WorkDirPolicy         DelegateWorkDirPolicy
-	logger                *logger.Logger
-	Locator               iface.AgentLocator
-	LocateOrSpawn         LocateOrSpawnResolver
-	PeerLocateOrSpawn     LocateOrSpawnResolver
-	Reap                  func(loc iface.Locatable)
-	SkillInstructionsLook func(skillID string) (instructions string, agentName string, skillDir string, ok bool)
-	alwaysAsync           bool
-	isPeerTarget          func(string) bool
+	SelfName string
+	// Timeout is retained for constructor/source compatibility only. Delegated
+	// execution is supervised by progress leases and does not use a total cap.
+	Timeout                    time.Duration
+	WorkDirPolicy              DelegateWorkDirPolicy
+	logger                     *logger.Logger
+	Locator                    iface.AgentLocator
+	LocateOrSpawn              LocateOrSpawnResolver
+	PeerLocateOrSpawn          LocateOrSpawnResolver
+	Reap                       func(loc iface.Locatable)
+	SkillInstructionsLook      func(skillID string) (instructions string, agentName string, skillDir string, ok bool)
+	alwaysAsync                bool
+	isPeerTarget               func(string) bool
+	progressCheckpointInterval time.Duration
 }
 
 var (
@@ -120,12 +127,13 @@ func NewDelegateTool(selfName string, timeout time.Duration, resolver LocateOrSp
 		}
 	}
 	dt := &DelegateTool{
-		SelfName:      selfName,
-		Timeout:       timeout,
-		LocateOrSpawn: resolver,
-		Locator:       locator,
-		WorkDirPolicy: workDirPolicy,
-		logger:        l,
+		SelfName:                   selfName,
+		Timeout:                    timeout,
+		LocateOrSpawn:              resolver,
+		Locator:                    locator,
+		WorkDirPolicy:              workDirPolicy,
+		logger:                     l,
+		progressCheckpointInterval: 30 * time.Second,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -296,7 +304,15 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 			retErr = errors.Join(panicErr, finish(dispatch.StatusFailed, panicErr))
 		}
 	}()
-
+	var delegationWatch *runwatch.Handle
+	if parent := runwatch.HandleFromContext(delCtx); parent != nil && dispatchID != "" {
+		delegationWatch, err = parent.BeginOperation(runwatch.KindDelegation, dispatchID, runwatch.Policy{})
+		if err != nil {
+			return "", errors.Join(err, finish(dispatch.StatusFailed, err))
+		}
+		delCtx = runwatch.ContextWithHandle(delCtx, delegationWatch)
+		defer delegationWatch.Complete()
+	}
 	// 2. Resolve work directory
 	workDir, err := dt.resolveWorkDir(ctx, dArgs.WorkDir)
 	if err != nil {
@@ -334,35 +350,14 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 		prompt = fmt.Sprintf("Context: %s\n\nTask: %s", dArgs.Context, dArgs.Task)
 	}
 
-	// 5. Apply delegation timeout to the validated child context.
-	timeout := dt.Timeout
-	if timeout <= 0 {
-		timeout = DelegateDefaultTimeout
-	}
-	if timeout > DelegateMaxTimeout {
-		timeout = DelegateMaxTimeout
-	}
-	delCtx, cancel := context.WithTimeout(delCtx, timeout)
-	defer cancel()
-
-	if params := iface.ModelOverrideFromContext(ctx); params != nil {
-		if mo, ok := targetAgent.(iface.ModelOverridable); ok {
-			mo.SetModelOverride(params)
-		}
-	}
-
 	if dt.logger != nil {
 		dt.logger.InfoContext(ctx, logger.CatTool, "delegate: calling AskStream on target",
-			"self", dt.SelfName, "target", dArgs.Target, "timeout_sec", timeout.Seconds())
+			"self", dt.SelfName, "target", dArgs.Target)
 	}
 
 	evCh, err := targetAgent.AskStream(delCtx, prompt)
 	if err != nil {
 		dt.maybeReap(targetAgent, isSpawned)
-		if delCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
-			wrapped := fmt.Errorf("delegation to %s timed out after %s", dArgs.Target, timeout)
-			return "", errors.Join(wrapped, finish(dispatch.StatusFailed, wrapped))
-		}
 		wrapped := fmt.Errorf("delegation to %s failed: %w", dArgs.Target, err)
 		return "", errors.Join(wrapped, finish(dispatch.StatusFailed, wrapped))
 	}
@@ -380,8 +375,14 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 			continue
 		}
 		eventCount++
+		runwatch.Pulse(delCtx, progressKindForAgentEvent(ev), phaseForAgentEvent(ev))
 		if scope, ok := dispatch.ScopeFromContext(delCtx); ok && dispatchID != "" {
-			persistenceErr = errors.Join(persistenceErr, scope.Manager.Append(dispatchID, fmt.Sprintf("agent_event:%T", ev), persistedAgentEvent(ev)))
+			meta := telemetryctx.FromContext(delCtx)
+			if isHighFrequencyAgentEvent(ev) {
+				persistenceErr = errors.Join(persistenceErr, scope.Manager.Checkpoint(dispatchID, meta.RunID, phaseForAgentEvent(ev), dt.progressCheckpointInterval))
+			} else {
+				persistenceErr = errors.Join(persistenceErr, scope.Manager.AppendProgress(dispatchID, fmt.Sprintf("agent_event:%T", ev), persistedAgentEvent(ev), meta.RunID, phaseForAgentEvent(ev)))
+			}
 		}
 
 		if parentEventCh != nil {
@@ -501,23 +502,37 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 	}
 	var finishOnce sync.Once
 	var terminalErr error
-	finish := func(finishErr error) error {
+	finish := func(status dispatch.Status, finishErr error) error {
 		finishOnce.Do(func() {
-			terminalErr = dt.finishDispatch(delCtx, dispatchID, dispatch.StatusFailed, finishErr)
+			terminalErr = dt.finishDispatch(delCtx, dispatchID, status, finishErr)
 		})
 		return terminalErr
+	}
+	var delegationWatch *runwatch.Handle
+	watchTransferred := false
+	defer func() {
+		if delegationWatch != nil && !watchTransferred {
+			delegationWatch.Complete()
+		}
+	}()
+	if parent := runwatch.HandleFromContext(delCtx); parent != nil && dispatchID != "" {
+		delegationWatch, err = parent.BeginOperation(runwatch.KindDelegation, dispatchID, runwatch.Policy{})
+		if err != nil {
+			return nil, errors.Join(err, finish(dispatch.StatusFailed, err))
+		}
+		delCtx = runwatch.ContextWithHandle(delCtx, delegationWatch)
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			panicErr := fmt.Errorf("delegate async setup %s panicked: %v", dispatchID, recovered)
 			action = nil
-			retErr = errors.Join(panicErr, finish(panicErr))
+			retErr = errors.Join(panicErr, finish(dispatch.StatusFailed, panicErr))
 		}
 	}()
 
 	workDir, err := dt.resolveWorkDir(ctx, dArgs.WorkDir)
 	if err != nil {
-		return nil, errors.Join(err, finish(err))
+		return nil, errors.Join(err, finish(dispatch.StatusFailed, err))
 	}
 
 	var target iface.Locatable
@@ -526,35 +541,21 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 		target, _, err = dt.LocateOrSpawn(delCtx, dArgs.Target, dArgs.SystemPrompt, dArgs.ModelID, dArgs.Task, workDir, dArgs.SkillID)
 		if err != nil {
 			wrapped := fmt.Errorf("failed to reach agent %q: %w", dArgs.Target, err)
-			return nil, errors.Join(wrapped, finish(wrapped))
+			return nil, errors.Join(wrapped, finish(dispatch.StatusFailed, wrapped))
 		}
 	} else if dt.Locator != nil {
 		var ok bool
 		target, ok = dt.Locator.Locate(dArgs.Target)
 		if !ok {
 			wrapped := fmt.Errorf("agent %q not found", dArgs.Target)
-			return nil, errors.Join(wrapped, finish(wrapped))
+			return nil, errors.Join(wrapped, finish(dispatch.StatusFailed, wrapped))
 		}
 	} else {
 		wrapped := errors.New("delegate tool: no locator or resolver configured")
-		return nil, errors.Join(wrapped, finish(wrapped))
+		return nil, errors.Join(wrapped, finish(dispatch.StatusFailed, wrapped))
 	}
 	if err := dt.assignExecutorInstance(delCtx, dispatchID, target); err != nil {
-		return nil, errors.Join(err, finish(err))
-	}
-
-	if params := iface.ModelOverrideFromContext(ctx); params != nil {
-		if mo, ok := target.(iface.ModelOverridable); ok {
-			mo.SetModelOverride(params)
-		}
-	}
-
-	timeout := dt.Timeout
-	if timeout <= 0 {
-		timeout = DelegateDefaultTimeout
-	}
-	if timeout > DelegateMaxTimeout {
-		timeout = DelegateMaxTimeout
+		return nil, errors.Join(err, finish(dispatch.StatusFailed, err))
 	}
 
 	prompt := dArgs.Task
@@ -562,26 +563,55 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 		prompt = fmt.Sprintf("Context: %s\n\nTask: %s", dArgs.Context, dArgs.Task)
 	}
 
-	return &AsyncAction{
+	action = &AsyncAction{
 		Target:     target,
 		Prompt:     prompt,
-		Timeout:    timeout,
+		Timeout:    0,
 		Context:    delCtx,
 		DispatchID: dispatchID,
 		OnEvent: func(ev iface.AgentEvent) error {
+			runwatch.Pulse(delCtx, progressKindForAgentEvent(ev), phaseForAgentEvent(ev))
 			if scope, ok := dispatch.ScopeFromContext(delCtx); ok {
-				return scope.Manager.Append(dispatchID, fmt.Sprintf("agent_event:%T", ev), persistedAgentEvent(ev))
+				meta := telemetryctx.FromContext(delCtx)
+				if isHighFrequencyAgentEvent(ev) {
+					return scope.Manager.Checkpoint(dispatchID, meta.RunID, phaseForAgentEvent(ev), dt.progressCheckpointInterval)
+				}
+				return scope.Manager.AppendProgress(dispatchID, fmt.Sprintf("agent_event:%T", ev), persistedAgentEvent(ev), meta.RunID, phaseForAgentEvent(ev))
 			}
 			return nil
 		},
 		OnFinish: func(err error) error {
+			if delegationWatch != nil {
+				defer delegationWatch.Complete()
+			}
 			status := dispatch.StatusCompleted
 			if err != nil {
 				status = dispatch.StatusFailed
 			}
-			return dt.finishDispatch(delCtx, dispatchID, status, err)
+			return finish(status, err)
 		},
-	}, nil
+	}
+	watchTransferred = true
+	return action, nil
+}
+
+func isHighFrequencyAgentEvent(ev iface.AgentEvent) bool {
+	typeName := fmt.Sprintf("%T", ev)
+	return strings.Contains(typeName, "ContentDeltaEvent") || strings.Contains(typeName, "ReasoningDeltaEvent") || strings.Contains(typeName, "ToolCallDeltaEvent")
+}
+
+func progressKindForAgentEvent(ev iface.AgentEvent) runwatch.ProgressKind {
+	if isHighFrequencyAgentEvent(ev) {
+		return runwatch.ProgressSemantic
+	}
+	return runwatch.ProgressStructural
+}
+
+func phaseForAgentEvent(ev iface.AgentEvent) string {
+	if isHighFrequencyAgentEvent(ev) {
+		return "streaming"
+	}
+	return "delegating"
 }
 
 func (dt *DelegateTool) beginDispatch(ctx context.Context, args delegateArgs) (string, bool, context.Context, error) {
@@ -596,6 +626,7 @@ func (dt *DelegateTool) beginDispatch(ctx context.Context, args delegateArgs) (s
 	result, err := scope.Manager.Begin(dispatch.BeginInput{
 		Kind: kind, TaskName: args.TaskName, Task: args.Task, Context: args.Context, Requester: dt.SelfName,
 		Executor: args.Target, RootID: scope.RootID, ParentID: scope.ParentID,
+		RunID: telemetryctx.FromContext(ctx).RunID, Phase: "delegating",
 	})
 	if err != nil {
 		return "", false, ctx, err
@@ -645,11 +676,8 @@ func (dt *DelegateTool) IsAsync() bool {
 	return true
 }
 
-func (dt *DelegateTool) PreferredTimeout() time.Duration {
-	if dt.Timeout > 0 {
-		return dt.Timeout
-	}
-	return DelegateDefaultTimeout
+func (dt *DelegateTool) ProgressSupervised() bool {
+	return true
 }
 
 // --- Context helpers for event relay & confirm routing ---

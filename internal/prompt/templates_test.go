@@ -88,6 +88,9 @@ func TestDefaultRules(t *testing.T) {
 	if !strings.Contains(DefaultRules, "need_clarification") {
 		t.Error("DefaultRules should reference need_clarification status")
 	}
+	if !strings.Contains(DefaultRules, "NEVER include them in a user-facing answer") {
+		t.Error("DefaultRules should keep internal identifiers out of user-facing answers")
+	}
 }
 
 func TestDefaultRules_EmotionalToneAdaptation(t *testing.T) {

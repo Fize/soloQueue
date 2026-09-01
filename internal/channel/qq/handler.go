@@ -324,7 +324,7 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 		}
 		b.log.WarnContext(ctx, logger.CatApp, "qqbot ask stream failed",
 			"err", err.Error())
-		b.sendReply(ctx, msg, MsgTypeText, errorPrefix+err.Error())
+		b.sendReply(ctx, msg, MsgTypeText, errorPrefix+channel.UserFacingError(err))
 		return
 	}
 
@@ -387,7 +387,8 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 
 	case "/cancel":
 		if err := b.sess.CancelCurrent("user requested cancellation"); err != nil {
-			b.sendReply(ctx, msg, MsgTypeText, "Cancellation failed: "+err.Error())
+			b.log.WarnContext(ctx, logger.CatApp, "qqbot cancellation failed", "err", err.Error())
+			b.sendReply(ctx, msg, MsgTypeText, "Cancellation failed: "+channel.UserFacingError(err))
 		} else {
 			b.sendReply(ctx, msg, MsgTypeText, "Current task cancelled")
 		}
@@ -395,7 +396,8 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 
 	case "/clear":
 		if err := b.sess.Clear(ctx); err != nil {
-			b.sendReply(ctx, msg, MsgTypeText, "Clear failed: "+err.Error())
+			b.log.WarnContext(ctx, logger.CatApp, "qqbot clear failed", "err", err.Error())
+			b.sendReply(ctx, msg, MsgTypeText, "Clear failed: "+channel.UserFacingError(err))
 		} else {
 			b.sendReply(ctx, msg, MsgTypeText, "Conversation history cleared")
 		}
@@ -403,7 +405,8 @@ func (b *SessionBridge) handleSlashCommand(ctx context.Context, msg QQMessage) b
 
 	case "/compact":
 		if err := b.sess.Compact(ctx); err != nil {
-			b.sendReply(ctx, msg, MsgTypeText, "Compact failed: "+err.Error())
+			b.log.WarnContext(ctx, logger.CatApp, "qqbot compact failed", "err", err.Error())
+			b.sendReply(ctx, msg, MsgTypeText, "Compact failed: "+channel.UserFacingError(err))
 		} else {
 			b.sendReply(ctx, msg, MsgTypeText, "Context window compacted (history summarized, no memory save)")
 		}

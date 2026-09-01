@@ -41,7 +41,6 @@ type WechatBotManager struct {
 type wechatCredentialStore struct {
 	cfg     *config.GlobalService
 	version string
-	onSaved func()
 }
 
 func (s *wechatCredentialStore) LocalTokens() []string {
@@ -77,9 +76,6 @@ func (s *wechatCredentialStore) SaveWechatCredential(_ context.Context, req wech
 	}
 	if err := s.cfg.UpdateWechatBots(bots); err != nil {
 		return err
-	}
-	if s.onSaved != nil {
-		s.onSaved()
 	}
 	return nil
 }
@@ -130,6 +126,11 @@ func NewWechatBotManager(cfg *config.GlobalService, mgr *session.SessionManager,
 }
 
 func (m *WechatBotManager) Reload() {
+	m.ReloadWithSettings(m.cfg.Get())
+}
+
+// ReloadWithSettings rebuilds gateways from an accepted settings snapshot.
+func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, gateway := range m.gateways {
@@ -139,7 +140,6 @@ func (m *WechatBotManager) Reload() {
 	m.bridges = nil
 	m.clients = make(map[string]*wechat.Client)
 
-	settings := m.cfg.Get()
 	var transcriber *qqbot.Transcriber
 	if settings.Speech.Enabled {
 		modelDir := settings.Speech.ModelDir
