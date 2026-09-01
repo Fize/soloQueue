@@ -12,12 +12,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 var bufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
@@ -37,8 +39,13 @@ type Config struct {
 	// Headers for additional HTTP headers (typically for proxy / custom routing)
 	Headers map[string]string
 
-	// TimeoutMs HTTP request timeout (milliseconds); 0 defaults to 600_000 (10min)
+	// TimeoutMs is a legacy explicit total request cap. Zero leaves total runtime
+	// unlimited so progress-aware watchdogs can supervise long streams.
 	TimeoutMs int
+
+	// TransportTimeout bounds one connection/response-header phase and the
+	// standalone stream-idle fallback. It never limits a progressing stream.
+	TransportTimeout time.Duration
 
 	// Retry policy; zero value means no retries
 	Retry llm.RetryPolicy
@@ -46,7 +53,7 @@ type Config struct {
 	// Log optional logger (nil-safe)
 	Log *logger.Logger
 
-	// HTTPClient optional; if nil, &http.Client{Timeout} is used
+	// HTTPClient optional; if nil, a client with bounded transport phases is used
 	//
 	// For testing, an httptest.Server client can be passed to avoid real network calls.
 	HTTPClient *http.Client
@@ -54,14 +61,18 @@ type Config struct {
 
 // Client implements the agent.LLMClient interface
 type Client struct {
-	baseURL string
-	apiKey  string
-	headers map[string]string
-	retry   llm.RetryPolicy
-	log     *logger.Logger
-	http    *http.Client
-	timeout time.Duration // per-request timeout, applied via context (not http.Client.Timeout)
+	baseURL           string
+	apiKey            string
+	headers           map[string]string
+	retry             llm.RetryPolicy
+	log               *logger.Logger
+	http              *http.Client
+	timeout           time.Duration // per-request timeout, applied via context (not http.Client.Timeout)
+	streamIdleTimeout time.Duration
+	modelSeq          atomic.Uint64
 }
+
+const defaultTransportTimeout = 120 * time.Second
 
 // NewClient constructs a DeepSeek client.
 // APIKey is not validated here; allows the user to proceed into the program, with errors returned by the API during calls.
@@ -74,12 +85,20 @@ func NewClient(cfg Config) (*Client, error) {
 
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		// Use context deadline instead of http.Client.Timeout so streamLoop
-		// can detect the timeout via ctx.Err(). http.Client.Timeout cancels
-		// the request context internally without touching the caller's ctx.
-		httpClient = &http.Client{}
+		// Use transport phase limits instead of http.Client.Timeout so a
+		// progressing stream is never cut off by a total request deadline.
+		phaseTimeout := cfg.TransportTimeout
+		if phaseTimeout <= 0 {
+			phaseTimeout = defaultTransportTimeout
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.DialContext = (&net.Dialer{Timeout: phaseTimeout}).DialContext
+		transport.TLSHandshakeTimeout = phaseTimeout
+		transport.ResponseHeaderTimeout = phaseTimeout
+		transport.ExpectContinueTimeout = phaseTimeout
+		httpClient = &http.Client{Transport: transport}
 	}
-	timeoutDur := 10 * time.Minute
+	var timeoutDur time.Duration
 	if cfg.TimeoutMs > 0 {
 		timeoutDur = time.Duration(cfg.TimeoutMs) * time.Millisecond
 	}
@@ -92,6 +111,12 @@ func NewClient(cfg Config) (*Client, error) {
 		log:     cfg.Log,
 		http:    httpClient,
 		timeout: timeoutDur,
+		streamIdleTimeout: func() time.Duration {
+			if cfg.TransportTimeout > 0 {
+				return cfg.TransportTimeout
+			}
+			return defaultTransportTimeout
+		}(),
 	}, nil
 }
 
@@ -160,10 +185,26 @@ func (c *Client) Chat(ctx context.Context, req agent.LLMRequest) (*agent.LLMResp
 // Errors during the HTTP phase (4xx/5xx/network) that fail even after retries are returned directly as `err` from
 // ChatStream (not sent to the channel); only errors encountered while reading the SSE body after a 200 OK response are sent to the channel.
 func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan llm.Event, error) {
+	var ownedModelWatch *runwatch.Handle
+	if parent := runwatch.HandleFromContext(ctx); parent != nil && parent.Kind() != runwatch.KindModel {
+		var err error
+		ownedModelWatch, err = parent.BeginOperation(runwatch.KindModel,
+			fmt.Sprintf("model:deepseek:%d", c.modelSeq.Add(1)), runwatch.Policy{})
+		if err != nil {
+			return nil, err
+		}
+		ctx = runwatch.ContextWithHandle(ctx, ownedModelWatch)
+	}
+	releaseOwnedModel := func() {
+		if ownedModelWatch != nil {
+			ownedModelWatch.Complete()
+		}
+	}
 	buf := bufPool.Get().(*bytes.Buffer)
 	buf.Reset()
 	if err := json.NewEncoder(buf).Encode(buildWireRequest(req, true, req.IncludeUsage)); err != nil {
 		bufPool.Put(buf)
+		releaseOwnedModel()
 		return nil, fmt.Errorf("deepseek: marshal request: %w", err)
 	}
 	body := make([]byte, buf.Len())
@@ -226,11 +267,13 @@ func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan l
 			cancelTimeout()
 		}
 		c.logError(ctx, "request failed", err)
+		releaseOwnedModel()
 		return nil, err
 	}
 
 	go func() {
 		defer func() {
+			releaseOwnedModel()
 			if cancelTimeout != nil {
 				cancelTimeout()
 			}
@@ -337,8 +380,6 @@ func isConnReset(err error) bool {
 
 // ─── Streaming loop ──────────────────────────────────────────────────────────
 
-const idleTimeout = 120 * time.Second
-
 // readStream parses one SSE response into events forwarded to out. Returns true
 // if any model output (text/reasoning/tool-call delta) was forwarded — the
 // caller can use this to decide whether a reconnect replay is safe.
@@ -348,10 +389,24 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, out chan<-
 	doneWatchdog := make(chan struct{})
 	defer close(doneWatchdog)
 	activity := make(chan struct{}, 1)
-	var stalled bool
+	var stalled atomic.Bool
 	go func() {
-		idle := time.NewTimer(idleTimeout)
-		defer idle.Stop()
+		// Runtime-supervised streams use the configured RunWatch transport
+		// lease as the single authority. The provider-local timer remains only
+		// for standalone clients that do not carry a RunWatch handle.
+		var idle *time.Timer
+		var idleC <-chan time.Time
+		var fallbackTimeout time.Duration
+		handle := runwatch.HandleFromContext(ctx)
+		if handle == nil || handle.Kind() != runwatch.KindModel {
+			fallbackTimeout = c.streamIdleTimeout
+			if fallbackTimeout <= 0 {
+				fallbackTimeout = defaultTransportTimeout
+			}
+			idle = time.NewTimer(fallbackTimeout)
+			idleC = idle.C
+			defer idle.Stop()
+		}
 		for {
 			select {
 			case <-doneWatchdog:
@@ -359,23 +414,34 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, out chan<-
 			case <-ctx.Done():
 				resp.Body.Close()
 				return
-			case <-idle.C:
-				stalled = true
+			case <-idleC:
+				stalled.Store(true)
 				resp.Body.Close()
 				return
 			case <-activity:
+				if idle == nil {
+					continue
+				}
 				if !idle.Stop() {
 					select {
 					case <-idle.C:
 					default:
 					}
 				}
-				idle.Reset(idleTimeout)
+				idle.Reset(fallbackTimeout)
 			}
 		}
 	}()
 
-	reader := newSSEReader(resp.Body)
+	reader := newSSEReader(resp.Body, func() {
+		select {
+		case activity <- struct{}{}:
+		default:
+		}
+		// Transport progress is defined by bytes/lines received, including
+		// SSE comments and event delimiters that carry no model semantics.
+		runwatch.Pulse(ctx, runwatch.ProgressTransport, "streaming")
+	})
 	var think thinkSplitter
 	var lastFinishReason string
 	var lastUsage *llm.Usage
@@ -383,30 +449,31 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, out chan<-
 
 	for {
 		if err := ctx.Err(); err != nil {
-			return emitted, err
+			return emitted, context.Cause(ctx)
 		}
 
 		payload, err := reader.Next()
 		if err != nil {
+			if ctx.Err() != nil {
+				return emitted, context.Cause(ctx)
+			}
 			if errors.Is(err, errSSEDone) {
 				sawDone = true
 				break
 			}
 			if errors.Is(err, io.EOF) {
 				if ctxErr := ctx.Err(); ctxErr != nil {
-					return emitted, fmt.Errorf("deepseek: sse stream interrupted: %w", ctxErr)
+					return emitted, fmt.Errorf("deepseek: sse stream interrupted: %w", context.Cause(ctx))
 				}
 				break
 			}
-			if stalled {
-				return emitted, fmt.Errorf("deepseek: stream stalled — no data for %s, connection likely dropped", idleTimeout)
+			if stalled.Load() {
+				if cause := context.Cause(ctx); runwatch.CodeOf(cause) != "" {
+					return emitted, cause
+				}
+				return emitted, &runwatch.Cause{Code: runwatch.CodeModelTransportStalled, OperationID: "deepseek_stream"}
 			}
 			return emitted, fmt.Errorf("deepseek: sse read: %w", err)
-		}
-
-		select {
-		case activity <- struct{}{}:
-		default:
 		}
 
 		var chunk wireChunk

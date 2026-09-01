@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -292,12 +293,11 @@ func TestLoader_Watch_ReloadsOnChange(t *testing.T) {
 	defer loader.StopWatch()
 
 	called := make(chan struct{}, 1)
-	loader.SetOnChange(func() error {
+	loader.SetOnCommitted(func(Settings) {
 		select {
 		case called <- struct{}{}:
 		default:
 		}
-		return nil
 	})
 
 	writeYAML(t, path, map[string]any{
@@ -359,7 +359,7 @@ func TestLoader_Watch_InvalidYAMLReportsErrorAndKeepsLastValidSettings(t *testin
 		}
 	})
 	changed := make(chan struct{}, 1)
-	loader.SetOnChange(func() error {
+	loader.SetOnChange(func(Settings) error {
 		select {
 		case changed <- struct{}{}:
 		default:
@@ -466,6 +466,197 @@ func TestSpeechConfigDefaults(t *testing.T) {
 	}
 	if settings.Speech.ModelDir != "" {
 		t.Errorf("Speech.ModelDir = %q, want empty", settings.Speech.ModelDir)
+	}
+}
+
+func TestSettingsSerializationDoesNotExposeProgressWatchdog(t *testing.T) {
+	settings := DefaultSettings()
+	jsonData, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(jsonData), "progressWatchdog") {
+		t.Fatalf("settings JSON exposes internal watchdog policy: %s", jsonData)
+	}
+	yamlData, err := yaml.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(yamlData), "progress_watchdog") {
+		t.Fatalf("settings YAML exposes internal watchdog policy: %s", yamlData)
+	}
+}
+
+func TestLoadPreservesExplicitProviderTimeout(t *testing.T) {
+	workDir := t.TempDir()
+	custom := []byte("providers:\n  - id: custom\n    name: Custom\n    base_url: https://example.invalid/v1\n    enabled: true\n    timeout_ms: 600000\n")
+	if err := os.WriteFile(filepath.Join(workDir, "settings.yaml"), custom, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := New(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Load(); err != nil {
+		t.Fatal(err)
+	}
+	providers := cfg.Get().Providers
+	if len(providers) != 1 || providers[0].TimeoutMs != 600000 {
+		t.Fatalf("custom provider timeout = %+v, want explicit timeout_ms=600000 preserved", providers)
+	}
+}
+
+func TestLoaderApplyReloadCandidateIsInvisibleUntilCallbackAccepts(t *testing.T) {
+	loader, err := NewLoader(DefaultSettings(), filepath.Join(t.TempDir(), "settings.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := loader.Get()
+	previous.Log.Level = "info"
+	loader.current = previous
+	candidate := previous
+	candidate.Log.Level = "debug"
+
+	callbackStarted := make(chan Settings, 1)
+	releaseCallback := make(chan struct{})
+	loader.SetOnChange(func(got Settings) error {
+		callbackStarted <- got
+		<-releaseCallback
+		return errors.New("reject candidate")
+	})
+
+	reloadDone := make(chan error, 1)
+	go func() { reloadDone <- loader.applyReloadCandidate(candidate) }()
+	select {
+	case got := <-callbackStarted:
+		if got.Log.Level != "debug" {
+			t.Fatalf("callback candidate log level = %q, want debug", got.Log.Level)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("callback did not start")
+	}
+
+	for range 1_000 {
+		if got := loader.Get().Log.Level; got != "info" {
+			t.Fatalf("Get exposed uncommitted candidate = %q, want info", got)
+		}
+		runtime.Gosched()
+	}
+	close(releaseCallback)
+	if err := <-reloadDone; err == nil || !strings.Contains(err.Error(), "reject candidate") {
+		t.Fatalf("reload error = %v, want rejection", err)
+	}
+	if got := loader.Get().Log.Level; got != "info" {
+		t.Fatalf("rejected candidate committed = %q, want info", got)
+	}
+
+	loader.SetOnChange(func(got Settings) error {
+		if got.Log.Level != "debug" {
+			t.Fatalf("accepted callback candidate = %q, want debug", got.Log.Level)
+		}
+		if current := loader.Get().Log.Level; current != "info" {
+			t.Fatalf("Get during accepted callback = %q, want previous info", current)
+		}
+		return nil
+	})
+	if err := loader.applyReloadCandidate(candidate); err != nil {
+		t.Fatalf("accept candidate: %v", err)
+	}
+	if got := loader.Get().Log.Level; got != "debug" {
+		t.Fatalf("accepted candidate not committed = %q, want debug", got)
+	}
+}
+
+func TestLoaderWatchPublishesAcceptedCandidateBeforePostCommitNotification(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	writeYAML(t, path, map[string]any{"log": map[string]any{"level": "info"}})
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := loader.Load(); err != nil {
+		t.Fatal(err)
+	}
+	loader.SetOnChange(func(candidate Settings) error {
+		if candidate.Log.Level == "invalid" {
+			return errors.New("reject invalid candidate")
+		}
+		return nil
+	})
+	committed := make(chan Settings, 2)
+	loader.SetOnCommitted(func(candidate Settings) {
+		if got := loader.Get().Log.Level; got != candidate.Log.Level {
+			t.Errorf("post-commit Get log level = %q, want accepted candidate %q", got, candidate.Log.Level)
+		}
+		committed <- candidate
+	})
+	errorsSeen := make(chan error, 1)
+	loader.SetOnError(func(err error) { errorsSeen <- err })
+	if err := loader.Watch(); err != nil {
+		t.Fatal(err)
+	}
+	defer loader.StopWatch()
+
+	writeYAML(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
+	select {
+	case got := <-committed:
+		if got.Log.Level != "debug" {
+			t.Fatalf("post-commit candidate = %q, want debug", got.Log.Level)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("accepted candidate did not trigger post-commit notification")
+	}
+
+	writeYAML(t, path, map[string]any{"log": map[string]any{"level": "invalid"}})
+	select {
+	case <-errorsSeen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("rejected candidate error was not reported")
+	}
+	select {
+	case got := <-committed:
+		t.Fatalf("rejected candidate triggered post-commit notification: %q", got.Log.Level)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if got := loader.Get().Log.Level; got != "debug" {
+		t.Fatalf("rejected candidate was published: %q", got)
+	}
+}
+
+func TestLoaderSetPublishesAcceptedCandidateBeforePostCommitNotification(t *testing.T) {
+	dir := t.TempDir()
+	loader, err := NewLoader(DefaultSettings(), filepath.Join(dir, "settings.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := loader.Load(); err != nil {
+		t.Fatal(err)
+	}
+	committed := make(chan Settings, 1)
+	loader.SetOnCommitted(func(candidate Settings) {
+		if got := loader.Get().Log.Level; got != candidate.Log.Level {
+			t.Errorf("programmatic post-commit Get log level = %q, want %q", got, candidate.Log.Level)
+		}
+		committed <- candidate
+	})
+
+	got, err := loader.Set(func(settings *Settings) {
+		settings.Log.Level = "debug"
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Log.Level != "debug" {
+		t.Fatalf("Set returned log level = %q, want debug", got.Log.Level)
+	}
+	select {
+	case candidate := <-committed:
+		if candidate.Log.Level != "debug" {
+			t.Fatalf("programmatic post-commit candidate = %q, want debug", candidate.Log.Level)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("programmatic Set did not trigger post-commit notification")
 	}
 }
 

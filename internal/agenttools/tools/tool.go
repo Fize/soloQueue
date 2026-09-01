@@ -137,6 +137,12 @@ type AsyncTool interface {
 	ExecuteAsync(ctx context.Context, args string) (*AsyncAction, error)
 }
 
+// ProgressSupervised opts a tool out of the framework's fallback total timeout
+// only when its execution is covered by hierarchical progress leases.
+type ProgressSupervised interface {
+	ProgressSupervised() bool
+}
+
 // TurnTerminator is an optional interface that tools may implement to signal
 // that an execution should end the current agent turn.
 //

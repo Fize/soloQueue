@@ -26,11 +26,13 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
+	llmsupervised "github.com/xiaobaitu/soloqueue/internal/llm/supervised"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
@@ -78,6 +80,7 @@ func Build(
 	if err := bc.resolveConfig(); err != nil {
 		return nil, err
 	}
+	bc.runWatch = runwatch.NewManager(runwatch.DefaultPolicy())
 	bc.executor = tools.NewExecutor()
 	bc.executor.SetLogger(bc.log)
 
@@ -313,6 +316,7 @@ type buildContext struct {
 	compactorInstance *LLMCompactor
 	taskRouter        *router.Router
 	simEngine         *simulation.SimulationEngine
+	runWatch          *runwatch.Manager
 
 	// L1 channel bindings loaded from agents/main.md
 	l1Channels      map[string]string
@@ -365,7 +369,7 @@ func (bc *buildContext) buildLLMClient() error {
 		if err != nil {
 			return fmt.Errorf("build llm client for provider %q: %w", prov.ID, err)
 		}
-		clients[prov.ID] = telemetry.NewTelemetryClient(client, bc.sharedDB)
+		clients[prov.ID] = llmsupervised.New(telemetry.NewTelemetryClient(client, bc.sharedDB), bc.runWatch)
 	}
 
 	if len(clients) == 0 {
@@ -424,6 +428,7 @@ func (bc *buildContext) assembleStack() *Stack {
 		L1Channels:          bc.l1Channels,
 		L1NotifyChannel:     bc.l1NotifyChannel,
 		SimulationEngine:    bc.simEngine,
+		RunWatch:            bc.runWatch,
 		compactorInstance:   bc.compactorInstance,
 	}
 }

@@ -23,6 +23,9 @@ type Registry struct {
 	onChange     func()       // optional callback invoked after Register/Unregister
 	onRegister   func(*Agent) // optional callback invoked after Register (under write lock)
 	onUnregister func(string) // optional callback invoked after Unregister (under write lock)
+
+	// Test-only barrier for deterministic scheduling-publication coverage.
+	beforeSchedulingPublish func()
 }
 
 // NewRegistry constructs an empty registry. log can be nil.
@@ -42,13 +45,11 @@ func (r *Registry) SetOnChange(fn func()) {
 	r.mu.Unlock()
 }
 
-
 func (r *Registry) SetOnRegister(fn func(*Agent)) {
 	r.mu.Lock()
 	r.onRegister = fn
 	r.mu.Unlock()
 }
-
 
 func (r *Registry) SetOnUnregister(fn func(string)) {
 	r.mu.Lock()
@@ -137,6 +138,37 @@ func (r *Registry) Unregister(id string) bool {
 	return true
 }
 
+// PublishReplacement atomically transfers scheduling ownership from old to
+// fresh under the same Registry lock used by every Locate path. publish runs
+// while locators are excluded and must not call back into this Registry.
+func (r *Registry) PublishReplacement(old, fresh *Agent, publish func()) error {
+	if old == nil || fresh == nil {
+		return ErrAgentNil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if registered, ok := r.agents[old.InstanceID]; !ok || registered != old {
+		return fmt.Errorf("registry: old replacement generation %q is not registered", old.InstanceID)
+	}
+	if registered, ok := r.agents[fresh.InstanceID]; !ok || registered != fresh {
+		return fmt.Errorf("registry: fresh replacement generation %q is not registered", fresh.InstanceID)
+	}
+	if fresh.Schedulable() {
+		return fmt.Errorf("registry: fresh replacement generation %q is already schedulable", fresh.InstanceID)
+	}
+	if publish != nil {
+		publish()
+	}
+	old.DeactivateScheduling()
+	if r.beforeSchedulingPublish != nil {
+		r.beforeSchedulingPublish()
+	}
+	fresh.ActivateScheduling()
+	if r.onChange != nil {
+		r.onChange()
+	}
+	return nil
+}
 
 func (r *Registry) Get(id string) (*Agent, bool) {
 	r.mu.RLock()
@@ -144,7 +176,6 @@ func (r *Registry) Get(id string) (*Agent, bool) {
 	a, ok := r.agents[id]
 	return a, ok
 }
-
 
 func (r *Registry) GetByTemplate(templateID string) []*Agent {
 	r.mu.RLock()
@@ -169,7 +200,7 @@ func (r *Registry) LocateIdle(templateID string) (iface.Locatable, bool) {
 	defer r.mu.RUnlock()
 	ids := r.byTemplate[templateID]
 	for _, id := range ids {
-		if a, ok := r.agents[id]; ok && a.State() == StateIdle {
+		if a, ok := r.agents[id]; ok && a.Schedulable() && a.State() == StateIdle {
 			return &LocatableAdapter{Agent: a}, true
 		}
 	}
@@ -183,7 +214,7 @@ func (r *Registry) LocateIdleInWorkDir(templateID, workDir string) (iface.Locata
 	defer r.mu.RUnlock()
 	ids := r.byTemplate[templateID]
 	for _, id := range ids {
-		if a, ok := r.agents[id]; ok && a.State() == StateIdle && a.WorkDir == workDir {
+		if a, ok := r.agents[id]; ok && a.Schedulable() && a.State() == StateIdle && a.WorkDir == workDir {
 			return &LocatableAdapter{Agent: a}, true
 		}
 	}
@@ -310,7 +341,7 @@ func (r *Registry) Locate(id string) (iface.Locatable, bool) {
 	ids := r.byTemplate[id]
 	for _, instanceID := range ids {
 		a, ok := r.agents[instanceID]
-		if !ok {
+		if !ok || !a.Schedulable() {
 			continue
 		}
 		state := a.State()
@@ -352,7 +383,6 @@ func (la *LocatableAdapter) Name() string {
 	}
 	return ""
 }
-
 
 func (la *LocatableAdapter) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
 	eventCh, err := la.Agent.AskStream(ctx, prompt)

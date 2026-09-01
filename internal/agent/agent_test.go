@@ -85,6 +85,17 @@ func TestAgent_StartTwice_ErrAlreadyStarted(t *testing.T) {
 	}
 }
 
+func TestAgent_QuarantineRejectsNewJobs(t *testing.T) {
+	a := startedAgent(t, &agenttest.FakeLLM{})
+	a.Quarantine(errors.New("stuck job"))
+	if got := a.State(); got != StateQuarantined {
+		t.Fatalf("state = %s, want quarantined", got)
+	}
+	if err := a.Submit(context.Background(), func(context.Context) error { return nil }); !errors.Is(err, ErrQuarantined) {
+		t.Fatalf("Submit error = %v, want ErrQuarantined", err)
+	}
+}
+
 func TestAgent_StopWithoutStart(t *testing.T) {
 	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil)
 	err := a.Stop(time.Second)

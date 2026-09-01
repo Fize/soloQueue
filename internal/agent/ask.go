@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // --- Ask / Submit -----------------------------------------------------------
@@ -111,12 +113,32 @@ func (a *Agent) Ask(ctx context.Context, prompt string) (string, error) {
 //   - ErrNotStarted / ErrStopped: Returns (nil, err) directly if enqueueing fails.
 //   - Errors after enqueueing: Delivered via ErrorEvent (at this point, the non-nil channel can still be ranged).
 func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent, error) {
+	out, _, err := a.AskStreamTracked(ctx, prompt)
+	return out, err
+}
+
+// AskStreamTracked is the request-scoped form of AskStream. The returned
+// handle lets the owning Session fence only the request that tripped a
+// watchdog, without confusing it with a later mailbox job.
+func (a *Agent) AskStreamTracked(ctx context.Context, prompt string) (<-chan AgentEvent, *JobHandle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	// Injects trace_id (uses existing one if present, generates new one if not) + actor_id, for full-link logging extraction.
 	ctx = ensureTraceID(ctx)
 	ctx = a.ctxWithAgentAttrs(ctx)
+	// Freeze a compatibility/global override into the request context at the
+	// submission boundary. Execution reads the request-scoped value, so an
+	// async yield or a later request cannot change this job's route.
+	if iface.ModelOverrideFromContext(ctx) == nil {
+		if override := a.modelOverride.Load(); override != nil {
+			ctx = iface.ContextWithModelOverride(ctx, override.ToIFaceOverride())
+			a.modelOverride.CompareAndSwap(override, nil)
+		}
+	}
+	tracker := &jobTracker{id: a.jobSeq.Add(1), done: make(chan struct{}), override: modelOverrideForContext(ctx, nil)}
+	ctx = withJobTracker(ctx, tracker)
+	handle := &JobHandle{agent: a, tracker: tracker}
 
 	if a.Log != nil {
 		a.Log.InfoContext(ctx, logger.CatActor, "askstream: enqueueing request",
@@ -143,6 +165,9 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 			)
 		}
 
+		a.beginTrackedJob(tracker)
+		defer tracker.finish()
+		defer a.endTrackedJob(tracker)
 		a.runOnceStream(merged, prompt, out)
 
 		if a.Log != nil {
@@ -162,7 +187,8 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 		// If submit fails (ErrNotStarted / ErrStopped / ctx.Err) → close 'out' and return err.
 		// Closing is to prevent the caller from mistakenly thinking the channel will still have events and hanging.
 		close(out)
-		return nil, err
+		tracker.finish()
+		return nil, nil, err
 	}
 
 	if a.Log != nil {
@@ -171,7 +197,7 @@ func (a *Agent) AskStream(ctx context.Context, prompt string) (<-chan AgentEvent
 		)
 	}
 
-	return out, nil
+	return out, handle, nil
 }
 
 // Submit sends an arbitrary job to the agent's mailbox.
@@ -252,6 +278,12 @@ func (a *Agent) Submit(ctx context.Context, fn func(ctx context.Context) error) 
 
 // submit is the shared enqueueing implementation for Ask / Submit.
 func (a *Agent) submit(ctx context.Context, jb job) error {
+	a.scheduleMu.Lock()
+	blocked := a.quarantined.Load() || a.recoveryFenced()
+	a.scheduleMu.Unlock()
+	if blocked {
+		return ErrQuarantined
+	}
 	a.mu.Lock()
 	mailbox := a.mailbox
 	pm := a.priorityMailbox
@@ -269,23 +301,41 @@ func (a *Agent) submit(ctx context.Context, jb job) error {
 	default:
 	}
 
-	// Use PriorityMailbox (L1 mode).
-	if pm != nil {
-		pm.SubmitNormal(jb)
-		return nil
-	}
-
-	// Use regular mailbox (L2/L3 mode).
-	if mailbox == nil {
+	if pm == nil && mailbox == nil {
 		return ErrNotStarted
 	}
-	select {
-	case mailbox <- jb:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-agentDone:
-		return ErrStopped
+	// Check the recovery fence and enqueue in one short synchronization
+	// domain. A full mailbox releases the lock before waiting, so watchdog
+	// fencing can never be delayed by backpressure.
+	retry := time.NewTicker(time.Millisecond)
+	defer retry.Stop()
+	for {
+		a.scheduleMu.Lock()
+		if a.quarantined.Load() || a.recoveryFenced() {
+			a.scheduleMu.Unlock()
+			return ErrQuarantined
+		}
+		enqueued := false
+		if pm != nil {
+			enqueued = pm.trySubmitNormal(jb)
+		} else {
+			select {
+			case mailbox <- jb:
+				enqueued = true
+			default:
+			}
+		}
+		a.scheduleMu.Unlock()
+		if enqueued {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-agentDone:
+			return ErrStopped
+		case <-retry.C:
+		}
 	}
 }
 
@@ -293,7 +343,10 @@ func (a *Agent) submit(ctx context.Context, jb job) error {
 //
 // Only effective when Agent has PriorityMailbox enabled.
 // Asynchronous delegation results are delivered via this path to ensure they are not blocked by normal user messages.
-func (a *Agent) submitHighPriority(jb job) error {
+func (a *Agent) submitHighPriority(ctx context.Context, jb job) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	a.mu.Lock()
 	pm := a.priorityMailbox
 	agentDone := a.done
@@ -314,12 +367,31 @@ func (a *Agent) submitHighPriority(jb job) error {
 	}
 
 	if pm != nil {
-		pm.SubmitHigh(jb)
-		return nil
+		retry := time.NewTicker(time.Millisecond)
+		defer retry.Stop()
+		for {
+			a.scheduleMu.Lock()
+			if a.quarantined.Load() || a.recoveryFenced() {
+				a.scheduleMu.Unlock()
+				return ErrQuarantined
+			}
+			enqueued := pm.trySubmitHigh(jb)
+			a.scheduleMu.Unlock()
+			if enqueued {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-agentDone:
+				return ErrStopped
+			case <-retry.C:
+			}
+		}
 	}
 
 	// PriorityMailbox not enabled: falls back to regular submit.
-	return a.submit(context.Background(), jb)
+	return a.submit(ctx, jb)
 }
 
 // --- AskWithHistory / AskStreamWithHistory -----------------------------------
@@ -422,11 +494,28 @@ func (a *Agent) AskWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, pr
 //
 // The returned channel is closed by runOnceStreamWithHistory within the agent goroutine.
 func (a *Agent) AskStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (<-chan AgentEvent, error) {
+	out, _, err := a.AskStreamWithHistoryTracked(ctx, cw, prompt)
+	return out, err
+}
+
+// AskStreamWithHistoryTracked is the request-scoped variant used by Session
+// watchdog recovery. The returned handle remains tied to this exact stream,
+// including async delegation resumes, until its output channel closes.
+func (a *Agent) AskStreamWithHistoryTracked(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (<-chan AgentEvent, *JobHandle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	ctx = ensureTraceID(ctx)
 	ctx = a.ctxWithAgentAttrs(ctx)
+	if iface.ModelOverrideFromContext(ctx) == nil {
+		if override := a.modelOverride.Load(); override != nil {
+			ctx = iface.ContextWithModelOverride(ctx, override.ToIFaceOverride())
+			a.modelOverride.CompareAndSwap(override, nil)
+		}
+	}
+	tracker := &jobTracker{id: a.jobSeq.Add(1), done: make(chan struct{}), override: modelOverrideForContext(ctx, nil)}
+	ctx = withJobTracker(ctx, tracker)
+	handle := &JobHandle{agent: a, tracker: tracker}
 
 	if a.Log != nil {
 		ctxCurrent, _, _ := cw.TokenUsage()
@@ -477,7 +566,8 @@ func (a *Agent) AskStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWind
 			)
 		}
 		close(out)
-		return nil, err
+		tracker.finish()
+		return nil, nil, err
 	}
 
 	if a.Log != nil {
@@ -486,5 +576,5 @@ func (a *Agent) AskStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWind
 		)
 	}
 
-	return out, nil
+	return out, handle, nil
 }

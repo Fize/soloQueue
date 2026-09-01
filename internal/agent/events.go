@@ -14,7 +14,9 @@ type AgentEvent interface {
 	agentEvent() // seal
 }
 
-// ContentDeltaEvent carries an incremental LLM response content fragment.
+// ContentDeltaEvent carries an incremental LLM response fragment intended for
+// the assistant's user-facing content stream. Control-plane status belongs in
+// a dedicated structural event instead of this event.
 type ContentDeltaEvent struct {
 	Iter  int
 	Delta string

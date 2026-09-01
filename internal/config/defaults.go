@@ -49,7 +49,7 @@ func DefaultSettings() Settings {
 				APIKeyEnv: "DEEPSEEK_API_KEY",
 				Enabled:   true,
 				IsDefault: true,
-				TimeoutMs: 600000,
+				TimeoutMs: 0,
 				Retry: RetryConfig{
 					MaxRetries:        3,
 					InitialDelayMs:    1000,

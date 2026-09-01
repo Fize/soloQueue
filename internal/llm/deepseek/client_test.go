@@ -15,8 +15,9 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // ─── Test server helpers ─────────────────────────────────────────────────────
@@ -28,6 +29,64 @@ type script struct {
 	Body      string        // Full body (non-SSE)
 	SSE       []string      // If non-empty, output in SSE format
 	DelayBody time.Duration // Delay before starting to write the body
+}
+
+func TestReadStream_RunWatchOwnsTransportIdleWhenHandlePresent(t *testing.T) {
+	manager := runwatch.NewManager(runwatch.Policy{
+		ScanInterval:  time.Millisecond,
+		TransportIdle: 30 * time.Millisecond,
+	})
+	t.Cleanup(manager.Close)
+	rootCtx, root, err := manager.Start(context.Background(), runwatch.Metadata{RunID: "deepseek-runwatch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := root.BeginOperation(runwatch.KindModel, "deepseek-model", runwatch.Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := runwatch.ContextWithHandle(rootCtx, model)
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = writer.Close() })
+	resp := &http.Response{Body: reader}
+	started := time.Now()
+	_, err = (&Client{streamIdleTimeout: 5 * time.Millisecond}).readStream(ctx, resp, make(chan llm.Event, 1))
+	if got := runwatch.CodeOf(err); got != runwatch.CodeModelTransportStalled {
+		t.Fatalf("readStream error = %v, code = %q", err, got)
+	}
+	if elapsed := time.Since(started); elapsed < 20*time.Millisecond {
+		t.Fatalf("provider fallback won the race after %s", elapsed)
+	}
+}
+
+func TestReadStream_StandaloneClientKeepsProviderIdleFallback(t *testing.T) {
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = writer.Close() })
+	resp := &http.Response{Body: reader}
+	_, err := (&Client{streamIdleTimeout: 5 * time.Millisecond}).readStream(context.Background(), resp, make(chan llm.Event, 1))
+	if got := runwatch.CodeOf(err); got != runwatch.CodeModelTransportStalled {
+		t.Fatalf("readStream error = %v, code = %q", err, got)
+	}
+}
+
+func TestReadStream_RootHandleDoesNotDisableProviderFallback(t *testing.T) {
+	manager := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute})
+	t.Cleanup(manager.Close)
+	ctx, _, err := manager.Start(context.Background(), runwatch.Metadata{RunID: "root-only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = writer.Close() })
+	resp := &http.Response{Body: reader}
+	started := time.Now()
+	_, err = (&Client{streamIdleTimeout: 5 * time.Millisecond}).readStream(ctx, resp, make(chan llm.Event, 1))
+	if got := runwatch.CodeOf(err); got != runwatch.CodeModelTransportStalled {
+		t.Fatalf("readStream error = %v, code = %q", err, got)
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("root-only handle disabled provider fallback; elapsed=%s", elapsed)
+	}
 }
 
 // recorder records requests received by the server.
@@ -743,6 +802,67 @@ func TestClient_WithTimeoutMs(t *testing.T) {
 	}
 }
 
+func TestClient_TransportTimeoutIsConfiguredWithoutTotalTimeout(t *testing.T) {
+	c, err := NewClient(Config{APIKey: "k", TransportTimeout: 37 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := c.http.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *http.Transport", c.http.Transport)
+	}
+	if transport.ResponseHeaderTimeout != 37*time.Millisecond || transport.TLSHandshakeTimeout != 37*time.Millisecond {
+		t.Fatalf("transport timeouts = header %s tls %s", transport.ResponseHeaderTimeout, transport.TLSHandshakeTimeout)
+	}
+	if c.http.Timeout != 0 {
+		t.Fatalf("http client total timeout = %s, want zero", c.http.Timeout)
+	}
+}
+
+func TestClient_ResponseHeaderTimeoutEndsSilentServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	c, err := NewClient(Config{BaseURL: srv.URL, APIKey: "k", TransportTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	if _, err := c.ChatStream(context.Background(), agent.LLMRequest{Model: "m"}); err == nil {
+		t.Fatal("silent response header unexpectedly succeeded")
+	} else if time.Since(started) > 80*time.Millisecond {
+		t.Fatalf("silent response header took too long: %s", time.Since(started))
+	}
+}
+
+func TestClient_DefaultDoesNotSetTotalRequestTimeout(t *testing.T) {
+	c, err := NewClient(Config{APIKey: "k"})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	if c.timeout != 0 {
+		t.Fatalf("default total timeout = %v, want disabled", c.timeout)
+	}
+	if c.http.Timeout != 0 {
+		t.Fatalf("default HTTP client total timeout = %v, want disabled", c.http.Timeout)
+	}
+	transport, ok := c.http.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("default transport type = %T, want *http.Transport", c.http.Transport)
+	}
+	if transport.TLSHandshakeTimeout != 120*time.Second ||
+		transport.ResponseHeaderTimeout != 120*time.Second ||
+		transport.ExpectContinueTimeout != 120*time.Second {
+		t.Fatalf("default transport phase timeouts = tls %s header %s expect %s, want 120s each",
+			transport.TLSHandshakeTimeout, transport.ResponseHeaderTimeout, transport.ExpectContinueTimeout)
+	}
+	if c.streamIdleTimeout != 120*time.Second {
+		t.Fatalf("default stream idle timeout = %s, want 120s", c.streamIdleTimeout)
+	}
+}
+
 func TestChatStream_WithLogger(t *testing.T) {
 	// Cover the non-nil logger paths (logStart + logError).
 	dir := t.TempDir()
@@ -817,6 +937,17 @@ func TestSSE_CommentLinesSkipped(t *testing.T) {
 	}
 	if p != "real" {
 		t.Errorf("payload = %q, want real", p)
+	}
+}
+
+func TestSSEReaderReportsKeepaliveActivity(t *testing.T) {
+	var activity int
+	r := newSSEReader(strings.NewReader(": keepalive\n\ndata: {\"choices\":[]}\n"), func() { activity++ })
+	if _, err := r.Next(); err != nil {
+		t.Fatal(err)
+	}
+	if activity < 3 {
+		t.Fatalf("activity callbacks = %d, want callbacks for comment, delimiter, and data", activity)
 	}
 }
 

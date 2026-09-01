@@ -14,7 +14,6 @@ type PriorityMailbox struct {
 	normalCh chan prioritizedJob // cap 8
 }
 
-
 func NewPriorityMailbox() *PriorityMailbox {
 	return &PriorityMailbox{
 		highCh:   make(chan prioritizedJob, 4),
@@ -22,21 +21,35 @@ func NewPriorityMailbox() *PriorityMailbox {
 	}
 }
 
-
 func (pm *PriorityMailbox) SubmitHigh(jb job) {
 	pm.highCh <- prioritizedJob{job: jb}
 }
 
+func (pm *PriorityMailbox) trySubmitHigh(jb job) bool {
+	select {
+	case pm.highCh <- prioritizedJob{job: jb}:
+		return true
+	default:
+		return false
+	}
+}
 
 func (pm *PriorityMailbox) SubmitNormal(jb job) {
 	pm.normalCh <- prioritizedJob{job: jb}
 }
 
+func (pm *PriorityMailbox) trySubmitNormal(jb job) bool {
+	select {
+	case pm.normalCh <- prioritizedJob{job: jb}:
+		return true
+	default:
+		return false
+	}
+}
 
 func (pm *PriorityMailbox) HighCh() <-chan prioritizedJob {
 	return pm.highCh
 }
-
 
 func (pm *PriorityMailbox) NormalCh() <-chan prioritizedJob {
 	return pm.normalCh
