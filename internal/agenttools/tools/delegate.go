@@ -363,7 +363,6 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 	}
 
 	parentEventCh, _ := ToolEventChannelFromCtx(ctx)
-	confirmFwd, hasConfirmFwd := ConfirmForwarderFromCtx(ctx)
 
 	var content string
 	var finalErr error
@@ -395,20 +394,6 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 		ec, ok := ev.(iface.EventConsumer)
 		if !ok {
 			continue
-		}
-
-		if callID, has := ec.ConfirmRequest(); has && hasConfirmFwd {
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						if dt.logger != nil {
-							dt.logger.ErrorContext(ctx, logger.CatTool, "delegate confirmFwd goroutine panic recovered",
-								"target", dArgs.Target, "call_id", callID, "panic", fmt.Sprintf("%v", r))
-						}
-					}
-				}()
-				confirmFwd(delCtx, callID, targetAgent)
-			}()
 		}
 
 		if delta, has := ec.ContentDelta(); has {
@@ -665,9 +650,6 @@ func persistedAgentEvent(ev iface.AgentEvent) any {
 		if err, present := consumer.Error(); present && err != nil {
 			payload["error"] = err.Error()
 		}
-		if callID, present := consumer.ConfirmRequest(); present {
-			payload["confirm_call_id"] = callID
-		}
 	}
 	return payload
 }
@@ -680,7 +662,7 @@ func (dt *DelegateTool) ProgressSupervised() bool {
 	return true
 }
 
-// --- Context helpers for event relay & confirm routing ---
+// --- Context helper for event relay ---
 
 type toolEventChannelCtxKey struct{}
 
@@ -691,15 +673,4 @@ func WithToolEventChannel(ctx context.Context, ch chan<- iface.AgentEvent) conte
 func ToolEventChannelFromCtx(ctx context.Context) (chan<- iface.AgentEvent, bool) {
 	ch, ok := ctx.Value(toolEventChannelCtxKey{}).(chan<- iface.AgentEvent)
 	return ch, ok
-}
-
-type confirmForwarderCtxKey struct{}
-
-func WithConfirmForwarder(ctx context.Context, f iface.ConfirmForwarder) context.Context {
-	return context.WithValue(ctx, confirmForwarderCtxKey{}, f)
-}
-
-func ConfirmForwarderFromCtx(ctx context.Context) (iface.ConfirmForwarder, bool) {
-	f, ok := ctx.Value(confirmForwarderCtxKey{}).(iface.ConfirmForwarder)
-	return f, ok
 }

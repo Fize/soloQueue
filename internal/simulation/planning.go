@@ -118,10 +118,10 @@ func (pg *PlanGenerator) RevisePlan(
 					break
 				}
 			}
-		if !found {
-			revised.Schedule = append(revised.Schedule, item)
+			if !found {
+				revised.Schedule = append(revised.Schedule, item)
+			}
 		}
-	}
 	}
 
 	return revised, nil
@@ -168,7 +168,7 @@ func (dp *DailyPlan) FormatForPrompt(now time.Time, language string) string {
 		if item.Status == "pending" && !item.StartTime.After(now) && now.Before(item.EndTime) {
 			item.Status = "in_progress"
 		}
-		
+
 		statusStr := item.Status
 		if language == "zh" {
 			statusStr = map[string]string{
@@ -178,12 +178,12 @@ func (dp *DailyPlan) FormatForPrompt(now time.Time, language string) string {
 				"cancelled":   "Cancelled",
 			}[item.Status]
 		}
-		
+
 		statusIcon := map[string]string{
-			"pending":    "⏳",
+			"pending":     "⏳",
 			"in_progress": "▶️",
-			"completed":  "✅",
-			"cancelled":  "❌",
+			"completed":   "✅",
+			"cancelled":   "❌",
 		}[item.Status]
 		if statusIcon == "" {
 			statusIcon = item.Status
@@ -362,10 +362,10 @@ type ActivityDensity int
 
 const (
 	DensitySleep       ActivityDensity = iota // rest/sleep → 60-120min ticks
-	DensitySolo                                // solo routine work → 20-30min ticks
-	DensitySocial                              // social/public areas → 10-15min ticks
-	DensityInteractive                         // active interaction → 5-10min ticks
-	DensityConflict                            // conflict/chase → 2-5min ticks
+	DensitySolo                               // solo routine work → 20-30min ticks
+	DensitySocial                             // social/public areas → 10-15min ticks
+	DensityInteractive                        // active interaction → 5-10min ticks
+	DensityConflict                           // conflict/chase → 2-5min ticks
 )
 
 // ClassifyActivity categorizes a PlanItem by its activity and location

@@ -31,12 +31,10 @@ type AgentEvent interface {
 //   - ContentDeltaEvent  → ContentDelta() returns (delta, true)
 //   - DoneEvent          → DoneContent() returns (content, true)
 //   - ErrorEvent         → Error() returns (err, true)
-//   - ToolNeedsConfirmEvent → ConfirmRequest() returns (callID, true)
 type EventConsumer interface {
 	ContentDelta() (delta string, ok bool)
 	DoneContent() (content string, ok bool)
 	Error() (err error, ok bool)
-	ConfirmRequest() (callID string, ok bool)
 }
 
 // Locatable is the minimal Agent abstraction for delegation.
@@ -51,9 +49,6 @@ type Locatable interface {
 	// The caller must consume the channel until close or cancel ctx.
 	AskStream(ctx context.Context, prompt string) (<-chan AgentEvent, error)
 
-	// Confirm responds to a pending tool confirmation request.
-	Confirm(callID string, choice string) error
-
 	// ErrorCount returns the number of tool errors in the current job.
 	ErrorCount() int32
 
@@ -67,14 +62,6 @@ type Locatable interface {
 type AgentLocator interface {
 	Locate(id string) (Locatable, bool)
 }
-
-// ConfirmForwarder routes a child agent's tool confirmation request to
-// the parent agent. It blocks until the user confirms or ctx is cancelled.
-//
-// The function is created as a closure by the agent package and injected
-// into the tool execution context. DelegateTool extracts and invokes it
-// when it encounters a ToolNeedsConfirmEvent from the child stream.
-type ConfirmForwarder func(ctx context.Context, callID string, child Locatable) (string, error)
 
 // ─── Model Override Propagation ──────────────────────────────────────────────
 
@@ -181,28 +168,6 @@ func ContextWithCronExecution(ctx context.Context) context.Context {
 // IsCronExecution reports whether the agent is running inside a cron trigger.
 func IsCronExecution(ctx context.Context) bool {
 	v, _ := ctx.Value(cronExecutionCtxKey{}).(bool)
-	return v
-}
-
-type bypassConfirmCtxKey struct{}
-type forceConfirmCtxKey struct{}
-
-// ContextWithBypassConfirm injects a bypass confirm flag into context.
-func ContextWithBypassConfirm(ctx context.Context) context.Context {
-	return context.WithValue(ctx, bypassConfirmCtxKey{}, true)
-}
-
-// ContextWithForceConfirm injects a force confirm flag into context.
-func ContextWithForceConfirm(ctx context.Context) context.Context {
-	return context.WithValue(ctx, forceConfirmCtxKey{}, true)
-}
-
-// BypassConfirmFromContext checks if the bypass confirm flag is present in context.
-func BypassConfirmFromContext(ctx context.Context) bool {
-	if ctx.Value(forceConfirmCtxKey{}) != nil {
-		return false
-	}
-	v, _ := ctx.Value(bypassConfirmCtxKey{}).(bool)
 	return v
 }
 

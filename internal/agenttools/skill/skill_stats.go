@@ -16,10 +16,10 @@ import (
 type InvocationResult string
 
 const (
-	InvocationOK        InvocationResult = "ok"
-	InvocationNotFound  InvocationResult = "not_found"
-	InvocationFork      InvocationResult = "fork"
-	InvocationError     InvocationResult = "error"
+	InvocationOK       InvocationResult = "ok"
+	InvocationNotFound InvocationResult = "not_found"
+	InvocationFork     InvocationResult = "fork"
+	InvocationError    InvocationResult = "error"
 )
 
 // InvocationEvent is one Skill tool call.

@@ -16,10 +16,10 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
-	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 )
 
 // AutoReloadConfig holds the dependencies needed for auto-reload behavior.
@@ -47,7 +47,7 @@ type AutoReloadConfig struct {
 // WrapWithAutoReload wraps a file-writing tool so that writes to the agents/
 // or groups/ directories trigger automatic parsing and instantiation.
 //
-// Preserves Confirmable and AsyncTool interfaces from the inner tool.
+// Preserves AsyncTool behavior from the inner tool.
 func WrapWithAutoReload(inner tools.Tool, cfg *AutoReloadConfig) tools.Tool {
 	return &reloadWrapper{inner: inner, cfg: cfg}
 }
@@ -81,36 +81,6 @@ func (w *reloadWrapper) Execute(ctx context.Context, args string) (string, error
 	return result, nil
 }
 
-// --- Confirmable passthrough ---
-
-func (w *reloadWrapper) CheckConfirmation(args string) (bool, string) {
-	if c, ok := w.inner.(tools.Confirmable); ok {
-		return c.CheckConfirmation(args)
-	}
-	return false, ""
-}
-
-func (w *reloadWrapper) ConfirmationOptions(args string) []string {
-	if c, ok := w.inner.(tools.Confirmable); ok {
-		return c.ConfirmationOptions(args)
-	}
-	return nil
-}
-
-func (w *reloadWrapper) ConfirmArgs(originalArgs string, choice tools.ConfirmChoice) string {
-	if c, ok := w.inner.(tools.Confirmable); ok {
-		return c.ConfirmArgs(originalArgs, choice)
-	}
-	return originalArgs
-}
-
-func (w *reloadWrapper) SupportsSessionWhitelist() bool {
-	if c, ok := w.inner.(tools.Confirmable); ok {
-		return c.SupportsSessionWhitelist()
-	}
-	return false
-}
-
 // --- AsyncTool passthrough ---
 
 func (w *reloadWrapper) ExecuteAsync(ctx context.Context, args string) (*tools.AsyncAction, error) {
@@ -127,9 +97,8 @@ func (w *reloadWrapper) IsAsync() bool {
 
 // Compile-time checks.
 var (
-	_ tools.Tool        = (*reloadWrapper)(nil)
-	_ tools.Confirmable = (*reloadWrapper)(nil)
-	_ tools.AsyncTool   = (*reloadWrapper)(nil)
+	_ tools.Tool      = (*reloadWrapper)(nil)
+	_ tools.AsyncTool = (*reloadWrapper)(nil)
 )
 
 // --- Path extraction ---
@@ -217,7 +186,6 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 			IsLeader:     fm.IsLeader,
 			Model:        fm.Model,
 			SystemPrompt: af.Body,
-			Permission:   fm.Permission,
 			MCPServers:   fm.MCPServers,
 			SkillIDs:     fm.Skills,
 		}

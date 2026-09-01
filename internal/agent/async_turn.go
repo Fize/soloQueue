@@ -377,23 +377,6 @@ func (a *Agent) execToolsWithAsync(
 				"timeout", action.Timeout,
 			)
 
-			// --- Inject confirm relay (aligned with execToolStream synchronous path) ---
-			relayCh := make(chan iface.AgentEvent, 16)
-
-			forwarder := a.routeConfirm()
-
-			relayDone := a.startRelayGoroutine(turnState.callerCtx, relayCh, turnState.out, func(ev iface.AgentEvent) {
-				if a.Log != nil {
-					a.Log.InfoContext(turnState.callerCtx, logger.CatTool, "relay-goroutine: received event from relayCh",
-						"event_type", fmt.Sprintf("%T", ev),
-					)
-				}
-			})
-			defer func() {
-				close(relayCh)
-				<-relayDone
-			}()
-
 			// --- Use AskStream + manual consumption instead of Ask ---
 			evCh, err := action.Target.AskStream(delCtx, action.Prompt)
 			if err != nil {
@@ -436,20 +419,13 @@ func (a *Agent) execToolsWithAsync(
 				}
 				// Cancellation owns the persistence boundary. A target may publish
 				// buffered events after observing cancellation; those events must
-				// not reach persistence, relay, or response aggregation.
+				// not reach persistence or response aggregation.
 				if delCtx.Err() != nil {
 					finalErr = errors.Join(finalErr, delCtx.Err())
 					break eventLoop
 				}
 				if action.OnEvent != nil {
 					finalErr = errors.Join(finalErr, action.OnEvent(ev))
-				}
-
-				select {
-				case relayCh <- ev:
-				case <-delCtx.Done():
-					finalErr = errors.Join(finalErr, delCtx.Err())
-					break eventLoop
 				}
 
 				ec, ok := ev.(iface.EventConsumer)
@@ -460,22 +436,6 @@ func (a *Agent) execToolsWithAsync(
 						)
 					}
 					continue
-				}
-
-				if callID, has := ec.ConfirmRequest(); has {
-					if a.Log != nil {
-						a.Log.InfoContext(delCtx, logger.CatTool, "async-goroutine: confirm request detected, firing forwarder",
-							"call_id", callID,
-						)
-					}
-					go func(fc context.Context, cid string, target iface.Locatable) {
-						defer func() {
-							if r := recover(); r != nil {
-								a.RecordError(fmt.Errorf("forwarder goroutine panic: %v", r))
-							}
-						}()
-						forwarder(fc, cid, target)
-					}(delCtx, callID, action.Target)
 				}
 
 				if delta, has := ec.ContentDelta(); has {

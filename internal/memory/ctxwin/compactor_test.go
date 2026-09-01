@@ -266,10 +266,10 @@ func TestAsyncCompactDeduplication(t *testing.T) {
 
 func TestFilterOversizedToolMessages(t *testing.T) {
 	msgs := []Message{
-		{Role: RoleTool, Content: strings.Repeat("a", 100)},   // small, keep
-		{Role: RoleTool, Content: strings.Repeat("b", 2001)},      // oversized, drop
-		{Role: RoleUser, Content: strings.Repeat("c", 5000)},    // not tool, keep
-		{Role: RoleTool, Content: strings.Repeat("d", 2000)},    // exactly at limit, keep
+		{Role: RoleTool, Content: strings.Repeat("a", 100)},  // small, keep
+		{Role: RoleTool, Content: strings.Repeat("b", 2001)}, // oversized, drop
+		{Role: RoleUser, Content: strings.Repeat("c", 5000)}, // not tool, keep
+		{Role: RoleTool, Content: strings.Repeat("d", 2000)}, // exactly at limit, keep
 	}
 	out := filterOversizedToolMessages(msgs)
 	if len(out) != 3 {

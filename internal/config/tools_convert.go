@@ -28,9 +28,8 @@ func (tc ToolsConfig) ToToolsConfig() tools.Config {
 		HTTPTimeout:      msToDuration(tc.HTTPTimeoutMs, 10*time.Minute),
 		HTTPBlockPrivate: tc.HTTPBlockPrivate,
 
-		ShellBlockRegexes:   tc.ShellBlockRegexes,
-		ShellConfirmRegexes: tc.ShellConfirmRegexes,
-		ShellMaxOutput:      defaultInt64(tc.ShellMaxOutput, 256<<10),
+		ShellBlockRegexes: tc.ShellBlockRegexes,
+		ShellMaxOutput:    defaultInt64(tc.ShellMaxOutput, 256<<10),
 
 		WebSearchTimeout: msToDuration(tc.WebSearchTimeoutMs, 10*time.Minute),
 		TavilyAPIKey:     tavilyKey,

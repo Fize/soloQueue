@@ -1831,11 +1831,10 @@ type ToolExecStartEvent struct {
 	Args   string
 }
 
-func (e *ToolExecStartEvent) IsAgentEvent()                  {}
-func (e *ToolExecStartEvent) ContentDelta() (string, bool)   { return "", false }
-func (e *ToolExecStartEvent) DoneContent() (string, bool)    { return "", false }
-func (e *ToolExecStartEvent) Error() (error, bool)           { return nil, false }
-func (e *ToolExecStartEvent) ConfirmRequest() (string, bool) { return "", false }
+func (e *ToolExecStartEvent) IsAgentEvent()                {}
+func (e *ToolExecStartEvent) ContentDelta() (string, bool) { return "", false }
+func (e *ToolExecStartEvent) DoneContent() (string, bool)  { return "", false }
+func (e *ToolExecStartEvent) Error() (error, bool)         { return nil, false }
 
 type ToolExecDoneEvent struct {
 	CallID string
@@ -1844,17 +1843,15 @@ type ToolExecDoneEvent struct {
 	Err    error
 }
 
-func (e *ToolExecDoneEvent) IsAgentEvent()                  {}
-func (e *ToolExecDoneEvent) ContentDelta() (string, bool)   { return "", false }
-func (e *ToolExecDoneEvent) DoneContent() (string, bool)    { return "", false }
-func (e *ToolExecDoneEvent) Error() (error, bool)           { return nil, false }
-func (e *ToolExecDoneEvent) ConfirmRequest() (string, bool) { return "", false }
+func (e *ToolExecDoneEvent) IsAgentEvent()                {}
+func (e *ToolExecDoneEvent) ContentDelta() (string, bool) { return "", false }
+func (e *ToolExecDoneEvent) DoneContent() (string, bool)  { return "", false }
+func (e *ToolExecDoneEvent) Error() (error, bool)         { return nil, false }
 
-func (e *testToolExecStart) IsAgentEvent()                  {}
-func (e *testToolExecStart) ContentDelta() (string, bool)   { return "", false }
-func (e *testToolExecStart) DoneContent() (string, bool)    { return "", false }
-func (e *testToolExecStart) Error() (error, bool)           { return nil, false }
-func (e *testToolExecStart) ConfirmRequest() (string, bool) { return "", false }
+func (e *testToolExecStart) IsAgentEvent()                {}
+func (e *testToolExecStart) ContentDelta() (string, bool) { return "", false }
+func (e *testToolExecStart) DoneContent() (string, bool)  { return "", false }
+func (e *testToolExecStart) Error() (error, bool)         { return nil, false }
 
 func TestDrainEventsWithTimeline_ToolCallCount(t *testing.T) {
 	s := newTestScheduler(t)
@@ -1881,28 +1878,25 @@ type testContentDelta struct {
 	delta string
 }
 
-func (e *testContentDelta) IsAgentEvent()                  {}
-func (e *testContentDelta) ContentDelta() (string, bool)   { return e.delta, true }
-func (e *testContentDelta) DoneContent() (string, bool)    { return "", false }
-func (e *testContentDelta) Error() (error, bool)           { return nil, false }
-func (e *testContentDelta) ConfirmRequest() (string, bool) { return "", false }
+func (e *testContentDelta) IsAgentEvent()                {}
+func (e *testContentDelta) ContentDelta() (string, bool) { return e.delta, true }
+func (e *testContentDelta) DoneContent() (string, bool)  { return "", false }
+func (e *testContentDelta) Error() (error, bool)         { return nil, false }
 
 type testDoneEvent struct {
 	content string
 }
 
-func (e *testDoneEvent) IsAgentEvent()                  {}
-func (e *testDoneEvent) ContentDelta() (string, bool)   { return "", false }
-func (e *testDoneEvent) DoneContent() (string, bool)    { return e.content, true }
-func (e *testDoneEvent) Error() (error, bool)           { return nil, false }
-func (e *testDoneEvent) ConfirmRequest() (string, bool) { return "", false }
+func (e *testDoneEvent) IsAgentEvent()                {}
+func (e *testDoneEvent) ContentDelta() (string, bool) { return "", false }
+func (e *testDoneEvent) DoneContent() (string, bool)  { return e.content, true }
+func (e *testDoneEvent) Error() (error, bool)         { return nil, false }
 
 type testErrorEvent struct {
 	err error
 }
 
-func (e *testErrorEvent) IsAgentEvent()                  {}
-func (e *testErrorEvent) ContentDelta() (string, bool)   { return "", false }
-func (e *testErrorEvent) DoneContent() (string, bool)    { return "", false }
-func (e *testErrorEvent) Error() (error, bool)           { return e.err, true }
-func (e *testErrorEvent) ConfirmRequest() (string, bool) { return "", false }
+func (e *testErrorEvent) IsAgentEvent()                {}
+func (e *testErrorEvent) ContentDelta() (string, bool) { return "", false }
+func (e *testErrorEvent) DoneContent() (string, bool)  { return "", false }
+func (e *testErrorEvent) Error() (error, bool)         { return e.err, true }

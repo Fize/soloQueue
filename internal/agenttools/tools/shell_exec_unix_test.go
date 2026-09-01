@@ -8,17 +8,16 @@ import (
 	"time"
 )
 
-func mkShellTool(t *testing.T, confirm []string, maxOut int64) *shellExecTool {
+func mkShellTool(t *testing.T, maxOut int64) *shellExecTool {
 	t.Helper()
 	cfg := Config{
-		ShellConfirmRegexes: confirm,
-		ShellMaxOutput:      maxOut,
+		ShellMaxOutput: maxOut,
 	}
 	return newShellExecTool(cfg)
 }
 
 func TestShell_HappyEcho(t *testing.T) {
-	tool := mkShellTool(t, nil, 1<<20)
+	tool := mkShellTool(t, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "echo ok"})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -35,7 +34,7 @@ func TestShell_HappyEcho(t *testing.T) {
 }
 
 func TestShell_NonZeroExit(t *testing.T) {
-	tool := mkShellTool(t, nil, 1<<20)
+	tool := mkShellTool(t, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "exit 7"})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -49,7 +48,7 @@ func TestShell_NonZeroExit(t *testing.T) {
 }
 
 func TestShell_Stderr(t *testing.T) {
-	tool := mkShellTool(t, nil, 1<<20)
+	tool := mkShellTool(t, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: `echo err>&2`})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -74,7 +73,7 @@ func TestShell_BlockList(t *testing.T) {
 }
 
 func TestShell_Timeout(t *testing.T) {
-	tool := mkShellTool(t, nil, 1<<20)
+	tool := mkShellTool(t, 1<<20)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	raw, _ := json.Marshal(shellExecArgs{Command: "sleep 5"})
@@ -90,7 +89,7 @@ func TestShell_Timeout(t *testing.T) {
 }
 
 func TestShell_CtxCancel(t *testing.T) {
-	tool := mkShellTool(t, nil, 1<<20)
+	tool := mkShellTool(t, 1<<20)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -104,7 +103,7 @@ func TestShell_CtxCancel(t *testing.T) {
 }
 
 func TestShell_Stdin(t *testing.T) {
-	tool := mkShellTool(t, nil, 1<<20)
+	tool := mkShellTool(t, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: "cat", Stdin: "piped input"})
 	out, err := tool.Execute(context.Background(), string(raw))
 	if err != nil {
@@ -118,7 +117,7 @@ func TestShell_Stdin(t *testing.T) {
 }
 
 func TestShell_OutputTruncation(t *testing.T) {
-	tool := mkShellTool(t, nil, 100)
+	tool := mkShellTool(t, 100)
 	// "yes" prints "y\n" forever; timeout kicks it, but truncation should fire first
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -138,7 +137,7 @@ func TestShell_OutputTruncation(t *testing.T) {
 }
 
 func TestShell_EmptyCommand(t *testing.T) {
-	tool := mkShellTool(t, nil, 1<<20)
+	tool := mkShellTool(t, 1<<20)
 	raw, _ := json.Marshal(shellExecArgs{Command: ""})
 	_, err := tool.Execute(context.Background(), string(raw))
 	if err == nil {
@@ -158,7 +157,7 @@ func TestShell_InvalidRegex(t *testing.T) {
 }
 
 func TestShell_InvalidJSON(t *testing.T) {
-	tool := mkShellTool(t, nil, 1<<20)
+	tool := mkShellTool(t, 1<<20)
 	_, err := tool.Execute(context.Background(), `{not json`)
 	if err == nil {
 		t.Error("invalid JSON should error")
@@ -166,7 +165,7 @@ func TestShell_InvalidJSON(t *testing.T) {
 }
 
 func TestShell_MetadataInterface(t *testing.T) {
-	tool := mkShellTool(t, nil, 1<<20)
+	tool := mkShellTool(t, 1<<20)
 	if tool.Name() != "Bash" {
 		t.Errorf("Name = %q", tool.Name())
 	}
@@ -174,76 +173,6 @@ func TestShell_MetadataInterface(t *testing.T) {
 	if err := json.Unmarshal(tool.Parameters(), &m); err != nil {
 		t.Errorf("Parameters not valid JSON: %v", err)
 	}
-}
-
-// ─── Confirmable Interface Tests ────────────────────────────────────────────────────
-
-func TestShell_CheckConfirmation_NeedsConfirm(t *testing.T) {
-	tool := newShellExecTool(Config{
-		ShellConfirmRegexes: []string{`^rm\b`},
-	})
-	needs, prompt := tool.CheckConfirmation(`{"command":"rm -rf /"}`)
-	if !needs {
-		t.Error("expected needsConfirm=true for rm")
-	}
-	if prompt == "" {
-		t.Error("expected non-empty prompt")
-	}
-}
-
-func TestShell_CheckConfirmation_AlreadyConfirmed(t *testing.T) {
-	tool := newShellExecTool(Config{
-		ShellConfirmRegexes: []string{`^rm\b`},
-	})
-	needs, _ := tool.CheckConfirmation(`{"command":"rm -rf /","confirmed":true}`)
-	if needs {
-		t.Error("confirmed=true should not need confirm")
-	}
-}
-
-func TestShell_CheckConfirmation_NotInList(t *testing.T) {
-	tool := newShellExecTool(Config{
-		ShellConfirmRegexes: []string{`^rm\b`},
-	})
-	needs, _ := tool.CheckConfirmation(`{"command":"ls -la"}`)
-	if needs {
-		t.Error("ls should not need confirm")
-	}
-}
-
-func TestShell_ConfirmationOptions(t *testing.T) {
-	tool := newShellExecTool(Config{})
-	if opts := tool.ConfirmationOptions(`{"command":"rm -rf /"}`); opts != nil {
-		t.Errorf("expected nil for binary confirm, got %v", opts)
-	}
-}
-
-func TestShell_ConfirmArgs(t *testing.T) {
-	tool := newShellExecTool(Config{})
-	// Inject confirmed=true when choice == "yes"
-	out := tool.ConfirmArgs(`{"command":"rm -rf /"}`, "yes")
-	var m map[string]any
-	if err := json.Unmarshal([]byte(out), &m); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if m["confirmed"] != true {
-		t.Errorf("confirmed = %v, want true", m["confirmed"])
-	}
-
-	// Do not inject when choice != "yes"
-	out2 := tool.ConfirmArgs(`{"command":"rm -rf /"}`, "")
-	var m2 map[string]any
-	if err := json.Unmarshal([]byte(out2), &m2); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if _, ok := m2["confirmed"]; ok {
-		t.Error("confirmed should not be set for non-yes choice")
-	}
-}
-
-func TestShell_Confirmable_CompileTimeCheck(t *testing.T) {
-	// Compile-time check: shellExecTool implements Confirmable
-	var _ Confirmable = (*shellExecTool)(nil)
 }
 
 func TestShell_RewriteCommand(t *testing.T) {

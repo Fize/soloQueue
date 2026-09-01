@@ -13,7 +13,6 @@ import (
 
 // manageCronTool provides a unified interface for managing scheduled tasks (create, list, update, delete).
 type manageCronTool struct {
-	defaultConfirmable
 	cfg    Config
 	logger *logger.Logger
 }
@@ -378,25 +377,7 @@ func (t *manageCronTool) executeDelete(ctx context.Context, a manageCronArgs) (s
 	return string(b), nil
 }
 
-func (t *manageCronTool) CheckConfirmation(raw string) (bool, string) {
-	var a manageCronArgs
-	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return true, "Manage cron task (unable to parse args). Allow?"
-	}
-	switch strings.ToLower(a.Action) {
-	case "delete":
-		return true, fmt.Sprintf("Delete cron task %q permanently. Allow?", a.TaskID)
-	case "create":
-		return true, fmt.Sprintf("Create scheduled task %q. Allow?", a.Title)
-	case "update":
-		return true, fmt.Sprintf("Update scheduled task %q. Allow?", a.TaskID)
-	default:
-		return false, ""
-	}
-}
-
 var _ Tool = (*manageCronTool)(nil)
-var _ Confirmable = (*manageCronTool)(nil)
 
 // IsCronTool reports whether the given tool name belongs to the cron-job tool family.
 func IsCronTool(name string) bool {

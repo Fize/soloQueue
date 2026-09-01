@@ -40,7 +40,6 @@ type Agent struct {
 	IsLeader      bool              `json:"is_leader"`
 	Model         string            `json:"model"`
 	SystemPrompt  string            `json:"system_prompt"`
-	Permission    bool              `json:"permission"`
 	MCPServers    []string          `json:"mcp_servers"`
 	SkillIDs      []string          `json:"skill_ids"`
 	Channels      map[string]string `json:"channels,omitempty"`
@@ -59,7 +58,6 @@ type AgentTemplate struct {
 	ModelID       string
 	IsLeader      bool
 	Group         string // maps to TeamName
-	Permission    bool
 	MCPServers    []string
 	SkillIDs      []string
 	Channels      map[string]string
@@ -547,7 +545,6 @@ func (s *Store) UpdateAgent(ctx context.Context, name string, a *Agent) error {
 	existing.IsLeader = a.IsLeader
 	existing.Model = a.Model
 	existing.SystemPrompt = a.SystemPrompt
-	existing.Permission = a.Permission
 	existing.MCPServers = a.MCPServers
 	existing.SkillIDs = a.SkillIDs
 	existing.Channels = a.Channels
@@ -594,7 +591,6 @@ func (a *Agent) ToAgentTemplate() AgentTemplate {
 		ModelID:       a.Model,
 		IsLeader:      a.IsLeader,
 		Group:         a.TeamName,
-		Permission:    a.Permission,
 		MCPServers:    a.MCPServers,
 		SkillIDs:      a.SkillIDs,
 		Channels:      a.Channels,
@@ -658,7 +654,6 @@ func (s *Store) writeAgentFile(path string, a *Agent) error {
 		Model:         a.Model,
 		Group:         a.TeamName,
 		IsLeader:      a.IsLeader,
-		Permission:    a.Permission,
 		MCPServers:    a.MCPServers,
 		Skills:        a.SkillIDs,
 		Channels:      a.Channels,
@@ -738,7 +733,6 @@ func parseAgentFile(path string, info os.FileInfo) (*Agent, error) {
 		IsLeader:      af.Frontmatter.IsLeader,
 		Model:         af.Frontmatter.Model,
 		SystemPrompt:  af.Body,
-		Permission:    af.Frontmatter.Permission,
 		MCPServers:    af.Frontmatter.MCPServers,
 		SkillIDs:      af.Frontmatter.Skills,
 		Channels:      af.Frontmatter.Channels,

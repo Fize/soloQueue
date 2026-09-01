@@ -63,7 +63,6 @@ type WSMessage struct {
 	Content          string               `json:"content,omitempty"`
 	ReasoningContent string               `json:"reasoning_content,omitempty"`
 	Prompt           string               `json:"prompt,omitempty"`
-	AllowInSession   bool                 `json:"allow_in_session,omitempty"`
 	TargetAgentID    string               `json:"target_agent_id,omitempty"`
 	AgentName        string               `json:"agent_name,omitempty"`
 	ResultContent    string               `json:"result_content,omitempty"`
@@ -79,8 +78,6 @@ type ClientMessage struct {
 	SessionID        string           `json:"session_id,omitempty"`
 	Prompt           string           `json:"prompt,omitempty"`
 	Files            []ClientFile     `json:"files,omitempty"`
-	CallID           string           `json:"call_id,omitempty"`
-	Choice           string           `json:"choice,omitempty"`
 	DesignMode       bool             `json:"design_mode,omitempty"`
 	SelectedElement  *SelectedElement `json:"selected_element,omitempty"`
 	ActiveDesignFile string           `json:"active_design_file,omitempty"`

@@ -17,7 +17,6 @@ type AgentFrontmatter struct {
 	Model         string            `yaml:"model"`
 	Group         string            `yaml:"group"`
 	IsLeader      bool              `yaml:"is_leader"`
-	Permission    bool              `yaml:"permission"`
 	MCPServers    []string          `yaml:"mcp_servers,omitempty"`
 	Skills        []string          `yaml:"skills,omitempty"`
 	Channels      map[string]string `yaml:"channels,omitempty"`       // channel_type → instance_id (e.g. {"qq": "my-qq-bot"})

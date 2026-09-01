@@ -60,7 +60,6 @@ func StartCmd(version string) *cobra.Command { return serveCmd("start", version,
 func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Command {
 	var port int
 	var verbose bool
-	var bypass bool
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: "Start the local HTTP/WebSocket server",
@@ -99,7 +98,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				return cfg.WriteSoul(prompt.DefaultProfileAnswers())
 			}
 
-			rt, err := runtime.Build(workDir, cfg, log, profileSetup, bypass, assets.SkillsFS())
+			rt, err := runtime.Build(workDir, cfg, log, profileSetup, assets.SkillsFS())
 			if err != nil {
 				return err
 			}
@@ -379,7 +378,6 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 
 	cmd.Flags().IntVarP(&port, "port", "p", 57647, "HTTP server port (57647 = default, 0 = random)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print logs to console (stderr)")
-	cmd.Flags().BoolVar(&bypass, "bypass", false, "bypass all tool confirmations for all agents")
 	return cmd
 }
 

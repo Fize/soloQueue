@@ -29,8 +29,8 @@ type proposal struct {
 // Action represents a single action decided by an agent.
 type Action struct {
 	Type     ActionType `json:"type"`
-	Target   string     `json:"target"`    // agent ID, zone name, object ID, or "*" for broadcast
-	Content  string     `json:"content"`   // for speak: the message text; for interact: the action
+	Target   string     `json:"target"`             // agent ID, zone name, object ID, or "*" for broadcast
+	Content  string     `json:"content"`            // for speak: the message text; for interact: the action
 	Duration string     `json:"duration,omitempty"` // for wait: how long (e.g. "30m")
 }
 
@@ -65,12 +65,14 @@ func (a Action) String() string {
 
 // ParseActions extracts actions from an agent's LLM response.
 // Recognizes the action directive syntax:
-//   [SAY]: text                    → broadcast message
-//   [SAY @name]: text              → directed message
-//   [MOVE zone_name]               → move to zone
-//   [INTERACT object: action]      → interact with object
-//   [WAIT duration]                → wait
-//   [PASS]                         → do nothing this tick
+//
+//	[SAY]: text                    → broadcast message
+//	[SAY @name]: text              → directed message
+//	[MOVE zone_name]               → move to zone
+//	[INTERACT object: action]      → interact with object
+//	[WAIT duration]                → wait
+//	[PASS]                         → do nothing this tick
+//
 // Also recognizes legacy [PROPOSE key: value] for WorldState updates.
 func ParseActions(content string) (actions []Action, proposals []proposal) {
 	lines := strings.Split(content, "\n")

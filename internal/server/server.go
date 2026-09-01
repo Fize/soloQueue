@@ -323,7 +323,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Post("/clear", m.handleClearSession)
 		r.Post("/rewind", m.handleRewindSession)
 		r.Post("/delete", m.handleDeleteSessionMessages)
-		r.Post("/confirm", m.handleConfirmSession)
 		r.Get("/list", m.handleListSessions)
 		r.Get("/groups", m.handleListL2Groups)
 		r.Post("/l2", m.handleCreateL2Session)

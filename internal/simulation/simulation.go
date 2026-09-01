@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/config"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
 // SimulationEngine orchestrates the full simulation lifecycle.
@@ -29,8 +29,8 @@ type SimulationEngine struct {
 	log      *logger.Logger
 	config   config.SimulationConfig
 
-	memoryEngine *engine.Engine // optional, for KG-based seed processing
-	resolveModel agent.ModelResolver  // nil = skip model resolution (tests)
+	memoryEngine *engine.Engine      // optional, for KG-based seed processing
+	resolveModel agent.ModelResolver // nil = skip model resolution (tests)
 
 	subscribers   map[chan SimulationEvent]struct{}
 	subscribersMu sync.RWMutex
@@ -1736,7 +1736,6 @@ func (e *SimulationEngine) createSimAgents(ctx context.Context, config Simulatio
 			Description:  persona.Role,
 			SystemPrompt: placeholderPrompt,
 			ModelID:      modelID,
-			Permission:   true,
 		}
 
 		agt, cw, err := e.factory.Create(ctx, tmpl, "")

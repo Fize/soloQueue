@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 )
 
@@ -41,7 +41,7 @@ type PersonaGenerator struct {
 	model        string
 	providerID   string
 	memoryEngine *engine.Engine // nil = skip KG enhancement
-	maxTokens    int                  // 0 = use API default
+	maxTokens    int            // 0 = use API default
 	log          *logger.Logger
 }
 

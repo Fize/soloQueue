@@ -13,7 +13,7 @@ import (
 //
 // Relative paths (not starting with / or ~) are resolved against workDir.
 // When workDir is empty, falls back to process CWD (for callers that don't
-// have a configured working directory, e.g. isPlanDirFile or tests).
+// have a configured working directory, e.g. tests).
 //
 // Returns:
 //   - abs: the cleaned absolute path (os-native separators)

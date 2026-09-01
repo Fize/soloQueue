@@ -10,20 +10,20 @@ import (
 
 // EnvObject represents an interactive object in the environment.
 type EnvObject struct {
-	ID           string         `json:"id"`
-	Name         string         `json:"name"`
-	Description  string         `json:"description"`
-	IsInteractive bool          `json:"is_interactive"`
-	State        map[string]any `json:"state"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description"`
+	IsInteractive bool           `json:"is_interactive"`
+	State         map[string]any `json:"state"`
 }
 
 // Zone is a named area in the environment where agents can be present.
 type Zone struct {
-	Name          string              `json:"name"`
-	Description   string              `json:"description"`
-	Capacity      int                 `json:"capacity"`
+	Name          string                `json:"name"`
+	Description   string                `json:"description"`
+	Capacity      int                   `json:"capacity"`
 	Objects       map[string]*EnvObject `json:"objects"`
-	PresentAgents map[string]bool     `json:"-"` // set of agent IDs currently in zone
+	PresentAgents map[string]bool       `json:"-"` // set of agent IDs currently in zone
 }
 
 // Environment is the spatial context for the simulation.
@@ -40,12 +40,12 @@ type Environment struct {
 
 // EnvironmentEvent records a change in the environment.
 type EnvironmentEvent struct {
-	Type      string    `json:"type"` // "agent_enter", "agent_leave", "object_changed"
-	AgentID   string    `json:"agent_id,omitempty"`
-	ZoneName  string    `json:"zone_name"`
-	ObjectID  string    `json:"object_id,omitempty"`
-	Detail    string    `json:"detail"`
-	SimTime   time.Time `json:"sim_time"`
+	Type     string    `json:"type"` // "agent_enter", "agent_leave", "object_changed"
+	AgentID  string    `json:"agent_id,omitempty"`
+	ZoneName string    `json:"zone_name"`
+	ObjectID string    `json:"object_id,omitempty"`
+	Detail   string    `json:"detail"`
+	SimTime  time.Time `json:"sim_time"`
 }
 
 // NewEnvironment creates a simulation environment with predefined zones.

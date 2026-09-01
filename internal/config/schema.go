@@ -167,9 +167,8 @@ type ToolsConfig struct {
 	HTTPBlockPrivate bool     `json:"httpBlockPrivate" yaml:"http_block_private,omitempty"`
 
 	// Bash
-	ShellBlockRegexes   []string `json:"shellBlockRegexes"   yaml:"shell_block_regexes,omitempty"`
-	ShellConfirmRegexes []string `json:"shellConfirmRegexes" yaml:"shell_confirm_regexes,omitempty"`
-	ShellMaxOutput      int64    `json:"shellMaxOutput"      yaml:"shell_max_output,omitempty"`
+	ShellBlockRegexes []string `json:"shellBlockRegexes" yaml:"shell_block_regexes,omitempty"`
+	ShellMaxOutput    int64    `json:"shellMaxOutput" yaml:"shell_max_output,omitempty"`
 
 	// WebSearch
 	WebSearchTimeoutMs int `json:"webSearchTimeoutMs" yaml:"web_search_timeout_ms,omitempty"`

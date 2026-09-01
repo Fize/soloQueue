@@ -25,7 +25,6 @@ import (
 //   - The parent directory must already exist (no automatic MkdirAll to avoid the LLM accidentally creating directory trees)
 //   - Atomicity: atomicWrite(tmp + rename); failures leave no temporary file behind.
 type writeFileTool struct {
-	defaultConfirmable
 	cfg    Config
 	logger *logger.Logger
 }
@@ -140,48 +139,4 @@ func writeFileImpl(ctx context.Context, cfg Config, path, content string, overwr
 	return string(b), nil
 }
 
-// CheckConfirmation implements Confirmable: writing files always requires confirmation.
-func (t *writeFileTool) CheckConfirmation(raw string) (bool, string) {
-	var a writeFileArgs
-	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		if t.logger != nil {
-			preview := raw
-			if len(preview) > 200 {
-				preview = preview[:200] + "..."
-			}
-			t.logger.Error(logger.CatTool, "CheckConfirmation: json.Unmarshal failed",
-				"error", err.Error(),
-				"raw_len", len(raw),
-				"raw_preview", preview,
-			)
-		}
-		// Try to extract at least the path from raw (the first half of the JSON usually contains it)
-		var partial struct {
-			Path string `json:"path"`
-		}
-		if e := json.Unmarshal([]byte(raw), &partial); e == nil && partial.Path != "" {
-			return true, fmt.Sprintf("Write to %q (truncated, %d bytes). Allow?", partial.Path, len(raw))
-		}
-		return true, fmt.Sprintf("Write file (truncated args, %d bytes: %v). Allow?", len(raw), err)
-	}
-
-	// Bypass confirmation for plan files
-	if isPlanDirFile(a.Path, t.cfg.PlanDir) {
-		return false, ""
-	}
-
-	size := len(a.Content)
-	var sizeStr string
-	if size >= 1<<10 {
-		sizeStr = fmt.Sprintf("%.1fKB", float64(size)/float64(1<<10))
-	} else {
-		sizeStr = fmt.Sprintf("%dB", size)
-	}
-	return true, fmt.Sprintf("Write %s to %q. Allow?", sizeStr, a.Path)
-}
-
-// ConfirmationOptions implements Confirmable: binary confirmation.
-
-// Compile-time checks
 var _ Tool = (*writeFileTool)(nil)
-var _ Confirmable = (*writeFileTool)(nil)

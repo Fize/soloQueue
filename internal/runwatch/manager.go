@@ -103,7 +103,6 @@ type Snapshot struct {
 	Phase          string
 	LastProgressAt time.Time
 	WatchdogDueAt  time.Time
-	PausedReason   string
 	Terminated     bool
 	TerminalCode   Code
 }
@@ -123,15 +122,14 @@ func WithClock(c clock) Option {
 }
 
 type Manager struct {
-	mu       sync.Mutex
-	clock    clock
-	policy   Policy
-	runs     map[string]*state
-	closed   bool
-	stop     chan struct{}
-	wg       sync.WaitGroup
-	rootSeq  uint64
-	pauseSeq uint64
+	mu      sync.Mutex
+	clock   clock
+	policy  Policy
+	runs    map[string]*state
+	closed  bool
+	stop    chan struct{}
+	wg      sync.WaitGroup
+	rootSeq uint64
 }
 
 type state struct {
@@ -149,8 +147,6 @@ type state struct {
 	lastSemantic  time.Time
 	lastProgress  time.Time
 	hasSemantic   bool
-	pausedReason  string
-	pauseReasons  map[uint64]string
 	terminal      Code
 	terminated    bool
 	active        bool
@@ -206,7 +202,7 @@ func (m *Manager) Start(ctx context.Context, meta Metadata) (context.Context, *H
 	root := &state{
 		id: meta.RunID, key: fmt.Sprintf("root:%d", m.rootSeq), kind: KindRoot, phase: meta.Phase, policy: mergePolicy(m.policy, Policy{}),
 		children: make(map[string]*state), cancel: cancel, startedAt: now,
-		lastTransport: now, lastSemantic: now, lastProgress: now, pauseReasons: make(map[uint64]string), active: true,
+		lastTransport: now, lastSemantic: now, lastProgress: now, active: true,
 	}
 	root.root = root
 	m.runs[root.id] = root
@@ -232,7 +228,7 @@ func (h *Handle) BeginOperation(kind Kind, id string, policy Policy) (*Handle, e
 	child := &state{
 		id: id, key: parent.key + "/" + id, kind: kind, policy: mergePolicy(parent.root.policy, policy), parent: parent, root: parent.root,
 		children: make(map[string]*state), cancel: parent.root.cancel, startedAt: now,
-		lastTransport: now, lastSemantic: now, lastProgress: now, pauseReasons: make(map[uint64]string), active: true,
+		lastTransport: now, lastSemantic: now, lastProgress: now, active: true,
 	}
 	parent.children[id] = child
 	return &Handle{manager: m, state: child}, nil
@@ -300,71 +296,6 @@ func (h *Handle) Pulse(kind ProgressKind, phase string) {
 	case ProgressStructural:
 		s.lastSemantic = now
 		s.hasSemantic = true
-	}
-}
-
-func (h *Handle) Pause(reason string) {
-	if h == nil || h.manager == nil || reason == "" {
-		return
-	}
-	m := h.manager
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if s := h.state; s != nil && s.active && !s.terminated {
-		s.pausedReason = reason
-	}
-}
-
-// AcquirePause suspends only this handle's branch and returns an idempotent
-// release function. Independent confirmations therefore cannot resume each
-// other or pause sibling branches.
-func (h *Handle) AcquirePause(reason string) func(string) {
-	if h == nil || h.manager == nil || h.state == nil || reason == "" {
-		return func(string) {}
-	}
-	m := h.manager
-	m.mu.Lock()
-	m.pauseSeq++
-	token := m.pauseSeq
-	if h.state.active && !h.state.terminated {
-		h.state.pauseReasons[token] = reason
-	}
-	m.mu.Unlock()
-	var once sync.Once
-	return func(phase string) {
-		once.Do(func() {
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			s := h.state
-			if s == nil || !s.active || s.terminated {
-				return
-			}
-			delete(s.pauseReasons, token)
-			resetLease(s, m.clock.Now(), phase)
-		})
-	}
-}
-
-func (h *Handle) Resume(phase string) {
-	if h == nil || h.manager == nil {
-		return
-	}
-	m := h.manager
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if s := h.state; s != nil && s.active && !s.terminated {
-		s.pausedReason = ""
-		resetLease(s, m.clock.Now(), phase)
-	}
-}
-
-func resetLease(s *state, now time.Time, phase string) {
-	s.startedAt = now
-	s.lastTransport = now
-	s.lastSemantic = now
-	s.lastProgress = now
-	if phase != "" {
-		s.phase = phase
 	}
 }
 
@@ -484,7 +415,6 @@ func snapshotOf(s *state) Snapshot {
 		Phase:          s.phase,
 		LastProgressAt: s.lastProgress,
 		WatchdogDueAt:  effectiveWatchdogDueAt(s),
-		PausedReason:   effectivePausedReason(s),
 		Terminated:     s.terminated,
 		TerminalCode:   s.terminal,
 	}
@@ -536,7 +466,7 @@ func watchdogDueAt(s *state) time.Time {
 }
 
 func effectiveWatchdogDueAt(s *state) time.Time {
-	if s == nil || s.terminated || statePaused(s) {
+	if s == nil || s.terminated {
 		return time.Time{}
 	}
 	var childDue time.Time
@@ -560,26 +490,8 @@ func effectiveWatchdogDueAt(s *state) time.Time {
 	return watchdogDueAt(s)
 }
 
-func effectivePausedReason(s *state) string {
-	if s == nil || s.terminated {
-		return ""
-	}
-	if s.pausedReason != "" {
-		return s.pausedReason
-	}
-	for _, reason := range s.pauseReasons {
-		return reason
-	}
-	for _, child := range s.children {
-		if reason := effectivePausedReason(child); reason != "" {
-			return reason
-		}
-	}
-	return ""
-}
-
 func firstExpired(s *state, now time.Time) *state {
-	if s.terminated || statePaused(s) {
+	if s.terminated {
 		return nil
 	}
 	for _, child := range s.children {
@@ -639,10 +551,6 @@ func expiredCode(s *state, now time.Time) Code {
 	return CodeRootOrphaned
 }
 
-func statePaused(s *state) bool {
-	return s.pausedReason != "" || len(s.pauseReasons) > 0
-}
-
 func (m *Manager) Close() {
 	m.mu.Lock()
 	if m.closed {
@@ -681,17 +589,5 @@ func HandleFromContext(ctx context.Context) *Handle {
 func Pulse(ctx context.Context, kind ProgressKind, phase string) {
 	if h := HandleFromContext(ctx); h != nil {
 		h.Pulse(kind, phase)
-	}
-}
-
-func Pause(ctx context.Context, reason string) {
-	if h := HandleFromContext(ctx); h != nil {
-		h.Pause(reason)
-	}
-}
-
-func Resume(ctx context.Context, phase string) {
-	if h := HandleFromContext(ctx); h != nil {
-		h.Resume(phase)
 	}
 }

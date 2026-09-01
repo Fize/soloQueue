@@ -16,7 +16,7 @@ type DialogueSession struct {
 	MaxTurns    int       `json:"max_turns"` // max turns per agent before auto-end
 
 	mu      sync.Mutex
-	turns   int       // total turns so far
+	turns   int // total turns so far
 	active  bool
 	endAt   time.Time // set when ended
 	history []Message
@@ -95,10 +95,10 @@ func (ds *DialogueSession) Other(agentID string) string {
 
 // DialogueManager tracks all active private conversations in the simulation.
 type DialogueManager struct {
-	sessions   map[string]*DialogueSession // key: "initiatorID:targetID"
-	agentSess  map[string]string           // agentID → sessionKey (which session they're in)
-	mu         sync.RWMutex
-	bus        *MessageBus
+	sessions  map[string]*DialogueSession // key: "initiatorID:targetID"
+	agentSess map[string]string           // agentID → sessionKey (which session they're in)
+	mu        sync.RWMutex
+	bus       *MessageBus
 }
 
 // NewDialogueManager creates a dialogue manager.

@@ -297,7 +297,7 @@ func TestInstallGithubSkill_RealIntegration(t *testing.T) {
 	}
 
 	userDir := t.TempDir()
-	
+
 	// 1. Test pulling docx
 	err := InstallGithubSkill(context.Background(), "https://github.com/anthropics/skills", "main", "skills/docx", userDir)
 	if err != nil {
@@ -363,5 +363,3 @@ Body content`
 		}
 	}
 }
-
-

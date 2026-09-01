@@ -24,17 +24,17 @@ type Baseline struct {
 
 // excludedDirs are directories skipped during non-git snapshot traversal.
 var excludedDirs = map[string]bool{
-	".git":          true,
-	"node_modules":  true,
-	"dist":          true,
-	"build":         true,
-	"out":           true,
-	".next":         true,
-	".svelte-kit":   true,
-	"vendor":        true,
-	"__pycache__":   true,
-	".cache":        true,
-	"target":        true,
+	".git":         true,
+	"node_modules": true,
+	"dist":         true,
+	"build":        true,
+	"out":          true,
+	".next":        true,
+	".svelte-kit":  true,
+	"vendor":       true,
+	"__pycache__":  true,
+	".cache":       true,
+	"target":       true,
 }
 
 // excludedExts are file extensions skipped during snapshot (binaries, etc).

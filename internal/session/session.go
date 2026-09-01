@@ -1033,8 +1033,7 @@ func (s *Session) beginRunLifecycle(ctx context.Context, phase string) (context.
 }
 
 // applyWatchdogEvent updates supervision before the event becomes externally
-// observable. Confirmation pause/resume stays at the execution layer, which
-// owns the exact interval and handle being suspended.
+// observable, so progress is recorded before it is delivered to callers.
 func (s *Session) applyWatchdogEvent(runHandle *runwatch.Handle, ev iface.AgentEvent) {
 	if runHandle == nil {
 		return
@@ -2286,12 +2285,6 @@ enqueued:
 				return
 			}
 			switch e := ev.(type) {
-			case agent.ToolNeedsConfirmEvent:
-				s.logger.InfoContext(ctx, logger.CatApp, "session-forwarder: confirm event received and forwarded",
-					"target_id", s.TargetID,
-					"call_id", e.CallID,
-					"tool_name", e.Name,
-				)
 			case agent.DelegationStartedEvent:
 				// Async delegation started: release inFlight, allowing user to send new messages
 				s.logger.DebugContext(ctx, logger.CatApp, "delegation started",

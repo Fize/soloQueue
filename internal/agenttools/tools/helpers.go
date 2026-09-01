@@ -4,22 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"path/filepath"
 	"regexp"
-	"strings"
 	"unicode/utf8"
 )
-
-// ─── Plan dir detection ──────────────────────────────────────────────────
-
-// isPlanDirFile returns true if path is under planDir (bypassing confirmation).
-func isPlanDirFile(path, planDir string) bool {
-	if planDir == "" {
-		return false
-	}
-	abs, err := absPath(path, "")
-	return err == nil && strings.HasPrefix(abs, planDir+string(filepath.Separator))
-}
 
 // ─── Binary detection ───────────────────────────────────────────────────
 

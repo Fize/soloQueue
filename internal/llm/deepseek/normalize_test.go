@@ -213,10 +213,10 @@ func TestCloseTruncatedJSON(t *testing.T) {
 		{"dangling comma", `{"a":1,"b":2,`, true, `2`},
 		{"open array", `[1,2`, true, `1`},
 		{"unterminated nested array", `{"items":[1,2`, true, `[1,2]`},
-		{"escape char at end", `{"path":"/tmp/\\`, true, `tmp`},    // esc removes trailing backslash
-		{"empty returns empty", "", false, `{}`},  // empty not valid JSON, degrades to {}
-		{"garbage degrades", `not json at all`, false, `{}`},       // defaults to {}
-		{"nested open braces", `{"a":{"b":`, true, `"b"`},          // closes both
+		{"escape char at end", `{"path":"/tmp/\\`, true, `tmp`}, // esc removes trailing backslash
+		{"empty returns empty", "", false, `{}`},                // empty not valid JSON, degrades to {}
+		{"garbage degrades", `not json at all`, false, `{}`},    // defaults to {}
+		{"nested open braces", `{"a":{"b":`, true, `"b"`},       // closes both
 	}
 
 	for _, tt := range tests {

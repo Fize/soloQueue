@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // SimAgent wraps an agent.Agent for simulation use.
@@ -93,10 +93,10 @@ func (sa *SimAgent) Stop(timeout time.Duration) error {
 	return sa.agent.Stop(timeout)
 }
 
-func (sa *SimAgent) InstanceID() string     { return sa.instanceID }
-func (sa *SimAgent) PersonaID() string       { return sa.personaID }
-func (sa *SimAgent) Persona() *Persona       { return sa.persona }
-func (sa *SimAgent) Memory() *AgentMemory    { return sa.memory }
+func (sa *SimAgent) InstanceID() string                   { return sa.instanceID }
+func (sa *SimAgent) PersonaID() string                    { return sa.personaID }
+func (sa *SimAgent) Persona() *Persona                    { return sa.persona }
+func (sa *SimAgent) Memory() *AgentMemory                 { return sa.memory }
 func (sa *SimAgent) ContextWindow() *ctxwin.ContextWindow { return sa.cw }
 
 func personaTokenBudget(persona *Persona, contextWindow int) int {
@@ -105,4 +105,3 @@ func personaTokenBudget(persona *Persona, contextWindow int) int {
 	}
 	return contextWindow * 80 / 100
 }
-

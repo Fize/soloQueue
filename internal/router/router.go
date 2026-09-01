@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
@@ -15,11 +15,11 @@ type ModelService interface {
 }
 
 type RouteDecision struct {
-	Classification ClassificationResult
-	TaskType       tasktype.TaskType
-	ProviderID     string
-	ModelID        string // API model sent to the provider
-	ModelName      string
+	Classification  ClassificationResult
+	TaskType        tasktype.TaskType
+	ProviderID      string
+	ModelID         string // API model sent to the provider
+	ModelName       string
 	ThinkingEnabled bool
 	ReasoningEffort string
 	ThinkingType    string
@@ -28,9 +28,9 @@ type RouteDecision struct {
 }
 
 type Router struct {
-	classifier Classifier
+	classifier   Classifier
 	modelService ModelService
-	logger *logger.Logger
+	logger       *logger.Logger
 }
 
 func NewRouter(classifier Classifier, modelService ModelService, l *logger.Logger) *Router {

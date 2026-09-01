@@ -87,7 +87,7 @@ func (m *Mux) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // ─── Read Pump ──────────────────────────────────────────────────────────────
 
 // readPump reads messages from the WebSocket connection.
-// It handles client chat messages (chat_send, chat_cancel, tool_confirm) in
+// It handles client chat messages (chat_send, chat_cancel) in
 // addition to app-level ping-pong.
 func (c *Client) readPump() {
 	defer func() {
@@ -141,8 +141,6 @@ func (c *Client) readPump() {
 				c.hub.handleChatSend(c, &msg)
 			case "chat_cancel":
 				c.hub.handleChatCancel(c, &msg)
-			case "tool_confirm":
-				c.hub.handleToolConfirm(c, &msg)
 			}
 		}
 	}

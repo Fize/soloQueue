@@ -1019,28 +1019,6 @@ func TestSession_WatchdogCancellationEmitsTypedTerminalError(t *testing.T) {
 	t.Fatal("watchdog cancellation completed without a typed terminal error")
 }
 
-func TestSession_WatchdogEventProjectionDoesNotDuplicateConfirmationPause(t *testing.T) {
-	clock := &sessionFakeClock{now: time.Unix(1_700_000_000, 0)}
-	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute}, runwatch.WithClock(clock))
-	defer watchdog.Close()
-	_, root, err := watchdog.Start(context.Background(), runwatch.Metadata{RunID: "confirm-projection"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := &Session{}
-	s.applyWatchdogEvent(root, agent.ToolNeedsConfirmEvent{CallID: "call-1"})
-	snapshot, _ := watchdog.Snapshot("confirm-projection")
-	if snapshot.PausedReason != "" {
-		t.Fatalf("Session duplicated lower-layer confirmation pause: %q", snapshot.PausedReason)
-	}
-	clock.Advance(10 * time.Second)
-	s.applyWatchdogEvent(root, agent.ContentDeltaEvent{Delta: "progress"})
-	snapshot, _ = watchdog.Snapshot("confirm-projection")
-	if want := clock.Now(); !snapshot.LastProgressAt.Equal(want) {
-		t.Fatalf("LastProgressAt = %v, want event time %v", snapshot.LastProgressAt, want)
-	}
-}
-
 func TestSession_AskStream_DeadlineEmitsOneTerminalError(t *testing.T) {
 	fake := &agenttest.FakeLLM{
 		Responses: []string{"late response"},

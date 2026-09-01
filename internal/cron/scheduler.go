@@ -980,10 +980,9 @@ func (s *Scheduler) buildTaskPrompt(t Task) string {
 	return buildCronPrompt(t)
 }
 
-// buildCronContext creates a context with bypass-confirm flag.
+// buildCronContext adds telemetry metadata for a cron execution.
 func (s *Scheduler) buildCronContext(parent context.Context, t Task, runID string) context.Context {
-	cronCtx := iface.ContextWithBypassConfirm(parent)
-	return telemetryctx.WithMetadata(cronCtx, telemetryctx.Metadata{
+	return telemetryctx.WithMetadata(parent, telemetryctx.Metadata{
 		RunID:    runID,
 		Origin:   telemetryctx.OriginCron,
 		TaskType: t.TaskType,

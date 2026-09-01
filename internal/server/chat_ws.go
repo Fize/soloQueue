@@ -423,7 +423,6 @@ func (h *Hub) refreshRequestWatchdog(sessionID, requestID string, terminal runwa
 					Phase:          snapshot.Phase,
 					LastProgressAt: snapshot.LastProgressAt,
 					WatchdogDueAt:  snapshot.WatchdogDueAt,
-					PausedReason:   snapshot.PausedReason,
 					TerminalCode:   string(snapshot.TerminalCode),
 				}
 			}
@@ -436,7 +435,7 @@ func (h *Hub) refreshRequestWatchdog(sessionID, requestID string, terminal runwa
 		}
 		state = WatchdogState{
 			RunID: req.RunID, Phase: req.Phase, LastProgressAt: req.LastProgressAt,
-			WatchdogDueAt: req.WatchdogDueAt, PausedReason: req.PausedReason, TerminalCode: req.TerminalCode,
+			WatchdogDueAt: req.WatchdogDueAt, TerminalCode: req.TerminalCode,
 		}
 	}
 	if terminal != "" {
@@ -470,7 +469,6 @@ func (h *Hub) projectLiveWatchdog(req ActiveRequest) ActiveRequest {
 	req.Phase = snapshot.Phase
 	req.LastProgressAt = snapshot.LastProgressAt
 	req.WatchdogDueAt = snapshot.WatchdogDueAt
-	req.PausedReason = snapshot.PausedReason
 	req.TerminalCode = string(snapshot.TerminalCode)
 	return req
 }
@@ -554,38 +552,6 @@ type requestCanceller interface {
 
 func cancelRequest(canceller requestCanceller, requestID, reason string) error {
 	return canceller.CancelRun(requestID, reason)
-}
-
-// handleToolConfirm forwards a tool confirmation choice to the agent.
-func (h *Hub) handleToolConfirm(client *Client, msg *ClientMessage) {
-	if h.mux == nil || h.mux.sessionMgr == nil {
-		return
-	}
-
-	ref, err := session.ParseSessionID(msg.SessionID)
-	if err != nil {
-		return
-	}
-	sessionID := ref.String()
-
-	if msg.RequestID != "" {
-		if _, err := h.requests.Validate(sessionID, msg.RequestID); err != nil {
-			return
-		}
-		if err := h.requests.ResolvePendingCall(msg.RequestID, msg.CallID); err != nil {
-			// Call ID does not belong to active request — drop
-			return
-		}
-	}
-
-	sess, err := h.resolveSession(sessionID)
-	if err != nil {
-		return
-	}
-
-	if a := sess.CurrentAgent(); a != nil {
-		_ = a.Confirm(msg.CallID, msg.Choice)
-	}
 }
 
 // ─── Event Forwarding ───────────────────────────────────────────────────────
@@ -760,10 +726,6 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 				}
 			}
 
-			if confirmEv, ok := agEv.(agent.ToolNeedsConfirmEvent); ok {
-				_ = h.requests.RegisterPendingCall(requestID, confirmEv.CallID)
-			}
-
 			wsMsg := convertAgentEvent(agEv, requestID, sessionID)
 			if wsMsg == nil {
 				continue
@@ -822,17 +784,6 @@ func convertAgentEvent(ev agent.AgentEvent, requestID, sessionID string) *WSMess
 			Result:     e.Result,
 			Error:      errStr,
 			DurationMS: e.Duration.Milliseconds(),
-		}
-
-	case agent.ToolNeedsConfirmEvent:
-		return &WSMessage{
-			Type:           "tool_confirm",
-			RequestID:      requestID,
-			SessionID:      sessionID,
-			CallID:         e.CallID,
-			Name:           e.Name,
-			Prompt:         e.Prompt,
-			AllowInSession: e.AllowInSession,
 		}
 
 	case agent.DoneEvent:

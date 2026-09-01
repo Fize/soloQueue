@@ -539,7 +539,7 @@ func TestAggressiveTruncateLastTurn_OmitsContent(t *testing.T) {
 	cw := NewContextWindow(100, 10, 0, tok)
 
 	cw.Push(RoleSystem, "system")
-	cw.Push(RoleUser, strings.Repeat("x", 2000)) // huge user message
+	cw.Push(RoleUser, strings.Repeat("x", 2000))      // huge user message
 	cw.Push(RoleAssistant, strings.Repeat("y", 2000)) // huge assistant message
 
 	target := cw.maxTokens - cw.bufferTokens // 90
@@ -566,25 +566,25 @@ func TestPruneOlderTurnsEphemeralContent(t *testing.T) {
 	cw.Push(RoleSystem, "system prompt") // idx 0
 
 	// Turn 1 (Oldest):
-	cw.Push(RoleUser, "read file A") // idx 1
+	cw.Push(RoleUser, "read file A")    // idx 1
 	cw.Push(RoleAssistant, "tool call") // idx 2
 	// Ephemeral JSON output
 	cw.Push(RoleTool, `{"path":"a.txt","content":"huge file content of A"}`, WithEphemeral(true), WithToolCallID("call_a")) // idx 3
-	cw.Push(RoleAssistant, "Answer A") // idx 4
+	cw.Push(RoleAssistant, "Answer A")                                                                                      // idx 4
 
 	// Turn 2:
-	cw.Push(RoleUser, "read file B") // idx 5
+	cw.Push(RoleUser, "read file B")    // idx 5
 	cw.Push(RoleAssistant, "tool call") // idx 6
 	// Ephemeral non-JSON output
 	cw.Push(RoleTool, "huge plain text content of B", WithEphemeral(true), WithToolCallID("call_b")) // idx 7
-	cw.Push(RoleAssistant, "Answer B") // idx 8
+	cw.Push(RoleAssistant, "Answer B")                                                               // idx 8
 
 	// Turn 3 (Newest):
-	cw.Push(RoleUser, "read file C") // idx 9
+	cw.Push(RoleUser, "read file C")    // idx 9
 	cw.Push(RoleAssistant, "tool call") // idx 10
 	// Ephemeral JSON output
 	cw.Push(RoleTool, `{"path":"c.txt","content":"huge file content of C"}`, WithEphemeral(true), WithToolCallID("call_c")) // idx 11
-	cw.Push(RoleAssistant, "Answer C") // idx 12
+	cw.Push(RoleAssistant, "Answer C")                                                                                      // idx 12
 
 	// We protect the last 2 user turns (Turn 3 and Turn 2).
 	// So the 2nd user from the end is Turn 2 User ("read file B" at idx 5).

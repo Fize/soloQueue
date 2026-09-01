@@ -31,7 +31,6 @@ type AgentTemplate struct {
 	ModelID      string
 	IsLeader     bool
 	Group        string
-	Permission   bool
 	MCPServers   []string
 	SkillIDs     []string
 	// Channels maps channel_type → instance_id.
@@ -116,7 +115,6 @@ type DefaultFactory struct {
 	resolveModel   ModelResolver               // nil = skip model validation (tests)
 	templates      map[string]AgentTemplate    // Full templates indexed by ID, used by buildL2SystemPrompt to find sub-agent descriptions
 	groups         map[string]prompt.GroupFile // Group information, used to inject team context into L2 prompts
-	bypassConfirm  bool                        // global --bypass: skip all confirmations
 	mcpManager     *mcp.Manager                // MCP server manager (nil = MCP disabled)
 	exploreDir     string                      // exploration artifact directory (platform-appropriate)
 	teamstore      *store.Store                // DB-backed team/agent store (nil = disabled)
@@ -170,13 +168,6 @@ func WithModelResolver(resolver ModelResolver) FactoryOption {
 func WithDefaultModelID(modelID string) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.defaultModelID = modelID
-	}
-}
-
-// WithBypassConfirm sets the global bypass mode — all agents skip confirmations.
-func WithBypassConfirm(on bool) FactoryOption {
-	return func(f *DefaultFactory) {
-		f.bypassConfirm = on
 	}
 }
 
@@ -351,7 +342,7 @@ func (f *DefaultFactory) memoryAccessForEngine(ctx context.Context, tmpl AgentTe
 }
 
 // ResolveTemplate returns the current DB-backed agent template by ID.
-// Runtime callers use it so the selected agent's prompt, model, permissions,
+// Runtime callers use it so the selected agent's prompt, model, capabilities,
 // skills, and MCP servers are preserved.
 func (f *DefaultFactory) ResolveTemplate(ctx context.Context, id string) (AgentTemplate, bool) {
 	if f.teamstore != nil {
@@ -370,7 +361,6 @@ func (f *DefaultFactory) ResolveTemplate(ctx context.Context, id string) (AgentT
 					ModelID:       t.ModelID,
 					IsLeader:      t.IsLeader,
 					Group:         t.Group,
-					Permission:    t.Permission,
 					MCPServers:    t.MCPServers,
 					SkillIDs:      t.SkillIDs,
 					Channels:      t.Channels,
@@ -531,7 +521,6 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		SystemPrompt:    finalPrompt,
 		ReasoningEffort: "",                 // populated below if resolver is set
 		ExplicitModel:   tmpl.ModelID != "", // template explicitly set model → don't override
-		BypassConfirm:   f.bypassConfirm || tmpl.Permission,
 		Channels:        tmpl.Channels,
 		NotifyChannel:   tmpl.NotifyChannel,
 	}
@@ -785,9 +774,6 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 					WithParallelTools(true),
 					WithAgentWorkDir(effectiveWorkDir),
 				)
-				if a != nil {
-					child.SetConfirmStore(a.ConfirmStore())
-				}
 				if err := child.Start(ctx); err != nil {
 					return nil, nil, fmt.Errorf("start fork agent: %w", err)
 				}
@@ -974,7 +960,6 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 			ModelID:       fm.Model,
 			IsLeader:      fm.IsLeader,
 			Group:         fm.Group,
-			Permission:    fm.Permission,
 			MCPServers:    fm.MCPServers,
 			SkillIDs:      fm.Skills,
 			Channels:      fm.Channels,

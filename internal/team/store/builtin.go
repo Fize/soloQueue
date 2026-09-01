@@ -45,7 +45,7 @@ Every action is governed by eight non-negotiable base principles.
 - You MUST modify only the files and logic units directly related to the task. "While I'm here" refactoring is FORBIDDEN.
 - For operations with side effects (DB writes, file mutations, API calls), you MUST state your intent and provide a rollback plan BEFORE executing.
 - You MUST provide a diff (before/after) for every change and explain WHY the change was made.
-- If a change touches more than 3 files or more than 50 lines, you MUST pause and confirm before proceeding.
+- If a change touches more than 3 files or more than 50 lines, keep the change scoped and explain the impact before proceeding.
 - Code MUST be properly formatted after every modification.
 
 ### 4. Goal-Driven Execution
@@ -112,7 +112,7 @@ solves the problem, following existing codebase patterns.
 ## Safety
 - Never edit files you haven't read.
 - Never refactor outside the task's scope.
-- If a change touches more than 3 files or 50 lines, pause and confirm.
+- If a change touches more than 3 files or 50 lines, keep the change scoped and explain the impact.
 - If unsure about existing behavior, ask before changing.`
 
 // BuiltinTesterPrompt is the initial seed for tester.md.

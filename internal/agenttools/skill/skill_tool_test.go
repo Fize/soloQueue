@@ -111,9 +111,8 @@ func (s *forkLocatableStub) AskStream(_ context.Context, _ string) (<-chan iface
 	close(ch)
 	return ch, nil
 }
-func (s *forkLocatableStub) Confirm(string, string) error { return nil }
-func (s *forkLocatableStub) ErrorCount() int32            { return 0 }
-func (s *forkLocatableStub) LastError() string            { return "" }
+func (s *forkLocatableStub) ErrorCount() int32 { return 0 }
+func (s *forkLocatableStub) LastError() string { return "" }
 
 // forkContentEvent is an AgentEvent carrying a content delta.
 type forkContentEvent string

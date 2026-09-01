@@ -259,7 +259,8 @@ func (rm *RelationshipManager) AllRelationships(nameByID map[string]string) []Re
 
 // ParseRelationshipUpdate extracts relationship changes from an agent's response.
 // Looks for directives like:
-//   [RELATION target: kind=friend, familiarity=0.8, affinity=+0.2, tags=reliable,friendly]
+//
+//	[RELATION target: kind=friend, familiarity=0.8, affinity=+0.2, tags=reliable,friendly]
 func ParseRelationshipUpdate(agentID, content string) []struct {
 	TargetID    string
 	Kind        RelationKind

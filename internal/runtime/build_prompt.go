@@ -144,7 +144,6 @@ func loadFromTeamStore(store *store.Store) (map[string]prompt.GroupFile, []promp
 			ModelID:       dbTmpl.ModelID,
 			IsLeader:      dbTmpl.IsLeader,
 			Group:         dbTmpl.Group,
-			Permission:    dbTmpl.Permission,
 			MCPServers:    dbTmpl.MCPServers,
 			SkillIDs:      dbTmpl.SkillIDs,
 			Channels:      dbTmpl.Channels,

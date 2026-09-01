@@ -697,9 +697,8 @@ func (t *channelBlockingTarget) AskStream(ctx context.Context, prompt string) (<
 	return out, nil
 }
 
-func (t *channelBlockingTarget) Confirm(callID, choice string) error { return nil }
-func (t *channelBlockingTarget) ErrorCount() int32                   { return 0 }
-func (t *channelBlockingTarget) LastError() string                   { return "" }
+func (t *channelBlockingTarget) ErrorCount() int32 { return 0 }
+func (t *channelBlockingTarget) LastError() string { return "" }
 
 type channelDelegationTool struct {
 	target iface.Locatable

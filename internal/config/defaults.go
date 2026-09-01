@@ -27,16 +27,6 @@ func DefaultSettings() Settings {
 			HTTPBlockPrivate: true,
 
 			// ShellBlockRegexes defaults to empty = no blacklist restrictions
-			// ShellConfirmRegexes defaults to common dangerous commands
-			ShellConfirmRegexes: []string{
-				`^\s*rm\b`,
-				`^\s*dd\b`,
-				`^\s*mkfs\b`,
-				`^\s*bash\b`,
-				`^\s*sh\b`,
-				`^\s*format\b`,
-				`^\s*diskpart\b`,
-			},
 			ShellMaxOutput: 256 << 10,
 
 			WebSearchTimeoutMs: 600000,

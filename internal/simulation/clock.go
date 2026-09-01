@@ -11,8 +11,8 @@ import (
 // Each Advance() call advances simulated time by StepSize, ensuring
 // that all agents process every tick before time moves forward.
 type SimClock struct {
-	tickStart time.Time // simulated time at simulation start (default 07:00)
-	current   time.Time // current simulated time
+	tickStart time.Time     // simulated time at simulation start (default 07:00)
+	current   time.Time     // current simulated time
 	stepSize  time.Duration // simulated time per Advance() call
 	stepCount int
 	mu        sync.RWMutex

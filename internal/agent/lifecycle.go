@@ -39,9 +39,6 @@ func (a *Agent) Start(parent context.Context) error {
 	a.setRuntimeExitErr(nil)
 	a.setRuntimeState(StateIdle)
 
-	// Clear session-level confirmation whitelist on each Start (corresponds to a new session).
-	a.confirmStore.Clear()
-
 	// Choose run function based on whether PriorityMailbox is enabled.
 	if a.priorityMailbox != nil {
 		go a.runWithPriorityMailbox(a.ctx, a.priorityMailbox, a.done)

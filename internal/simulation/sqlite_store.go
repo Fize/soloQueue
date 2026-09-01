@@ -167,10 +167,10 @@ func (s *SQLiteStore) Create(config SimulationConfig) (string, error) {
 
 func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 	var (
-		topic, desc, mode, pj, wsj, report, errMsg, status, graphJSON, language string
-		initialRelsJSON, relationshipsJSON                                        string
+		topic, desc, mode, pj, wsj, report, errMsg, status, graphJSON, language                                                   string
+		initialRelsJSON, relationshipsJSON                                                                                        string
 		currentRound, totalActions, maxWallClockMs, simulatedHours, tickIntervalMs, timeScale, enableReflection, pacingIntervalMs int
-		startedAt, completedAt, createdAt                    sql.NullString
+		startedAt, completedAt, createdAt                                                                                         sql.NullString
 	)
 	err := s.db.QueryRow(`SELECT topic, description, mode, personas_json, world_state_json,
 		status, report, error_msg, current_round, total_actions,
@@ -204,19 +204,19 @@ func (s *SQLiteStore) Get(id string) (*SimulationState, error) {
 
 	state := &SimulationState{
 		Config: SimulationConfig{
-			ID:                 id,
-			Topic:              topic,
-			Description:        desc,
-			Personas:           personas,
-			WorldState:         ws,
-			MaxWallClockMs:     maxWallClockMs,
-			SimulatedHours:     simulatedHours,
-			TickIntervalMs:     tickIntervalMs,
-			TimeScale:          timeScale,
-			EnableReflection:   enableReflection != 0,
-			Language:           language,
+			ID:                   id,
+			Topic:                topic,
+			Description:          desc,
+			Personas:             personas,
+			WorldState:           ws,
+			MaxWallClockMs:       maxWallClockMs,
+			SimulatedHours:       simulatedHours,
+			TickIntervalMs:       tickIntervalMs,
+			TimeScale:            timeScale,
+			EnableReflection:     enableReflection != 0,
+			Language:             language,
 			InitialRelationships: initialRels,
-			PacingIntervalMs:   pacingIntervalMs,
+			PacingIntervalMs:     pacingIntervalMs,
 		},
 		Status:       SimulationStatus(status),
 		CurrentRound: currentRound,

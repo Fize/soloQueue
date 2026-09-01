@@ -781,4 +781,3 @@ func BuildUserMessage(round int, topic string, worldState *WorldState, msgs []Me
 	}
 	return BuildTickUserMessage(round, observations, worldState, "", nil, nil, "en")
 }
-

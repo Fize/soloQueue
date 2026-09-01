@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
@@ -15,8 +15,8 @@ type Classifier interface {
 
 type DefaultClassifier struct {
 	config ClassifierConfig
-	local *LocalClassifier
-	llm *LLMClassifier
+	local  *LocalClassifier
+	llm    *LLMClassifier
 	logger *logger.Logger
 }
 

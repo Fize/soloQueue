@@ -32,11 +32,11 @@ func SetPackageLogger(l *logger.Logger) {
 //
 // Aligns with Claude Code's Skill frontmatter fields.
 type SkillMDConfig struct {
-	Name                   string   `yaml:"name"`
-	Description            string   `yaml:"description"`
-	WhenToUse              string   `yaml:"when_to_use"`
-	AllowedTools           string   `yaml:"allowed-tools"`
-	DisableModelInvocation bool     `yaml:"disable-model-invocation"`
+	Name                   string         `yaml:"name"`
+	Description            string         `yaml:"description"`
+	WhenToUse              string         `yaml:"when_to_use"`
+	AllowedTools           string         `yaml:"allowed-tools"`
+	DisableModelInvocation bool           `yaml:"disable-model-invocation"`
 	UserInvocable          *bool          `yaml:"user-invocable"` // Pointer distinguishes between "unset" and "false"
 	Context                string         `yaml:"context"`
 	Agent                  string         `yaml:"agent"`
