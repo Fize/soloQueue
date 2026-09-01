@@ -17,6 +17,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // mockSession implements the Session interface for testing.
@@ -28,6 +29,12 @@ type mockSession struct {
 	modelParams      *iface.ModelOverrideParams
 	hasNotifyChannel bool
 	sendViaChannelFn func(ctx context.Context, text string) error
+}
+
+var errMockSessionBusy = errors.New("mock session busy")
+
+func (m *mockSession) IsSessionBusyError(err error) bool {
+	return errors.Is(err, errMockSessionBusy)
 }
 
 func (m *mockSession) Idle() bool {
@@ -253,6 +260,272 @@ func TestClaimOneTimeRunDeduplicatesSameSchedule(t *testing.T) {
 	}
 }
 
+func TestOneTimeClaimErrorRearmsSameInstantExactlyOnce(t *testing.T) {
+	for _, target := range []string{"L1", "engineering"} {
+		t.Run(target, func(t *testing.T) {
+			store := openTestDB(t)
+			runAt := time.Now().Add(-time.Second).Truncate(time.Second)
+			task, err := store.CreateTask(context.Background(), CreateTaskInput{
+				Title: "transient claim", TaskType: TaskTypeGeneral,
+				Expression: runAt.Format("2006-01-02 15:04:05"), Instruction: "retry claim",
+				TargetAgent: target, NextRunAt: runAt,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.db.ExecContext(context.Background(), `
+				CREATE TRIGGER fail_transient_one_time_claim
+				BEFORE UPDATE OF status ON scheduled_tasks
+				WHEN NEW.id = '`+task.ID+`' AND NEW.status = 'running'
+				BEGIN SELECT RAISE(ABORT, 'transient claim failure'); END;
+			`); err != nil {
+				t.Fatal(err)
+			}
+
+			var asks atomic.Int32
+			sess := &mockSession{idle: true, askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+				asks.Add(1)
+				ch := make(chan iface.AgentEvent)
+				close(ch)
+				return ch, nil
+			}}
+			mgr := &mockSessionManager{session: sess, getSession: func(context.Context, string, string) (Session, bool, func(), error) {
+				return sess, false, nil, nil
+			}}
+			s := NewScheduler(store, mgr, nil)
+			s.SetWorkDir(t.TempDir())
+			t.Cleanup(s.Stop)
+
+			s.executeTask(*task)
+			if got := asks.Load(); got != 0 {
+				t.Fatalf("asks after failed claim = %d, want 0", got)
+			}
+			if _, err := store.db.ExecContext(context.Background(), `DROP TRIGGER fail_transient_one_time_claim`); err != nil {
+				t.Fatal(err)
+			}
+
+			deadline := time.Now().Add(2 * time.Second)
+			for asks.Load() == 0 && time.Now().Before(deadline) {
+				time.Sleep(5 * time.Millisecond)
+			}
+			if got := asks.Load(); got != 1 {
+				t.Fatalf("asks after transient claim recovery = %d, want 1", got)
+			}
+			time.Sleep(100 * time.Millisecond)
+			if got := asks.Load(); got != 1 {
+				t.Fatalf("same scheduled instant executed %d times, want exactly once", got)
+			}
+		})
+	}
+}
+
+func TestStaleOneTimeClaimErrorCannotResurrectAfterScheduleChange(t *testing.T) {
+	for _, change := range []string{"update", "delete"} {
+		t.Run(change, func(t *testing.T) {
+			store := openTestDB(t)
+			oldRunAt := time.Now().Add(-time.Second).Truncate(time.Second)
+			oldTask, err := store.CreateTask(context.Background(), CreateTaskInput{
+				Title: "old generation", TaskType: TaskTypeGeneral,
+				Expression: oldRunAt.Format("2006-01-02 15:04:05"), Instruction: "OLD_INSTRUCTION_MUST_NOT_RUN",
+				TargetAgent: "L1", NextRunAt: oldRunAt,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.db.ExecContext(context.Background(), `
+				CREATE TRIGGER fail_stale_one_time_claim
+				BEFORE UPDATE OF status ON scheduled_tasks
+				WHEN NEW.id = '`+oldTask.ID+`' AND NEW.status = 'running'
+				BEGIN SELECT RAISE(ABORT, 'stale claim failure'); END;
+			`); err != nil {
+				t.Fatal(err)
+			}
+
+			var promptsMu sync.Mutex
+			var prompts []string
+			sess := &mockSession{idle: true, askStreamFn: func(_ context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+				promptsMu.Lock()
+				prompts = append(prompts, prompt)
+				promptsMu.Unlock()
+				ch := make(chan iface.AgentEvent)
+				close(ch)
+				return ch, nil
+			}}
+			s := NewScheduler(store, &mockSessionManager{session: sess}, nil)
+			s.SetWorkDir(t.TempDir())
+			t.Cleanup(s.Stop)
+
+			// Hold the DB claim boundary until the old callback has consumed its
+			// in-memory one-time marker, then mutate the schedule generation.
+			store.mu.Lock()
+			oldDone := make(chan struct{})
+			go func() {
+				s.executeTask(*oldTask)
+				close(oldDone)
+			}()
+			key := oldTask.NextRunAt.UTC().Format(time.RFC3339Nano)
+			deadline := time.Now().Add(time.Second)
+			for {
+				s.mu.Lock()
+				claimed := s.oneTimeRuns[oldTask.ID] == key
+				s.mu.Unlock()
+				if claimed {
+					break
+				}
+				if time.Now().After(deadline) {
+					store.mu.Unlock()
+					t.Fatal("old callback did not reach DB claim boundary")
+				}
+				time.Sleep(time.Millisecond)
+			}
+
+			var updatedTimer *time.Timer
+			if change == "update" {
+				newTask := *oldTask
+				newTask.Instruction = "NEW_INSTRUCTION"
+				newTask.NextRunAt = time.Now().Add(time.Hour)
+				newTask.Expression = newTask.NextRunAt.Format("2006-01-02 15:04:05")
+				s.Schedule(newTask)
+				s.mu.Lock()
+				updatedTimer = s.timers[oldTask.ID]
+				s.mu.Unlock()
+				if updatedTimer == nil {
+					store.mu.Unlock()
+					t.Fatal("updated schedule did not retain its timer")
+				}
+			} else {
+				s.Unschedule(oldTask.ID)
+			}
+			store.mu.Unlock()
+			select {
+			case <-oldDone:
+			case <-time.After(time.Second):
+				t.Fatal("old claim did not return")
+			}
+			if _, err := store.db.ExecContext(context.Background(), `DROP TRIGGER fail_stale_one_time_claim`); err != nil {
+				t.Fatal(err)
+			}
+
+			time.Sleep(oneTimeClaimRetryDelay + 100*time.Millisecond)
+			promptsMu.Lock()
+			gotPrompts := append([]string(nil), prompts...)
+			promptsMu.Unlock()
+			if len(gotPrompts) != 0 {
+				t.Fatalf("stale generation executed after %s: %q", change, gotPrompts)
+			}
+			s.mu.Lock()
+			currentTimer := s.timers[oldTask.ID]
+			s.mu.Unlock()
+			if change == "update" && currentTimer != updatedTimer {
+				t.Fatal("old claim error replaced the updated schedule timer")
+			}
+			if change == "delete" && currentTimer != nil {
+				t.Fatal("old claim error resurrected a deleted schedule")
+			}
+		})
+	}
+}
+
+func TestOneTimeClaimRejectedDoesNotRetry(t *testing.T) {
+	store := openTestDB(t)
+	runAt := time.Now().Add(-time.Second).Truncate(time.Second)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title: "already owned", TaskType: TaskTypeGeneral,
+		Expression: runAt.Format("2006-01-02 15:04:05"), Instruction: "must not retry",
+		TargetAgent: "L1", NextRunAt: runAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := store.ClaimTask(context.Background(), task.ID); err != nil || !claimed {
+		t.Fatalf("external claim = %v, %v", claimed, err)
+	}
+	var asks atomic.Int32
+	sess := &mockSession{idle: true, askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+		asks.Add(1)
+		ch := make(chan iface.AgentEvent)
+		close(ch)
+		return ch, nil
+	}}
+	s := NewScheduler(store, &mockSessionManager{session: sess}, nil)
+	t.Cleanup(s.Stop)
+
+	s.executeTask(*task)
+	time.Sleep(oneTimeClaimRetryDelay + 100*time.Millisecond)
+	if got := asks.Load(); got != 0 {
+		t.Fatalf("claimed=false path executed %d times, want 0", got)
+	}
+	s.mu.Lock()
+	timer := s.timers[task.ID]
+	s.mu.Unlock()
+	if timer != nil {
+		t.Fatal("claimed=false path incorrectly scheduled a retry")
+	}
+}
+
+func TestQueuedL1ClaimErrorCannotRetryStaleGeneration(t *testing.T) {
+	store := openTestDB(t)
+	runAt := time.Now().Add(-time.Second).Truncate(time.Second)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title: "queued old generation", TaskType: TaskTypeGeneral,
+		Expression: runAt.Format("2006-01-02 15:04:05"), Instruction: "QUEUED_OLD_MUST_NOT_RUN",
+		TargetAgent: "L1", NextRunAt: runAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	busy := &mockSession{idle: false}
+	s := NewScheduler(store, &mockSessionManager{session: busy}, nil)
+	t.Cleanup(s.Stop)
+	s.executeTask(*task)
+	s.l1Mu.Lock()
+	if len(s.l1Queue) != 1 || s.l1Queue[0].generation == 0 {
+		s.l1Mu.Unlock()
+		t.Fatalf("queued generation = %+v", s.l1Queue)
+	}
+	queued := s.l1Queue[0]
+	s.l1Queue = nil
+	s.l1Mu.Unlock()
+
+	updated := *task
+	updated.Instruction = "NEW_QUEUED_GENERATION"
+	updated.NextRunAt = time.Now().Add(time.Hour)
+	updated.Expression = updated.NextRunAt.Format("2006-01-02 15:04:05")
+	s.Schedule(updated)
+	s.mu.Lock()
+	updatedTimer := s.timers[task.ID]
+	s.mu.Unlock()
+	if _, err := store.db.ExecContext(context.Background(), `
+		CREATE TRIGGER fail_queued_stale_claim
+		BEFORE UPDATE OF status ON scheduled_tasks
+		WHEN NEW.id = '`+task.ID+`' AND NEW.status = 'running'
+		BEGIN SELECT RAISE(ABORT, 'queued stale claim failure'); END;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	var asks atomic.Int32
+	idle := &mockSession{idle: true, askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+		asks.Add(1)
+		ch := make(chan iface.AgentEvent)
+		close(ch)
+		return ch, nil
+	}}
+	s.executeQueuedL1Generation(queued.task, idle, queued.generation)
+	if _, err := store.db.ExecContext(context.Background(), `DROP TRIGGER fail_queued_stale_claim`); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(oneTimeClaimRetryDelay + 100*time.Millisecond)
+	if got := asks.Load(); got != 0 {
+		t.Fatalf("stale queued generation executed %d times", got)
+	}
+	s.mu.Lock()
+	currentTimer := s.timers[task.ID]
+	s.mu.Unlock()
+	if currentTimer != updatedTimer {
+		t.Fatal("queued stale claim error replaced the updated schedule timer")
+	}
+}
+
 func TestL1QueueExecutesDeferredTaskOnlyOnce(t *testing.T) {
 	store := openTestDB(t)
 	task, err := store.CreateTask(context.Background(), CreateTaskInput{
@@ -288,19 +561,9 @@ func TestL1QueueExecutesDeferredTaskOnlyOnce(t *testing.T) {
 
 	// A busy L1 queues the task instead of running it immediately.
 	s.executeTask(*task)
-	deadline := time.Now().Add(time.Second)
-	for {
-		s.l1Mu.Lock()
-		queued := len(s.l1Queue)
-		s.l1Mu.Unlock()
-		if queued == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("deferred task was not queued")
-		}
-		time.Sleep(time.Millisecond)
-	}
+	// The queue worker may consume the entry immediately and wait on session
+	// idleness, so queue length is not a stable observation boundary.
+	time.Sleep(25 * time.Millisecond)
 	if got := asks.Load(); got != 0 {
 		t.Fatalf("Ask count while L1 is busy = %d, want 0", got)
 	}
@@ -308,7 +571,7 @@ func TestL1QueueExecutesDeferredTaskOnlyOnce(t *testing.T) {
 	idle.Store(true)
 	select {
 	case <-completed:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("queued task did not execute after L1 became idle")
 	}
 
@@ -325,6 +588,70 @@ func TestL1QueueExecutesDeferredTaskOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestL1IdleToAskContentionRequeuesWithoutConsumingRun(t *testing.T) {
+	for _, queuedPath := range []bool{false, true} {
+		name := "primary"
+		if queuedPath {
+			name = "queued"
+		}
+		t.Run(name, func(t *testing.T) {
+			store := openTestDB(t)
+			runAt := time.Now().Add(time.Hour).Truncate(time.Second)
+			task, err := store.CreateTask(context.Background(), CreateTaskInput{
+				Title: "contended one-time", TaskType: "general",
+				Expression: runAt.Format("2006-01-02 15:04:05"), Instruction: "run later",
+				TargetAgent: "L1", NextRunAt: runAt,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			idleObserved := make(chan struct{})
+			foregroundWon := make(chan struct{})
+			sess := &mockSession{
+				idleFn: func() bool {
+					select {
+					case <-idleObserved:
+					default:
+						close(idleObserved)
+					}
+					return true
+				},
+				askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+					close(foregroundWon)
+					return nil, errMockSessionBusy
+				},
+			}
+			s := NewScheduler(store, &mockSessionManager{session: sess}, nil)
+			if queuedPath {
+				s.executeQueuedL1(*task, sess)
+			} else {
+				s.executeL1Task(*task)
+			}
+			<-foregroundWon
+			s.l1Mu.Lock()
+			queued := len(s.l1Queue)
+			s.l1Mu.Unlock()
+			if queued != 1 {
+				t.Fatalf("requeued tasks = %d, want 1", queued)
+			}
+			history, err := store.ListExecutionHistory(context.Background(), task.ID, 10, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(history) != 0 {
+				t.Fatalf("contention created execution history: %+v", history)
+			}
+			stored, err := store.GetTask(context.Background(), task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.Status != "active" {
+				t.Fatalf("one-time task status = %q, want active", stored.Status)
+			}
+		})
+	}
+}
+
 func TestDrainEvents(t *testing.T) {
 	ch := make(chan iface.AgentEvent)
 	close(ch)
@@ -334,6 +661,21 @@ func TestDrainEvents(t *testing.T) {
 	}
 	if len(media) != 0 {
 		t.Errorf("drainEvents on empty channel got %d media", len(media))
+	}
+}
+
+func TestCronRetryRejectsObservableOutputAndToolSideEffects(t *testing.T) {
+	for _, result := range []drainEventsResult{
+		{replyText: "observable output"},
+		{toolCallCount: 1},
+		{mediaFiles: []SendFileMedia{{FileName: "artifact.txt"}}},
+	} {
+		if canAutomaticallyRetry(result) {
+			t.Fatalf("canAutomaticallyRetry(%+v) = true, want false", result)
+		}
+	}
+	if !canAutomaticallyRetry(drainEventsResult{}) {
+		t.Fatal("an execution with no observable output or tool side effects should remain retryable")
 	}
 }
 
@@ -491,7 +833,7 @@ func TestBuildTaskPrompt(t *testing.T) {
 func TestBuildCronContext(t *testing.T) {
 	s := newTestScheduler(t)
 	task := Task{ID: "t1"}
-	ctx := s.buildCronContext(task, "run-1")
+	ctx := s.buildCronContext(context.Background(), task, "run-1")
 	if ctx == nil {
 		t.Error("buildCronContext returned nil")
 	}
@@ -1361,6 +1703,83 @@ func TestDrainEventsWithTimeline_Error(t *testing.T) {
 	}
 }
 
+func TestDrainEventsWithTimeline_PreservesTypedWatchdogCause(t *testing.T) {
+	s := newTestScheduler(t)
+	s.SetWorkDir(t.TempDir())
+	cause := &runwatch.Cause{Code: runwatch.CodeModelSemanticStalled, OperationID: "model-1"}
+	ch := make(chan iface.AgentEvent, 1)
+	ch <- &testErrorEvent{err: cause}
+	close(ch)
+
+	_, err := s.drainEventsWithTimeline(ch, Task{ID: "typed-cause"}, "run-typed")
+	if got := runwatch.CodeOf(err); got != runwatch.CodeModelSemanticStalled {
+		t.Fatalf("drain error = %v, code = %q", err, got)
+	}
+}
+
+func TestRunL1Task_PersistsTypedWatchdogTerminalCode(t *testing.T) {
+	store := openTestDB(t)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title: "Typed watchdog", TaskType: "general", Expression: "0 8 * * *",
+		Instruction: "run", TargetAgent: "L1", NextRunAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := &runwatch.Cause{Code: runwatch.CodeDelegationOrphaned, OperationID: "dispatch-1"}
+	session := &mockSession{idle: true, askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+		ch := make(chan iface.AgentEvent, 2)
+		ch <- &testToolExecStart{callID: "side-effect", name: "Write", args: `{}`}
+		ch <- &testErrorEvent{err: cause}
+		close(ch)
+		return ch, nil
+	}}
+	s := NewScheduler(store, &mockSessionManager{session: session}, nil)
+	s.SetWorkDir(t.TempDir())
+	s.runL1Task(context.Background(), *task, session)
+
+	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("history err=%v records=%v", err, records)
+	}
+	if got := records[0].TerminalCode; got != string(runwatch.CodeDelegationOrphaned) {
+		t.Fatalf("terminal_code = %q", got)
+	}
+}
+
+func TestExecuteL2Task_PersistsTypedWatchdogTerminalCode(t *testing.T) {
+	store := openTestDB(t)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title: "Typed L2 watchdog", TaskType: "engineering", Expression: "0 8 * * *",
+		Instruction: "run", TargetAgent: "engineering", NextRunAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := &runwatch.Cause{Code: runwatch.CodeToolStalled, OperationID: "tool-1"}
+	session := &mockSession{idle: true, askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+		ch := make(chan iface.AgentEvent, 2)
+		ch <- &testToolExecStart{callID: "tool-1", name: "Write", args: `{}`}
+		ch <- &testErrorEvent{err: cause}
+		close(ch)
+		return ch, nil
+	}}
+	manager := &mockSessionManager{getSession: func(context.Context, string, string) (Session, bool, func(), error) {
+		return session, false, nil, nil
+	}}
+	s := NewScheduler(store, manager, nil)
+	s.SetWorkDir(t.TempDir())
+	s.executeL2Task(*task)
+
+	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("history err=%v records=%v", err, records)
+	}
+	if got := records[0].TerminalCode; got != string(runwatch.CodeToolStalled) {
+		t.Fatalf("terminal_code = %q", got)
+	}
+}
+
 func TestExecuteTask_UpdatesNextRunOnDrainError(t *testing.T) {
 	store := openTestDB(t)
 
@@ -1377,7 +1796,16 @@ func TestExecuteTask_UpdatesNextRunOnDrainError(t *testing.T) {
 	}
 
 	s := NewScheduler(store, nil, nil)
-	s.updateTaskAfterExecution(ctx, *task)
+	runID := "drain-error-run"
+	claimed, err := store.ClaimTask(ctx, task.ID)
+	if err != nil || !claimed {
+		t.Fatalf("claim = %v, %v", claimed, err)
+	}
+	errText := "execution_failed"
+	result := drainEventsResult{canonical: CronResultV1{Status: "failed", Error: &errText}}
+	if err := s.finishExecution(ctx, *task, runID, ResolvedModel{}, time.Now(), result, "execution failed", "failed", "active"); err != nil {
+		t.Fatal(err)
+	}
 
 	updated, err := store.GetTask(ctx, task.ID)
 	if err != nil {

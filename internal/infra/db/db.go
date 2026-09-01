@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 22
+const schemaVersion = 23
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -373,7 +373,8 @@ CREATE TABLE IF NOT EXISTS cron_execution_history (
 	target_agent TEXT NOT NULL DEFAULT '',
 	model_id TEXT NOT NULL DEFAULT '',
 	provider_id TEXT NOT NULL DEFAULT '',
-	timeline_dir TEXT NOT NULL DEFAULT ''
+	timeline_dir TEXT NOT NULL DEFAULT '',
+	terminal_code TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_cron_history_task_id ON cron_execution_history(task_id);
 CREATE INDEX IF NOT EXISTS idx_cron_history_executed_at ON cron_execution_history(executed_at);
@@ -952,6 +953,27 @@ func (d *DB) migrate() error {
 			if _, err := tx.Exec(column.ddl); err != nil {
 				_ = tx.Rollback()
 				return fmt.Errorf("migrate llm_call_metrics add %s: %w", column.name, err)
+			}
+		}
+	}
+
+	cronHistoryColumns := []struct {
+		table string
+		name  string
+		ddl   string
+	}{
+		{"cron_execution_history", "terminal_code", `ALTER TABLE cron_execution_history ADD COLUMN terminal_code TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range cronHistoryColumns {
+		hasColumn, err := tableHasColumn(tx, column.table, column.name)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect %s %s column: %w", column.table, column.name, err)
+		}
+		if !hasColumn {
+			if _, err := tx.Exec(column.ddl); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migrate %s add %s: %w", column.table, column.name, err)
 			}
 		}
 	}
