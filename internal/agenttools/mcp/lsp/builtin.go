@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 )
 
 // ServerDef defines an LSP server configuration.
@@ -113,10 +112,6 @@ func BuiltinServers() []ServerDef {
 func resolvePyright(workspacePath string) string {
 	bin := "pyright-langserver"
 	binDir := "bin"
-	if runtime.GOOS == "windows" {
-		bin = "pyright-langserver.exe"
-		binDir = "Scripts"
-	}
 
 	// 1. Activated venv via VIRTUAL_ENV.
 	if venv := os.Getenv("VIRTUAL_ENV"); venv != "" {
@@ -143,9 +138,6 @@ func resolvePyright(workspacePath string) string {
 // It first checks the workspace's local node_modules/.bin, then falls back to PATH.
 func resolveTypescript(workspacePath string) string {
 	bin := "typescript-language-server"
-	if runtime.GOOS == "windows" {
-		bin = "typescript-language-server.cmd"
-	}
 
 	// 1. Local node_modules/.bin (project-local install).
 	if local := filepath.Join(workspacePath, "node_modules", ".bin", bin); fileExists(local) {
@@ -164,9 +156,6 @@ func resolveTypescript(workspacePath string) string {
 // @vue/language-server installs its binary as "vue-language-server" in node_modules/.bin.
 func resolveVue(workspacePath string) string {
 	bin := "vue-language-server"
-	if runtime.GOOS == "windows" {
-		bin = "vue-language-server.cmd"
-	}
 
 	// 1. Local node_modules/.bin (project-local install via @vue/language-server).
 	if local := filepath.Join(workspacePath, "node_modules", ".bin", bin); fileExists(local) {

@@ -1,4 +1,4 @@
-.PHONY: help build build-web build-status build-assets build-go build-go-win build-win start web clean
+.PHONY: help build build-web build-status build-assets build-go start web clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -21,11 +21,6 @@ build-go: ## Build Go binary using already-built assets
 
 build: build-assets build-go ## Build browser assets and Go binary
 
-build-win: build-assets ## Build Windows Go binary with embedded browser assets
-	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o soloqueue.exe ./cmd/soloqueue
-
-build-go-win: build-go ## Compatibility alias for Windows-only Go build
-
 start: build ## Build and start backend + both browser UIs on one port
 	./soloqueue start
 
@@ -33,4 +28,4 @@ web: build-web ## Build and start standalone Web Console
 	./soloqueue web
 
 clean: ## Remove generated binaries and embedded frontend bundles
-	rm -rf soloqueue soloqueue.exe web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status internal/assets/dist/skills
+	rm -rf soloqueue web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status internal/assets/dist/skills

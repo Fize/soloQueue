@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -128,9 +127,6 @@ func TestInstallAndUninstallSkill(t *testing.T) {
 }
 
 func TestCopyDirPreservesExecutableFileMode(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows does not expose Unix executable permission bits")
-	}
 	srcDir := t.TempDir()
 	dstDir := filepath.Join(t.TempDir(), "copied-skill")
 	scriptPath := filepath.Join(srcDir, "build.sh")
@@ -154,9 +150,6 @@ func TestCopyDirPreservesExecutableFileMode(t *testing.T) {
 }
 
 func TestCopyDirPreservesDirectoryMode(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows does not expose Unix directory permission bits")
-	}
 	srcDir := t.TempDir()
 	dstDir := filepath.Join(t.TempDir(), "copied-skill")
 	srcAssetsDir := filepath.Join(srcDir, "assets")
@@ -180,9 +173,6 @@ func TestCopyDirPreservesDirectoryMode(t *testing.T) {
 }
 
 func TestCopyDirPreservesReadOnlyDirectoryMode(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows does not expose Unix directory permission bits")
-	}
 	srcDir := t.TempDir()
 	dstDir := filepath.Join(t.TempDir(), "copied-skill")
 	srcAssetsDir := filepath.Join(srcDir, "assets")

@@ -11,9 +11,6 @@ func ExploreDir(workDir string) string {
 }
 
 func ShellDesc() string {
-	if runtime.GOOS == "windows" {
-		return "powershell.exe -Command (falls back to cmd.exe /c)"
-	}
 	return "/bin/sh -c"
 }
 
@@ -37,7 +34,7 @@ func EnvSection(workDir, exploreDir string, xml bool, includeTimeInstruction boo
 	// NOT exposed here. Relative paths are resolved by the tool chain
 	// against the configured workDir. See <working_directory> for rules.
 	if includeTimeInstruction {
-		b.WriteString("\n- Current Local Time: To obtain the current local time/date, run a shell command (e.g., `date` on Unix/macOS or `Get-Date` on Windows) using the execution tools, or check the timestamp in the latest user message.")
+		b.WriteString("\n- Current Local Time: To obtain the current local time/date, run a shell command such as `date` using the execution tools, or check the timestamp in the latest user message.")
 	}
 	b.WriteString("\n- Path Separator: \"")
 	b.WriteString(sep)

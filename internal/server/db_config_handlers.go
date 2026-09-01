@@ -798,9 +798,6 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 	// ── Step 1: Install whisper-cli binary ──────────────────────────────
 
 	binaryName := "whisper-cli"
-	if runtime.GOOS == "windows" {
-		binaryName = "whisper-cli.exe"
-	}
 
 	if path, err := exec.LookPath(binaryName); err == nil {
 		resp.BinaryPath = path
@@ -865,8 +862,8 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 
 const silkDecoderRepo = "https://github.com/kn007/silk-v3-decoder.git"
 
-// installSilkDecoder installs the decoder into ~/.soloqueue/bin. macOS and
-// Linux build the upstream SDK; Windows uses the upstream prebuilt executable.
+// installSilkDecoder installs the decoder into ~/.soloqueue/bin by building
+// the upstream SDK on a supported Unix-like system.
 func installSilkDecoder() (binaryPath, message, detail string, err error) {
 	workDir, err := config.DefaultWorkDir()
 	if err != nil {
@@ -877,9 +874,6 @@ func installSilkDecoder() (binaryPath, message, detail string, err error) {
 		return "", "", fmt.Sprintf("Cannot create tool directory %s.", binDir), err
 	}
 	name := "silk-decoder"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
 	destPath := filepath.Join(binDir, name)
 
 	if _, err := exec.LookPath("git"); err != nil {
@@ -895,15 +889,10 @@ func installSilkDecoder() (binaryPath, message, detail string, err error) {
 		return "", "", fmt.Sprintf("Failed to download SILK decoder: %s", strings.TrimSpace(string(out))), err
 	}
 
-	var sourcePath string
-	if runtime.GOOS == "windows" {
-		sourcePath = filepath.Join(repoDir, "windows", "silk_v3_decoder.exe")
-	} else {
-		if out, err := exec.Command("make", "-C", filepath.Join(repoDir, "silk")).CombinedOutput(); err != nil {
-			return "", "", fmt.Sprintf("Failed to compile SILK decoder. Please install C compiler and make: %s", strings.TrimSpace(string(out))), err
-		}
-		sourcePath = filepath.Join(repoDir, "silk", "decoder")
+	if out, err := exec.Command("make", "-C", filepath.Join(repoDir, "silk")).CombinedOutput(); err != nil {
+		return "", "", fmt.Sprintf("Failed to compile SILK decoder. Please install C compiler and make: %s", strings.TrimSpace(string(out))), err
 	}
+	sourcePath := filepath.Join(repoDir, "silk", "decoder")
 	source, err := os.Open(sourcePath)
 	if err != nil {
 		return "", "", "SILK decoder binary missing after build.", err
@@ -935,9 +924,6 @@ func firstError(errs ...error) error {
 // On failure returns ("", "", detailInstructions, error).
 func installWhisperBinary() (binaryPath, message, detail string, err error) {
 	binaryName := "whisper-cli"
-	if runtime.GOOS == "windows" {
-		binaryName = "whisper-cli.exe"
-	}
 
 	switch runtime.GOOS {
 	case "darwin":
@@ -1009,16 +995,8 @@ Or download a prebuilt binary:
   Download the Linux binary`
 		return "", "", detail, fmt.Errorf("manual installation required for whisper-cpp")
 
-	default: // windows
-		detail := `Please install whisper-cpp manually:
-
-1. Visit https://github.com/ggerganov/whisper.cpp/releases/latest
-2. Download whisper-cli.exe for Windows
-3. Place it in any directory in your PATH (e.g. C:\Windows\System32)
-
-Or using vcpkg:
-  vcpkg install whisper-cpp`
-		return "", "", detail, fmt.Errorf("manual installation required for whisper-cpp")
+	default:
+		return "", "", "SoloQueue speech tools support macOS and Linux only.", fmt.Errorf("unsupported platform %s", runtime.GOOS)
 	}
 }
 

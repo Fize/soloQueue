@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -140,13 +139,10 @@ func (t *Transcriber) SilkDecoder() string { return t.silkDecoder }
 // Model returns the whisper model name.
 func (t *Transcriber) Model() string { return t.model }
 
-// findWhisperBinary looks for whisper-cli in PATH. Supports both Unix and Windows.
+// findWhisperBinary looks for whisper-cli in PATH.
 func findWhisperBinary() string {
-	names := []string{"whisper-cli", "whisper-cli.exe"}
-	for _, name := range names {
-		if path, err := exec.LookPath(name); err == nil {
-			return path
-		}
+	if path, err := exec.LookPath("whisper-cli"); err == nil {
+		return path
 	}
 	return ""
 }
@@ -159,11 +155,7 @@ func findSilkDecoder() string {
 	if err != nil {
 		return ""
 	}
-	name := "silk-decoder"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	path := filepath.Join(homeDir, ".soloqueue", "bin", name)
+	path := filepath.Join(homeDir, ".soloqueue", "bin", "silk-decoder")
 	if info, err := os.Stat(path); err == nil && !info.IsDir() {
 		return path
 	}

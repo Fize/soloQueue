@@ -1,5 +1,3 @@
-//go:build windows
-
 package tools
 
 import (
@@ -11,6 +9,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
@@ -28,19 +27,14 @@ func (e *Executor) RunCommand(ctx context.Context, cmd string, opts RunCommandOp
 		maxOut = 256 << 10
 	}
 
-	// Auto-detect shell: prefer PowerShell, fall back to cmd.exe.
-	shell, arg := detectShell()
-	c := exec.CommandContext(ctx, shell, arg, cmd)
-
-	// Go 1.25's CommandContext already terminates the process on cancellation.
-	// No Setpgid / process-group kill needed on Windows.
+	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	c.Cancel = func() error {
-		if c.Process != nil {
-			return c.Process.Kill()
+		if c.Process != nil && c.Process.Pid > 0 {
+			return syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
 		}
 		return nil
 	}
-
 	if opts.WorkingDirectory != "" {
 		wd := opts.WorkingDirectory
 		if strings.HasPrefix(wd, "~/") {
@@ -98,13 +92,4 @@ func (e *Executor) RunCommand(ctx context.Context, cmd string, opts RunCommandOp
 
 	res.ExitCode = c.ProcessState.ExitCode()
 	return res, nil
-}
-
-// detectShell returns the preferred shell executable and its "run command" flag.
-// Attempts PowerShell first (richer, closer to bash), falls back to cmd.exe.
-func detectShell() (string, string) {
-	if _, err := exec.LookPath("powershell.exe"); err == nil {
-		return "powershell.exe", "-Command"
-	}
-	return "cmd.exe", "/c"
 }
