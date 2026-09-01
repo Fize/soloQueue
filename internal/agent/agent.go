@@ -61,21 +61,6 @@ type Agent struct {
 	mailbox chan job
 	done    chan struct{}
 
-	// Confirmation state machine: execToolStream blocks, waiting for external Confirm to inject results
-	confirmMu      sync.RWMutex
-	pendingConfirm map[string]*confirmSlot
-
-	// bypassConfirm skips all tool confirmations; either from the agent template's permission field or global --bypass.
-	bypassConfirm bool
-
-	// taskCancel stores current ask's merged context cancel func (set in AskStream)
-	taskCancel atomic.Value // holds context.CancelFunc or nil
-	// userDenied is set when user denies a tool confirmation
-	userDenied atomic.Bool
-
-	// confirmStore is a session-level tool permission store; defaults to in-memory implementation, can be replaced via SetConfirmStore.
-	confirmStore SessionConfirmStore
-
 	// WorkDir is the working directory for this agent's tool execution.
 	// L1 uses the global workDir (~/.soloqueue). L2/L3 use a project-specific
 	// directory chosen at delegation time. Tools like Bash default their cwd
@@ -134,12 +119,6 @@ type Agent struct {
 	watchSeq   int64
 
 	onStateChange func(State) // called after every state transition
-}
-
-// confirmSlot is a pending confirmation slot for a single tool_call
-type confirmSlot struct {
-	done atomic.Bool
-	ch   chan string // User-selected option value; "" indicates rejection/cancellation
 }
 
 // Option is a functional option for NewAgent
@@ -310,18 +289,6 @@ func WithInstanceID(id string) Option {
 func WithAgentWorkDir(dir string) Option {
 	return func(a *Agent) {
 		a.WorkDir = dir
-	}
-}
-
-// ConfirmStore returns the agent's session confirm store.
-func (a *Agent) ConfirmStore() SessionConfirmStore {
-	return a.confirmStore
-}
-
-// SetConfirmStore overrides the agent's confirm store.
-func (a *Agent) SetConfirmStore(store SessionConfirmStore) {
-	if store != nil {
-		a.confirmStore = store
 	}
 }
 
@@ -749,21 +716,17 @@ func (a *Agent) emitToWatchers(ev AgentEvent) {
 // Start must be called before it can begin receiving Ask / Submit.
 func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option) *Agent {
 	a := &Agent{
-		Def:            def,
-		LLM:            llm,
-		Log:            log,
-		InstanceID:     uuid.NewString(),
-		mailboxCap:     DefaultMailboxCap,
-		asyncTurns:     make(map[int]*asyncTurnState),
-		pendingConfirm: make(map[string]*confirmSlot),
-		confirmStore:   NewMemoryConfirmStore(),
-		bypassConfirm:  def.BypassConfirm,
+		Def:        def,
+		LLM:        llm,
+		Log:        log,
+		InstanceID: uuid.NewString(),
+		mailboxCap: DefaultMailboxCap,
+		asyncTurns: make(map[int]*asyncTurnState),
 	}
 	a.schedulable.Store(true)
 	for _, opt := range opts {
 		opt(a)
 	}
 	a.runtime.state = StateStopped
-	a.taskCancel.Store(context.CancelFunc(func() {}))
 	return a
 }

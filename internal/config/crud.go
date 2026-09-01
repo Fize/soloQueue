@@ -223,4 +223,3 @@ func (s *GlobalService) UpdateSpeech(speech SpeechConfig) error {
 	})
 	return err
 }
-

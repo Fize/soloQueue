@@ -168,8 +168,6 @@ func (s *GlobalService) DefaultVisionModel() *LLMModel {
 	return nil
 }
 
-
-
 // ResolveScheduledTaskModel resolves a persisted task type. Scheduled tasks
 // intentionally do not fall back to compiled defaults: unattended work must
 // use an explicitly configured model or fail visibly.

@@ -52,10 +52,9 @@ func TestActiveRequestRegistry_WatchdogStateSurvivesSnapshot(t *testing.T) {
 	due := lastProgress.Add(15 * time.Minute)
 	changed, err := reg.SetWatchdog("req-watch", WatchdogState{
 		RunID:          "req-watch",
-		Phase:          "tool_confirmation",
+		Phase:          "streaming",
 		LastProgressAt: lastProgress,
 		WatchdogDueAt:  due,
-		PausedReason:   "tool_confirmation",
 		TerminalCode:   "",
 	})
 	if err != nil {
@@ -68,7 +67,7 @@ func TestActiveRequestRegistry_WatchdogStateSurvivesSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	if snapshot.RunID != "req-watch" || snapshot.Phase != "tool_confirmation" || !snapshot.WatchdogDueAt.Equal(due) {
+	if snapshot.RunID != "req-watch" || snapshot.Phase != "streaming" || !snapshot.WatchdogDueAt.Equal(due) {
 		t.Fatalf("watchdog snapshot = %+v", snapshot)
 	}
 }
@@ -289,7 +288,7 @@ func TestActiveRequestRegistry_L1FinalizeDoesNotAffectOtherL1Requests(t *testing
 	}
 }
 
-func TestActiveRequestRegistry_ValidateAndPendingCall(t *testing.T) {
+func TestActiveRequestRegistry_Validate(t *testing.T) {
 	reg := NewActiveRequestRegistry()
 	_, _ = reg.Reserve("l2:s1", "req-1", "client-1")
 
@@ -305,18 +304,4 @@ func TestActiveRequestRegistry_ValidateAndPendingCall(t *testing.T) {
 		t.Errorf("err = %v, want ErrRequestSessionMismatch", err)
 	}
 
-	// Tool call pending registration & resolution
-	if err := reg.RegisterPendingCall("req-1", "call-1"); err != nil {
-		t.Fatalf("RegisterPendingCall failed: %v", err)
-	}
-
-	// Resolving wrong call ID fails
-	if err := reg.ResolvePendingCall("req-1", "call-wrong"); err != ErrToolConfirmationMismatch {
-		t.Errorf("err = %v, want ErrToolConfirmationMismatch", err)
-	}
-
-	// Resolving correct call ID succeeds
-	if err := reg.ResolvePendingCall("req-1", "call-1"); err != nil {
-		t.Errorf("ResolvePendingCall failed: %v", err)
-	}
 }

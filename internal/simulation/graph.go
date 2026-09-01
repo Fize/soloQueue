@@ -19,11 +19,11 @@ const (
 
 // RelationEdge is a directed edge between two agents.
 type RelationEdge struct {
-	Source  string       `json:"source"`
-	Target  string       `json:"target"`
-	Type    RelationType `json:"type"`
-	Weight  int          `json:"weight"`
-	Rounds  []int        `json:"rounds"`
+	Source   string       `json:"source"`
+	Target   string       `json:"target"`
+	Type     RelationType `json:"type"`
+	Weight   int          `json:"weight"`
+	Rounds   []int        `json:"rounds"`
 	Evidence []string     `json:"-"` // raw message excerpts
 }
 

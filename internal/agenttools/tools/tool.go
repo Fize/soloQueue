@@ -2,7 +2,6 @@
 //
 // Core concepts:
 //   - Tool: the smallest callable unit, mapped 1:1 to LLM function calling.
-//   - Confirmable: an optional interface that supports a "require user confirmation before execution" flow.
 //   - ToolRegistry: a concurrent-safe name → Tool mapping (defined in registry.go).
 //
 // Dependency direction:
@@ -53,56 +52,6 @@ type Tool interface {
 	Execute(ctx context.Context, args string) (result string, err error)
 }
 
-// Confirmable is an optional interface that tools may implement to support a "require user confirmation before execution" flow.
-//
-// Tools that do not implement this interface keep the default behavior (direct Execute).
-// When a tool implementing this interface returns true from CheckConfirmation, the Agent will:
-//  1. emit a ToolNeedsConfirmEvent (with options)
-//  2. block until the caller invokes Agent.Confirm(callID, choice)
-//  3. if choice != "", call ConfirmArgs to modify args and then Execute
-//  4. if choice == "" (cancel/deny), return "error: user denied execution"
-type Confirmable interface {
-	Tool
-	// CheckConfirmation checks whether the given args require user confirmation.
-	// It returns (needsConfirm bool, prompt string), where prompt is shown to the user.
-	CheckConfirmation(args string) (needsConfirm bool, prompt string)
-	// ConfirmationOptions returns a list of available choices.
-	// Returning nil or an empty slice indicates binary confirmation (approve/deny), which the UI may represent as "yes"/"".
-	// If non-empty, the UI should present the options and pass the selected choice value back.
-	ConfirmationOptions(args string) []string
-	// ConfirmArgs modifies the original args after the user makes a choice.
-	// choice is the user's selected option value; for binary confirmation, ChoiceApprove means approve and ChoiceDeny means deny.
-	// The modified args are passed to Execute.
-	ConfirmArgs(originalArgs string, choice ConfirmChoice) string
-	// SupportsSessionWhitelist returns whether the tool supports the "allow-in-session" option.
-	// If false, the UI should not show the "allow for this session" button.
-	SupportsSessionWhitelist() bool
-}
-
-// ConfirmChoice is the user's choice in the confirmation dialog.
-type ConfirmChoice string
-
-// defaultConfirmable provides default implementations for the three optional
-// Confirmable methods. Tools that embed it get binary-only confirmation with
-// session-whitelist support and no-op ConfirmArgs.
-type defaultConfirmable struct{}
-
-func (defaultConfirmable) ConfirmationOptions(_ string) []string               { return nil }
-func (defaultConfirmable) ConfirmArgs(original string, _ ConfirmChoice) string { return original }
-func (defaultConfirmable) SupportsSessionWhitelist() bool                      { return true }
-
-const (
-	// ChoiceDeny means deny/cancel execution.
-	ChoiceDeny ConfirmChoice = ""
-
-	// ChoiceApprove means approve this execution only (without adding a whitelist entry).
-	ChoiceApprove ConfirmChoice = "yes"
-
-	// ChoiceAllowInSession means approve this execution and add the tool to the current session allowlist,
-	// so future calls in the same session will not trigger confirmation.
-	ChoiceAllowInSession ConfirmChoice = "allow-in-session"
-)
-
 // ─── AsyncTool interface ────────────────────────────────────────────────────
 
 // AsyncAction describes the intent for an asynchronous tool execution.
@@ -128,8 +77,6 @@ type AsyncAction struct {
 //   - execTools assembles all context (asyncTurnState) before starting the goroutine
 //   - it eliminates two-phase registration races entirely
 //   - the Tool does not start a goroutine; it only returns an intent, and the framework handles go + registration + cleanup
-//
-// The pattern is the same as Confirmable: detection happens in execTools via type assertion.
 type AsyncTool interface {
 	Tool
 	// ExecuteAsync returns an asynchronous execution intent without starting a goroutine.
@@ -164,8 +111,7 @@ type TurnTerminator interface {
 // Description, signaling to the LLM that this tool should only be used when
 // no delegate_* tool is available. All other methods delegate to the inner Tool.
 //
-// Confirmable and AsyncTool interfaces are preserved through type assertion
-// in the agent layer, so FallbackTool only needs to implement the base Tool.
+// AsyncTool is handled by the agent layer, so FallbackTool only needs to implement the base Tool.
 type FallbackTool struct {
 	Tool
 	desc string

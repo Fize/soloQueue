@@ -291,7 +291,6 @@ type SessionRuntimeInfo struct {
 	Phase          string    `json:"phase,omitempty"`
 	LastProgressAt time.Time `json:"last_progress_at,omitempty"`
 	WatchdogDueAt  time.Time `json:"watchdog_due_at,omitempty"`
-	PausedReason   string    `json:"paused_reason,omitempty"`
 	TerminalCode   string    `json:"terminal_code,omitempty"`
 }
 
@@ -787,7 +786,6 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 							Phase:          req.Phase,
 							LastProgressAt: req.LastProgressAt,
 							WatchdogDueAt:  req.WatchdogDueAt,
-							PausedReason:   req.PausedReason,
 							TerminalCode:   req.TerminalCode,
 							Revision:       hub.GetSessionRevision("l1"),
 							CtxwinUsed:     used,
@@ -823,7 +821,6 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 					info.Phase = req.Phase
 					info.LastProgressAt = req.LastProgressAt
 					info.WatchdogDueAt = req.WatchdogDueAt
-					info.PausedReason = req.PausedReason
 					info.TerminalCode = req.TerminalCode
 				}
 				sessions[sid] = info

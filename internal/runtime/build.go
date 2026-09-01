@@ -52,20 +52,18 @@ func Build(
 	cfg *config.GlobalService,
 	log *logger.Logger,
 	profileSetup ProfileSetupFn,
-	bypassConfirm bool,
 	embeddedFS fs.FS,
 ) (*Stack, error) {
 	buildStart := time.Now()
 	settings := cfg.Get()
 
 	bc := &buildContext{
-		workDir:       workDir,
-		cfg:           cfg,
-		settings:      settings,
-		log:           log,
-		profileSetup:  profileSetup,
-		bypassConfirm: bypassConfirm,
-		embeddedFS:    embeddedFS,
+		workDir:      workDir,
+		cfg:          cfg,
+		settings:     settings,
+		log:          log,
+		profileSetup: profileSetup,
+		embeddedFS:   embeddedFS,
 	}
 
 	// Phase 1: Shared DB + TeamStore
@@ -271,13 +269,12 @@ func NewAgentID() string {
 // buildContext holds intermediate build state during initialization.
 // Kept unexported as it is only used internally by the Build process.
 type buildContext struct {
-	workDir       string
-	cfg           *config.GlobalService
-	settings      config.Settings
-	log           *logger.Logger
-	profileSetup  ProfileSetupFn
-	bypassConfirm bool
-	embeddedFS    fs.FS
+	workDir      string
+	cfg          *config.GlobalService
+	settings     config.Settings
+	log          *logger.Logger
+	profileSetup ProfileSetupFn
+	embeddedFS   fs.FS
 
 	// Resolved config
 	provider            *config.LLMProvider
@@ -421,7 +418,6 @@ func (bc *buildContext) assembleStack() *Stack {
 		MemoryManager:       bc.memoryMgr,
 		MemoryEngine:        bc.memoryEngine,
 		SharedDB:            bc.sharedDB,
-		BypassConfirm:       bc.bypassConfirm,
 		MCPManager:          bc.mcpMgr,
 		LSPManager:          bc.lspMgr,
 		TeamStore:           bc.teamstore,

@@ -39,9 +39,5 @@ func (m *mockLocatable) AskStream(ctx context.Context, prompt string) (<-chan if
 	return ch, nil
 }
 
-func (m *mockLocatable) Confirm(callID string, choice string) error {
-	return nil
-}
-
 func (m *mockLocatable) ErrorCount() int32 { return 0 }
 func (m *mockLocatable) LastError() string { return "" }

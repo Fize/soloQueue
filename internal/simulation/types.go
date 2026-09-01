@@ -72,45 +72,45 @@ func (k RelationKind) InverseKind() RelationKind {
 // InitialRelationship defines a pre-existing relationship between two personas
 // extracted from seed text, used to initialize the RelationshipManager.
 type InitialRelationship struct {
-	SubjectName string      `json:"subject_name"`
-	TargetName  string      `json:"target_name"`
+	SubjectName string       `json:"subject_name"`
+	TargetName  string       `json:"target_name"`
 	Kind        RelationKind `json:"kind"`
-	Familiarity float64     `json:"familiarity,omitempty"`
-	Affinity    float64     `json:"affinity,omitempty"`
+	Familiarity float64      `json:"familiarity,omitempty"`
+	Affinity    float64      `json:"affinity,omitempty"`
 }
 
 // RelationshipDTO is a serializable relationship snapshot for API responses.
 type RelationshipDTO struct {
-	SubjectID   string   `json:"subject_id"`
-	SubjectName string   `json:"subject_name"`
-	TargetID    string   `json:"target_id"`
-	TargetName  string   `json:"target_name"`
-	Kind        string   `json:"kind"`
-	Familiarity float64  `json:"familiarity"`
-	Affinity    float64  `json:"affinity"`
-	Tags        []string `json:"tags,omitempty"`
+	SubjectID    string   `json:"subject_id"`
+	SubjectName  string   `json:"subject_name"`
+	TargetID     string   `json:"target_id"`
+	TargetName   string   `json:"target_name"`
+	Kind         string   `json:"kind"`
+	Familiarity  float64  `json:"familiarity"`
+	Affinity     float64  `json:"affinity"`
+	Tags         []string `json:"tags,omitempty"`
 	ChangeReason string   `json:"change_reason,omitempty"`
 }
 
 // SimulationConfig is the complete simulation setup.
 type SimulationConfig struct {
-	ID              string         `json:"id,omitempty"`
-	Topic           string         `json:"topic"`
-	Description     string         `json:"description,omitempty"`
-	Personas        []Persona      `json:"personas"`
-	WorldState      map[string]any `json:"initial_world_state,omitempty"`
-	MaxWallClockMs  int            `json:"max_wall_clock_ms,omitempty"`
+	ID                   string                `json:"id,omitempty"`
+	Topic                string                `json:"topic"`
+	Description          string                `json:"description,omitempty"`
+	Personas             []Persona             `json:"personas"`
+	WorldState           map[string]any        `json:"initial_world_state,omitempty"`
+	MaxWallClockMs       int                   `json:"max_wall_clock_ms,omitempty"`
 	InitialEdges         []EdgeDTO             `json:"-"` // populated from seed extraction, not persisted
 	InitialRelationships []InitialRelationship `json:"initial_relationships,omitempty"`
 
 	// Generative Agents extensions
-	SimulatedHours    int                  `json:"simulated_hours,omitempty"`
-	TickIntervalMs    int                  `json:"tick_interval_ms,omitempty"`
-	TimeScale         int                  `json:"time_scale,omitempty"`
-	EnableReflection  bool                 `json:"enable_reflection,omitempty"`
-	LifecycleEvents   []SeedLifecycleEvent `json:"lifecycle_events,omitempty"`
-	Language          string               `json:"language,omitempty"` // "zh" or "en", defaults to "zh"
-	PacingIntervalMs  int                  `json:"pacing_interval_ms,omitempty"`
+	SimulatedHours   int                  `json:"simulated_hours,omitempty"`
+	TickIntervalMs   int                  `json:"tick_interval_ms,omitempty"`
+	TimeScale        int                  `json:"time_scale,omitempty"`
+	EnableReflection bool                 `json:"enable_reflection,omitempty"`
+	LifecycleEvents  []SeedLifecycleEvent `json:"lifecycle_events,omitempty"`
+	Language         string               `json:"language,omitempty"` // "zh" or "en", defaults to "zh"
+	PacingIntervalMs int                  `json:"pacing_interval_ms,omitempty"`
 }
 
 // Validate checks the config and applies defaults.
@@ -177,26 +177,26 @@ type SimulationRelationGraph struct {
 
 // SimulationState holds the full mutable state of a simulation.
 type SimulationState struct {
-	Config       SimulationConfig         `json:"config"`
-	Status       SimulationStatus         `json:"status"`
-	CurrentRound int                      `json:"current_round"`
-	Rounds       []RoundResult            `json:"rounds"`
-	WorldState   *WorldState              `json:"-"`
-	AgentStates  map[string]*AgentState   `json:"agent_states"`
-	CreatedAt    time.Time                `json:"created_at"`
-	StartedAt    *time.Time               `json:"started_at,omitempty"`
-	CompletedAt  *time.Time               `json:"completed_at,omitempty"`
-	Error        string                   `json:"error,omitempty"`
-	RunID        string                   `json:"run_id"`
+	Config        SimulationConfig         `json:"config"`
+	Status        SimulationStatus         `json:"status"`
+	CurrentRound  int                      `json:"current_round"`
+	Rounds        []RoundResult            `json:"rounds"`
+	WorldState    *WorldState              `json:"-"`
+	AgentStates   map[string]*AgentState   `json:"agent_states"`
+	CreatedAt     time.Time                `json:"created_at"`
+	StartedAt     *time.Time               `json:"started_at,omitempty"`
+	CompletedAt   *time.Time               `json:"completed_at,omitempty"`
+	Error         string                   `json:"error,omitempty"`
+	RunID         string                   `json:"run_id"`
 	Report        string                   `json:"report,omitempty"`
 	Graph         *SimulationRelationGraph `json:"graph,omitempty"`
 	Relationships []RelationshipDTO        `json:"relationships,omitempty"`
-	mu           sync.RWMutex
+	mu            sync.RWMutex
 }
 
-func (s *SimulationState) Lock()   { s.mu.Lock() }
-func (s *SimulationState) Unlock() { s.mu.Unlock() }
-func (s *SimulationState) RLock()  { s.mu.RLock() }
+func (s *SimulationState) Lock()    { s.mu.Lock() }
+func (s *SimulationState) Unlock()  { s.mu.Unlock() }
+func (s *SimulationState) RLock()   { s.mu.RLock() }
 func (s *SimulationState) RUnlock() { s.mu.RUnlock() }
 
 // RoundResult captures a single round of simulation.
@@ -222,14 +222,14 @@ type RoundMessage struct {
 
 // SeedLifecycleEvent represents a scheduled spawn/death/goal-transition event extracted from seed text.
 type SeedLifecycleEvent struct {
-	Type         string   `json:"type"`                    // "agent_spawn" | "agent_death" | "goal_transition" | "simulation_end"
-	AgentName    string   `json:"agent_name"`              // target agent name
-	AgentRole    string   `json:"agent_role,omitempty"`    // role description for spawned agent
-	Trigger      string   `json:"trigger"`                 // "sim_time" | "wall_time" | "condition"
-	TriggerValue string   `json:"trigger_value"`           // "3h" | "14:30" | "consensus_reached"
-	Reason       string   `json:"reason"`                  // human-readable reason
-	NewGoals     []string `json:"new_goals,omitempty"`     // for goal_transition: replacement goals
-	Triggered    bool     `json:"-"`                       // internal: already fired
+	Type         string   `json:"type"`                 // "agent_spawn" | "agent_death" | "goal_transition" | "simulation_end"
+	AgentName    string   `json:"agent_name"`           // target agent name
+	AgentRole    string   `json:"agent_role,omitempty"` // role description for spawned agent
+	Trigger      string   `json:"trigger"`              // "sim_time" | "wall_time" | "condition"
+	TriggerValue string   `json:"trigger_value"`        // "3h" | "14:30" | "consensus_reached"
+	Reason       string   `json:"reason"`               // human-readable reason
+	NewGoals     []string `json:"new_goals,omitempty"`  // for goal_transition: replacement goals
+	Triggered    bool     `json:"-"`                    // internal: already fired
 }
 
 // SpawnInfo carries the data needed to create a new agent mid-simulation.
@@ -269,13 +269,13 @@ type EdgeDTO struct {
 
 // AgentProgressState tracks per-agent runtime progress for frontend display.
 type AgentProgressState struct {
-	PersonaID      string `json:"persona_id"`
-	Name           string `json:"name"`
-	Role           string `json:"role"`
-	MessageCount   int    `json:"message_count"`
-	LastActionType string `json:"last_action_type"`
-	LastActionTime string `json:"last_action_time"`
-	Status         string `json:"status"` // "thinking" | "spoke" | "idle"
+	PersonaID       string    `json:"persona_id"`
+	Name            string    `json:"name"`
+	Role            string    `json:"role"`
+	MessageCount    int       `json:"message_count"`
+	LastActionType  string    `json:"last_action_type"`
+	LastActionTime  string    `json:"last_action_time"`
+	Status          string    `json:"status"` // "thinking" | "spoke" | "idle"
 	CurrentPlanItem *PlanItem `json:"current_plan_item,omitempty"`
 	ActiveIntention string    `json:"active_intention,omitempty"`
 	ActiveDirective string    `json:"active_directive,omitempty"`
@@ -283,17 +283,17 @@ type AgentProgressState struct {
 
 // SimulationProgress is broadcast periodically via WebSocket during simulation.
 type SimulationProgress struct {
-	SimulationID          string                          `json:"simulation_id"`
-	Phase                 string                          `json:"phase"` // "initializing"|"running"|"generating_report"|"completed"|"failed"
-	ProgressPercent       float64                         `json:"progress_percent"`
-	CurrentActions        int                             `json:"current_actions"`
-	MaxActions            int                             `json:"max_actions"`
-	ElapsedSeconds        float64                         `json:"elapsed_seconds"`
-	EstimatedRemainingSec float64                         `json:"estimated_remaining_seconds"`
-	AgentStates           map[string]*AgentProgressState  `json:"agent_states,omitempty"`
-	GraphEdges            []EdgeDTO                       `json:"graph_edges,omitempty"`
-	RelationshipEdges     []RelationshipDTO               `json:"relationship_edges,omitempty"`
-	RecentLogs            []string                        `json:"recent_logs,omitempty"`
+	SimulationID          string                         `json:"simulation_id"`
+	Phase                 string                         `json:"phase"` // "initializing"|"running"|"generating_report"|"completed"|"failed"
+	ProgressPercent       float64                        `json:"progress_percent"`
+	CurrentActions        int                            `json:"current_actions"`
+	MaxActions            int                            `json:"max_actions"`
+	ElapsedSeconds        float64                        `json:"elapsed_seconds"`
+	EstimatedRemainingSec float64                        `json:"estimated_remaining_seconds"`
+	AgentStates           map[string]*AgentProgressState `json:"agent_states,omitempty"`
+	GraphEdges            []EdgeDTO                      `json:"graph_edges,omitempty"`
+	RelationshipEdges     []RelationshipDTO              `json:"relationship_edges,omitempty"`
+	RecentLogs            []string                       `json:"recent_logs,omitempty"`
 }
 
 // MemoryRecord is a single entry in an agent's conversation.
@@ -342,7 +342,7 @@ type PlanItem struct {
 // ReflectionRecord holds a generated reflection.
 type ReflectionRecord struct {
 	AgentID     string    `json:"agent_id"`
-	Content     string    `json:"content"`     // the reflection text
+	Content     string    `json:"content"`      // the reflection text
 	GeneratedAt time.Time `json:"generated_at"` // simulated time
 	Sources     []int     `json:"sources"`      // memory record rounds that inspired this
 	Importance  float64   `json:"importance"`
@@ -350,12 +350,12 @@ type ReflectionRecord struct {
 
 // AgentRelationship captures one agent's internal model of another agent.
 type AgentRelationship struct {
-	SubjectID   string       `json:"subject_id"`   // the observing agent
-	TargetID    string       `json:"target_id"`    // the agent being observed
-	Kind        RelationKind `json:"kind"`          // parent/friend/rival...
-	Familiarity float64      `json:"familiarity"`  // 0.0-1.0
-	Affinity    float64      `json:"affinity"`     // -1.0 (hate) to 1.0 (love)
-	Tags        []string     `json:"tags"`         // "reliable", "annoying", etc.
+	SubjectID   string       `json:"subject_id"`  // the observing agent
+	TargetID    string       `json:"target_id"`   // the agent being observed
+	Kind        RelationKind `json:"kind"`        // parent/friend/rival...
+	Familiarity float64      `json:"familiarity"` // 0.0-1.0
+	Affinity    float64      `json:"affinity"`    // -1.0 (hate) to 1.0 (love)
+	Tags        []string     `json:"tags"`        // "reliable", "annoying", etc.
 	LastUpdated time.Time    `json:"last_updated"`
 }
 

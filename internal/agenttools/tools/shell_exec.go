@@ -29,15 +29,14 @@ func IsRTKEnabled() bool {
 	return useRTK
 }
 
-// shellExecTool executes shell commands with blocklist and confirmation checks.
+// shellExecTool executes shell commands with blocklist checks.
 //
 // Schema:
 //
-//	{"command":"ls -la", "stdin":"optional stdin text", "confirmed":false}
+//	{"command":"ls -la", "stdin":"optional stdin text"}
 //
 // Security:
 //   - Commands matching ShellBlockRegexes are rejected immediately.
-//   - Commands matching ShellConfirmRegexes with confirmed=false require user confirmation.
 //   - Uses /bin/sh -c <command>.
 //   - Timeout is controlled by the parent context (DefaultToolTimeout), and the subprocess receives SIGKILL.
 //   - stdout/stderr each have a ShellMaxOutput byte cap; overflow truncates and sets truncated=true.
@@ -45,11 +44,10 @@ func IsRTKEnabled() bool {
 //
 // Returns: {"exit_code":0,"stdout":"...","stderr":"...","truncated":false}
 type shellExecTool struct {
-	cfg            Config
-	logger         *logger.Logger
-	blockRegexes   []*regexp.Regexp
-	confirmRegexes []*regexp.Regexp
-	regErr         error // compilation error returned during Execute
+	cfg          Config
+	logger       *logger.Logger
+	blockRegexes []*regexp.Regexp
+	regErr       error // compilation error returned during Execute
 }
 
 func newShellExecTool(cfg Config) *shellExecTool {
@@ -63,14 +61,6 @@ func newShellExecTool(cfg Config) *shellExecTool {
 		}
 		t.blockRegexes = append(t.blockRegexes, re)
 	}
-	for _, r := range cfg.ShellConfirmRegexes {
-		re, err := regexp.Compile(r)
-		if err != nil {
-			t.regErr = fmt.Errorf("invalid ShellConfirmRegex %q: %w", r, err)
-			return t
-		}
-		t.confirmRegexes = append(t.confirmRegexes, re)
-	}
 	return t
 }
 
@@ -81,7 +71,7 @@ func (shellExecTool) Description() string {
 	if runtime.GOOS == "windows" {
 		shell = "powershell.exe -Command (falls back to cmd.exe /c)"
 	}
-	return "Run a shell command. Dangerous commands (rm, dd, mkfs, etc.) require user confirmation. " +
+	return "Run a shell command. Commands matching the configured blocklist are rejected. " +
 		"Uses " + shell + " <cmd>. " +
 		"Returns {exit_code,stdout,stderr,truncated}. " +
 		"Supports optional working_directory parameter."
@@ -93,7 +83,6 @@ func (shellExecTool) Parameters() json.RawMessage {
   "properties":{
     "command":{"type":"string","description":"Shell command to execute"},
     "stdin":{"type":"string","description":"Optional stdin for the subprocess"},
-    "confirmed":{"type":"boolean","description":"Set to true after user confirms a dangerous command"},
     "working_directory":{"type":"string","description":"Optional working directory for the command. If set, the command runs from this directory."}
   },
   "required":["command"]
@@ -103,7 +92,6 @@ func (shellExecTool) Parameters() json.RawMessage {
 type shellExecArgs struct {
 	Command          string `json:"command"`
 	Stdin            string `json:"stdin,omitempty"`
-	Confirmed        bool   `json:"confirmed,omitempty"`
 	WorkingDirectory string `json:"working_directory,omitempty"`
 }
 
@@ -113,48 +101,6 @@ type shellExecResult struct {
 	Stderr    string `json:"stderr"`
 	Truncated bool   `json:"truncated"`
 }
-
-// CheckConfirmation implements Confirmable.
-// Blocklist hit → no confirmation needed (Execute rejects directly);
-// already confirmed → no confirmation needed;
-// confirmation regex hit → confirmation required;
-// otherwise → no confirmation needed.
-func (t *shellExecTool) CheckConfirmation(raw string) (bool, string) {
-	var a shellExecArgs
-	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return false, ""
-	}
-	if a.Confirmed {
-		return false, ""
-	}
-	// The blocklist is handled by Execute; here we only need to check whether the confirmation regexes match
-	if matchesAny(a.Command, t.confirmRegexes) {
-		return true, fmt.Sprintf("The command %q may be dangerous. Do you want to execute it?", a.Command)
-	}
-	return false, ""
-}
-
-// ConfirmationOptions implements Confirmable.
-// Bash uses binary confirmation and returns nil.
-func (shellExecTool) ConfirmationOptions(_ string) []string { return nil }
-
-// ConfirmArgs implements Confirmable: when choice == ChoiceApprove, inject confirmed=true.
-func (shellExecTool) ConfirmArgs(original string, choice ConfirmChoice) string {
-	if choice != ChoiceApprove {
-		return original
-	}
-	var a map[string]any
-	if err := json.Unmarshal([]byte(original), &a); err != nil {
-		return original
-	}
-	a["confirmed"] = true
-	b, _ := json.Marshal(a)
-	return string(b)
-}
-
-// SupportsSessionWhitelist implements Confirmable.
-// Bash supports allow-in-session.
-func (shellExecTool) SupportsSessionWhitelist() bool { return true }
 
 func (t *shellExecTool) Execute(ctx context.Context, raw string) (string, error) {
 	if err := ctxErrOrNil(ctx); err != nil {
@@ -294,4 +240,3 @@ func rewriteCommand(ctx context.Context, executor *Executor, cmd string) string 
 
 // Compile-time checks
 var _ Tool = (*shellExecTool)(nil)
-var _ Confirmable = (*shellExecTool)(nil)

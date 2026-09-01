@@ -105,9 +105,6 @@ type Config struct {
 	// ShellBlockRegexes are command blocklist regexes; any match is rejected.
 	ShellBlockRegexes []string
 
-	// ShellConfirmRegexes are command confirmation regexes; any match requires user confirmation.
-	ShellConfirmRegexes []string
-
 	// ShellMaxOutput is the maximum output size for shell execution; stdout/stderr are truncated independently.
 	ShellMaxOutput int64
 

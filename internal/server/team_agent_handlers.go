@@ -49,7 +49,6 @@ type AgentResponse struct {
 	IsLeader      bool              `json:"is_leader"`
 	Model         string            `json:"model"`
 	SystemPrompt  string            `json:"system_prompt"`
-	Permission    bool              `json:"permission"`
 	MCPServers    []string          `json:"mcp_servers"`
 	SkillIDs      []string          `json:"skill_ids"`
 	Channels      map[string]string `json:"channels,omitempty"`
@@ -90,7 +89,6 @@ func agentToResponse(a *store.Agent) AgentResponse {
 		IsLeader:      a.IsLeader,
 		Model:         a.Model,
 		SystemPrompt:  a.SystemPrompt,
-		Permission:    a.Permission,
 		MCPServers:    mcp,
 		SkillIDs:      skills,
 		Channels:      a.Channels,
@@ -374,7 +372,6 @@ type createAgentRequest struct {
 	IsLeader      bool              `json:"is_leader"`
 	Model         string            `json:"model"`
 	SystemPrompt  string            `json:"system_prompt"`
-	Permission    bool              `json:"permission"`
 	MCPServers    []string          `json:"mcp_servers"`
 	SkillIDs      []string          `json:"skill_ids"`
 	Channels      map[string]string `json:"channels,omitempty"`
@@ -405,7 +402,6 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		IsLeader:      req.IsLeader,
 		Model:         req.Model,
 		SystemPrompt:  req.SystemPrompt,
-		Permission:    req.Permission,
 		MCPServers:    req.MCPServers,
 		SkillIDs:      req.SkillIDs,
 		Channels:      req.Channels,
@@ -441,7 +437,6 @@ type updateAgentRequest struct {
 	IsLeader      *bool              `json:"is_leader,omitempty"`
 	Model         *string            `json:"model,omitempty"`
 	SystemPrompt  *string            `json:"system_prompt,omitempty"`
-	Permission    *bool              `json:"permission,omitempty"`
 	MCPServers    *[]string          `json:"mcp_servers,omitempty"`
 	SkillIDs      *[]string          `json:"skill_ids,omitempty"`
 	Channels      *map[string]string `json:"channels,omitempty"`
@@ -481,9 +476,6 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SystemPrompt != nil {
 		existing.SystemPrompt = *req.SystemPrompt
-	}
-	if req.Permission != nil {
-		existing.Permission = *req.Permission
 	}
 	if req.MCPServers != nil {
 		existing.MCPServers = *req.MCPServers

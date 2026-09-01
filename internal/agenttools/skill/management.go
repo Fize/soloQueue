@@ -148,7 +148,6 @@ func InstallGithubSkill(ctx context.Context, repoUrl, branch, subPath, userSkill
 	return nil
 }
 
-
 // UninstallSkill deletes a user skill directory.
 func UninstallSkill(userSkillsDir, id string) error {
 	target := filepath.Join(userSkillsDir, id)

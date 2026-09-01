@@ -58,61 +58,6 @@ func TestManager_RootSnapshotUsesHealthyChildEffectiveDue(t *testing.T) {
 	}
 }
 
-func TestManager_RootSnapshotReflectsPausedChildSubtree(t *testing.T) {
-	manager := NewManager(Policy{RootIdle: time.Minute})
-	defer manager.Close()
-	_, root, err := manager.Start(context.Background(), Metadata{RunID: "run-paused-child"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	child, err := root.BeginOperation(KindDelegation, "delegation-paused-child", Policy{OrphanIdle: time.Minute})
-	if err != nil {
-		t.Fatal(err)
-	}
-	child.Pause("tool_confirmation")
-
-	snapshot, ok := manager.Snapshot("run-paused-child")
-	if !ok {
-		t.Fatal("Snapshot() did not find root")
-	}
-	if snapshot.PausedReason != "tool_confirmation" {
-		t.Fatalf("PausedReason = %q", snapshot.PausedReason)
-	}
-	if !snapshot.WatchdogDueAt.IsZero() {
-		t.Fatalf("WatchdogDueAt = %v, want zero while subtree paused", snapshot.WatchdogDueAt)
-	}
-
-	child.Resume("tool_execution")
-	snapshot, _ = manager.Snapshot("run-paused-child")
-	if snapshot.PausedReason != "" || snapshot.WatchdogDueAt.IsZero() {
-		t.Fatalf("resumed Snapshot() = %+v", snapshot)
-	}
-}
-
-func TestHandle_PauseSuspendsExecutionLeaseUntilResume(t *testing.T) {
-	clock := NewFakeClock(time.Unix(1_700_000_000, 0))
-	manager := NewManager(Policy{RootIdle: 15 * time.Minute}, WithClock(clock))
-	defer manager.Close()
-
-	ctx, root, err := manager.Start(context.Background(), Metadata{RunID: "run-paused"})
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-	root.Pause("tool_confirmation")
-	clock.Advance(24 * time.Hour)
-	manager.Scan()
-	if err := context.Cause(ctx); err != nil {
-		t.Fatalf("paused run cancelled: %v", err)
-	}
-
-	root.Resume("tool_execution")
-	clock.Advance(14 * time.Minute)
-	manager.Scan()
-	if err := context.Cause(ctx); err != nil {
-		t.Fatalf("resumed lease did not reset: %v", err)
-	}
-}
-
 func TestManager_ModelSemanticSilenceHasDistinctCause(t *testing.T) {
 	clock := NewFakeClock(time.Unix(1_700_000_000, 0))
 	manager := NewManager(Policy{}, WithClock(clock))
@@ -146,20 +91,16 @@ func TestManager_SnapshotExposesWatchdogState(t *testing.T) {
 	manager := NewManager(Policy{RootIdle: 15 * time.Minute}, WithClock(clock))
 	defer manager.Close()
 
-	_, root, err := manager.Start(context.Background(), Metadata{RunID: "run-status", Phase: "routing"})
+	_, _, err := manager.Start(context.Background(), Metadata{RunID: "run-status", Phase: "routing"})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	root.Pause("tool_confirmation")
 	snapshot, ok := manager.Snapshot("run-status")
 	if !ok {
 		t.Fatal("Snapshot() did not find active run")
 	}
-	if snapshot.Phase != "routing" || snapshot.PausedReason != "tool_confirmation" {
+	if snapshot.Phase != "routing" {
 		t.Fatalf("Snapshot() = %+v", snapshot)
-	}
-	if !snapshot.WatchdogDueAt.IsZero() {
-		t.Fatalf("WatchdogDueAt = %v, want zero while paused", snapshot.WatchdogDueAt)
 	}
 }
 
@@ -272,27 +213,6 @@ func TestManager_RootAndChildIDsCannotCrossResolve(t *testing.T) {
 	}
 	if cause := context.Cause(ctxB); cause != nil {
 		t.Fatalf("path-scoped child retargeted request-b root: %v", cause)
-	}
-}
-
-func TestHandle_AcquirePauseUsesIndependentTokens(t *testing.T) {
-	manager := NewManager(Policy{RootIdle: time.Minute})
-	defer manager.Close()
-	_, root, err := manager.Start(context.Background(), Metadata{RunID: "pause-tokens"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	releaseA := root.AcquirePause("confirm-a")
-	releaseB := root.AcquirePause("confirm-b")
-	releaseA("tool_execution")
-	snapshot, _ := root.Snapshot()
-	if snapshot.PausedReason == "" || !snapshot.WatchdogDueAt.IsZero() {
-		t.Fatalf("one release resumed another pause: %+v", snapshot)
-	}
-	releaseB("tool_execution")
-	snapshot, _ = root.Snapshot()
-	if snapshot.PausedReason != "" || snapshot.WatchdogDueAt.IsZero() {
-		t.Fatalf("all pause tokens released: %+v", snapshot)
 	}
 }
 

@@ -74,7 +74,6 @@ description: "One-line capability summary"
 group: "Team Name"
 is_leader: false
 model: ""
-permission: false
 mcp_servers: []
 skills: []
 ---
@@ -87,7 +86,6 @@ Rules:
 - "group": MUST exactly match the team's "name" field (case-sensitive)
 - "is_leader": true for the team leader, false for workers
 - "model": leave empty for default
-- "permission": true to skip tool confirmations (bypass), false to require them
 - "mcp_servers": list of MCP server names this agent can use (e.g. ["builtin-lsp"])
 - "skills": list of skill IDs this agent can use (e.g. ["code-review"])
 - The body is the agent's permanent system prompt — be thorough
@@ -160,8 +158,7 @@ Common modifications:
   "group" field to match the new name.
 - **Add/remove members**: Write a new member file to add. To remove, the file
   must be deleted (inform the user if deletion is needed).
-- **Update permissions or tools**: Edit the member file's permission,
-  mcp_servers, or skills fields as needed.
+- **Update tools**: Edit the member file's mcp_servers or skills fields as needed.
 
 Rules for modifications:
 - Each file MUST be written as a complete unit — do not split frontmatter

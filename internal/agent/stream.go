@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -17,16 +16,10 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
-// WithBypassConfirmCtx returns a context that skips all tool confirmations.
-func WithBypassConfirmCtx(ctx context.Context) context.Context {
-	return iface.ContextWithBypassConfirm(ctx)
-}
-
 // ─── Context Keys for Tool Execution ───────────────────────────────────────
 //
-// Note: toolEventChannelCtxKey and confirmForwarderCtxKey are defined together in the tools package,
-// and are injected via tools.WithToolEventChannel / tools.WithConfirmForwarder.
-// The agent package uses them through these exported helpers to avoid cross-package context key type mismatches.
+// Note: toolEventChannelCtxKey is defined in the tools package and is injected
+// via tools.WithToolEventChannel.
 
 // streamAccumulator holds state accumulated during a single streaming iteration.
 type streamAccumulator struct {
@@ -169,8 +162,8 @@ func (a *Agent) recoverAndEmit(ctx context.Context, out chan<- AgentEvent) {
 	}
 }
 
-// startRelayGoroutine forwards ToolNeedsConfirmEvent and ErrorEvent from relayCh to out.
-func (a *Agent) startRelayGoroutine(ctx context.Context, relayCh <-chan iface.AgentEvent, out chan<- AgentEvent, onEvent func(iface.AgentEvent)) <-chan struct{} {
+// startRelayGoroutine forwards child errors from relayCh to out.
+func (a *Agent) startRelayGoroutine(ctx context.Context, relayCh <-chan iface.AgentEvent, out chan<- AgentEvent) <-chan struct{} {
 	relayDone := make(chan struct{})
 	go func() {
 		defer close(relayDone)
@@ -184,12 +177,6 @@ func (a *Agent) startRelayGoroutine(ctx context.Context, relayCh <-chan iface.Ag
 			}
 		}()
 		for ev := range relayCh {
-			if onEvent != nil {
-				onEvent(ev)
-			}
-			if _, isConfirm := ev.(ToolNeedsConfirmEvent); isConfirm {
-				a.emit(ctx, out, ev.(AgentEvent))
-			}
 			if ee, isError := ev.(ErrorEvent); isError {
 				a.emit(ctx, out, ee)
 			}
@@ -426,23 +413,12 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		results := strat.execTools(a, ctx, iter, toolCalls, out)
 		// A tool may ignore cancellation and return late. Do not let that stale
 		// generation cross the next conversation/timeline mutation boundary.
-		if err := ctx.Err(); err != nil && !a.userDenied.Load() {
+		if err := ctx.Err(); err != nil {
 			a.emit(ctx, out, ErrorEvent{Err: context.Cause(ctx)})
 			return false
 		}
 		if strat.postIteration(a, ctx, iter, acc, toolCalls, results, out) {
 			return true // async delegation started, loop yields — out stays open
-		}
-
-		// User denied tool confirmation → exit cleanly with DoneEvent
-		if a.userDenied.Load() {
-			a.userDenied.Store(false)
-			ok := a.emit(ctx, out, DoneEvent{
-				Content:          acc.content.String(),
-				ReasoningContent: acc.reasoning.String(),
-			})
-			_ = ok
-			return false
 		}
 
 		// TurnTerminator: a tool signaled that this turn
@@ -660,7 +636,7 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 	if hasAsync {
 		// Async path:
 		// - assistant(tool_calls) already pushed to cw
-		// - Push immediate tool results (delegation confirmations) to complete the pair.
+		// - Push immediate tool results for delegated calls to complete the pair.
 		//   This prevents user messages from interleaving between assistant(tool_calls)
 		//   and tool(result), which would violate LLM API message ordering.
 		// - out NOT closed (streamLoop returns yielded=true, resumeTurn → streamLoop will close on final exit)
@@ -672,7 +648,7 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 		}
 		a.turnMu.RUnlock()
 
-		// Push immediate tool results for ALL tools (sync results + delegation confirmations)
+		// Push immediate tool results for ALL tools (sync results + delegated calls)
 		for i, tc := range calls {
 			results[i] = dedupeSkillResult(s.cw, tc, results[i])
 			s.cw.Push(ctxwin.RoleTool, results[i],
@@ -963,121 +939,6 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	})
 	a.setWorkTool(name, args)
 
-	// ── Confirmable check ───────────────────────────────────────────────
-	// If the tool implements Confirmable:
-	//   1. First check the session-level whitelist; if hit, skip confirmation and inject confirmed=true;
-	//   2. Otherwise, call CheckConfirmation; if confirmation is needed, send ToolNeedsConfirmEvent and block until response;
-	//   3. User selects ChoiceAllowInSession → add to whitelist and handle as ChoiceApprove.
-	if c, ok := tool.(tools.Confirmable); ok {
-		if a.bypassConfirm || iface.BypassConfirmFromContext(ctx) {
-			args = c.ConfirmArgs(args, choiceApprove)
-		} else if a.confirmStore.IsConfirmed(name) {
-			args = c.ConfirmArgs(args, choiceApprove)
-		} else {
-			needsConfirm, prompt := c.CheckConfirmation(args)
-			if needsConfirm {
-				options := c.ConfirmationOptions(args)
-				var confirmationWatch *runwatch.Handle
-				var releasePause = func(string) {}
-				if parent := runwatch.HandleFromContext(ctx); parent != nil {
-					operationID := fmt.Sprintf("confirmation:%s:%d:%s", a.InstanceID, iter, tc.ID)
-					var watchErr error
-					confirmationWatch, watchErr = parent.BeginOperation(runwatch.KindTool, operationID, runwatch.Policy{})
-					if watchErr != nil {
-						return "error: " + watchErr.Error()
-					}
-					releasePause = confirmationWatch.AcquirePause("tool_confirmation")
-				}
-				resumed := false
-				resumeConfirmation := func() {
-					if resumed {
-						return
-					}
-					resumed = true
-					releasePause("tool_execution")
-					if confirmationWatch != nil {
-						confirmationWatch.Complete()
-					}
-				}
-				// Every exit after Pause must restore the lease. The successful
-				// choice path invokes this before Execute; defer covers emit and
-				// cancellation failures.
-				defer resumeConfirmation()
-
-				slot := &confirmSlot{ch: make(chan string, 1)}
-				a.confirmMu.Lock()
-				a.pendingConfirm[tc.ID] = slot
-				a.confirmMu.Unlock()
-
-				a.logInfo(ctx, logger.CatTool, "execToolStream: emitting confirm event",
-					"tool_name", name,
-					"call_id", tc.ID,
-					"agent_id", a.Def.ID,
-				)
-				emitted := a.emit(ctx, out, ToolNeedsConfirmEvent{
-					Iter:           iter,
-					CallID:         tc.ID,
-					Name:           name,
-					Args:           args,
-					Prompt:         prompt,
-					Options:        options,
-					AllowInSession: c.SupportsSessionWhitelist(),
-				})
-				a.logInfo(ctx, logger.CatTool, "execToolStream: confirm event emit result",
-					"tool_name", name,
-					"call_id", tc.ID,
-					"emitted", emitted,
-				)
-				if !emitted {
-					a.confirmMu.Lock()
-					delete(a.pendingConfirm, tc.ID)
-					a.confirmMu.Unlock()
-					return "error: " + ctx.Err().Error()
-				}
-
-				var choice string
-				select {
-				case choice = <-slot.ch:
-					resumeConfirmation()
-				case <-ctx.Done():
-					a.confirmMu.Lock()
-					delete(a.pendingConfirm, tc.ID)
-					a.confirmMu.Unlock()
-					if ctx.Err() == context.DeadlineExceeded {
-						a.RecordError(ctx.Err())
-					}
-					return "error: " + ctx.Err().Error()
-				}
-
-				a.confirmMu.Lock()
-				delete(a.pendingConfirm, tc.ID)
-				a.confirmMu.Unlock()
-
-				if choice == "" {
-					a.userDenied.Store(true)
-					if f, ok := a.taskCancel.Load().(context.CancelFunc); ok {
-						f()
-					}
-					result := "error: user denied execution"
-					a.emit(ctx, out, ToolExecDoneEvent{
-						Iter:   iter,
-						CallID: tc.ID,
-						Name:   name,
-						Result: result,
-						Err:    errors.New("user denied"),
-					})
-					return result
-				}
-				cc := tools.ConfirmChoice(choice)
-				if cc == choiceAllowInSession {
-					a.confirmStore.Confirm(name)
-					cc = choiceApprove
-				}
-				args = c.ConfirmArgs(args, cc)
-			}
-		}
-	}
-
 	// Apply per-tool timeout in priority order:
 	//   1. Explicit WithToolTimeout config
 	//   2. A concrete tool's own PreferredTimeout()
@@ -1121,22 +982,11 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 
 	start := time.Now()
 
-	// Build tool execution context: inject event relay + confirm routing.
-	//
-	// 1. Create typed relay channel for child agent events
-	// 2. Start relay goroutine: filter ToolNeedsConfirmEvent and emit to parent
-	// 3. Inject ConfirmForwarder closure: registers proxy slot on this agent,
-	//    blocks until user confirms, then forwards to child
+	// Build tool execution context and inject a typed event relay for child agents.
 	relayCh := make(chan iface.AgentEvent, 16)
 	toolCtx := tools.WithToolEventChannel(execCtx, relayCh)
 
-	// Inject confirm forwarder: when DelegateTool sees a ToolNeedsConfirmEvent
-	// from the child stream, it invokes this closure to route the request.
-	forwarder := a.routeConfirm()
-	toolCtx = tools.WithConfirmForwarder(toolCtx, forwarder)
-
-	// Start relay goroutine: only forward ToolNeedsConfirmEvent to parent.
-	relayDone := a.startRelayGoroutine(ctx, relayCh, out, nil)
+	relayDone := a.startRelayGoroutine(ctx, relayCh, out)
 
 	// Propagate working directory to child agents via context (for L2→L3 passthrough).
 	if a.WorkDir != "" {

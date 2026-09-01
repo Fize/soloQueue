@@ -19,11 +19,10 @@ const (
 )
 
 var (
-	ErrSessionBusy              = errors.New("session already has an active request")
-	ErrDuplicateRequestID       = errors.New("request ID is already registered")
-	ErrRequestNotFound          = errors.New("request not found")
-	ErrRequestSessionMismatch   = errors.New("request does not belong to session")
-	ErrToolConfirmationMismatch = errors.New("tool confirmation call ID does not belong to request")
+	ErrSessionBusy            = errors.New("session already has an active request")
+	ErrDuplicateRequestID     = errors.New("request ID is already registered")
+	ErrRequestNotFound        = errors.New("request not found")
+	ErrRequestSessionMismatch = errors.New("request does not belong to session")
 )
 
 // ActiveRequest holds active request metadata independent of WebSocket client connection state.
@@ -35,12 +34,10 @@ type ActiveRequest struct {
 	State              RequestState
 	StartedAt          time.Time
 	Delegating         bool
-	PendingCallIDs     map[string]struct{}
 	RunID              string
 	Phase              string
 	LastProgressAt     time.Time
 	WatchdogDueAt      time.Time
-	PausedReason       string
 	TerminalCode       string
 	cancelReady        chan struct{}
 	canceller          func() error
@@ -57,7 +54,6 @@ type WatchdogState struct {
 	Phase          string
 	LastProgressAt time.Time
 	WatchdogDueAt  time.Time
-	PausedReason   string
 	TerminalCode   string
 }
 
@@ -130,7 +126,6 @@ func (r *ActiveRequestRegistry) Reserve(sessionID, requestID, ownerClientID stri
 		OwnerClientID:  ownerClientID,
 		State:          RequestStateStarting,
 		StartedAt:      now,
-		PendingCallIDs: make(map[string]struct{}),
 		RunID:          requestID,
 		Phase:          string(RequestStateStarting),
 		LastProgressAt: now,
@@ -235,12 +230,11 @@ func (r *ActiveRequestRegistry) SetWatchdog(requestID string, state WatchdogStat
 	}
 	changed := req.RunID != state.RunID || req.Phase != state.Phase ||
 		!req.LastProgressAt.Equal(state.LastProgressAt) || !req.WatchdogDueAt.Equal(state.WatchdogDueAt) ||
-		req.PausedReason != state.PausedReason || req.TerminalCode != state.TerminalCode
+		req.TerminalCode != state.TerminalCode
 	req.RunID = state.RunID
 	req.Phase = state.Phase
 	req.LastProgressAt = state.LastProgressAt
 	req.WatchdogDueAt = state.WatchdogDueAt
-	req.PausedReason = state.PausedReason
 	req.TerminalCode = state.TerminalCode
 	return changed, nil
 }
@@ -384,35 +378,8 @@ func (r *ActiveRequestRegistry) SetDelegating(requestID string, delegating bool)
 	return nil
 }
 
-// RegisterPendingCall adds a pending tool call ID to an active request.
-func (r *ActiveRequestRegistry) RegisterPendingCall(requestID, callID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	req, ok := r.byRequest[requestID]
-	if !ok {
-		return ErrRequestNotFound
-	}
-	req.PendingCallIDs[callID] = struct{}{}
-	return nil
-}
-
-// ResolvePendingCall removes a pending tool call ID from an active request.
-func (r *ActiveRequestRegistry) ResolvePendingCall(requestID, callID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	req, ok := r.byRequest[requestID]
-	if !ok {
-		return ErrRequestNotFound
-	}
-	if _, exists := req.PendingCallIDs[callID]; !exists {
-		return ErrToolConfirmationMismatch
-	}
-	delete(req.PendingCallIDs, callID)
-	return nil
-}
-
 // Finalize removes an active request from both session and request indexes.
-// It is idempotent and releases all pending call IDs.
+// It is idempotent.
 func (r *ActiveRequestRegistry) Finalize(sessionID, requestID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -437,7 +404,6 @@ func (r *ActiveRequestRegistry) Finalize(sessionID, requestID string) bool {
 			r.terminals[sessionID] = make(map[string]*ActiveRequest)
 		}
 		terminal := *req
-		terminal.PendingCallIDs = nil
 		terminal.canceller = nil
 		terminal.cancelReady = nil
 		terminal.cancelDone = nil
@@ -506,10 +472,6 @@ func (r *ActiveRequestRegistry) trimTerminalsLocked() bool {
 }
 
 func (r *ActiveRequestRegistry) snapshot(req *ActiveRequest) ActiveRequest {
-	pending := make(map[string]struct{}, len(req.PendingCallIDs))
-	for k, v := range req.PendingCallIDs {
-		pending[k] = v
-	}
 	return ActiveRequest{
 		SessionID:       req.SessionID,
 		RequestID:       req.RequestID,
@@ -518,12 +480,10 @@ func (r *ActiveRequestRegistry) snapshot(req *ActiveRequest) ActiveRequest {
 		State:           req.State,
 		StartedAt:       req.StartedAt,
 		Delegating:      req.Delegating,
-		PendingCallIDs:  pending,
 		RunID:           req.RunID,
 		Phase:           req.Phase,
 		LastProgressAt:  req.LastProgressAt,
 		WatchdogDueAt:   req.WatchdogDueAt,
-		PausedReason:    req.PausedReason,
 		TerminalCode:    req.TerminalCode,
 	}
 }

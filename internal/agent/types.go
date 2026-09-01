@@ -46,9 +46,6 @@ type Definition struct {
 	// ExplicitModel: template pinned this model — router cannot override.
 	ExplicitModel bool
 
-	// BypassConfirm: from template `permission: true` or global --bypass.
-	BypassConfirm bool
-
 	Vision bool
 
 	// Channels: channel_type → instance_id. Each type appears at most once.

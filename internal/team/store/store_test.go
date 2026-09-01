@@ -73,7 +73,6 @@ func TestStoreCRUD(t *testing.T) {
 		IsLeader:     true,
 		Model:        "gpt-4o",
 		SystemPrompt: "You are Alice.",
-		Permission:   true,
 		MCPServers:   []string{"git-mcp"},
 		SkillIDs:     []string{"bash"},
 	}

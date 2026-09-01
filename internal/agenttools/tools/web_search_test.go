@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-
 const tavilyResponseJSON = `{"query":"golang errgroup","results":[{"title":"errgroup package - Go Packages","url":"https://pkg.go.dev/golang.org/x/sync/errgroup","content":"Package errgroup provides synchronization, error propagation, and Context cancellation.","score":0.98}]}`
 
 func TestWebSearch_UsesTavilyWhenKeySet(t *testing.T) {
@@ -62,7 +61,6 @@ func TestWebSearch_UsesTavilyWhenKeySet(t *testing.T) {
 		t.Errorf("results[0].url = %q, want %q", parsed.Results[0].URL, "https://pkg.go.dev/golang.org/x/sync/errgroup")
 	}
 }
-
 
 const ddgLiteHTML = `<!DOCTYPE HTML>
 <html><body>

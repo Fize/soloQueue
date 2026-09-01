@@ -660,47 +660,6 @@ func (m *Mux) handleDeleteSessionMessages(w http.ResponseWriter, r *http.Request
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (m *Mux) handleConfirmSession(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SessionID string `json:"session_id"`
-		CallID    string `json:"call_id"`
-		Choice    string `json:"choice"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-		return
-	}
-	if req.CallID == "" {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "call_id is required"})
-		return
-	}
-
-	var sess *session.Session
-	if strings.HasPrefix(req.SessionID, "l2:") && m.l2Store != nil {
-		id := strings.TrimPrefix(req.SessionID, "l2:")
-		sess, _ = m.l2Store.Get(r.Context(), id)
-	} else if m.sessionMgr != nil {
-		sess = m.sessionMgr.Session()
-	}
-
-	if sess == nil {
-		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
-		return
-	}
-
-	a := sess.CurrentAgent()
-	if a == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session agent unavailable"})
-		return
-	}
-	if err := a.Confirm(req.CallID, req.Choice); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	m.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
 // ─── Session History ───────────────────────────────────────────────────────
 
 // handleSessionHistory returns conversation history for a session.

@@ -156,9 +156,6 @@ func (a *Agent) AskStreamTracked(ctx context.Context, prompt string) (<-chan Age
 		merged, cancel := mergeCtx(ctx, jobCtx)
 		defer cancel()
 
-		a.taskCancel.Store(cancel)
-		defer a.taskCancel.Store(context.CancelFunc(func() {}))
-
 		if a.Log != nil {
 			a.Log.DebugContext(merged, logger.CatActor, "askstream: execution starting",
 				"agent_id", a.Def.ID,

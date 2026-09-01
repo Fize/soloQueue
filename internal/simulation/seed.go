@@ -24,12 +24,12 @@ type SuggestedAgent struct {
 // SeedExtraction holds the structured output from LLM seed analysis.
 type SeedExtraction struct {
 	Entities             []engine.EntityExtraction `json:"entities"`
-	WorldState           map[string]any                  `json:"world_state"`
-	KeyTopics            []string                        `json:"key_topics"`
-	ConflictAreas        []string                        `json:"conflict_areas"`
-	SuggestedAgents      []SuggestedAgent                `json:"suggested_agents,omitempty"`
-	LifecycleEvents      []SeedLifecycleEvent            `json:"lifecycle_events,omitempty"`
-	InitialRelationships []InitialRelationship           `json:"initial_relationships,omitempty"`
+	WorldState           map[string]any            `json:"world_state"`
+	KeyTopics            []string                  `json:"key_topics"`
+	ConflictAreas        []string                  `json:"conflict_areas"`
+	SuggestedAgents      []SuggestedAgent          `json:"suggested_agents,omitempty"`
+	LifecycleEvents      []SeedLifecycleEvent      `json:"lifecycle_events,omitempty"`
+	InitialRelationships []InitialRelationship     `json:"initial_relationships,omitempty"`
 }
 
 // SeedExtractor extracts entities, world state, and topics from seed text.
@@ -39,7 +39,7 @@ type SeedExtractor struct {
 	model        string
 	providerID   string
 	memoryEngine *engine.Engine // nil = skip KG writes
-	maxTokens    int                  // 0 = use sensible default per phase
+	maxTokens    int            // 0 = use sensible default per phase
 	log          *logger.Logger
 }
 

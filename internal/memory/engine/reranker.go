@@ -23,7 +23,7 @@ func Fuse(resultLists [][]SearchResult, cfg RRFConfig) []SearchResult {
 
 	// Accumulate RRF scores by content_hash
 	type scored struct {
-		result    SearchResult
+		result     SearchResult
 		totalScore float64
 		sources    []string
 	}

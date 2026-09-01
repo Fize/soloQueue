@@ -35,7 +35,6 @@ func callWriteFile(t *testing.T, tool *writeFileTool, a writeFileArgs) (writeFil
 	}
 	return r, nil
 }
-func ptrBool(v bool) *bool { return &v }
 
 // ─── Single write tests ──────────────────────────────────────────────────────
 
@@ -274,59 +273,3 @@ func TestWriteFile_MetadataInterface(t *testing.T) {
 		t.Errorf("Parameters not valid JSON: %v", err)
 	}
 }
-
-// ─── Confirmable interface tests ────────────────────────────────────────────────────
-
-func TestWriteFile_CheckConfirmation_AlwaysNeedsConfirm(t *testing.T) {
-	tool, _ := mkWriteFileTool(t, 1024)
-	raw, _ := json.Marshal(writeFileArgs{Path: "/tmp/test.go", Content: "hello world"})
-	needs, prompt := tool.CheckConfirmation(string(raw))
-	if !needs {
-		t.Error("Write should always need confirmation")
-	}
-	if prompt == "" {
-		t.Error("expected non-empty prompt")
-	}
-	if !strings.Contains(prompt, "test.go") {
-		t.Errorf("prompt should contain path, got: %s", prompt)
-	}
-}
-
-func TestWriteFile_CheckConfirmation_InvalidJSON(t *testing.T) {
-	tool, _ := mkWriteFileTool(t, 1024)
-	needs, prompt := tool.CheckConfirmation(`{not json`)
-	if !needs {
-		t.Error("should still need confirm even with invalid JSON")
-	}
-	if prompt == "" {
-		t.Error("expected non-empty fallback prompt")
-	}
-}
-
-func TestWriteFile_ConfirmationOptions_Binary(t *testing.T) {
-	tool, _ := mkWriteFileTool(t, 1024)
-	raw, _ := json.Marshal(writeFileArgs{Path: "a.go", Content: "x"})
-	if opts := tool.ConfirmationOptions(string(raw)); opts != nil {
-		t.Errorf("expected nil for binary confirm, got %v", opts)
-	}
-}
-
-func TestWriteFile_ConfirmArgs_PreservesOriginal(t *testing.T) {
-	tool, _ := mkWriteFileTool(t, 1024)
-	original := `{"path":"a.go","content":"hello"}`
-	for _, choice := range []ConfirmChoice{ChoiceApprove, ChoiceDeny, ChoiceAllowInSession} {
-		got := tool.ConfirmArgs(original, choice)
-		if got != original {
-			t.Errorf("choice=%v: expected original preserved, got %s", choice, got)
-		}
-	}
-}
-
-func TestWriteFile_SupportsSessionWhitelist(t *testing.T) {
-	tool, _ := mkWriteFileTool(t, 1024)
-	if !tool.SupportsSessionWhitelist() {
-		t.Error("should support session whitelist")
-	}
-}
-
-

@@ -63,8 +63,6 @@ type Stack struct {
 	LSPManager    *lsp.Manager          // Built-in LSP MCP server manager
 	RunWatch      *runwatch.Manager     // Shared progress-aware execution supervisor
 
-	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
-
 	TeamStore *store.Store // DB-backed team/agent store (nil = disabled)
 
 	// L1Channels and L1NotifyChannel hold the L1 main agent's channel bindings,

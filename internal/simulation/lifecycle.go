@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
 // lifecycleManager handles agent spawn and death during simulation runtime.
@@ -319,7 +319,6 @@ func (lm *lifecycleManager) handleAgentSpawn(ctx context.Context, info SpawnInfo
 		Name:        persona.Name,
 		Description: persona.Role,
 		ModelID:     modelID,
-		Permission:  true,
 	}
 
 	agt, cw, err := lm.engine.factory.Create(ctx, tmpl, "")

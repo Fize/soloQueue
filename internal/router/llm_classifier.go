@@ -22,10 +22,10 @@ research: the main goal is external search, current information, source verifica
 Difficulty, desired reasoning quality, and image presence never create a task type. Local code/log lookup is engineering; external source lookup is research. If the request follows an established task, preserve that task's type.`
 
 type LLMClassifier struct {
-	client agent.LLMClient
-	mu sync.RWMutex
+	client     agent.LLMClient
+	mu         sync.RWMutex
 	providerID string
-	model string
+	model      string
 }
 
 func NewLLMClassifier(client agent.LLMClient, providerID, model string) *LLMClassifier {
@@ -57,26 +57,45 @@ func (c *LLMClassifier) Classify(ctx context.Context, input ClassifyInput, histo
 		ProviderID: providerID, Model: model, Temperature: 0, MaxTokens: 64,
 		ThinkingEnabled: false, ResponseJSON: true, Messages: messages,
 	})
-	if err != nil { return tasktype.Unknown, err }
-	var result struct { TaskType tasktype.TaskType `json:"task_type"` }
+	if err != nil {
+		return tasktype.Unknown, err
+	}
+	var result struct {
+		TaskType tasktype.TaskType `json:"task_type"`
+	}
 	content := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(resp.Content), "```json"), "```"))
-	if err := json.Unmarshal([]byte(content), &result); err != nil { return tasktype.Unknown, err }
-	if !result.TaskType.Valid() { return tasktype.Unknown, fmt.Errorf("invalid task type %q", result.TaskType) }
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return tasktype.Unknown, err
+	}
+	if !result.TaskType.Valid() {
+		return tasktype.Unknown, fmt.Errorf("invalid task type %q", result.TaskType)
+	}
 	return result.TaskType, nil
 }
 
 func recentHistory(history []ctxwin.PayloadMessage) []ctxwin.PayloadMessage {
-	if len(history) > 6 { history = history[len(history)-6:] }
+	if len(history) > 6 {
+		history = history[len(history)-6:]
+	}
 	var out []ctxwin.PayloadMessage
 	remaining := 4096
-	for i := len(history)-1; i >= 0 && remaining > 0; i-- {
+	for i := len(history) - 1; i >= 0 && remaining > 0; i-- {
 		msg := history[i]
-		if msg.Role != "user" && msg.Role != "assistant" { continue }
-		if len(msg.Content) > remaining { msg.Content = msg.Content[len(msg.Content)-remaining:] }
+		if msg.Role != "user" && msg.Role != "assistant" {
+			continue
+		}
+		if len(msg.Content) > remaining {
+			msg.Content = msg.Content[len(msg.Content)-remaining:]
+		}
 		remaining -= len(msg.Content)
 		out = append([]ctxwin.PayloadMessage{msg}, out...)
 	}
 	return out
 }
 
-func boolJSON(v bool) string { if v { return "true" }; return "false" }
+func boolJSON(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
+}

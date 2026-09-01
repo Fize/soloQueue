@@ -44,7 +44,7 @@ func (kgIndexTool) Parameters() json.RawMessage {
 
 type kgIndexArgs struct {
 	Entities   []engine.EntityExtraction `json:"entities"`
-	SourceHash string                          `json:"source_hash,omitempty"`
+	SourceHash string                    `json:"source_hash,omitempty"`
 }
 
 type kgIndexResult struct {

@@ -29,7 +29,6 @@ func (bc *buildContext) buildAgentInfra() {
 		agent.WithTemplates(bc.allTemplates),
 		agent.WithGroups(bc.groups),
 		agent.WithWorkDir(bc.workDir),
-		agent.WithBypassConfirm(bc.bypassConfirm),
 		agent.WithMCPManager(bc.mcpMgr),
 		agent.WithSkillRegistry(bc.skillReg),
 		agent.WithExploreDir(bc.exploreDir),

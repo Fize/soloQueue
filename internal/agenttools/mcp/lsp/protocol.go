@@ -270,7 +270,7 @@ type TextDocumentClientCapabilities struct {
 	Definition      *BoolCapability            `json:"definition,omitempty"`
 	References      *BoolCapability            `json:"references,omitempty"`
 	DocumentSymbol  *struct {
-		DynamicRegistration             bool `json:"dynamicRegistration,omitempty"`
+		DynamicRegistration               bool `json:"dynamicRegistration,omitempty"`
 		HierarchicalDocumentSymbolSupport bool `json:"hierarchicalDocumentSymbolSupport,omitempty"`
 	} `json:"documentSymbol,omitempty"`
 	Implementation *BoolCapability `json:"implementation,omitempty"`
@@ -299,15 +299,15 @@ type InitializeResult struct {
 }
 
 type ServerCapabilities struct {
-	TextDocumentSync   *TextDocumentSyncOptions `json:"textDocumentSync,omitempty"`
-	HoverProvider      any                      `json:"hoverProvider,omitempty"`
-	DefinitionProvider any                      `json:"definitionProvider,omitempty"`
-	ReferencesProvider any                      `json:"referencesProvider,omitempty"`
-	DocumentSymbolProvider any                  `json:"documentSymbolProvider,omitempty"`
-	WorkspaceSymbolProvider any                 `json:"workspaceSymbolProvider,omitempty"`
-	ImplementationProvider any                  `json:"implementationProvider,omitempty"`
-	CallHierarchyProvider any                   `json:"callHierarchyProvider,omitempty"`
-	DiagnosticProvider   any                    `json:"diagnosticProvider,omitempty"`
+	TextDocumentSync        *TextDocumentSyncOptions `json:"textDocumentSync,omitempty"`
+	HoverProvider           any                      `json:"hoverProvider,omitempty"`
+	DefinitionProvider      any                      `json:"definitionProvider,omitempty"`
+	ReferencesProvider      any                      `json:"referencesProvider,omitempty"`
+	DocumentSymbolProvider  any                      `json:"documentSymbolProvider,omitempty"`
+	WorkspaceSymbolProvider any                      `json:"workspaceSymbolProvider,omitempty"`
+	ImplementationProvider  any                      `json:"implementationProvider,omitempty"`
+	CallHierarchyProvider   any                      `json:"callHierarchyProvider,omitempty"`
+	DiagnosticProvider      any                      `json:"diagnosticProvider,omitempty"`
 }
 
 type TextDocumentSyncOptions struct {
@@ -331,7 +331,7 @@ type DefinitionParams struct {
 type ReferenceParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
 	Position     Position               `json:"position"`
-	Context      ReferenceContext        `json:"context"`
+	Context      ReferenceContext       `json:"context"`
 }
 
 type ReferenceContext struct {
@@ -414,4 +414,3 @@ type FormattingOptions struct {
 	TabSize      int  `json:"tabSize"`
 	InsertSpaces bool `json:"insertSpaces"`
 }
-

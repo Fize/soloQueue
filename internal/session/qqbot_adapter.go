@@ -253,22 +253,6 @@ func (b *channelAdapterBase) consumeAskStreamEventsWithDelegation(
 				onDelegationStarted()
 			}
 
-		case agent.ToolNeedsConfirmEvent:
-			b.log.InfoContext(ctx, logger.CatApp, "channel adapter: auto-approving tool",
-				"target_id", sess.TargetID,
-				"tool_name", e.Name,
-				"call_id", e.CallID,
-			)
-			if a := sess.CurrentAgent(); a != nil {
-				if err := a.Confirm(e.CallID, "approve"); err != nil {
-					b.log.WarnContext(ctx, logger.CatApp, "channel adapter: auto-approve failed",
-						"target_id", sess.TargetID,
-						"call_id", e.CallID,
-						"err", err.Error(),
-					)
-				}
-			}
-
 		case agent.ToolExecDoneEvent:
 			if e.Name == "ImageTool" && e.Result != "" {
 				urls := parseImageGenResult(e.Result)
@@ -449,7 +433,6 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 		)
 	}
 
-	ctx = agent.WithBypassConfirmCtx(ctx)
 	ctx = iface.ContextWithMediaDelivery(ctx, true)
 	ctx, channelRunID := a.withChannelRunID(ctx)
 	a.trackChannelRun(channelRunID)
@@ -613,7 +596,6 @@ func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onInter
 		)
 	}
 
-	ctx = agent.WithBypassConfirmCtx(ctx)
 	ctx = iface.ContextWithMediaDelivery(ctx, true)
 	ctx, channelRunID := a.withChannelRunID(ctx)
 	a.trackChannelRun(channelRunID)

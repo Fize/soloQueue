@@ -29,7 +29,6 @@ import (
 //
 // Atomicity: read file → strings.Replace completes in memory → atomicWrite writes back in one operation
 type replaceTool struct {
-	defaultConfirmable
 	cfg    Config
 	logger *logger.Logger
 }
@@ -144,25 +143,4 @@ func (t *replaceTool) Execute(ctx context.Context, raw string) (string, error) {
 	return string(b), nil
 }
 
-// CheckConfirmation implements Confirmable: replacement operations always require confirmation.
-func (t *replaceTool) CheckConfirmation(raw string) (bool, string) {
-	var a replaceArgs
-	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return true, "Replace in file (unable to parse args). Allow?"
-	}
-
-	// Bypass confirmation for plan files
-	if isPlanDirFile(a.Path, t.cfg.PlanDir) {
-		return false, ""
-	}
-
-	oldPreview := truncateString(a.OldString, 40)
-	newPreview := truncateString(a.NewString, 40)
-	return true, fmt.Sprintf("Replace in %q: %q → %q. Allow?", a.Path, oldPreview, newPreview)
-}
-
-// ConfirmationOptions implements Confirmable: binary confirmation.
-
-// Compile-time checks
 var _ Tool = (*replaceTool)(nil)
-var _ Confirmable = (*replaceTool)(nil)

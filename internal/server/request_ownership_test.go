@@ -128,7 +128,7 @@ func TestRequestSessionMismatch_CancelValidation(t *testing.T) {
 
 	h.handleChatCancel(client, msg)
 
-	// Since request ID was mismatched, handleChatCancel must drop it without sending confirmation
+	// Since request ID was mismatched, handleChatCancel must drop it without sending another response
 	select {
 	case data := <-client.send:
 		var wsMsg WSMessage
@@ -635,9 +635,8 @@ func (t *blockingDelegationTarget) AskStream(ctx context.Context, prompt string)
 	return out, nil
 }
 
-func (t *blockingDelegationTarget) Confirm(callID, choice string) error { return nil }
-func (t *blockingDelegationTarget) ErrorCount() int32                   { return 0 }
-func (t *blockingDelegationTarget) LastError() string                   { return "" }
+func (t *blockingDelegationTarget) ErrorCount() int32 { return 0 }
+func (t *blockingDelegationTarget) LastError() string { return "" }
 
 func TestL1DesktopStartsSecondRequestBeforeDelegationCompletes(t *testing.T) {
 	workDir := t.TempDir()

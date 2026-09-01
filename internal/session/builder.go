@@ -251,9 +251,6 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 				agent.WithTools(forkTools...),
 				agent.WithParallelTools(true),
 			)
-			if a != nil {
-				child.SetConfirmStore(a.ConfirmStore())
-			}
 			if err := child.Start(ctx); err != nil {
 				return nil, nil, fmt.Errorf("start fork agent: %w", err)
 			}

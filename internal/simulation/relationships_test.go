@@ -394,8 +394,8 @@ func TestParseRelationshipUpdate_Multiple(t *testing.T) {
 func TestFormatForPrompt_WithKinds(t *testing.T) {
 	rm := NewRelationshipManager()
 	nameByID := map[string]string{
-		"alice": "Alice",
-		"bob":   "Bob",
+		"alice":   "Alice",
+		"bob":     "Bob",
 		"charlie": "Charlie",
 	}
 

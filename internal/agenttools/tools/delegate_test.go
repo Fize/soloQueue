@@ -24,7 +24,6 @@ func (dispatchTestEvent) IsAgentEvent()                  {}
 func (e dispatchTestEvent) ContentDelta() (string, bool) { return e.content, true }
 func (dispatchTestEvent) DoneContent() (string, bool)    { return "", false }
 func (dispatchTestEvent) Error() (error, bool)           { return nil, false }
-func (dispatchTestEvent) ConfirmRequest() (string, bool) { return "", false }
 
 type dispatchTestTarget struct{}
 
@@ -35,19 +34,8 @@ func (dispatchTestTarget) AskStream(context.Context, string) (<-chan iface.Agent
 	close(ch)
 	return ch, nil
 }
-func (dispatchTestTarget) Confirm(string, string) error { return nil }
-func (dispatchTestTarget) ErrorCount() int32            { return 0 }
-func (dispatchTestTarget) LastError() string            { return "" }
-
-type failingDispatchTarget struct{ err error }
-
-func (f failingDispatchTarget) Ask(context.Context, string) (string, error) { return "", f.err }
-func (f failingDispatchTarget) AskStream(context.Context, string) (<-chan iface.AgentEvent, error) {
-	return nil, f.err
-}
-func (f failingDispatchTarget) Confirm(string, string) error { return nil }
-func (f failingDispatchTarget) ErrorCount() int32            { return 0 }
-func (f failingDispatchTarget) LastError() string            { return "" }
+func (dispatchTestTarget) ErrorCount() int32 { return 0 }
+func (dispatchTestTarget) LastError() string { return "" }
 
 type timeoutDispatchTarget struct{ dispatchTestTarget }
 
@@ -69,7 +57,6 @@ func (t *routedDispatchTarget) AskStream(ctx context.Context, _ string) (<-chan 
 	return ch, nil
 }
 func (t *routedDispatchTarget) SetModelOverride(*iface.ModelOverrideParams) { t.setCalls.Add(1) }
-func (*routedDispatchTarget) Confirm(string, string) error                  { return nil }
 func (*routedDispatchTarget) ErrorCount() int32                             { return 0 }
 func (*routedDispatchTarget) LastError() string                             { return "" }
 
@@ -210,9 +197,8 @@ func (p persistenceFailTarget) AskStream(context.Context, string) (<-chan iface.
 	close(ch)
 	return ch, nil
 }
-func (p persistenceFailTarget) Confirm(string, string) error { return nil }
-func (p persistenceFailTarget) ErrorCount() int32            { return 0 }
-func (p persistenceFailTarget) LastError() string            { return "" }
+func (p persistenceFailTarget) ErrorCount() int32 { return 0 }
+func (p persistenceFailTarget) LastError() string { return "" }
 
 func TestDelegateToolSchemaRequiresTaskNameAndDoesNotExposeAsync(t *testing.T) {
 	dt := NewDelegateTool("leader", time.Minute, nil, nil, nil, WorkDirInheritOnly)
