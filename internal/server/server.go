@@ -77,9 +77,9 @@ type Mux struct {
 	mcpLoader         *mcp.Loader  // MCP config loader for /api/mcp endpoints
 	mcpManager        *mcp.Manager // MCP server manager for /api/mcp/available endpoint
 	sessionMgr        *session.SessionManager
-	l2Store           *session.L2SessionStore // L2 multi-session store (nil if not configured)
-	teamstore         *store.Store            // team/agent DB store; nil if not backed by SQLite
-	onConfigChange    func() error            // callback on LLM config update
+	l2Store           *session.L2SessionStore     // L2 multi-session store (nil if not configured)
+	teamstore         *store.Store                // team/agent DB store; nil if not backed by SQLite
+	onConfigChange    func(config.Settings) error // callback on LLM config update
 	simEngine         *simulation.SimulationEngine
 	sharedDB          *db.DB // for metric reporting
 	webFS             fs.FS
@@ -193,7 +193,7 @@ func WithTeamStore(store *store.Store) MuxOption {
 }
 
 // WithOnConfigChange sets the callback triggered when database configurations change.
-func WithOnConfigChange(fn func() error) MuxOption {
+func WithOnConfigChange(fn func(config.Settings) error) MuxOption {
 	return func(m *Mux) { m.onConfigChange = fn }
 }
 

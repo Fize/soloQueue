@@ -2,6 +2,7 @@ package server
 
 import (
 	"testing"
+	"time"
 )
 
 func TestActiveRequestRegistry_ReserveAndGet(t *testing.T) {
@@ -38,6 +39,134 @@ func TestActiveRequestRegistry_ReserveAndGet(t *testing.T) {
 	_, err = reg.Reserve("l2:s1", "req-3", "client-1")
 	if err != nil {
 		t.Errorf("Reserve after Finalize failed: %v", err)
+	}
+}
+
+func TestActiveRequestRegistry_WatchdogStateSurvivesSnapshot(t *testing.T) {
+	reg := NewActiveRequestRegistry()
+	_, err := reg.Reserve("l1", "req-watch", "client-1")
+	if err != nil {
+		t.Fatalf("Reserve() error = %v", err)
+	}
+	lastProgress := time.Unix(1_700_000_000, 0)
+	due := lastProgress.Add(15 * time.Minute)
+	changed, err := reg.SetWatchdog("req-watch", WatchdogState{
+		RunID:          "req-watch",
+		Phase:          "tool_confirmation",
+		LastProgressAt: lastProgress,
+		WatchdogDueAt:  due,
+		PausedReason:   "tool_confirmation",
+		TerminalCode:   "",
+	})
+	if err != nil {
+		t.Fatalf("SetWatchdog() error = %v", err)
+	}
+	if !changed {
+		t.Fatal("first watchdog projection did not report a change")
+	}
+	snapshot, err := reg.Validate("l1", "req-watch")
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if snapshot.RunID != "req-watch" || snapshot.Phase != "tool_confirmation" || !snapshot.WatchdogDueAt.Equal(due) {
+		t.Fatalf("watchdog snapshot = %+v", snapshot)
+	}
+}
+
+func TestActiveRequestRegistry_FinalizeRetainsTerminalTombstone(t *testing.T) {
+	reg := NewActiveRequestRegistry()
+	if _, err := reg.Reserve("l1", "req-terminal", "client"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.SetWatchdog("req-terminal", WatchdogState{
+		RunID: "req-terminal", Phase: "cancelled", TerminalCode: "cancelled_by_user",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !reg.Finalize("l1", "req-terminal") {
+		t.Fatal("Finalize returned false")
+	}
+	if _, err := reg.Validate("l1", "req-terminal"); err != ErrRequestNotFound {
+		t.Fatalf("terminal tombstone remained cancellable: %v", err)
+	}
+	all := reg.GetBySessionAll("l1")
+	if len(all) != 1 || all[0].RequestID != "req-terminal" || all[0].TerminalCode != "cancelled_by_user" {
+		t.Fatalf("terminal tombstone not rebuildable: %+v", all)
+	}
+}
+
+func TestActiveRequestRegistry_SingleFlightSuccessSupersedesOldTerminal(t *testing.T) {
+	reg := NewActiveRequestRegistry()
+	if _, err := reg.Reserve("l2:s1", "req-failed", "client"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.SetWatchdog("req-failed", WatchdogState{TerminalCode: "model_transport_stalled"}); err != nil {
+		t.Fatal(err)
+	}
+	if !reg.Finalize("l2:s1", "req-failed") {
+		t.Fatal("Finalize failed generation returned false")
+	}
+
+	if _, err := reg.Reserve("l2:s1", "req-success", "client"); err != nil {
+		t.Fatal(err)
+	}
+	if !reg.Finalize("l2:s1", "req-success") {
+		t.Fatal("Finalize successful generation returned false")
+	}
+	if got, ok := reg.GetBySession("l2:s1"); ok {
+		t.Fatalf("old terminal remained current after a newer successful generation: %+v", got)
+	}
+}
+
+func TestActiveRequestRegistry_TerminalTombstoneExpiresWithClock(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	reg := NewActiveRequestRegistry()
+	reg.now = func() time.Time { return now }
+	reg.terminalTTL = time.Minute
+	if _, err := reg.Reserve("l1", "req-expiring", "client"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.SetWatchdog("req-expiring", WatchdogState{TerminalCode: "cancelled_by_user"}); err != nil {
+		t.Fatal(err)
+	}
+	reg.Finalize("l1", "req-expiring")
+	if got := reg.GetBySessionAll("l1"); len(got) != 1 {
+		t.Fatalf("fresh terminal snapshots = %d, want 1", len(got))
+	}
+
+	now = now.Add(time.Minute + time.Nanosecond)
+	if !reg.ExpireTerminals() {
+		t.Fatal("terminal expiry did not report an observable runtime change")
+	}
+	if got := reg.GetBySessionAll("l1"); len(got) != 0 {
+		t.Fatalf("expired terminal snapshots = %+v, want none", got)
+	}
+}
+
+func TestActiveRequestRegistry_L1LatestIsDeterministicAndActivePrecedesHistory(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	reg := NewActiveRequestRegistry()
+	reg.now = func() time.Time { return now }
+	if _, err := reg.Reserve("l1", "req-a", "client"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if _, err := reg.Reserve("l1", "req-b", "client"); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := reg.GetBySession("l1"); !ok || got.RequestID != "req-b" {
+		t.Fatalf("latest active request = %+v, %v; want req-b", got, ok)
+	}
+	if _, err := reg.SetWatchdog("req-b", WatchdogState{TerminalCode: "model_transport_stalled"}); err != nil {
+		t.Fatal(err)
+	}
+	reg.Finalize("l1", "req-b")
+	if got, ok := reg.GetBySession("l1"); !ok || got.RequestID != "req-a" || got.TerminalCode != "" {
+		t.Fatalf("current L1 request = %+v, %v; active req-a must precede retained history", got, ok)
+	}
+	all := reg.GetBySessionAll("l1")
+	if len(all) != 2 || all[0].RequestID != "req-a" || all[1].RequestID != "req-b" {
+		t.Fatalf("deterministic L1 current/history order = %+v", all)
 	}
 }
 

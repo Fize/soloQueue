@@ -8,10 +8,12 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 type fakeSession struct {
 	prompt string
+	askErr error
 }
 
 type busySession struct{ fakeSession }
@@ -54,6 +56,9 @@ func (*busySession) AskStream(context.Context, string, OnIntermediateFunc) (*Ask
 
 func (s *fakeSession) AskStream(_ context.Context, prompt string, _ OnIntermediateFunc) (*AskStreamResult, error) {
 	s.prompt = prompt
+	if s.askErr != nil {
+		return nil, s.askErr
+	}
 	return &AskStreamResult{Content: "reply"}, nil
 }
 func (*fakeSession) Clear(context.Context) error                                              { return nil }
@@ -139,6 +144,25 @@ func TestTextBridgeStopsResponseActivityBeforeErrorReply(t *testing.T) {
 	}
 	if sender.text != busyReply {
 		t.Fatalf("reply = %q", sender.text)
+	}
+}
+
+func TestTextBridgeHidesInternalOperationIDFromErrorReply(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sender := &fakeSender{}
+	sess := &fakeSession{askErr: &runwatch.Cause{
+		Code:        runwatch.CodeDelegationOrphaned,
+		OperationID: "dlg_internal_secret",
+	}}
+	bridge := NewTextBridge(sess, sender, log, "1.0.0", false, nil)
+
+	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "hello"})
+
+	if strings.Contains(sender.text, "dlg_internal_secret") {
+		t.Fatalf("error reply leaked operation ID: %q", sender.text)
+	}
+	if !strings.Contains(strings.ToLower(sender.text), "delegated") {
+		t.Fatalf("error reply lost actionable failure context: %q", sender.text)
 	}
 }
 

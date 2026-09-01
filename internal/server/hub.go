@@ -155,6 +155,34 @@ func (h *Hub) Run() {
 	// Debounce timer: collects rapid-fire notifications and sends one update.
 	var debounce *time.Timer
 	debounceC := make(<-chan time.Time)
+	watchdogTicker := time.NewTicker(time.Second)
+	defer watchdogTicker.Stop()
+	deliver := func(msg *WSMessage) {
+		data, err := json.Marshal(msg)
+		if err != nil {
+			return
+		}
+		var slow []*Client
+		h.mu.RLock()
+		for client := range h.clients {
+			select {
+			case client.send <- data:
+			default:
+				slow = append(slow, client)
+			}
+		}
+		h.mu.RUnlock()
+		// Preserve the historical best-effort behavior for event/notification
+		// messages: a saturated client drops that message but remains connected.
+		// State is different because replaying it globally duplicated updates for
+		// healthy clients; disconnect only the saturated state consumer instead.
+		if msg.Type != "state" {
+			return
+		}
+		for _, client := range slow {
+			h.removeClient(client)
+		}
+	}
 
 	for {
 		select {
@@ -178,21 +206,7 @@ func (h *Hub) Run() {
 			h.removeClient(client)
 
 		case msg := <-h.broadcast:
-			data, err := json.Marshal(msg)
-			if err != nil {
-				continue
-			}
-			h.mu.RLock()
-			for client := range h.clients {
-				select {
-				case client.send <- data:
-				default:
-					// Slow client: drop this message rather than disconnecting.
-					// State updates are coalesced via debounce; the next one
-					// will carry the latest snapshot.
-				}
-			}
-			h.mu.RUnlock()
+			deliver(msg)
 
 		case ev, ok := <-simEvents:
 			if !ok {
@@ -224,20 +238,7 @@ func (h *Hub) Run() {
 		case <-debounceC:
 			debounce = nil
 			debounceC = make(<-chan time.Time)
-			msg := h.buildStateMessage()
-			data, err := json.Marshal(msg)
-			if err != nil {
-				continue
-			}
-			h.mu.RLock()
-			for client := range h.clients {
-				select {
-				case client.send <- data:
-				default:
-					// Slow client: drop this message rather than disconnecting.
-				}
-			}
-			h.mu.RUnlock()
+			deliver(h.buildStateMessage())
 
 		case <-h.notify:
 			// 50ms non-resetting coalescing window per §5.8 of repair plan.
@@ -247,14 +248,30 @@ func (h *Hub) Run() {
 				debounceC = debounce.C
 			}
 
+		case <-watchdogTicker.C:
+			// Child model operations can be created before the first AgentEvent.
+			// Refresh active runtime projections periodically so a silent request
+			// still exposes its current child deadline to connected clients. A
+			// terminal expiry also emits one final snapshot so the UI does not keep
+			// displaying a tombstone after the registry observation window closes.
+			if h.requests != nil {
+				expired := h.requests.ExpireTerminals()
+				if h.requests.ActiveCount() > 0 || expired {
+					h.Notify()
+				}
+			}
+
 		case <-h.done:
 			if debounce != nil {
 				debounce.Stop()
 			}
 			h.mu.Lock()
 			for client := range h.clients {
+				client.cancelAllRequests()
 				close(client.send)
-				client.conn.Close()
+				if client.conn != nil {
+					client.conn.Close()
+				}
 			}
 			h.clients = make(map[*Client]bool)
 			h.mu.Unlock()

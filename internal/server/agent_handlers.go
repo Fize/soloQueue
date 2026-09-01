@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
@@ -279,13 +280,19 @@ func (rm *RuntimeMetrics) AgentStreams() map[string]*AgentStreamState {
 
 // SessionRuntimeInfo holds per-session runtime state for WebSocket state broadcasts.
 type SessionRuntimeInfo struct {
-	SessionID   string `json:"session_id"`
-	RequestID   string `json:"request_id,omitempty"`
-	State       string `json:"state"` // "idle", "starting", "streaming", "delegating", "cancelling"
-	Revision    uint64 `json:"revision"`
-	CtxwinUsed  int    `json:"ctxwin_used"`
-	CtxwinLimit int    `json:"ctxwin_limit"`
-	Delegating  bool   `json:"delegating"`
+	SessionID      string    `json:"session_id"`
+	RequestID      string    `json:"request_id,omitempty"`
+	State          string    `json:"state"` // "idle", "starting", "streaming", "delegating", "cancelling"
+	Revision       uint64    `json:"revision"`
+	CtxwinUsed     int       `json:"ctxwin_used"`
+	CtxwinLimit    int       `json:"ctxwin_limit"`
+	Delegating     bool      `json:"delegating"`
+	RunID          string    `json:"run_id,omitempty"`
+	Phase          string    `json:"phase,omitempty"`
+	LastProgressAt time.Time `json:"last_progress_at,omitempty"`
+	WatchdogDueAt  time.Time `json:"watchdog_due_at,omitempty"`
+	PausedReason   string    `json:"paused_reason,omitempty"`
+	TerminalCode   string    `json:"terminal_code,omitempty"`
 }
 
 // RuntimeStatusResponse is the JSON response for GET /api/runtime.
@@ -734,6 +741,10 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 				if phase != "processing" && phase != "stopping" {
 					phase = "stopped"
 				}
+			case agent.StateQuarantined:
+				if phase != "processing" && phase != "stopping" {
+					phase = "quarantined"
+				}
 			}
 			activeDelegations += a.PendingDelegations()
 			if ec := a.ErrorCount(); ec > 0 {
@@ -766,14 +777,21 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 					sessions["l1"] = info
 				} else {
 					for _, req := range l1Reqs {
+						req = hub.projectLiveWatchdog(req)
 						info := SessionRuntimeInfo{
-							SessionID:   "l1",
-							RequestID:   req.RequestID,
-							State:       string(req.State),
-							Delegating:  req.Delegating,
-							Revision:    hub.GetSessionRevision("l1"),
-							CtxwinUsed:  used,
-							CtxwinLimit: limit,
+							SessionID:      "l1",
+							RequestID:      req.RequestID,
+							State:          string(req.State),
+							Delegating:     req.Delegating,
+							RunID:          req.RunID,
+							Phase:          req.Phase,
+							LastProgressAt: req.LastProgressAt,
+							WatchdogDueAt:  req.WatchdogDueAt,
+							PausedReason:   req.PausedReason,
+							TerminalCode:   req.TerminalCode,
+							Revision:       hub.GetSessionRevision("l1"),
+							CtxwinUsed:     used,
+							CtxwinLimit:    limit,
 						}
 						key := "l1:" + req.RequestID
 						sessions[key] = info
@@ -797,9 +815,16 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 					CtxwinLimit: entry.CtxwinLimit,
 				}
 				if req, active := hub.requests.GetBySession(sid); active {
+					req = hub.projectLiveWatchdog(req)
 					info.RequestID = req.RequestID
 					info.State = string(req.State)
 					info.Delegating = req.Delegating
+					info.RunID = req.RunID
+					info.Phase = req.Phase
+					info.LastProgressAt = req.LastProgressAt
+					info.WatchdogDueAt = req.WatchdogDueAt
+					info.PausedReason = req.PausedReason
+					info.TerminalCode = req.TerminalCode
 				}
 				sessions[sid] = info
 			}
@@ -866,7 +891,8 @@ func (m *Mux) buildAgentList() *AgentListResponse {
 		lastLevel := ""
 		if m.sessionMgr != nil && m.sessionMgr.Session() != nil {
 			sess := m.sessionMgr.Session()
-			if a.Def.ID == "l1-agent" || (sess.Agent != nil && a.Def.ID == sess.Agent.Def.ID) {
+			current := sess.CurrentAgent()
+			if a.Def.ID == "l1-agent" || (current != nil && a.Def.ID == current.Def.ID) {
 				isQBot = sess.IsQBot()
 				lastLevel = sess.CurrentLevel()
 			}

@@ -307,11 +307,11 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		l1Sess := m.sessionMgr.Session()
 		name := "L1 Orchestrator"
 		agentInstanceID := ""
-		if l1Sess.Agent != nil {
-			if l1Sess.Agent.Def.Name != "" {
-				name = l1Sess.Agent.Def.Name
+		if a := l1Sess.CurrentAgent(); a != nil {
+			if a.Def.Name != "" {
+				name = a.Def.Name
 			}
-			agentInstanceID = l1Sess.Agent.InstanceID
+			agentInstanceID = a.InstanceID
 		}
 		var ctxwinUsed, ctxwinLimit int
 		if l1Sess.CW() != nil {
@@ -688,7 +688,12 @@ func (m *Mux) handleConfirmSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := sess.Agent.Confirm(req.CallID, req.Choice); err != nil {
+	a := sess.CurrentAgent()
+	if a == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session agent unavailable"})
+		return
+	}
+	if err := a.Confirm(req.CallID, req.Choice); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -1231,7 +1236,12 @@ func (m *Mux) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	workDir := sess.Agent.WorkDir
+	a := sess.CurrentAgent()
+	if a == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session agent unavailable"})
+		return
+	}
+	workDir := a.WorkDir
 	if workDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {

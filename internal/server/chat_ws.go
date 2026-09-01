@@ -17,6 +17,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
@@ -307,6 +308,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		SessionID: sessionID,
 		Origin:    telemetry.OriginDesktop,
 	})
+	reqCtx, routeCapture := session.WithRequestRouteCapture(reqCtx)
 	if len(images) > 0 {
 		reqCtx = context.WithValue(reqCtx, ctxwin.ImageContextKey, images)
 	}
@@ -353,11 +355,31 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		client.removeActiveRequest(msg.RequestID)
 		return
 	}
+	if err := h.requests.BindCanceller(msg.RequestID, func() error {
+		return cancelRequest(sess, msg.RequestID, "User cancelled")
+	}); err != nil {
+		_ = cancelRequest(sess, msg.RequestID, "Request ownership was finalized before binding")
+		client.sendJSON(WSMessage{Type: "chat_error", RequestID: msg.RequestID, SessionID: sessionID, Error: err.Error()})
+		return
+	}
 
 	// Routing is complete before AskStream returns. Send its request-scoped
 	// result before any reasoning/content/tool event can be forwarded.
-	client.sendJSON(buildChatRouteMessage(sess, msg.RequestID, msg.SessionID))
-	_ = h.requests.SetRoute(msg.RequestID, sess.Agent.InstanceID)
+	var route *session.RequestRoute
+	select {
+	case requestRoute, ok := <-routeCapture:
+		if ok {
+			route = &requestRoute
+		}
+	default:
+		// Slash-command and other non-actor paths have no routed model.
+	}
+	routeMessage := buildChatRouteMessage(sess, route, msg.RequestID, msg.SessionID)
+	client.sendJSON(routeMessage)
+	if routeMessage.AgentInstanceID != "" {
+		_ = h.requests.SetRoute(msg.RequestID, routeMessage.AgentInstanceID)
+	}
+	h.refreshRequestWatchdog(msg.SessionID, msg.RequestID, "")
 	h.NextSessionRevision(sessionID)
 	h.Notify()
 
@@ -388,23 +410,103 @@ func (h *Hub) finalizeRequest(sessionID, requestID string) {
 	}
 }
 
-func buildChatRouteMessage(sess *session.Session, requestID, sessionID string) WSMessage {
-	modelID := sess.Agent.EffectiveModelID()
-	if modelID == "" {
-		modelID = sess.Agent.Def.ModelID
+func (h *Hub) refreshRequestWatchdog(sessionID, requestID string, terminal runwatch.Code) {
+	if h == nil || h.requests == nil {
+		return
 	}
-	providerID := sess.Agent.EffectiveProviderID()
+	var state WatchdogState
+	if h.mux != nil {
+		if sess, err := h.resolveSession(sessionID); err == nil {
+			if snapshot, ok := sess.WatchdogSnapshot(requestID); ok {
+				state = WatchdogState{
+					RunID:          snapshot.RunID,
+					Phase:          snapshot.Phase,
+					LastProgressAt: snapshot.LastProgressAt,
+					WatchdogDueAt:  snapshot.WatchdogDueAt,
+					PausedReason:   snapshot.PausedReason,
+					TerminalCode:   string(snapshot.TerminalCode),
+				}
+			}
+		}
+	}
+	if state.RunID == "" {
+		req, validateErr := h.requests.Validate(sessionID, requestID)
+		if validateErr != nil {
+			return
+		}
+		state = WatchdogState{
+			RunID: req.RunID, Phase: req.Phase, LastProgressAt: req.LastProgressAt,
+			WatchdogDueAt: req.WatchdogDueAt, PausedReason: req.PausedReason, TerminalCode: req.TerminalCode,
+		}
+	}
+	if terminal != "" {
+		state.TerminalCode = string(terminal)
+		state.WatchdogDueAt = time.Time{}
+	}
+	changed, setErr := h.requests.SetWatchdog(requestID, state)
+	if setErr != nil || !changed {
+		return
+	}
+	h.NextSessionRevision(sessionID)
+	h.Notify()
+}
+
+// projectLiveWatchdog overlays the authoritative RunWatch snapshot on the
+// registry copy. The registry remains the request ownership source, while the
+// supervisor owns rapidly changing lease timestamps and child deadlines.
+func (h *Hub) projectLiveWatchdog(req ActiveRequest) ActiveRequest {
+	if h == nil || h.mux == nil || req.RunID == "" {
+		return req
+	}
+	sess, err := h.resolveSession(req.SessionID)
+	if err != nil {
+		return req
+	}
+	snapshot, ok := sess.WatchdogSnapshot(req.RunID)
+	if !ok {
+		return req
+	}
+	req.RunID = snapshot.RunID
+	req.Phase = snapshot.Phase
+	req.LastProgressAt = snapshot.LastProgressAt
+	req.WatchdogDueAt = snapshot.WatchdogDueAt
+	req.PausedReason = snapshot.PausedReason
+	req.TerminalCode = string(snapshot.TerminalCode)
+	return req
+}
+
+func buildChatRouteMessage(sess *session.Session, route *session.RequestRoute, requestID, sessionID string) WSMessage {
+	if route != nil {
+		return WSMessage{
+			Type:            "chat_route",
+			RequestID:       requestID,
+			SessionID:       sessionID,
+			TaskType:        route.TaskType,
+			ModelID:         route.ModelID,
+			ProviderID:      route.ProviderID,
+			AgentInstanceID: route.AgentInstanceID,
+		}
+	}
+	a := sess.CurrentAgent()
+	if a == nil {
+		return WSMessage{Type: "chat_route", RequestID: requestID, SessionID: sessionID}
+	}
+	modelID := a.EffectiveModelID()
+	if modelID == "" {
+		modelID = a.Def.ModelID
+	}
+	providerID := a.EffectiveProviderID()
 	if providerID == "" {
-		providerID = sess.Agent.Def.ProviderID
+		providerID = a.Def.ProviderID
 	}
 	return WSMessage{
 		Type:            "chat_route",
 		RequestID:       requestID,
 		SessionID:       sessionID,
-		TaskType:        sess.Agent.EffectiveTaskType(),
+		TaskType:        a.EffectiveTaskType(),
 		ModelID:         modelID,
 		ProviderID:      providerID,
-		AgentInstanceID: sess.Agent.InstanceID,
+		AgentInstanceID: a.InstanceID,
 	}
 }
 
@@ -415,13 +517,13 @@ func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 	}
 	sessionID := ref.String()
 
-	// Validate ownership via global ActiveRequestRegistry
-	req, err := h.requests.Validate(sessionID, msg.RequestID)
-	if err != nil {
+	req, owner, err := h.requests.CancelAndWait(context.Background(), sessionID, msg.RequestID)
+	if err != nil || !owner {
 		return
 	}
-
-	_ = h.requests.SetState(req.RequestID, RequestStateCancelling)
+	// Pin the exact request's terminal state synchronously. Session cancellation
+	// completion can precede the event forwarder consuming ErrorEvent.
+	h.refreshRequestWatchdog(sessionID, req.RequestID, runwatch.CodeCancelledByUser)
 	h.NextSessionRevision(sessionID)
 	h.Notify()
 
@@ -431,13 +533,6 @@ func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 		RequestID: req.RequestID,
 		SessionID: sessionID,
 	})
-
-	if h.mux != nil {
-		sess, err := h.resolveSession(sessionID)
-		if err == nil {
-			_ = sess.CancelCurrent("User cancelled")
-		}
-	}
 
 	// Notify client that the task is done (cancelled).
 	client.sendJSON(WSMessage{
@@ -451,6 +546,14 @@ func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 	h.requests.Finalize(sessionID, req.RequestID)
 	h.NextSessionRevision(sessionID)
 	h.Notify()
+}
+
+type requestCanceller interface {
+	CancelRun(runID, reason string) error
+}
+
+func cancelRequest(canceller requestCanceller, requestID, reason string) error {
+	return canceller.CancelRun(requestID, reason)
 }
 
 // handleToolConfirm forwards a tool confirmation choice to the agent.
@@ -480,7 +583,9 @@ func (h *Hub) handleToolConfirm(client *Client, msg *ClientMessage) {
 		return
 	}
 
-	_ = sess.Agent.Confirm(msg.CallID, msg.Choice)
+	if a := sess.CurrentAgent(); a != nil {
+		_ = a.Confirm(msg.CallID, msg.Choice)
+	}
 }
 
 // ─── Event Forwarding ───────────────────────────────────────────────────────
@@ -562,6 +667,11 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 			if !ok {
 				continue
 			}
+			terminal := runwatch.Code("")
+			if errorEvent, ok := agEv.(agent.ErrorEvent); ok {
+				terminal = runwatch.CodeOf(errorEvent.Err)
+			}
+			h.refreshRequestWatchdog(sessionID, requestID, terminal)
 
 			// Fast path: batchable high-frequency deltas.
 			if cd, ok := agEv.(agent.ContentDeltaEvent); ok {
@@ -735,6 +845,9 @@ func convertAgentEvent(ev agent.AgentEvent, requestID, sessionID string) *WSMess
 		}
 
 	case agent.ErrorEvent:
+		if runwatch.CodeOf(e.Err) == runwatch.CodeCancelledByUser {
+			return nil
+		}
 		return &WSMessage{
 			Type:      "chat_error",
 			RequestID: requestID,

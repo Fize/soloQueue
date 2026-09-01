@@ -38,6 +38,17 @@ func mcpLoaderFromRT(rt *runtime.Stack) *mcp.Loader {
 	return rt.MCPManager.Loader()
 }
 
+func installChannelConfigReload(
+	cfg *config.GlobalService,
+	reloadQQ func(config.Settings),
+	reloadWechat func(config.Settings),
+) {
+	cfg.SetOnCommitted(func(candidate config.Settings) {
+		reloadQQ(candidate)
+		reloadWechat(candidate)
+	})
+}
+
 func ServeCmd(version string) *cobra.Command {
 	return serveCmd("serve", version, server.FrontendStatus)
 }
@@ -96,11 +107,13 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 
 			factory := session.BuildFactory(rt, workDir, cfg, settings.Log.Console)
 			mgr := session.NewSessionManager(factory, log)
+			mgr.SetRunWatch(rt.RunWatch)
+			mgr.SetAgentRegistry(rt.AgentRegistry)
 			session.Version = version
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
 			mgr.SetMemoryManager(rt.MemoryManager)
-			mgr.SetVisionDescriber(session.BuildVisionDescriber(cfg, log))
+			mgr.SetVisionDescriber(session.BuildVisionDescriber(cfg, log, rt.RunWatch))
 			mgr.SetChannelMetadataStore(rt.SharedDB)
 			mgr.SetIdleReaper(30*time.Minute, 200000)
 			mgr.SetPersonaStatePath(filepath.Join(workDir, "persona", "roles", "state.md"))
@@ -182,13 +195,14 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			}
 
 			// ── Messaging channel integrations ──
-			qqBotManager := NewQQBotManager(cfg, mgr, l2Store, rt, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)
-			wechatBotManager := NewWechatBotManager(cfg, mgr, l2Store, rt, workDir, version, log, func() []*agent.Supervisor { return rt.Supervisors }, rt.AgentRegistry)
+			qqBotManager := NewQQBotManager(cfg, mgr, l2Store, rt, workDir, version, log, rt.SupervisorsSnapshot, rt.AgentRegistry)
+			wechatBotManager := NewWechatBotManager(cfg, mgr, l2Store, rt, workDir, version, log, rt.SupervisorsSnapshot, rt.AgentRegistry)
 			qqBotManager.Reload()
 			wechatBotManager.Reload()
+			installChannelConfigReload(cfg, qqBotManager.ReloadWithSettings, wechatBotManager.ReloadWithSettings)
 			wechatLoginManager := wechat.NewLoginManager(
 				wechat.NewClient(wechat.Config{Version: version, BotAgent: "SoloQueue/" + version}),
-				&wechatCredentialStore{cfg: cfg, version: version, onSaved: wechatBotManager.Reload},
+				&wechatCredentialStore{cfg: cfg, version: version},
 			)
 			defer wechatLoginManager.Close()
 
@@ -239,7 +253,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				server.WithRegistry(rt.AgentRegistry),
 				server.WithSessionManager(mgr),
 				server.WithL2SessionStore(l2Store),
-				server.WithSupervisors(func() []*agent.Supervisor { return rt.Supervisors }),
+				server.WithSupervisors(rt.SupervisorsSnapshot),
 				server.WithConfigService(cfg),
 				server.WithWechatLoginManager(wechatLoginManager),
 				server.WithRuntimeMetrics(runtimeMetrics),
@@ -254,13 +268,8 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				server.WithMCPLoader(mcpLoaderFromRT(rt)),
 				server.WithMCPManager(rt.MCPManager),
 				server.WithTeamStore(rt.TeamStore),
-				server.WithOnConfigChange(func() error {
-					if err := rt.OnConfigChange(); err != nil {
-						return err
-					}
-					qqBotManager.Reload()
-					wechatBotManager.Reload()
-					return nil
+				server.WithOnConfigChange(func(candidate config.Settings) error {
+					return rt.OnSettingsChange(candidate)
 				}),
 				server.WithSimulationEngine(rt.SimulationEngine),
 				server.WithSharedDB(rt.SharedDB),
@@ -470,14 +479,14 @@ func newCronSessionCleanup(l2Session *session.Session, registry *agent.Registry)
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			if l2Session.Agent != nil {
-				_ = l2Session.Agent.Stop(5 * time.Second)
+			if a := l2Session.CurrentAgent(); a != nil {
+				_ = a.Stop(5 * time.Second)
 			}
-			if l2Session.Supervisor != nil {
-				_ = l2Session.Supervisor.ReapAll(5 * time.Second)
+			if sv := l2Session.CurrentSupervisor(); sv != nil {
+				_ = sv.ReapAll(5 * time.Second)
 			}
-			if registry != nil && l2Session.Agent != nil {
-				registry.Unregister(l2Session.Agent.InstanceID)
+			if a := l2Session.CurrentAgent(); registry != nil && a != nil {
+				registry.Unregister(a.InstanceID)
 			}
 			// Close the session after all Agents have stopped so timeline and
 			// logger handles remain available to lifecycle logging.

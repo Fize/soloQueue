@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 type Kind string
@@ -43,6 +45,7 @@ var (
 type terminalIntent struct {
 	Status Status
 	Error  string
+	Code   string
 }
 
 type Record struct {
@@ -64,6 +67,10 @@ type Record struct {
 	TaskKey            string    `json:"task_key"`
 	ContentHash        string    `json:"content_hash"`
 	Error              string    `json:"error,omitempty"`
+	RunID              string    `json:"run_id,omitempty"`
+	Phase              string    `json:"phase,omitempty"`
+	LastProgressAt     time.Time `json:"last_progress_at,omitempty"`
+	TerminalCode       string    `json:"terminal_code,omitempty"`
 }
 
 type BeginInput struct {
@@ -75,6 +82,8 @@ type BeginInput struct {
 	Executor  string
 	RootID    string
 	ParentID  string
+	RunID     string
+	Phase     string
 }
 
 type BeginResult struct {
@@ -91,13 +100,14 @@ type Event struct {
 }
 
 type Manager struct {
-	mu         sync.Mutex
-	root       string
-	ownerID    string
-	records    map[string]Record
-	pending    map[string]terminalIntent
-	writeEvent func(*os.File, []byte) (int, error)
-	writeMeta  func(string, any) error
+	mu           sync.Mutex
+	root         string
+	ownerID      string
+	records      map[string]Record
+	pending      map[string]terminalIntent
+	checkpointed map[string]time.Time
+	writeEvent   func(*os.File, []byte) (int, error)
+	writeMeta    func(string, any) error
 }
 
 // NewManager constructs the single dispatch manager owned by one Session.
@@ -107,12 +117,13 @@ func NewManager(timelineRoot, ownerSessionID string) (*Manager, error) {
 		return nil, errors.New("dispatch: timeline root and owner session ID are required")
 	}
 	m := &Manager{
-		root:       filepath.Join(timelineRoot, "delegations"),
-		ownerID:    ownerSessionID,
-		records:    make(map[string]Record),
-		pending:    make(map[string]terminalIntent),
-		writeEvent: (*os.File).Write,
-		writeMeta:  writeAtomicJSON,
+		root:         filepath.Join(timelineRoot, "delegations"),
+		ownerID:      ownerSessionID,
+		records:      make(map[string]Record),
+		pending:      make(map[string]terminalIntent),
+		checkpointed: make(map[string]time.Time),
+		writeEvent:   (*os.File).Write,
+		writeMeta:    writeAtomicJSON,
 	}
 	if err := os.MkdirAll(filepath.Join(m.root, ".active"), 0o700); err != nil {
 		return nil, fmt.Errorf("dispatch: create directory: %w", err)
@@ -166,7 +177,8 @@ func (m *Manager) Begin(in BeginInput) (BeginResult, error) {
 	now := time.Now().UTC()
 	rec := Record{ID: "dlg_" + id, Kind: in.Kind, TaskName: in.TaskName, Task: in.Task, Context: in.Context, OwnerSessionID: m.ownerID,
 		Requester: in.Requester, Executor: in.Executor, ParentID: in.ParentID, RootID: in.RootID,
-		Status: StatusRunning, Revision: 1, CreatedAt: now, UpdatedAt: now, TaskKey: key, ContentHash: hash}
+		Status: StatusRunning, Revision: 1, CreatedAt: now, UpdatedAt: now, TaskKey: key, ContentHash: hash,
+		RunID: in.RunID, Phase: in.Phase, LastProgressAt: now}
 	if rec.RootID == "" {
 		rec.RootID = rec.ID
 	}
@@ -253,6 +265,12 @@ func (m *Manager) AssignExecutorInstance(id, instanceID string) error {
 }
 
 func (m *Manager) Append(id, eventType string, payload any) error {
+	return m.AppendProgress(id, eventType, payload, "", "")
+}
+
+// AppendProgress durably applies structural progress metadata with its event.
+// High-frequency token deltas continue to use Checkpoint's coalescing path.
+func (m *Manager) AppendProgress(id, eventType string, payload any, runID, phase string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rec, ok := m.records[id]
@@ -266,10 +284,52 @@ func (m *Manager) Append(id, eventType string, payload any) error {
 		return fmt.Errorf("dispatch: cannot append to terminal dispatch %s", id)
 	}
 	rec.Revision++
-	rec.UpdatedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	rec.UpdatedAt = now
+	rec.LastProgressAt = now
+	if runID != "" {
+		rec.RunID = runID
+	}
+	if phase != "" {
+		rec.Phase = phase
+	}
 	committed, err := m.appendLocked(id, eventType, payload, rec)
 	if committed {
 		m.records[id] = rec
+	}
+	return err
+}
+
+// Checkpoint persists progress at a bounded cadence because token deltas are
+// supervision signals, not individually durable business events.
+func (m *Manager) Checkpoint(id, runID, phase string, interval time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.records[id]
+	if !ok {
+		return os.ErrNotExist
+	}
+	if _, pending := m.pending[id]; pending {
+		return ErrPersistencePending
+	}
+	if rec.Status != StatusRunning {
+		return fmt.Errorf("dispatch: cannot checkpoint terminal dispatch %s", id)
+	}
+	now := time.Now().UTC()
+	rec.RunID = runID
+	rec.Phase = phase
+	rec.LastProgressAt = now
+	last := m.checkpointed[id]
+	if interval > 0 && !last.IsZero() && now.Sub(last) < interval {
+		m.records[id] = rec
+		return nil
+	}
+	rec.Revision++
+	rec.UpdatedAt = now
+	committed, err := m.appendLocked(id, "progress_checkpoint", nil, rec)
+	if committed {
+		m.records[id] = rec
+		m.checkpointed[id] = now
 	}
 	return err
 }
@@ -294,6 +354,7 @@ func (m *Manager) Finish(id string, status Status, errValue error) error {
 		return nil
 	}
 	rec.Status = status
+	rec.TerminalCode = terminalCode(status, errValue)
 	rec.Revision++
 	rec.UpdatedAt = time.Now().UTC()
 	if errValue != nil {
@@ -301,7 +362,7 @@ func (m *Manager) Finish(id string, status Status, errValue error) error {
 	}
 	committed, persistErr := m.appendLocked(id, string(status), nil, rec)
 	if !committed {
-		intent := terminalIntent{Status: status}
+		intent := terminalIntent{Status: status, Code: rec.TerminalCode}
 		if errValue != nil {
 			intent.Error = errValue.Error()
 		}
@@ -314,6 +375,7 @@ func (m *Manager) Finish(id string, status Status, errValue error) error {
 	}
 	m.records[id] = rec
 	delete(m.pending, id)
+	delete(m.checkpointed, id)
 	claimErr := os.Remove(filepath.Join(m.root, ".active", rec.TaskKey+".json"))
 	return errors.Join(persistErr, claimErr)
 }
@@ -445,6 +507,7 @@ func (m *Manager) reconcile() error {
 		rec.Revision++
 		rec.UpdatedAt = time.Now().UTC()
 		rec.Error = "process restarted before dispatch completed"
+		rec.TerminalCode = "interrupted_by_restart"
 		committed, persistErr := m.appendLocked(id, string(StatusInterrupted), nil, rec)
 		if !committed {
 			return persistErr
@@ -475,6 +538,7 @@ func (m *Manager) retryTerminalLocked(id string, intent terminalIntent) error {
 	candidate := authoritative
 	candidate.Status = intent.Status
 	candidate.Error = intent.Error
+	candidate.TerminalCode = intent.Code
 	candidate.Revision++
 	candidate.UpdatedAt = time.Now().UTC()
 	committed, persistErr := m.appendLocked(id, string(intent.Status), nil, candidate)
@@ -489,6 +553,13 @@ func (m *Manager) retryTerminalLocked(id string, intent terminalIntent) error {
 	delete(m.pending, id)
 	claimErr := os.Remove(filepath.Join(m.root, ".active", authoritative.TaskKey+".json"))
 	return errors.Join(persistErr, claimErr)
+}
+
+func terminalCode(status Status, errValue error) string {
+	if code := runwatch.CodeOf(errValue); code != "" {
+		return string(code)
+	}
+	return string(status)
 }
 
 func (m *Manager) loadRecord(id string) (Record, bool) {

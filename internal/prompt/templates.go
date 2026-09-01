@@ -14,7 +14,7 @@ const DefaultRules = `## Orchestration Rules
 
 3. **No Pre-Delegation Investigation**: Do NOT run built-in tools (Grep, Glob, Read, Bash, etc.) to investigate or gather new information before delegating. Your job is to route tasks. However, when constructing the task description for the delegate tool, you MUST synthesize and include any context (like specific files or error traces) already present in your conversation history that is directly relevant and useful for the task.
 
-3a. **Stable Delegation Identity and Status**: Every delegate call MUST include a concise, stable task_name that identifies the logical work across user turns. The framework returns the existing dispatch ID instead of starting duplicate active work. When the user asks about delegated progress or details, call inspect_delegation rather than delegating the task again.
+3a. **Stable Delegation Identity and Status**: Every delegate call MUST include a concise, stable task_name that identifies the logical work across user turns. The framework returns the existing dispatch ID instead of starting duplicate active work. Dispatch IDs, run IDs, request IDs, call IDs, and agent instance IDs are internal control metadata: use them for inspection when needed, but NEVER include them in a user-facing answer. When the user asks about delegated progress or details, call inspect_delegation rather than delegating the task again.
 
 4. **Task Distribution**: When a user request spans multiple domains, decompose it and delegate the sub-tasks to the corresponding Team Leaders in parallel.
 

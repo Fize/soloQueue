@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/config"
 )
@@ -22,6 +23,10 @@ func TestWechatConfigAPIIsRedactedAndPreservesCredentials(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	committed := make(chan config.Settings, 1)
+	configSvc.SetOnCommitted(func(candidate config.Settings) {
+		committed <- candidate
+	})
 	mux := NewMux(workDir, nil, WithConfigService(configSvc))
 	defer mux.Close()
 
@@ -41,6 +46,14 @@ func TestWechatConfigAPIIsRedactedAndPreservesCredentials(t *testing.T) {
 	mux.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("PUT status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	select {
+	case candidate := <-committed:
+		if len(candidate.WechatBots) != 1 || candidate.WechatBots[0].Name != "Renamed" {
+			t.Fatalf("programmatic API candidate = %#v, want renamed account", candidate.WechatBots)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("API update did not trigger accepted-candidate notification")
 	}
 	saved := configSvc.Get().WechatBots
 	if len(saved) != 1 || saved[0].BotToken != "secret-token" || saved[0].BotID != "secret-bot-id" || saved[0].Name != "Renamed" {

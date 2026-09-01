@@ -15,6 +15,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/dispatch"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 type dispatchTestEvent struct{ content string }
@@ -55,6 +56,66 @@ func (timeoutDispatchTarget) AskStream(ctx context.Context, _ string) (<-chan if
 	return nil, ctx.Err()
 }
 
+type routedDispatchTarget struct {
+	routes   []*iface.ModelOverrideParams
+	setCalls atomic.Int32
+}
+
+func (t *routedDispatchTarget) Ask(context.Context, string) (string, error) { return "", nil }
+func (t *routedDispatchTarget) AskStream(ctx context.Context, _ string) (<-chan iface.AgentEvent, error) {
+	t.routes = append(t.routes, iface.ModelOverrideFromContext(ctx))
+	ch := make(chan iface.AgentEvent)
+	close(ch)
+	return ch, nil
+}
+func (t *routedDispatchTarget) SetModelOverride(*iface.ModelOverrideParams) { t.setCalls.Add(1) }
+func (*routedDispatchTarget) Confirm(string, string) error                  { return nil }
+func (*routedDispatchTarget) ErrorCount() int32                             { return 0 }
+func (*routedDispatchTarget) LastError() string                             { return "" }
+
+func TestDelegateRoutingIsRequestScopedForSyncAndAsync(t *testing.T) {
+	target := &routedDispatchTarget{}
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		return target, false, nil
+	}
+	params := &iface.ModelOverrideParams{ProviderID: "routed-provider", ModelID: "routed-model", TaskType: "engineering"}
+	ctx := iface.ContextWithModelOverride(iface.ContextWithWorkDir(context.Background(), t.TempDir()), params)
+
+	syncTool := NewDelegateTool("L2", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited)
+	if _, err := syncTool.Execute(ctx, `{"target":"worker","task":"sync"}`); err != nil {
+		t.Fatal(err)
+	}
+	asyncTool := NewDelegateTool("L1", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited, WithAlwaysAsyncDelegation())
+	action, err := asyncTool.ExecuteAsync(ctx, `{"target":"worker","task":"async"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := action.Target.AskStream(action.Context, action.Prompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream {
+	}
+	// An independent call must not inherit the delegated request route.
+	stream, err = target.AskStream(context.Background(), "independent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream {
+	}
+	if target.setCalls.Load() != 0 {
+		t.Fatalf("delegate mutated reusable target route %d times", target.setCalls.Load())
+	}
+	if len(target.routes) != 3 || target.routes[0] == nil || target.routes[1] == nil || target.routes[2] != nil {
+		t.Fatalf("captured routes = %#v, want routed sync/async then nil independent", target.routes)
+	}
+	for i := 0; i < 2; i++ {
+		if target.routes[i].ModelID != params.ModelID || target.routes[i].ProviderID != params.ProviderID {
+			t.Fatalf("delegated route[%d] = %#v", i, target.routes[i])
+		}
+	}
+}
+
 func TestDelegateToolPanicAfterBeginPersistsFailedTerminal(t *testing.T) {
 	m, err := dispatch.NewManager(t.TempDir(), "session-1")
 	if err != nil {
@@ -64,13 +125,22 @@ func TestDelegateToolPanicAfterBeginPersistsFailedTerminal(t *testing.T) {
 		panic("resolver exploded")
 	}
 	dt := NewDelegateTool("L2", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited)
-	ctx := dispatch.WithScope(iface.ContextWithWorkDir(context.Background(), t.TempDir()), dispatch.Scope{Manager: m})
+	watch := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute, OrphanIdle: 10 * time.Minute})
+	t.Cleanup(watch.Close)
+	watchCtx, rootWatch, err := watch.Start(context.Background(), runwatch.Metadata{RunID: "sync-panic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := dispatch.WithScope(iface.ContextWithWorkDir(watchCtx, t.TempDir()), dispatch.Scope{Manager: m})
 	if _, err := dt.Execute(ctx, `{"target":"worker","task_name":"panic cleanup","task":"Trigger panic."}`); err == nil || !strings.Contains(err.Error(), "resolver exploded") {
 		t.Fatalf("Execute panic error = %v", err)
 	}
 	records := m.List()
 	if len(records) != 1 || records[0].Status != dispatch.StatusFailed {
 		t.Fatalf("records after panic = %#v", records)
+	}
+	if snapshot, ok := rootWatch.Snapshot(); !ok || snapshot.WatchdogDueAt.Sub(snapshot.LastProgressAt) != time.Minute {
+		t.Fatalf("sync setup leaked watchdog child: %+v, ok=%v", snapshot, ok)
 	}
 	retry, err := m.Begin(dispatch.BeginInput{TaskName: "panic cleanup", Task: "Trigger panic.", Requester: "L2", Executor: "worker"})
 	if err != nil || retry.Reused || retry.Record.ID == records[0].ID {
@@ -87,13 +157,22 @@ func TestDelegateToolAsyncSetupPanicAfterBeginPersistsFailedTerminalOnce(t *test
 		panic("async resolver exploded")
 	}
 	dt := NewDelegateTool("L1", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited, WithAlwaysAsyncDelegation())
-	ctx := dispatch.WithScope(iface.ContextWithWorkDir(context.Background(), t.TempDir()), dispatch.Scope{Manager: m})
+	watch := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute, OrphanIdle: 10 * time.Minute})
+	t.Cleanup(watch.Close)
+	watchCtx, rootWatch, err := watch.Start(context.Background(), runwatch.Metadata{RunID: "async-panic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := dispatch.WithScope(iface.ContextWithWorkDir(watchCtx, t.TempDir()), dispatch.Scope{Manager: m})
 	if _, err := dt.ExecuteAsync(ctx, `{"target":"worker","task_name":"async panic cleanup","task":"Trigger async setup panic."}`); err == nil || !strings.Contains(err.Error(), "async resolver exploded") {
 		t.Fatalf("ExecuteAsync panic error = %v", err)
 	}
 	records := m.List()
 	if len(records) != 1 || records[0].Status != dispatch.StatusFailed {
 		t.Fatalf("records after async setup panic = %#v", records)
+	}
+	if snapshot, ok := rootWatch.Snapshot(); !ok || snapshot.WatchdogDueAt.Sub(snapshot.LastProgressAt) != time.Minute {
+		t.Fatalf("async setup leaked watchdog child: %+v, ok=%v", snapshot, ok)
 	}
 	events, err := m.Tail(records[0].ID, 0)
 	if err != nil {
@@ -207,7 +286,9 @@ func TestDelegateToolAskStreamSetupFailureReleasesActiveClaim(t *testing.T) {
 		return timeoutDispatchTarget{}, false, nil
 	}
 	dt := NewDelegateTool("L2", time.Millisecond, resolver, nil, nil, WorkDirExplicitOrInherited)
-	ctx := dispatch.WithScope(iface.ContextWithWorkDir(context.Background(), t.TempDir()), dispatch.Scope{Manager: m})
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctx := dispatch.WithScope(iface.ContextWithWorkDir(parent, t.TempDir()), dispatch.Scope{Manager: m})
 	if _, err := dt.Execute(ctx, `{"target":"worker","task_name":"fail setup","task":"Fail immediately."}`); err == nil {
 		t.Fatal("expected setup failure")
 	}
@@ -218,6 +299,51 @@ func TestDelegateToolAskStreamSetupFailureReleasesActiveClaim(t *testing.T) {
 	retry, err := m.Begin(dispatch.BeginInput{TaskName: "fail setup", Task: "Fail immediately.", Requester: "L2", Executor: "worker"})
 	if err != nil || retry.Reused {
 		t.Fatalf("retry=%#v err=%v", retry, err)
+	}
+}
+
+func TestDelegateToolWatchdogSetupFailureReleasesDurableClaim(t *testing.T) {
+	for _, async := range []bool{false, true} {
+		t.Run(map[bool]string{false: "sync", true: "async"}[async], func(t *testing.T) {
+			m, err := dispatch.NewManager(t.TempDir(), "session-watch-setup")
+			if err != nil {
+				t.Fatal(err)
+			}
+			watch := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute})
+			t.Cleanup(watch.Close)
+			watchCtx, root, err := watch.Start(context.Background(), runwatch.Metadata{RunID: "terminal-parent"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			root.Fail(&runwatch.Cause{Code: runwatch.CodeCancelledByUser, OperationID: "terminal-parent"})
+			resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+				t.Fatal("resolver called after watchdog setup failed")
+				return nil, false, nil
+			}
+			opts := []DelegateToolOption{}
+			if async {
+				opts = append(opts, WithAlwaysAsyncDelegation())
+			}
+			dt := NewDelegateTool("L1", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited, opts...)
+			ctx := dispatch.WithScope(iface.ContextWithWorkDir(watchCtx, t.TempDir()), dispatch.Scope{Manager: m})
+			args := `{"target":"worker","task_name":"watch setup","task":"fail"}`
+			if async {
+				_, err = dt.ExecuteAsync(ctx, args)
+			} else {
+				_, err = dt.Execute(ctx, args)
+			}
+			if err == nil {
+				t.Fatal("expected watchdog setup failure")
+			}
+			records := m.List()
+			if len(records) != 1 || records[0].Status != dispatch.StatusFailed {
+				t.Fatalf("durable claim not terminalized: %+v", records)
+			}
+			retry, err := m.Begin(dispatch.BeginInput{TaskName: "watch setup", Task: "fail", Requester: "L1", Executor: "worker"})
+			if err != nil || retry.Reused {
+				t.Fatalf("claim not released for retry: %+v, %v", retry, err)
+			}
+		})
 	}
 }
 
@@ -261,26 +387,26 @@ func TestDelegateToolPropagatesSyncAndAsyncPersistenceFailures(t *testing.T) {
 	_ = os.Chmod(stream, 0o600)
 }
 
-func TestDelegateTool_PreferredTimeout_Explicit(t *testing.T) {
-	dt := NewDelegateTool("leader", 20*time.Minute, nil, nil, nil, WorkDirInheritOnly)
-	if got := dt.PreferredTimeout(); got != 20*time.Minute {
-		t.Errorf("PreferredTimeout() = %v, want 20m", got)
-	}
-}
-
-func TestDelegateTool_PreferredTimeout_Default(t *testing.T) {
+func TestDelegateTool_DoesNotDeclareTotalTimeout(t *testing.T) {
 	dt := NewDelegateTool("leader", 0, nil, nil, nil, WorkDirInheritOnly)
-	if got := dt.PreferredTimeout(); got != DelegateDefaultTimeout {
-		t.Errorf("PreferredTimeout() = %v, want DelegateDefaultTimeout (%v)", got, DelegateDefaultTimeout)
+	if _, ok := any(dt).(interface{ PreferredTimeout() time.Duration }); ok {
+		t.Fatal("DelegateTool still declares a total runtime timeout")
 	}
 }
 
-func TestDelegateTool_PreferredTimeout_Capped(t *testing.T) {
-	// PreferredTimeout returns the raw dt.Timeout / DelegateDefaultTimeout;
-	// the actual capping to DelegateMaxTimeout happens inside Execute/ExecuteAsync.
-	dt := NewDelegateTool("leader", 99*time.Minute, nil, nil, nil, WorkDirInheritOnly)
-	if got := dt.PreferredTimeout(); got != 99*time.Minute {
-		t.Errorf("PreferredTimeout() = %v, want 99m (uncapped)", got)
+func TestDelegateTool_DeclaresProgressSupervision(t *testing.T) {
+	dt := NewDelegateTool("leader", 0, nil, nil, nil, WorkDirInheritOnly)
+	progressAware, ok := any(dt).(ProgressSupervised)
+	if !ok || !progressAware.ProgressSupervised() {
+		t.Fatal("DelegateTool does not opt into progress supervision")
+	}
+}
+
+func TestDelegateTool_ProgressCheckpointIntervalIsConfigurable(t *testing.T) {
+	dt := NewDelegateTool("leader", 0, nil, nil, nil, WorkDirInheritOnly,
+		WithProgressCheckpointInterval(7*time.Second))
+	if dt.progressCheckpointInterval != 7*time.Second {
+		t.Fatalf("progress checkpoint interval = %s, want 7s", dt.progressCheckpointInterval)
 	}
 }
 
