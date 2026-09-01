@@ -2,7 +2,4 @@ export { SegmentView } from './SegmentView'
 export { SessionInspectorPanel } from './SessionInspectorPanel'
 export { ThinkingSegment } from './ThinkingSegment'
 export { ToolCallSegment } from './ToolCallSegment'
-export { ToolConfirmSegment } from './ToolConfirmSegment'
 export { WorkedSegment } from './WorkedSegment'
-export { StickyToolConfirmPanel } from './StickyToolConfirmPanel'
-

@@ -3,7 +3,7 @@ import type { ChatSession, ChatMessage, ChatSegment, ChatRouteInfo } from '@/typ
 import { listSessions, createL2Session, deleteL2Session, fetchSessionHistory, rewindSession as apiRewindSession, deleteSessionMessages as apiDeleteSessionMessages } from '@/lib/api'
 import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
 
-export type ChatRequestStatus = 'starting' | 'streaming' | 'waiting-confirm' | 'queued' | 'cancelling'
+export type ChatRequestStatus = 'starting' | 'streaming' | 'queued' | 'cancelling'
 
 export interface ActiveChatRequest {
   requestId: string
@@ -64,7 +64,6 @@ interface ChatState {
   addDelegationSegment: (sessionId: string, delegation: { agentName: string; task: string }) => void
   completeLastDelegation: (sessionId: string, agentName: string, durationMs?: number, resultContent?: string) => void
   cancelRunningDelegations: (sessionId: string) => void
-  resolveToolConfirm: (sessionId: string, callId: string, choice: string) => void
   failAssistantMessage: (sessionId: string, messageId: string, error: string) => void
   
   rewindSession: (sessionId: string, targetTs: string) => Promise<void>
@@ -729,24 +728,6 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  resolveToolConfirm: (sessionId: string, callId: string, choice: string) => {
-    set((s) => {
-      const sid = sessionId
-      const msgs = [...(s.messages[sid] || [])]
-      const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') return s
-      const segs = last.segments.map((seg) => {
-        if (seg.type === 'tool_confirm' && seg.callId === callId) {
-          return { ...seg, resolved: true, choice }
-        }
-        return seg
-      })
-      return {
-        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
-      }
-    })
-  },
-
   failAssistantMessage: (sessionId: string, messageId: string, error: string) => {
     set((s) => {
       const messages = s.messages[sessionId] || []
@@ -767,11 +748,6 @@ export const useChatStore = create<ChatState>((set) => ({
           if (segment.type === 'delegation' && segment.status === 'running') {
             changed = true
             return { ...segment, status: 'failed', resultContent: error }
-          }
-          if (segment.type === 'tool_confirm' && !segment.resolved) {
-            changed = true
-            hasVisibleError = true
-            return { type: 'error', text: error }
           }
           return segment
         })
@@ -880,16 +856,6 @@ function convertHistorySegment(seg: SessionHistorySegment): ChatSegment {
         status: (seg.status as 'running' | 'completed' | 'failed' | 'cancelled') || 'completed',
         durationMs: seg.duration_ms,
         resultContent: seg.result,
-      }
-    case 'tool_confirm':
-      return {
-        type: 'tool_confirm',
-        callId: seg.call_id || '',
-        name: seg.name || '',
-        prompt: seg.prompt || '',
-        allowInSession: seg.allow_in_session ?? false,
-        resolved: seg.resolved ?? true,
-        choice: seg.choice,
       }
     case 'error':
       return { type: 'error', text: seg.text || '' }

@@ -11,8 +11,7 @@ import { useRuntimeStore } from "@/stores/runtimeStore";
 import { cn } from "@/lib/utils";
 import { getSkills } from "@/lib/api";
 import { wsManager } from "@/lib/websocket";
-import type { SkillInfo, ChatSegment } from "@/types";
-import { StickyToolConfirmPanel } from "@/components/chat";
+import type { SkillInfo } from "@/types";
 import { recoverInFlightMessages } from "@/components/chat/recoverInFlightMessages";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { useTranslation } from "@/lib/i18n";
@@ -204,16 +203,6 @@ export function AssistantPage() {
     followOutput();
   }, [finalMessages, followOutput]);
 
-  const pendingConfirm = useMemo(() => {
-    const lastMessage = finalMessages[finalMessages.length - 1];
-    if (lastMessage && lastMessage.role === "assistant") {
-      return lastMessage.segments.find(
-        (seg) => seg.type === "tool_confirm" && !seg.resolved
-      ) as Extract<ChatSegment, { type: "tool_confirm" }> | undefined;
-    }
-    return undefined;
-  }, [finalMessages]);
-
   const isHistoryLoading = historyLoading["l1"] ?? false;
 
   const requestActive = (streaming || delegating) && !isSystemCommandRunning;
@@ -302,9 +291,6 @@ export function AssistantPage() {
           <div className="h-2" />
         </div>
 
-        {pendingConfirm && (
-          <StickyToolConfirmPanel pendingConfirm={pendingConfirm} />
-        )}
 
         {/* Input — same ChatInput as ChatPage */}
         <ChatInput
@@ -316,7 +302,7 @@ export function AssistantPage() {
           showL2Selectors={false}
           ctxwinUsed={ctxwinUsed}
           ctxwinLimit={ctxwinLimit}
-          processing={streaming || delegating || !!pendingConfirm}
+          processing={streaming || delegating}
           skillNames={filteredSkillNames}
           activeSessionId="l1"
         />

@@ -105,17 +105,6 @@ export async function fetchSessionHistory(
   return request<SessionHistoryResponse>(`/session/history?${params.toString()}`)
 }
 
-export async function confirmSessionTool(
-  sessionId: string,
-  callId: string,
-  choice: string
-): Promise<void> {
-  await request('/session/confirm', {
-    method: 'POST',
-    body: JSON.stringify({ session_id: sessionId, call_id: callId, choice }),
-  })
-}
-
 export async function uploadFile(
   file: File,
   sessionId?: string

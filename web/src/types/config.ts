@@ -83,7 +83,6 @@ export interface ToolsConfig {
   httpTimeoutMs: number;
   httpBlockPrivate: boolean;
   shellBlockRegexes?: string[];
-  shellConfirmRegexes?: string[];
   shellMaxOutput: number;
   webSearchTimeoutMs: number;
   tavilyApiKey?: string;

@@ -206,19 +206,7 @@ describe('useChatStream', () => {
     const handlers = vi.mocked(wsManager.registerChat).mock.calls.map((call) => call[1])
     act(() => {
       handlers[0].onToolStart?.({ call_id: 'write-1', name: 'Write', args: '{}' })
-      handlers[0].onToolConfirm?.({
-        call_id: 'confirm-1',
-        name: 'Write',
-        prompt: 'Allow write?',
-        allow_in_session: false,
-      })
-      handlers[1].onToolStart?.({ call_id: 'read-2', name: 'Read', args: '{}' })
-      handlers[1].onToolConfirm?.({
-        call_id: 'confirm-2',
-        name: 'Read',
-        prompt: 'Allow read?',
-        allow_in_session: false,
-      })
+		handlers[1].onToolStart?.({ call_id: 'read-2', name: 'Read', args: '{}' })
     })
 
     const timeoutError = 'Session request timed out after 20 minutes'
@@ -236,7 +224,6 @@ describe('useChatStream', () => {
     ])
     expect(assistants[1].segments).toEqual([
       expect.objectContaining({ type: 'tool_call', callId: 'read-2', done: false }),
-      expect.objectContaining({ type: 'tool_confirm', callId: 'confirm-2', resolved: false }),
     ])
     expect(Object.values(useChatStore.getState().activeRequests)).toHaveLength(1)
     expect(useChatStore.getState().streamingSessions.l1).toBe(true)
@@ -260,19 +247,7 @@ describe('useChatStream', () => {
     const handlers = vi.mocked(wsManager.registerChat).mock.calls.map((call) => call[1])
     act(() => {
       handlers[0].onToolStart?.({ call_id: 'write-timeout', name: 'Write', args: '{}' })
-      handlers[0].onToolConfirm?.({
-        call_id: 'confirm-timeout',
-        name: 'Write',
-        prompt: 'Allow write?',
-        allow_in_session: false,
-      })
-      handlers[1].onToolStart?.({ call_id: 'read-parallel', name: 'Read', args: '{}' })
-      handlers[1].onToolConfirm?.({
-        call_id: 'confirm-parallel',
-        name: 'Read',
-        prompt: 'Allow read?',
-        allow_in_session: false,
-      })
+		handlers[1].onToolStart?.({ call_id: 'read-parallel', name: 'Read', args: '{}' })
     })
 
     const timeoutError = 'Session request timed out after 20 minutes'

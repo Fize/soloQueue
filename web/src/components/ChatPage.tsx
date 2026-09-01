@@ -23,7 +23,7 @@ import { useConnectionStore } from "@/stores/connectionStore";
 
 import { cn, pathsMatch } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
-import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment } from "@/types";
+import type { AgentInfo, Project, AgentResponse, SkillInfo } from "@/types";
 import { useResizablePanes } from "@/hooks/useResizablePanes";
 import { SessionInspectorPanel } from "./chat/SessionInspectorPanel";
 import type { PreviewCommentSnapshot } from "@/types/annotation";
@@ -32,7 +32,6 @@ import {
 } from "@/lib/api";
 import { ChatDesignPanel } from "@/components/ChatDesignPanel";
 import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
-import { StickyToolConfirmPanel } from "@/components/chat";
 import { recoverInFlightMessages } from "@/components/chat/recoverInFlightMessages";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
@@ -423,16 +422,6 @@ export function ChatPage() {
     routeSessions,
     streamChatSegments,
   ]);
-
-  const pendingConfirm = useMemo(() => {
-    const lastMessage = finalMessages[finalMessages.length - 1];
-    if (lastMessage && lastMessage.role === "assistant") {
-      return lastMessage.segments.find(
-        (seg) => seg.type === "tool_confirm" && !seg.resolved
-      ) as Extract<ChatSegment, { type: "tool_confirm" }> | undefined;
-    }
-    return undefined;
-  }, [finalMessages]);
 
   const requestActive = (streaming || delegating) && !isSystemCommandRunning;
   const activeRoute = activeSessionId ? routeSessions[activeSessionId] : undefined;
@@ -894,9 +883,6 @@ export function ChatPage() {
                   </div>
                 </div>
 
-                {pendingConfirm && (
-                  <StickyToolConfirmPanel pendingConfirm={pendingConfirm} />
-                )}
 
                 <ChatInput
                   {...sharedInputProps}
@@ -906,7 +892,7 @@ export function ChatPage() {
                   ctxwinUsed={sessionRuntime?.ctxwin_used ?? activeSession?.ctxwin_used ?? 0}
                   ctxwinLimit={sessionRuntime?.ctxwin_limit ?? activeSession?.ctxwin_limit ?? 0}
                   atRootDir={activeSession?.project_path || ""}
-                  processing={streaming || delegating || !!pendingConfirm}
+                  processing={streaming || delegating}
                 />
               </>
             )}

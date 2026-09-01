@@ -35,12 +35,6 @@ export interface ChatHandler {
     error: string
     duration_ms: number
   }) => void
-  onToolConfirm?: (data: {
-    call_id: string
-    name: string
-    prompt: string
-    allow_in_session: boolean
-  }) => void
   onDone?: (data: { content: string; reasoning_content: string }) => void
   onError?: (error: string) => void
   onQueued?: (data: { error?: string }) => void
@@ -273,16 +267,6 @@ class WebSocketManager {
           result: msg.result,
           error: msg.error,
           duration_ms: msg.duration_ms,
-        })
-        return
-      }
-      case 'tool_confirm': {
-        const h = this.chatHandlers.get(msg.request_id)
-        h?.onToolConfirm?.({
-          call_id: msg.call_id,
-          name: msg.name,
-          prompt: msg.prompt,
-          allow_in_session: msg.allow_in_session,
         })
         return
       }

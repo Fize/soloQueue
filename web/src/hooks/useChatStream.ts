@@ -271,17 +271,6 @@ export function useChatStream() {
             data.duration_ms || undefined
           )
         },
-        onToolConfirm: (data) => {
-          updateRequestStatus(requestId, 'waiting-confirm')
-          updateAssistantSegment(sid, ensureAssistantMessage(), {
-            type: 'tool_confirm',
-            callId: data.call_id,
-            name: data.name,
-            prompt: data.prompt,
-            allowInSession: data.allow_in_session ?? false,
-            resolved: false,
-          })
-        },
         onSessionName: (name) => {
           renameSession(sid, name)
         },
