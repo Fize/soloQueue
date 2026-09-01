@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // newTestLog creates a silent logger for adapter tests.
@@ -123,6 +125,210 @@ func TestSessionAskAdapter_AskStreamWithSession(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("AskStream returned nil result")
+	}
+}
+
+func TestSessionAskAdapter_CancelCurrentReturnsTaskCancelledWithoutLeaking(t *testing.T) {
+	testLog := newTestLog(t)
+	fake := &agenttest.FakeLLM{}
+	mgr := NewSessionManager(factoryFromFake(t, fake), testLog)
+	t.Cleanup(func() { mgr.Shutdown(time.Second) })
+	sess, err := mgr.Init(context.Background(), "team-a")
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	started := make(chan struct{})
+	sess.askStreamHistory = func(ctx context.Context, _ *ctxwin.ContextWindow, _ string) (<-chan agent.AgentEvent, error) {
+		source := make(chan agent.AgentEvent, 1)
+		close(started)
+		go func() {
+			<-ctx.Done()
+			source <- agent.ErrorEvent{Err: context.Cause(ctx)}
+			close(source)
+		}()
+		return source, nil
+	}
+
+	adapter := NewQQBotAdapter(mgr, testLog)
+	result := make(chan error, 1)
+	go func() {
+		_, askErr := adapter.AskStream(context.Background(), "cancel me", nil)
+		result <- askErr
+	}()
+	<-started
+	if err := adapter.CancelCurrent("user requested cancellation"); err != nil {
+		t.Fatalf("CancelCurrent: %v", err)
+	}
+	if err := <-result; !errors.Is(err, channel.ErrTaskCancelled) {
+		t.Fatalf("AskStream cancellation error = %v, want ErrTaskCancelled", err)
+	}
+
+	sess.askStreamHistory = func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error) {
+		source := make(chan agent.AgentEvent, 2)
+		source <- agent.ContentDeltaEvent{Delta: "next run"}
+		source <- agent.DoneEvent{Content: "next run"}
+		close(source)
+		return source, nil
+	}
+	next, err := adapter.AskStream(context.Background(), "next", nil)
+	if err != nil {
+		t.Fatalf("next AskStream inherited cancellation: %v", err)
+	}
+	if next.Content != "next run" {
+		t.Fatalf("next content = %q, want next run", next.Content)
+	}
+}
+
+func TestChannelCancelTargetsOnlyLatestOwnedRunTree(t *testing.T) {
+	testLog := newTestLog(t)
+	watchdog := runwatch.NewManager(runwatch.Policy{ScanInterval: time.Hour, RootIdle: time.Hour})
+	defer watchdog.Close()
+	ctxA, rootA, err := watchdog.Start(context.Background(), runwatch.Metadata{RunID: "web-root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childA, err := rootA.BeginOperation(runwatch.KindDelegation, "web-child", runwatch.Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctxB, rootB, err := watchdog.Start(context.Background(), runwatch.Metadata{RunID: "channel-root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childB, err := rootB.BeginOperation(runwatch.KindDelegation, "channel-child", runwatch.Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{activeCancels: make(map[string]activeTurnCancel), logger: testLog}
+	s.registerActiveCancel("web-root", func(cause error) {
+		rootA.Fail(cause)
+		go s.unregisterActiveCancel("web-root")
+	})
+	s.registerActiveCancel("channel-root", func(cause error) {
+		rootB.Fail(cause)
+		go s.unregisterActiveCancel("channel-root")
+	})
+	base := &channelAdapterBase{log: testLog}
+	base.trackChannelRun("channel-root")
+	if err := base.cancelCurrent(s, "channel cancel"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctxB.Done():
+	case <-time.After(time.Second):
+		t.Fatal("owned channel root was not cancelled")
+	}
+	if runwatch.CodeOf(context.Cause(ctxB)) != runwatch.CodeCancelledByUser {
+		t.Fatalf("channel root cause = %v", context.Cause(ctxB))
+	}
+	if snapshot, ok := watchdog.Snapshot("channel-root"); !ok || snapshot.TerminalCode != runwatch.CodeCancelledByUser {
+		t.Fatalf("channel subtree terminal snapshot = %+v ok=%v", snapshot, ok)
+	}
+	select {
+	case <-ctxA.Done():
+		t.Fatalf("unowned concurrent root was cancelled: %v", context.Cause(ctxA))
+	default:
+	}
+	if snapshot, ok := watchdog.Snapshot("web-root"); !ok || snapshot.TerminalCode != "" {
+		t.Fatalf("unowned root/child did not continue: %+v ok=%v", snapshot, ok)
+	}
+	if got := childA.Kind(); got != runwatch.KindDelegation {
+		t.Fatalf("unowned child stopped with sibling root cancellation: %q", got)
+	}
+	childA.Complete()
+	childB.Complete()
+	rootA.Complete()
+	s.unregisterActiveCancel("web-root")
+}
+
+func TestChannelCancelPendingNewRouteDoesNotMaskLiveOwnedRun(t *testing.T) {
+	testLog := newTestLog(t)
+	mgr := NewSessionManager(factoryFromFake(t, &agenttest.FakeLLM{}), testLog)
+	t.Cleanup(func() { mgr.Shutdown(time.Second) })
+	sess, err := mgr.Init(context.Background(), "team-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstStarted := make(chan struct{})
+	var calls atomic.Int32
+	sess.askStreamHistory = func(ctx context.Context, _ *ctxwin.ContextWindow, _ string) (<-chan agent.AgentEvent, error) {
+		out := make(chan agent.AgentEvent, 2)
+		if calls.Add(1) == 1 {
+			close(firstStarted)
+			go func() {
+				defer close(out)
+				<-ctx.Done()
+				out <- agent.ErrorEvent{Err: context.Cause(ctx)}
+			}()
+			return out, nil
+		}
+		out <- agent.ContentDeltaEvent{Delta: "second completed"}
+		out <- agent.DoneEvent{Content: "second completed"}
+		close(out)
+		return out, nil
+	}
+
+	adapter := NewChannelAdapter(mgr, testLog)
+	qqCtx := channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{
+		Channel: "qq", AccountID: "qq-bot", ConversationID: "qq-chat", UserID: "qq-user",
+	})
+	wechatCtx := channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{
+		Channel: "wechat", AccountID: "wechat-bot", ConversationID: "wechat-chat", UserID: "wechat-user",
+	})
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, askErr := adapter.AskStream(qqCtx, "live first run", nil)
+		firstDone <- askErr
+	}()
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first channel run did not start")
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, askErr := adapter.AskStream(wechatCtx, "pending newer route", nil)
+		secondDone <- askErr
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("newer route entered Session before live route released: calls=%d", got)
+	}
+	select {
+	case err := <-secondDone:
+		t.Fatalf("newer route unexpectedly completed before cancel: %v", err)
+	default:
+	}
+
+	if err := adapter.CancelCurrent("cancel latest live owned run"); err != nil {
+		t.Fatalf("CancelCurrent: %v", err)
+	}
+	select {
+	case err := <-firstDone:
+		if !errors.Is(err, channel.ErrTaskCancelled) {
+			t.Fatalf("live run cancellation error = %v, want ErrTaskCancelled", err)
+		}
+	case <-time.After(time.Second):
+		_ = sess.CancelCurrent("test cleanup")
+		t.Fatal("pending newer route masked cancellation of live owned run")
+	}
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			t.Fatalf("pending route after live cancel: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pending route did not proceed after live run cancellation")
+	}
+
+	adapter.runMu.Lock()
+	owned := len(adapter.channelRuns)
+	adapter.runMu.Unlock()
+	if owned != 0 {
+		t.Fatalf("channel owned run state leaked: %d", owned)
 	}
 }
 
@@ -235,7 +441,7 @@ func TestConsumeAskStreamEvents_Basic(t *testing.T) {
 	testLog := newTestLog(t)
 	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agenttest.FakeLLM{Responses: []string{"ok"}})
-	sess := &Session{Agent: ag, logger: testLog}
+	sess := NewSession("consume-basic", "team", ag, nil, nil, testLog)
 	t.Cleanup(func() { sess.Close() })
 
 	ch := make(chan iface.AgentEvent, 4)
@@ -257,7 +463,7 @@ func TestConsumeAskStreamEvents_Error(t *testing.T) {
 	testLog := newTestLog(t)
 	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agenttest.FakeLLM{Responses: []string{"ok"}})
-	sess := &Session{Agent: ag, logger: testLog}
+	sess := NewSession("consume-error", "team", ag, nil, nil, testLog)
 	t.Cleanup(func() { sess.Close() })
 
 	ch := make(chan iface.AgentEvent, 2)
@@ -274,7 +480,7 @@ func TestConsumeAskStreamEvents_IntermediateCallback(t *testing.T) {
 	testLog := newTestLog(t)
 	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agenttest.FakeLLM{Responses: []string{"ok"}})
-	sess := &Session{Agent: ag, logger: testLog}
+	sess := NewSession("consume-intermediate", "team", ag, nil, nil, testLog)
 	t.Cleanup(func() { sess.Close() })
 
 	var intermediates []string
@@ -308,7 +514,7 @@ func TestConsumeAskStreamEvents_EmptyContentUsesReasoning(t *testing.T) {
 	testLog := newTestLog(t)
 	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agenttest.FakeLLM{Responses: []string{"ok"}})
-	sess := &Session{Agent: ag, logger: testLog}
+	sess := NewSession("consume-reasoning", "team", ag, nil, nil, testLog)
 	t.Cleanup(func() { sess.Close() })
 
 	ch := make(chan iface.AgentEvent, 2)
@@ -342,7 +548,7 @@ func TestConsumeAskStreamEvents_ImageGenResult(t *testing.T) {
 	testLog := newTestLog(t)
 	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agenttest.FakeLLM{Responses: []string{"ok"}})
-	sess := &Session{Agent: ag, logger: testLog}
+	sess := NewSession("consume-image", "team", ag, nil, nil, testLog)
 	t.Cleanup(func() { sess.Close() })
 
 	ch := make(chan iface.AgentEvent, 3)
@@ -373,7 +579,7 @@ func TestConsumeAskStreamEvents_SendFileResult(t *testing.T) {
 	testLog := newTestLog(t)
 	base := &channelAdapterBase{log: testLog}
 	ag := startAgent(t, &agenttest.FakeLLM{Responses: []string{"ok"}})
-	sess := &Session{Agent: ag, logger: testLog}
+	sess := NewSession("consume-file", "team", ag, nil, nil, testLog)
 	t.Cleanup(func() { sess.Close() })
 
 	ch := make(chan iface.AgentEvent, 2)

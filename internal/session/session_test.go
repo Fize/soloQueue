@@ -19,11 +19,41 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/dispatch"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
+
+type sessionFakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+type blockingSessionCompactor struct {
+	started chan struct{}
+}
+
+func (c *blockingSessionCompactor) Compact(ctx context.Context, _ []ctxwin.Message) (string, error) {
+	close(c.started)
+	<-ctx.Done()
+	return "", context.Cause(ctx)
+}
+
+func (c *sessionFakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *sessionFakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	c.mu.Unlock()
+}
 
 func TestSessionOwnsDispatchManagerAndClearRetainsArtifacts(t *testing.T) {
 	root := t.TempDir()
@@ -99,12 +129,10 @@ func startAgent(t *testing.T, fake *agenttest.FakeLLM) *agent.Agent {
 func TestSendMediaViaChannelUsesOnlyConfiguredChannel(t *testing.T) {
 	calledQQ := 0
 	calledWechat := 0
-	sess := &Session{
-		Agent: &agent.Agent{Def: agent.Definition{NotifyChannel: "qq"}},
-		channelMediaSenders: map[string]func(context.Context, []channel.OutboundMedia) error{
-			"qq":     func(context.Context, []channel.OutboundMedia) error { calledQQ++; return nil },
-			"wechat": func(context.Context, []channel.OutboundMedia) error { calledWechat++; return nil },
-		},
+	sess := NewSession("media", "team", &agent.Agent{Def: agent.Definition{NotifyChannel: "qq"}}, nil, nil, nil)
+	sess.channelMediaSenders = map[string]func(context.Context, []channel.OutboundMedia) error{
+		"qq":     func(context.Context, []channel.OutboundMedia) error { calledQQ++; return nil },
+		"wechat": func(context.Context, []channel.OutboundMedia) error { calledWechat++; return nil },
 	}
 	if err := sess.SendMediaViaChannel(context.Background(), []channel.OutboundMedia{{Kind: channel.MediaFile, Path: "/export/a"}}); err != nil {
 		t.Fatal(err)
@@ -495,6 +523,603 @@ func TestSession_CancelCurrent_KeepsSessionReusable(t *testing.T) {
 	}
 }
 
+func TestSession_CancelRunTargetsOnlyRequestedTurn(t *testing.T) {
+	log, err := logger.System(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("logger.System() error = %v", err)
+	}
+	s := &Session{activeCancels: make(map[string]activeTurnCancel), logger: log}
+	ctxA, cancelA := context.WithCancelCause(context.Background())
+	ctxB, cancelB := context.WithCancelCause(context.Background())
+	s.registerActiveCancel("req-a", cancelA)
+	s.registerActiveCancel("req-b", cancelB)
+
+	cancelDone := make(chan error, 1)
+	go func() { cancelDone <- s.CancelRun("req-a", "user cancelled") }()
+	select {
+	case <-ctxA.Done():
+	case <-time.After(time.Second):
+		t.Fatal("req-a was not cancelled")
+	}
+	select {
+	case err := <-cancelDone:
+		t.Fatalf("CancelRun returned before exact run cleanup: %v", err)
+	default:
+	}
+	if !errors.Is(context.Cause(ctxA), context.Canceled) {
+		t.Fatalf("req-a cause = %v, want context.Canceled", context.Cause(ctxA))
+	}
+	if got := runwatch.CodeOf(context.Cause(ctxA)); got != runwatch.CodeCancelledByUser {
+		t.Fatalf("req-a code = %q, want %q", got, runwatch.CodeCancelledByUser)
+	}
+	if err := context.Cause(ctxB); err != nil {
+		t.Fatalf("req-b was cancelled: %v", err)
+	}
+
+	s.unregisterActiveCancel("req-a")
+	if err := <-cancelDone; err != nil {
+		t.Fatalf("CancelRun() error = %v", err)
+	}
+	s.unregisterActiveCancel("req-b")
+}
+
+func TestEffectiveRunIDFallsBackToRFC4122UUID(t *testing.T) {
+	runID := effectiveRunID(context.Background())
+	if len(runID) != 36 || runID[8] != '-' || runID[13] != '-' || runID[18] != '-' || runID[23] != '-' {
+		t.Fatalf("effectiveRunID() = %q, want RFC 4122 UUID form", runID)
+	}
+}
+
+func TestSession_AskStreamProgressKeepsRunAliveBeyondLegacyLimit(t *testing.T) {
+	clock := &sessionFakeClock{now: time.Unix(1_700_000_000, 0)}
+	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: 15 * time.Minute}, runwatch.WithClock(clock))
+	defer watchdog.Close()
+	a := startAgent(t, &agenttest.FakeLLM{})
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetRunWatch(watchdog)
+	source := make(chan agent.AgentEvent, 4)
+	s.askStreamHistory = func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error) {
+		return source, nil
+	}
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-long"})
+	stream, err := s.AskStream(ctx, "long task")
+	if err != nil {
+		t.Fatalf("AskStream() error = %v", err)
+	}
+
+	source <- agent.ContentDeltaEvent{Delta: "first"}
+	clock.Advance(10 * time.Minute)
+	source <- agent.ContentDeltaEvent{Delta: "second"}
+	clock.Advance(11 * time.Minute)
+	watchdog.Scan()
+	if _, ok := s.WatchdogSnapshot("req-long"); !ok {
+		t.Fatal("Session did not register request with RunWatch")
+	}
+
+	source <- agent.DoneEvent{Content: "firstsecond"}
+	close(source)
+	for range stream {
+	}
+	if _, ok := watchdog.Snapshot("req-long"); ok {
+		t.Fatal("completed Session run remains registered")
+	}
+}
+
+func TestSession_CompactRegistersExactCancelableRun(t *testing.T) {
+	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Hour})
+	defer watchdog.Close()
+	compactor := &blockingSessionCompactor{started: make(chan struct{})}
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer(), ctxwin.WithCompactor(compactor))
+	cw.Push(ctxwin.RoleSystem, "system")
+	cw.Push(ctxwin.RoleUser, "old message")
+	a := startAgent(t, &agenttest.FakeLLM{})
+	s := NewSession("s1", "t1", a, cw, nil, nil)
+	s.SetRunWatch(watchdog)
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-compact"})
+	stream, err := s.AskStream(ctx, "/compact")
+	if err != nil {
+		t.Fatalf("AskStream(/compact): %v", err)
+	}
+	select {
+	case <-compactor.started:
+	case <-time.After(time.Second):
+		t.Fatal("compactor did not start")
+	}
+	if _, ok := s.WatchdogSnapshot("req-compact"); !ok {
+		t.Fatal("/compact did not register watchdog run")
+	}
+	if err := s.CancelRun("req-compact", "test exact cancel"); err != nil {
+		t.Fatalf("CancelRun(/compact): %v", err)
+	}
+	var terminal runwatch.Code
+	for event := range stream {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok {
+			terminal = runwatch.CodeOf(errorEvent.Err)
+		}
+	}
+	if terminal != runwatch.CodeCancelledByUser {
+		t.Fatalf("compact terminal code = %q, want %q", terminal, runwatch.CodeCancelledByUser)
+	}
+	if _, ok := s.WatchdogSnapshot("req-compact"); ok {
+		t.Fatal("cancelled /compact leaked watchdog run")
+	}
+}
+
+func TestSession_AskStreamSetupFailureReleasesWatchdogRootForRetry(t *testing.T) {
+	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute})
+	defer watchdog.Close()
+	a := startAgent(t, &agenttest.FakeLLM{})
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetRunWatch(watchdog)
+	setupErr := errors.New("history setup failed")
+	attempt := 0
+	s.askStreamHistory = func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error) {
+		attempt++
+		if attempt == 1 {
+			return nil, setupErr
+		}
+		source := make(chan agent.AgentEvent, 1)
+		source <- agent.DoneEvent{Content: "retried"}
+		close(source)
+		return source, nil
+	}
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-retry"})
+
+	if _, err := s.AskStream(ctx, "first attempt"); !errors.Is(err, setupErr) {
+		t.Fatalf("first AskStream() error = %v, want %v", err, setupErr)
+	}
+	if _, ok := watchdog.Snapshot("req-retry"); ok {
+		t.Fatal("failed AskStream setup leaked watchdog root")
+	}
+
+	stream, err := s.AskStream(ctx, "retry")
+	if err != nil {
+		t.Fatalf("retry AskStream() error = %v", err)
+	}
+	for range stream {
+	}
+	if _, ok := watchdog.Snapshot("req-retry"); ok {
+		t.Fatal("retried AskStream leaked watchdog root after completion")
+	}
+}
+
+func TestSession_AskIsolatedOwnsWatchdogRootUntilStreamCloses(t *testing.T) {
+	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute})
+	defer watchdog.Close()
+	a := startAgent(t, &agenttest.FakeLLM{Responses: []string{"done"}, Delay: 50 * time.Millisecond})
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetRunWatch(watchdog)
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RunID: "cron-run"})
+	stream, err := s.AskIsolated(ctx, "scheduled work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := watchdog.Snapshot("cron-run"); !ok {
+		t.Fatal("AskIsolated did not register watchdog root")
+	}
+	for range stream {
+	}
+	if _, ok := watchdog.Snapshot("cron-run"); ok {
+		t.Fatal("AskIsolated watchdog root survived stream completion")
+	}
+}
+
+func TestSessionAskIsolatedParticipatesInSingleFlight(t *testing.T) {
+	fake := &agenttest.FakeLLM{Responses: []string{"scheduled"}, Delay: 75 * time.Millisecond}
+	a := startAgent(t, fake)
+	s := NewSession("isolated-single-flight", "team", a, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	first, err := s.AskIsolated(context.Background(), "scheduled work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AskIsolated(context.Background(), "overlap"); !errors.Is(err, ErrSessionBusy) {
+		t.Fatalf("overlapping isolated ask error = %v, want ErrSessionBusy", err)
+	}
+	for range first {
+	}
+	if !s.Idle() {
+		t.Fatal("session remained busy after isolated stream closed")
+	}
+}
+
+func TestReleasedDelegationCannotClearLaterRequestOwnership(t *testing.T) {
+	s := NewSession("flight-owner", "team", nil, nil, nil, nil)
+	first, ok := s.acquireFlight()
+	if !ok {
+		t.Fatal("first flight was not acquired")
+	}
+	s.releaseFlight(first) // delegation yielded and made the session schedulable
+	second, ok := s.acquireFlight()
+	if !ok {
+		t.Fatal("second flight was not acquired")
+	}
+	s.releaseFlight(first) // old forwarder finishes after the second ask started
+	if s.Idle() {
+		t.Fatal("old delegation completion cleared the later request's ownership")
+	}
+	s.releaseFlight(second)
+	if !s.Idle() {
+		t.Fatal("current request did not release its own flight")
+	}
+}
+
+func TestRequestRouteCaptureStaysExactAcrossAsyncYield(t *testing.T) {
+	a := agent.NewAgent(agent.Definition{ID: "leader", ModelID: "default", ProviderID: "default-provider"}, &agenttest.FakeLLM{}, nil)
+	s := NewSession("route-yield", "team", a, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.Router = func(_ context.Context, prompt, _ string, _ []ctxwin.PayloadMessage) (RouteResult, error) {
+		return RouteResult{Level: "engineering", ModelID: "model-" + prompt, ProviderID: "provider-" + prompt}, nil
+	}
+	var sourcesMu sync.Mutex
+	var sources []chan agent.AgentEvent
+	s.askStreamHistory = func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error) {
+		ch := make(chan agent.AgentEvent, 2)
+		sourcesMu.Lock()
+		sources = append(sources, ch)
+		sourcesMu.Unlock()
+		return ch, nil
+	}
+
+	firstCtx, firstRouteCh := WithRequestRouteCapture(context.Background())
+	first, err := s.AskStream(firstCtx, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRoute := <-firstRouteCh
+	sourcesMu.Lock()
+	firstSource := sources[0]
+	sourcesMu.Unlock()
+	firstSource <- agent.DelegationStartedEvent{}
+	deadline := time.Now().Add(time.Second)
+	for !s.Idle() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !s.Idle() {
+		t.Fatal("async yield did not release Session flight")
+	}
+
+	secondCtx, secondRouteCh := WithRequestRouteCapture(context.Background())
+	second, err := s.AskStream(secondCtx, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRoute := <-secondRouteCh
+	if firstRoute.ModelID != "model-first" || secondRoute.ModelID != "model-second" {
+		t.Fatalf("routes crossed async yield: first=%+v second=%+v", firstRoute, secondRoute)
+	}
+	sourcesMu.Lock()
+	secondSource := sources[1]
+	sourcesMu.Unlock()
+	firstSource <- agent.DoneEvent{Content: "first"}
+	close(firstSource)
+	secondSource <- agent.DoneEvent{Content: "second"}
+	close(secondSource)
+	for range first {
+	}
+	for range second {
+	}
+}
+
+func TestGenerationRebuildKeepsFreshGenerationWhenOldRecoveryRetries(t *testing.T) {
+	old := agent.NewAgent(agent.Definition{ID: "old"}, &agenttest.FakeLLM{}, nil)
+	fresh := agent.NewAgent(agent.Definition{ID: "fresh"}, &agenttest.FakeLLM{}, nil)
+	s := NewSession("generation-cas", "team", old, nil, nil, nil)
+	var builds atomic.Int32
+	s.SetGenerationRebuilder(func(context.Context) (*agent.Agent, *agent.Supervisor, error) {
+		builds.Add(1)
+		return fresh, nil, nil
+	})
+	if err := s.rebuildQuarantinedAgent(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.rebuildQuarantinedAgent(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	if builds.Load() != 1 {
+		t.Fatalf("generation factory called %d times, want 1", builds.Load())
+	}
+	if s.CurrentAgent() != fresh {
+		t.Fatal("late old-generation recovery replaced the fresh generation")
+	}
+}
+
+func TestGenerationRebuildPublishesPendingAgentAndSupervisorOnlyAfterSwap(t *testing.T) {
+	registry := agent.NewRegistry(nil)
+	old := agent.NewAgent(agent.Definition{ID: "leader"}, &agenttest.FakeLLM{}, nil)
+	fresh := agent.NewAgent(agent.Definition{ID: "leader"}, &agenttest.FakeLLM{}, nil, agent.WithSchedulingPending())
+	for _, a := range []*agent.Agent{old, fresh} {
+		if err := a.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if err := registry.Register(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		_ = old.Stop(time.Second)
+		_ = fresh.Stop(time.Second)
+	})
+	freshSupervisor := agent.NewSupervisor(fresh, nil, nil)
+	s := NewSession("pending-publish", "team", old, nil, nil, nil)
+	s.SetAgentRegistry(registry)
+	published := make(chan *agent.Supervisor, 1)
+	s.SetSupervisorPublisher(func(sv *agent.Supervisor) { published <- sv })
+	factoryStarted := make(chan struct{})
+	releaseFactory := make(chan struct{})
+	s.SetGenerationRebuilder(func(context.Context) (*agent.Agent, *agent.Supervisor, error) {
+		close(factoryStarted)
+		<-releaseFactory
+		return fresh, freshSupervisor, nil
+	})
+	rebuilt := make(chan error, 1)
+	go func() { rebuilt <- s.rebuildQuarantinedAgent(context.Background(), old) }()
+	<-factoryStarted
+	loc, ok := registry.Locate("leader")
+	if !ok || loc.(*agent.LocatableAdapter).Agent != old {
+		t.Fatal("pending replacement displaced the current schedulable generation")
+	}
+	select {
+	case <-published:
+		t.Fatal("fresh Supervisor published before Session generation swap")
+	default:
+	}
+	close(releaseFactory)
+	if err := <-rebuilt; err != nil {
+		t.Fatal(err)
+	}
+	loc, ok = registry.Locate("leader")
+	if !ok || loc.(*agent.LocatableAdapter).Agent != fresh {
+		t.Fatal("fresh generation was not the sole schedulable Agent after swap")
+	}
+	select {
+	case got := <-published:
+		if got != freshSupervisor {
+			t.Fatal("published wrong Supervisor")
+		}
+	default:
+		t.Fatal("fresh Supervisor was not published after Session generation swap")
+	}
+}
+
+func TestGenerationRebuildRejectedByConcurrentCloseCleansFreshDomain(t *testing.T) {
+	old := agent.NewAgent(agent.Definition{ID: "leader"}, &agenttest.FakeLLM{}, nil)
+	fresh := agent.NewAgent(agent.Definition{ID: "leader"}, &agenttest.FakeLLM{}, nil, agent.WithSchedulingPending())
+	if err := old.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = old.Stop(time.Second) })
+	if err := fresh.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	registry := agent.NewRegistry(nil)
+	if err := registry.Register(old); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register(fresh); err != nil {
+		t.Fatal(err)
+	}
+	s := NewSession("close-race", "team", old, nil, nil, nil)
+	s.SetAgentRegistry(registry)
+	freshSupervisor := agent.NewSupervisor(fresh, nil, nil)
+	removed := make(chan *agent.Supervisor, 1)
+	s.SetSupervisor(nil, func(sv *agent.Supervisor) { removed <- sv })
+	factoryStarted := make(chan struct{})
+	releaseFactory := make(chan struct{})
+	s.SetGenerationRebuilder(func(context.Context) (*agent.Agent, *agent.Supervisor, error) {
+		close(factoryStarted)
+		<-releaseFactory
+		return fresh, freshSupervisor, nil
+	})
+	rebuilt := make(chan error, 1)
+	go func() { rebuilt <- s.rebuildQuarantinedAgent(context.Background(), old) }()
+	<-factoryStarted
+	loc, ok := registry.Locate("leader")
+	if !ok || loc.(*agent.LocatableAdapter).Agent != old {
+		t.Fatal("pending replacement became locatable before close rejection")
+	}
+	closed := make(chan struct{})
+	go func() {
+		s.Close()
+		close(closed)
+	}()
+	for !s.closed.Load() {
+		time.Sleep(time.Millisecond)
+	}
+	close(releaseFactory)
+	if err := <-rebuilt; !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("rebuild error = %v, want ErrSessionClosed", err)
+	}
+	<-closed
+	if s.CurrentAgent() != old {
+		t.Fatal("fresh generation was published after Session.Close")
+	}
+	if _, ok := registry.Get(fresh.InstanceID); ok {
+		t.Fatal("rejected fresh generation leaked in AgentRegistry")
+	}
+	select {
+	case got := <-removed:
+		if got != freshSupervisor {
+			t.Fatal("removed wrong fresh supervisor")
+		}
+	default:
+		t.Fatal("rejected fresh supervisor leaked in runtime registry")
+	}
+	if fresh.State() != agent.StateStopped {
+		t.Fatalf("fresh agent state = %s, want stopped", fresh.State())
+	}
+}
+
+func TestRoutedModelSurvivesQuarantinedGenerationRebuild(t *testing.T) {
+	old := agent.NewAgent(agent.Definition{ID: "old", ModelID: "default"}, &agenttest.FakeLLM{}, nil)
+	if err := old.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	old.Quarantine(errors.New("stuck"))
+	var gotModel, gotProvider string
+	fresh := agent.NewAgent(agent.Definition{ID: "fresh", ModelID: "default"}, &agenttest.FakeLLM{
+		Responses: []string{"ok"},
+		Hook: func(req agent.LLMRequest) {
+			gotModel, gotProvider = req.Model, req.ProviderID
+		},
+	}, nil)
+	if err := fresh.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fresh.Stop(time.Second) })
+	s := NewSession("route-rebuild", "team", old, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.Router = func(context.Context, string, string, []ctxwin.PayloadMessage) (RouteResult, error) {
+		return RouteResult{Level: "engineering", ProviderID: "routed-provider", ModelID: "routed-model"}, nil
+	}
+	s.SetAgentRebuilder(func(context.Context) (*agent.Agent, error) { return fresh, nil })
+	stream, err := s.AskStream(context.Background(), "repair")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream {
+	}
+	if gotModel != "routed-model" || gotProvider != "routed-provider" {
+		t.Fatalf("rebuilt generation route = %q/%q, want routed-provider/routed-model", gotProvider, gotModel)
+	}
+}
+
+func TestGenerationRebuildReapsOldSupervisorDomain(t *testing.T) {
+	old := agent.NewAgent(agent.Definition{ID: "old"}, &agenttest.FakeLLM{}, nil)
+	child := agent.NewAgent(agent.Definition{ID: "child"}, &agenttest.FakeLLM{}, nil)
+	for _, a := range []*agent.Agent{old, child} {
+		if err := a.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldSupervisor := agent.NewSupervisor(old, nil, nil)
+	oldSupervisor.AdoptChild(child)
+	fresh := agent.NewAgent(agent.Definition{ID: "fresh"}, &agenttest.FakeLLM{}, nil)
+	if err := fresh.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	newSupervisor := agent.NewSupervisor(fresh, nil, nil)
+	s := NewSession("l2-generation", "team", old, nil, nil, nil)
+	removed := make(chan *agent.Supervisor, 1)
+	s.SetSupervisor(oldSupervisor, func(sv *agent.Supervisor) { removed <- sv })
+	s.SetGenerationRebuilder(func(context.Context) (*agent.Agent, *agent.Supervisor, error) {
+		return fresh, newSupervisor, nil
+	})
+	if err := s.rebuildQuarantinedAgent(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	if s.CurrentSupervisor() != newSupervisor {
+		t.Fatal("fresh Supervisor was not published with fresh Agent")
+	}
+	select {
+	case sv := <-removed:
+		if sv != oldSupervisor {
+			t.Fatal("removed wrong supervisor")
+		}
+	default:
+		t.Fatal("old supervisor was not removed from runtime ownership")
+	}
+	if child.State() != agent.StateStopped {
+		t.Fatalf("old L3 child state = %s, want stopped", child.State())
+	}
+	_ = fresh.Stop(time.Second)
+}
+
+func TestSession_AskOwnsWatchdogRoot(t *testing.T) {
+	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute})
+	defer watchdog.Close()
+	a := startAgent(t, &agenttest.FakeLLM{Responses: []string{"done"}, Delay: 50 * time.Millisecond})
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetRunWatch(watchdog)
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "sync-run"})
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Ask(ctx, "sync work")
+		done <- err
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, ok := watchdog.Snapshot("sync-run"); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Ask did not register watchdog root")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := watchdog.Snapshot("sync-run"); ok {
+		t.Fatal("Ask watchdog root survived completion")
+	}
+}
+
+func TestSessionAskStreamNilAgentReleasesWatchdogAndCancelOwnership(t *testing.T) {
+	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute})
+	defer watchdog.Close()
+	s := NewSession("nil-agent", "team", nil, ctxwin.NewContextWindow(8192, 1024, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetRunWatch(watchdog)
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "nil-agent-run"})
+	if _, err := s.AskStream(ctx, "hello"); err == nil {
+		t.Fatal("AskStream with no current Agent succeeded")
+	}
+	if _, ok := watchdog.Snapshot("nil-agent-run"); ok {
+		t.Fatal("nil-Agent setup failure leaked watchdog root")
+	}
+	if err := s.CancelRun("nil-agent-run", "late cancel"); !errors.Is(err, ErrNoActiveTask) {
+		t.Fatalf("CancelRun after setup failure = %v, want ErrNoActiveTask", err)
+	}
+}
+
+func TestSession_WatchdogCancellationEmitsTypedTerminalError(t *testing.T) {
+	clock := &sessionFakeClock{now: time.Unix(1_700_000_000, 0)}
+	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute}, runwatch.WithClock(clock))
+	defer watchdog.Close()
+	a := startAgent(t, &agenttest.FakeLLM{})
+	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetRunWatch(watchdog)
+	source := make(chan agent.AgentEvent)
+	s.askStreamHistory = func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error) {
+		return source, nil
+	}
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-stalled"})
+	stream, err := s.AskStream(ctx, "stalled task")
+	if err != nil {
+		t.Fatalf("AskStream() error = %v", err)
+	}
+	clock.Advance(2 * time.Minute)
+	watchdog.Scan()
+	for event := range stream {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok {
+			if got := runwatch.CodeOf(errorEvent.Err); got != runwatch.CodeRootOrphaned {
+				t.Fatalf("terminal code = %q, want %q", got, runwatch.CodeRootOrphaned)
+			}
+			return
+		}
+	}
+	t.Fatal("watchdog cancellation completed without a typed terminal error")
+}
+
+func TestSession_WatchdogEventProjectionDoesNotDuplicateConfirmationPause(t *testing.T) {
+	clock := &sessionFakeClock{now: time.Unix(1_700_000_000, 0)}
+	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute}, runwatch.WithClock(clock))
+	defer watchdog.Close()
+	_, root, err := watchdog.Start(context.Background(), runwatch.Metadata{RunID: "confirm-projection"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{}
+	s.applyWatchdogEvent(root, agent.ToolNeedsConfirmEvent{CallID: "call-1"})
+	snapshot, _ := watchdog.Snapshot("confirm-projection")
+	if snapshot.PausedReason != "" {
+		t.Fatalf("Session duplicated lower-layer confirmation pause: %q", snapshot.PausedReason)
+	}
+	clock.Advance(10 * time.Second)
+	s.applyWatchdogEvent(root, agent.ContentDeltaEvent{Delta: "progress"})
+	snapshot, _ = watchdog.Snapshot("confirm-projection")
+	if want := clock.Now(); !snapshot.LastProgressAt.Equal(want) {
+		t.Fatalf("LastProgressAt = %v, want event time %v", snapshot.LastProgressAt, want)
+	}
+}
+
 func TestSession_AskStream_DeadlineEmitsOneTerminalError(t *testing.T) {
 	fake := &agenttest.FakeLLM{
 		Responses: []string{"late response"},
@@ -778,6 +1403,70 @@ func TestSessionManager_Init(t *testing.T) {
 	}
 }
 
+func TestSessionRebuildsQuarantinedAgentGeneration(t *testing.T) {
+	old := agent.NewAgent(agent.Definition{ID: "old"}, &agenttest.FakeLLM{}, nil)
+	s := NewSession("s-rebuild", "team", old, nil, nil, nil)
+	registry := agent.NewRegistry(nil)
+	if err := registry.Register(old); err != nil {
+		t.Fatal(err)
+	}
+	s.SetAgentRegistry(registry)
+	fresh := agent.NewAgent(agent.Definition{ID: "fresh"}, &agenttest.FakeLLM{}, nil, agent.WithSchedulingPending())
+	if err := registry.Register(fresh); err != nil {
+		t.Fatal(err)
+	}
+	s.SetAgentRebuilder(func(context.Context) (*agent.Agent, error) { return fresh, nil })
+	if err := old.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	old.Quarantine(errors.New("stuck"))
+	if err := s.rebuildQuarantinedAgent(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s.CurrentAgent() != fresh {
+		t.Fatalf("session agent = %p, want fresh %p", s.CurrentAgent(), fresh)
+	}
+	if old.State() != agent.StateQuarantined {
+		t.Fatalf("old agent state = %s, want quarantined", old.State())
+	}
+	if registry.Len() != 1 {
+		t.Fatalf("registry generation count = %d, want only fresh", registry.Len())
+	}
+	if got, ok := registry.Get(fresh.InstanceID); !ok || got != fresh {
+		t.Fatal("registry did not retain fresh generation")
+	}
+	_ = fresh.Stop(time.Second)
+}
+
+func TestWatchdogTimerDoesNotQuarantineLaterAgentJob(t *testing.T) {
+	oldGrace := quarantineGraceNanos.Load()
+	quarantineGraceNanos.Store(int64(5 * time.Millisecond))
+	t.Cleanup(func() { quarantineGraceNanos.Store(oldGrace) })
+	fake := &agenttest.FakeLLM{Responses: []string{"first", "second"}, Delay: 50 * time.Millisecond}
+	a := startAgent(t, fake)
+	s := NewSession("s-watchdog-identity", "team", a, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	first, firstJob, err := a.AskStreamWithHistoryTracked(context.Background(), s.cw, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range first {
+	}
+	second, secondJob, err := a.AskStreamWithHistoryTracked(context.Background(), s.cw, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.quarantineAgentAfterWatchdog(&runwatch.Cause{Code: runwatch.CodeModelSemanticStalled}, a, firstJob)
+	time.Sleep(20 * time.Millisecond)
+	if a.State() == agent.StateQuarantined {
+		t.Fatal("watchdog timer quarantined a later request")
+	}
+	if !secondJob.Active() {
+		t.Fatal("second request was not active during quarantine check")
+	}
+	for range second {
+	}
+}
+
 func TestSessionManager_FactoryError(t *testing.T) {
 	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 		return nil, nil, nil, fmt.Errorf("factory kaboom")
@@ -815,6 +1504,39 @@ func TestSessionManager_Shutdown(t *testing.T) {
 	_, err = s.Ask(context.Background(), "hi")
 	if !errors.Is(err, ErrSessionClosed) {
 		t.Errorf("Ask after Shutdown err = %v, want ErrSessionClosed", err)
+	}
+}
+
+func TestSessionManagerConsecutiveRebuildsCloseOwnedResourcesExactlyOnce(t *testing.T) {
+	var sequence atomic.Int32
+	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		a := agent.NewAgent(agent.Definition{ID: fmt.Sprintf("agent-%d", sequence.Add(1))}, &agenttest.FakeLLM{}, nil)
+		if err := a.Start(ctx); err != nil {
+			return nil, nil, nil, err
+		}
+		return a, ctxwin.NewContextWindow(8192, 1024, 0, ctxwin.NewTokenizer()), nil, nil
+	}
+	mgr := NewSessionManager(factory, nil)
+	s, err := mgr.Init(context.Background(), "team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var closes atomic.Int32
+	s.resourceCloser = func() error {
+		closes.Add(1)
+		return nil
+	}
+	for range 2 {
+		old := s.CurrentAgent()
+		old.Quarantine(errors.New("stuck"))
+		if err := s.rebuildQuarantinedAgent(context.Background(), old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr.Shutdown(time.Second)
+	mgr.Shutdown(time.Second)
+	if got := closes.Load(); got != 1 {
+		t.Fatalf("Session-owned resource closes = %d, want 1", got)
 	}
 }
 

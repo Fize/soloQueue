@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,6 +54,23 @@ type Builder struct {
 	WorkDir    string
 	Cfg        *config.GlobalService
 	ConsoleLog bool
+
+	l1LoggerMu sync.Mutex
+	l1Logger   *logger.Logger
+}
+
+func (b *Builder) l1SessionLogger() (*logger.Logger, error) {
+	b.l1LoggerMu.Lock()
+	defer b.l1LoggerMu.Unlock()
+	if b.l1Logger != nil {
+		return b.l1Logger, nil
+	}
+	l, err := b.newSessionLogger()
+	if err != nil {
+		return nil, err
+	}
+	b.l1Logger = l
+	return l, nil
 }
 
 // NewBuilder creates a Builder instance.
@@ -124,7 +142,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	if effectiveTeam == "" {
 		effectiveTeam = "default"
 	}
-	sessLog, err := b.newSessionLogger()
+	sessLog, err := b.l1SessionLogger()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 	}
@@ -149,9 +167,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		AgentFactory: b.RT.AgentFactory,
 		Logger:       sessLog,
 		OnWorkerCreated: func(ctx context.Context, name, group string, ag *agent.Agent, tmpl agent.AgentTemplate) {
-			b.RT.CfgMu.RLock()
-			supervisors := b.RT.Supervisors
-			b.RT.CfgMu.RUnlock()
+			supervisors := b.RT.SupervisorsSnapshot()
 			for _, sv := range supervisors {
 				if sv.Group() == group {
 					sv.AdoptChild(ag)
@@ -339,7 +355,8 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		}), true, nil
 	}
 
-	dt := tools.NewDelegateTool("L1", 30*time.Minute, delegateResolver, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited, tools.WithAlwaysAsyncDelegation())
+	dt := tools.NewDelegateTool("L1", 0, delegateResolver, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited,
+		tools.WithAlwaysAsyncDelegation())
 	dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if s, ok := b.RT.SkillRegistry.GetSkill(skillID); ok {
 			return s.Instructions, s.Agent, s.Dir, true
@@ -363,6 +380,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		agent.WithSkills(skillList...),
 		agent.WithParallelTools(true),
 		agent.WithPriorityMailbox(),
+		agent.WithSchedulingPending(),
 		agent.WithToolTimeout("Glob", 30*time.Second),
 		agent.WithToolTimeout("Grep", 30*time.Second),
 		agent.WithToolTimeout("Read", 30*time.Second),
@@ -373,7 +391,16 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		agent.WithToolTimeout("WebFetch", 10*time.Minute),
 		agent.WithToolTimeout("WebSearch", 10*time.Minute),
 	)
-	b.RT.AgentRegistry.Register(a)
+	if err := b.RT.AgentRegistry.Register(a); err != nil {
+		return nil, nil, nil, fmt.Errorf("register L1 agent: %w", err)
+	}
+	registeredInstanceID := a.InstanceID
+	ownsRegistryEntry := true
+	defer func() {
+		if ownsRegistryEntry {
+			b.RT.AgentRegistry.Unregister(registeredInstanceID)
+		}
+	}()
 
 	// Set the OnLeaderCreated hook after agent construction so the closure
 	// can reference 'a'. The hook fires when a leader agent file is written
@@ -394,14 +421,12 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		// If a supervisor for this leader template already exists, reap the
 		// old leader (stop + unregister) before creating the new one.
 		var oldSV *agent.Supervisor
-		b.RT.CfgMu.RLock()
-		for _, sv := range b.RT.Supervisors {
+		for _, sv := range b.RT.SupervisorsSnapshot() {
 			if sv.Agent() != nil && strings.EqualFold(sv.Agent().Def.ID, name) {
 				oldSV = sv
 				break
 			}
 		}
-		b.RT.CfgMu.RUnlock()
 		if oldSV != nil {
 			cleanupSupervisor(oldSV)
 			sessLog.Info(logger.CatActor, "auto-reload: reaped old leader",
@@ -622,6 +647,9 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		tl.Close()
 		return nil, nil, nil, err
 	}
+	// A successful return transfers lifecycle ownership to Session.
+	// Until then Builder must roll back the exact pending generation it registered.
+	ownsRegistryEntry = false
 	return a, cw, tl, nil
 }
 
@@ -634,7 +662,7 @@ func memoryScopeForL1(workDir string) (string, string) {
 }
 
 func (b *Builder) ReconcileL1TeamCatalog(sess *Session, systemPrompt string) error {
-	if sess == nil || sess.Agent == nil {
+	if sess == nil || sess.CurrentAgent() == nil {
 		return nil
 	}
 	if !sess.Idle() {
@@ -835,6 +863,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	if leaderTmpl == nil {
 		return nil, fmt.Errorf("no leader template found for group %q", group)
 	}
+	leaderTemplate := *leaderTmpl
 
 	sessLog, err := b.newSessionLogger()
 	if err != nil {
@@ -848,20 +877,26 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	if agentWorkDir == "" {
 		agentWorkDir = b.WorkDir
 	}
-	childAgent, _, err := b.RT.AgentFactory.Create(ctx, *leaderTmpl, agentWorkDir)
-	if err != nil {
-		return nil, fmt.Errorf("create L2 agent for group %q: %w", group, err)
+	createGeneration := func(createCtx context.Context) (*agent.Agent, *agent.Supervisor, error) {
+		child, _, createErr := b.RT.AgentFactory.CreateWithOptions(createCtx, leaderTemplate, agentWorkDir, agent.CreateOptions{
+			MemoryPolicy:      agent.MemoryL2Group,
+			SchedulingPending: true,
+		})
+		if createErr != nil {
+			return nil, nil, fmt.Errorf("create L2 agent for group %q: %w", group, createErr)
+		}
+		supervisor := agent.NewSupervisor(child, b.RT.AgentFactory, sessLog)
+		supervisor.WireSpawnFns(b.RT.AllTemplates)
+		supervisor.SetGroup(group)
+		if registerErr := child.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(supervisor))); registerErr != nil {
+			sessLog.Warn(logger.CatActor, "register inspect_agent for L2 failed",
+				"name", leaderTemplate.ID, "err", registerErr.Error())
+		}
+		return child, supervisor, nil
 	}
-
-	// Create a Supervisor to track L3 children spawned by this L2 session.
-	sv := agent.NewSupervisor(childAgent, b.RT.AgentFactory, sessLog)
-	sv.WireSpawnFns(b.RT.AllTemplates)
-	sv.SetGroup(group)
-
-	// Register supervisor-scoped inspect_agent for this L2.
-	if err := childAgent.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
-		sessLog.Warn(logger.CatActor, "register inspect_agent for L2 failed",
-			"name", leaderTmpl.ID, "err", err.Error())
+	childAgent, sv, err := createGeneration(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Timeline writer.
@@ -870,6 +905,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	if err != nil {
 		_ = childAgent.Stop(5 * time.Second)
 		b.RT.AgentRegistry.Unregister(childAgent.InstanceID)
+		b.RT.RemoveSupervisor(sv)
 		return nil, fmt.Errorf("build L2 timeline writer: %w", err)
 	}
 
@@ -977,13 +1013,15 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	}
 	cw.SetReplayMode(false)
 
-	// Register the supervisor in the runtime (agent already registered by factory).
-	b.RT.AddSupervisor(sv)
-
 	// Build the Session.
 	sessLogger := sessLog.Child()
 	s := NewSession(sessionID, group, childAgent, cw, tl, sessLogger)
-	s.Supervisor = sv
+	s.SetRunWatch(b.RT.RunWatch)
+	s.SetAgentRegistry(b.RT.AgentRegistry)
+	s.SetSupervisor(sv, b.RT.RemoveSupervisor)
+	s.SetSupervisorPublisher(b.RT.AddSupervisor)
+	s.SetGenerationRebuilder(createGeneration)
+	s.PublishInitialGeneration()
 	// Enable auto-compression for idle L2 sessions (same thresholds as L1).
 	s.idleTimeout = 30 * time.Minute
 	s.compactThreshold = 200000
@@ -1056,21 +1094,27 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	// normal interactive team sessions retain the template pin.
 	cronTmpl := *leaderTmpl
 	cronTmpl.ModelID = ""
-	ctx = iface.ContextWithCronExecution(ctx)
-	childAgent, _, err := b.RT.AgentFactory.Create(ctx, cronTmpl, b.WorkDir)
-	if err != nil {
-		return nil, fmt.Errorf("create L2 agent for cron group %q: %w", group, err)
+	createGeneration := func(createCtx context.Context) (*agent.Agent, *agent.Supervisor, error) {
+		createCtx = iface.ContextWithCronExecution(createCtx)
+		child, _, createErr := b.RT.AgentFactory.CreateWithOptions(createCtx, cronTmpl, b.WorkDir, agent.CreateOptions{
+			MemoryPolicy:      agent.MemoryL2Group,
+			SchedulingPending: true,
+		})
+		if createErr != nil {
+			return nil, nil, fmt.Errorf("create L2 agent for cron group %q: %w", group, createErr)
+		}
+		supervisor := agent.NewSupervisor(child, b.RT.AgentFactory, sessLog)
+		supervisor.WireSpawnFns(b.RT.AllTemplates)
+		supervisor.SetGroup(group)
+		if registerErr := child.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(supervisor))); registerErr != nil {
+			sessLog.Warn(logger.CatActor, "register inspect_agent for cron L2 failed",
+				"name", leaderTmpl.ID, "err", registerErr.Error())
+		}
+		return child, supervisor, nil
 	}
-
-	// Create a Supervisor to track L3 children spawned by this L2 session.
-	sv := agent.NewSupervisor(childAgent, b.RT.AgentFactory, sessLog)
-	sv.WireSpawnFns(b.RT.AllTemplates)
-	sv.SetGroup(group)
-
-	// Register supervisor-scoped inspect_agent.
-	if err := childAgent.RegisterTool(tools.NewInspectAgentTool(agent.SupervisorInspectQuery(sv))); err != nil {
-		sessLog.Warn(logger.CatActor, "register inspect_agent for cron L2 failed",
-			"name", leaderTmpl.ID, "err", err.Error())
+	childAgent, sv, err := createGeneration(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Timeline writer — use the caller-supplied cronLogDir.
@@ -1160,7 +1204,11 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	// registration, no memory hooks. Cron sessions are short-lived.
 	sessLogger := sessLog.Child()
 	s := NewSession(sessionID, group, childAgent, cw, tl, sessLogger)
-	s.Supervisor = sv
+	s.SetRunWatch(b.RT.RunWatch)
+	s.SetAgentRegistry(b.RT.AgentRegistry)
+	s.SetSupervisor(sv, b.RT.RemoveSupervisor)
+	s.SetGenerationRebuilder(createGeneration)
+	s.PublishInitialGeneration()
 
 	sessLog.Info(logger.CatActor, "BuildL2ForCron: session created",
 		"target_id", sessionID,

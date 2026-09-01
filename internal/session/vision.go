@@ -8,7 +8,9 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	llmsupervised "github.com/xiaobaitu/soloqueue/internal/llm/supervised"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // VisionDescriberFunc transcribes visual information in images into natural language text
@@ -60,7 +62,7 @@ Your duty is not to generate a concise summary, but to preserve as much visual i
 Output the image description directly without any preamble, explanation, or postscript.`
 
 // BuildVisionDescriber creates a VisionDescriberFunc from the global service configuration.
-func BuildVisionDescriber(cfg *config.GlobalService, log *logger.Logger) VisionDescriberFunc {
+func BuildVisionDescriber(cfg *config.GlobalService, log *logger.Logger, managers ...*runwatch.Manager) VisionDescriberFunc {
 	return func(ctx context.Context, images []llm.ImageContent) (string, error) {
 		if cfg == nil || len(images) == 0 {
 			return "", nil
@@ -76,6 +78,9 @@ func BuildVisionDescriber(cfg *config.GlobalService, log *logger.Logger) VisionD
 		client, err := runtime.BuildLLMClient(prov, log)
 		if err != nil {
 			return "", fmt.Errorf("build vision llm client: %w", err)
+		}
+		if len(managers) > 0 && managers[0] != nil {
+			client = llmsupervised.New(client, managers[0])
 		}
 
 		apiModel := model.APIModel
