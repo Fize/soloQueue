@@ -22,6 +22,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // Session defines the interface required by the Scheduler to trigger tasks.
@@ -93,13 +94,25 @@ type modelRoutedSession interface {
 	AskStreamWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
 }
 
+type sessionBusyErrorClassifier interface {
+	IsSessionBusyError(error) bool
+}
+
+func isSessionBusyError(sess Session, err error) bool {
+	classifier, ok := sess.(sessionBusyErrorClassifier)
+	return ok && classifier.IsSessionBusyError(err)
+}
+
 var errTaskModelResolution = errors.New("scheduled task model resolution failed")
 
 // cronTask wraps a Task with its execution metadata.
 type cronTask struct {
-	task     Task
-	enqueued time.Time
+	task       Task
+	enqueued   time.Time
+	generation uint64
 }
+
+const oneTimeClaimRetryDelay = 250 * time.Millisecond
 
 // CronStartCallback is called when a cron task execution begins.
 type CronStartCallback func(taskID, taskTitle string)
@@ -125,11 +138,13 @@ type Scheduler struct {
 	l1Mu    sync.Mutex
 	l1Cond  *sync.Cond
 
-	mu          sync.Mutex
-	entries     map[string]robfig.EntryID
-	timers      map[string]*time.Timer
-	oneTimeRuns map[string]string
-	stopped     bool
+	mu                    sync.Mutex
+	entries               map[string]robfig.EntryID
+	timers                map[string]*time.Timer
+	oneTimeRuns           map[string]string
+	oneTimeGenerations    map[string]uint64
+	nextOneTimeGeneration uint64
+	stopped               bool
 
 	// OnTaskStart is called when a cron task begins execution.
 	// Set from the server layer to integrate with WebSocket notifications.
@@ -169,10 +184,11 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 			)),
 			robfig.WithChain(robfig.SkipIfStillRunning(robfig.DiscardLogger)),
 		),
-		entries:     make(map[string]robfig.EntryID),
-		timers:      make(map[string]*time.Timer),
-		oneTimeRuns: make(map[string]string),
-		retryDelay:  10 * time.Second,
+		entries:            make(map[string]robfig.EntryID),
+		timers:             make(map[string]*time.Timer),
+		oneTimeRuns:        make(map[string]string),
+		oneTimeGenerations: make(map[string]uint64),
+		retryDelay:         10 * time.Second,
 	}
 	s.l1Cond = sync.NewCond(&s.l1Mu)
 	return s
@@ -234,23 +250,22 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) Schedule(t Task) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.stopped {
+		return
+	}
 
 	s.unscheduleLocked(t.ID)
+	generation := s.advanceOneTimeGenerationLocked(t.ID)
+	delete(s.oneTimeRuns, t.ID)
 
 	if t.IsOneTime() {
 		delay := time.Until(t.NextRunAt)
 		if delay <= 0 {
-			go s.executeTask(t)
+			go s.executeTaskGeneration(t, generation)
 			return
 		}
 
-		timer := time.AfterFunc(delay, func() {
-			s.executeTask(t)
-			s.mu.Lock()
-			delete(s.timers, t.ID)
-			s.mu.Unlock()
-		})
-		s.timers[t.ID] = timer
+		s.armOneTimeTimerLocked(t, delay, generation)
 		s.logger.Info(logger.CatApp, "cron: scheduled one-time task", "task_id", t.ID, "run_at", t.NextRunAt.Format("2006-01-02 15:04:05"))
 	} else {
 		entryID, err := s.cron.AddFunc(t.Expression, func() {
@@ -265,11 +280,61 @@ func (s *Scheduler) Schedule(t Task) {
 	}
 }
 
+// armOneTimeTimerLocked replaces the timer for a one-time task. The callback
+// only removes its own generation, so a claim-error retry armed from inside a
+// firing callback cannot be erased by that older callback's cleanup.
+func (s *Scheduler) armOneTimeTimerLocked(t Task, delay time.Duration, generation uint64) {
+	var timer *time.Timer
+	timer = time.AfterFunc(delay, func() {
+		s.executeTaskGeneration(t, generation)
+		s.mu.Lock()
+		if s.oneTimeGenerations[t.ID] == generation && s.timers[t.ID] == timer {
+			delete(s.timers, t.ID)
+		}
+		s.mu.Unlock()
+	})
+	s.timers[t.ID] = timer
+}
+
 // Unschedule dynamically removes a task by ID.
 func (s *Scheduler) Unschedule(taskID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.advanceOneTimeGenerationLocked(taskID)
+	delete(s.oneTimeRuns, taskID)
 	s.unscheduleLocked(taskID)
+}
+
+func (s *Scheduler) advanceOneTimeGenerationLocked(taskID string) uint64 {
+	s.nextOneTimeGeneration++
+	if s.nextOneTimeGeneration == 0 {
+		s.nextOneTimeGeneration++
+	}
+	generation := s.nextOneTimeGeneration
+	s.oneTimeGenerations[taskID] = generation
+	return generation
+}
+
+func (s *Scheduler) oneTimeGeneration(t Task) uint64 {
+	if !t.IsOneTime() {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	generation := s.oneTimeGenerations[t.ID]
+	if generation == 0 {
+		generation = s.advanceOneTimeGenerationLocked(t.ID)
+	}
+	return generation
+}
+
+func (s *Scheduler) isCurrentOneTimeGeneration(t Task, generation uint64) bool {
+	if !t.IsOneTime() {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.oneTimeGenerations[t.ID] == generation
 }
 
 func (s *Scheduler) unscheduleLocked(taskID string) {
@@ -295,7 +360,11 @@ func isL1Target(task Task) bool {
 // executeTask is the entry point for all task executions.
 // It dispatches to the appropriate execution path based on TargetAgent.
 func (s *Scheduler) executeTask(t Task) {
-	if !s.claimOneTimeRun(t) {
+	s.executeTaskGeneration(t, s.oneTimeGeneration(t))
+}
+
+func (s *Scheduler) executeTaskGeneration(t Task, generation uint64) {
+	if !s.claimOneTimeRunGeneration(t, generation) {
 		s.logger.Info(logger.CatApp, "cron: duplicate one-time task trigger skipped", "task_id", t.ID)
 		return
 	}
@@ -303,21 +372,28 @@ func (s *Scheduler) executeTask(t Task) {
 		"instruction", t.Instruction, "target_agent", t.TargetAgent)
 
 	if isL1Target(t) {
-		s.executeL1Task(t)
+		s.executeL1TaskGeneration(t, generation)
 	} else {
-		s.executeL2Task(t)
+		s.executeL2TaskGeneration(t, generation)
 	}
 }
 
 // claimOneTimeRun makes a one-time task idempotent for a specific scheduled
 // instant. Updating the same task to a different instant permits a new run.
 func (s *Scheduler) claimOneTimeRun(t Task) bool {
+	return s.claimOneTimeRunGeneration(t, s.oneTimeGeneration(t))
+}
+
+func (s *Scheduler) claimOneTimeRunGeneration(t Task, generation uint64) bool {
 	if !t.IsOneTime() {
 		return true
 	}
 	key := t.NextRunAt.UTC().Format(time.RFC3339Nano)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.oneTimeGenerations[t.ID] != generation {
+		return false
+	}
 	if s.oneTimeRuns[t.ID] == key {
 		return false
 	}
@@ -325,9 +401,40 @@ func (s *Scheduler) claimOneTimeRun(t Task) bool {
 	return true
 }
 
+// retryOneTimeClaim rolls back only the provisional in-memory claim for this
+// scheduled instant. A database error means ownership was not established;
+// unlike claimed=false, it must remain retryable without permitting concurrent
+// triggers for the same instant to execute twice.
+func (s *Scheduler) retryOneTimeClaim(t Task, generation uint64) {
+	if !t.IsOneTime() {
+		return
+	}
+	key := t.NextRunAt.UTC().Format(time.RFC3339Nano)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.oneTimeGenerations[t.ID] != generation || s.oneTimeRuns[t.ID] != key {
+		return
+	}
+	delete(s.oneTimeRuns, t.ID)
+	if s.stopped {
+		return
+	}
+	if timer := s.timers[t.ID]; timer != nil {
+		timer.Stop()
+	}
+	s.armOneTimeTimerLocked(t, oneTimeClaimRetryDelay, generation)
+}
+
 // executeL1Task handles tasks targeting L1. If L1 is busy, the task is queued
 // and executed later by l1QueueLoop.
 func (s *Scheduler) executeL1Task(t Task) {
+	s.executeL1TaskGeneration(t, s.oneTimeGeneration(t))
+}
+
+func (s *Scheduler) executeL1TaskGeneration(t Task, generation uint64) {
+	if !s.isCurrentOneTimeGeneration(t, generation) {
+		return
+	}
 	ctx := context.Background()
 	start := time.Now()
 	panicRunID := uuid.New().String()
@@ -337,17 +444,21 @@ func (s *Scheduler) executeL1Task(t Task) {
 	claimed, err := s.dbStore.ClaimTask(ctx, t.ID)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: failed to claim L1 task", "task_id", t.ID, "err", err)
+		s.retryOneTimeClaim(t, generation)
 		return
 	}
 	if !claimed {
 		s.logger.Debug(logger.CatApp, "cron: L1 task already claimed by another instance, skipping", "task_id", t.ID)
 		return
 	}
+	if !s.isCurrentOneTimeGeneration(t, generation) {
+		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+		return
+	}
 
-	// Panic recovery: catch panic, log, record history, return to 'active' for retry.
+	// Panic recovery: catch panic, log, record the failed execution, and finalize its task state.
 	defer func() {
 		if panicValue := recover(); panicValue != nil {
-			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 			s.handleCronPanic(ctx, t, start, panicRunID, ResolvedModel{}, l1Session, false, panicValue)
 		}
 	}()
@@ -362,15 +473,19 @@ func (s *Scheduler) executeL1Task(t Task) {
 	if !l1Session.Idle() {
 		// L1 is busy with user conversation — queue the task for later.
 		s.logger.Info(logger.CatApp, "cron: L1 busy, queuing L1 task", "task_id", t.ID)
-		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active") // release claim
-		s.l1Mu.Lock()
-		s.l1Queue = append(s.l1Queue, cronTask{task: t, enqueued: time.Now()})
-		s.l1Mu.Unlock()
-		s.l1Cond.Signal()
+		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active") // return claim
+		s.enqueueL1Task(t, generation)
 		return
 	}
 
-	s.runL1Task(ctx, t, l1Session)
+	s.runL1TaskWithGeneration(ctx, t, l1Session, panicRunID, generation)
+}
+
+func (s *Scheduler) enqueueL1Task(t Task, generation uint64) {
+	s.l1Mu.Lock()
+	s.l1Queue = append(s.l1Queue, cronTask{task: t, enqueued: time.Now(), generation: generation})
+	s.l1Mu.Unlock()
+	s.l1Cond.Signal()
 }
 
 // notifyTaskStarted is a helper that calls OnTaskStart if set.
@@ -406,7 +521,10 @@ func (s *Scheduler) handleCronPanic(ctx context.Context, t Task, start time.Time
 	result := drainEventsResult{diagnosticError: diagnosticCronError("execution_panicked", rawErr)}
 	result.timelineDir = s.writeCronDiagnosticTimeline(t, runID, "execution_panicked", rawErr.Error())
 	applyCronResult(&result, failedCronResult(t, runID, "execution_panicked", time.Now()))
-	s.recordExecution(ctx, t, resolved, start, result, result.diagnosticError, result.canonical.Status)
+	if err := s.finishExecution(ctx, t, runID, resolved, start, result, result.diagnosticError, result.canonical.Status, "active"); err != nil {
+		s.logger.Warn(logger.CatApp, "cron: panic terminal persistence rejected", "task_id", t.ID, "run_id", runID, "err", err)
+		return
+	}
 	s.notifyTaskComplete(t, false, firstLineSummary(result.replyText))
 	if sess == nil {
 		return
@@ -477,49 +595,78 @@ const continuationPrompt = "[SYSTEM NOTICE] The previous streaming response was 
 
 // runL1Task executes a single L1 task on the given session.
 func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
+	generation := s.oneTimeGeneration(t)
+	runID := uuid.New().String()
+	claimed, err := s.dbStore.ClaimTask(ctx, t.ID)
+	if err != nil || !claimed {
+		if err != nil {
+			s.logger.Warn(logger.CatApp, "cron: direct L1 task claim failed", "task_id", t.ID, "err", err)
+		}
+		return
+	}
+	s.runL1TaskWithGeneration(ctx, t, l1Session, runID, generation)
+}
+
+func (s *Scheduler) runL1TaskWithID(ctx context.Context, t Task, l1Session Session, execID string) {
+	s.runL1TaskWithGeneration(ctx, t, l1Session, execID, s.oneTimeGeneration(t))
+}
+
+func (s *Scheduler) runL1TaskWithGeneration(ctx context.Context, t Task, l1Session Session, execID string, generation uint64) {
 	start := time.Now()
-	execID := uuid.New().String()
 	var resolved ResolvedModel
 	defer func() {
 		if panicValue := recover(); panicValue != nil {
-			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 			s.handleCronPanic(ctx, t, start, execID, resolved, l1Session, false, panicValue)
 		}
 	}()
 
-	s.notifyTaskStarted(t)
-
-	cronCtx := s.buildCronContext(t, execID)
+	cronCtx := s.buildCronContext(ctx, t, execID)
 
 	var ch <-chan iface.AgentEvent
 	var err error
 	resolved, ch, err = s.askWithTaskModel(cronCtx, t, l1Session)
 	if err != nil {
-		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
-		if errors.Is(err, errTaskModelResolution) {
-			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "failed")
-		} else {
-			s.updateTaskAfterExecution(ctx, t)
+		if isSessionBusyError(l1Session, err) {
+			// Idle() is advisory. A foreground request may win the Session CAS
+			// before AskIsolated. This is contention, not an execution attempt:
+			// Return the claim and requeue unchanged; contention is not an execution failure.
+			if releaseErr := s.dbStore.UpdateTaskStatus(context.Background(), t.ID, "active"); releaseErr != nil {
+				s.logger.Warn(logger.CatApp, "cron: failed to return contended L1 claim", "task_id", t.ID, "run_id", execID, "err", releaseErr)
+				return
+			}
+			s.enqueueL1Task(t, generation)
+			return
 		}
+		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
 		failureResult := drainEventsResult{}
 		applyCronResult(&failureResult, failedCronResult(t, execID, "execution_start_failed", time.Now()))
 		failureResult.diagnosticError = diagnosticCronError("execution_start_failed", err)
 		failureResult.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
-		s.recordExecution(ctx, t, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status)
+		taskStatus := taskStatusAfterExecution(t)
+		if errors.Is(err, errTaskModelResolution) {
+			taskStatus = "failed"
+		}
+		if persistErr := s.finishExecution(ctx, t, execID, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status, taskStatus); persistErr != nil {
+			s.logger.Warn(logger.CatApp, "cron: L1 start failure terminal persistence rejected", "task_id", t.ID, "run_id", execID, "err", persistErr)
+			return
+		}
 		s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
 		if sendErr := l1Session.SendViaChannel(ctx, failureResult.replyText); sendErr != nil {
 			s.logger.Warn(logger.CatApp, "cron: L1 failure notification failed", "task_id", t.ID, "err", sendErr)
 		}
 		return
 	}
+	s.notifyTaskStarted(t)
 
 	result, drainErr := s.drainEventsWithTimeline(ch, t, execID)
 
 	// ── 1-time 10s Retry Logic ──
-	if drainErr != nil {
+	if drainErr != nil && canAutomaticallyRetry(result) {
 		s.logger.Warn(logger.CatApp, "cron: L1 task drain error, preparing 10s retry",
 			"task_id", t.ID, "tool_calls", result.toolCallCount, "err", drainErr)
-		time.Sleep(s.retryDelay)
+		if !waitContext(ctx, s.retryDelay) {
+			return
+		}
 
 		var retrySess Session
 		var retryPrompt string
@@ -540,10 +687,14 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 		}
 
 		retryExecID := uuid.New().String() + "-retry"
-		retryCtx := s.buildCronContext(t, retryExecID)
-		retryResolved, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
-		resolved = retryResolved
+		var retryCtx context.Context
+		var retryResolved ResolvedModel
+		var retryCh <-chan iface.AgentEvent
+		var retryStartErr error
 		execID = retryExecID
+		retryCtx = s.buildCronContext(ctx, t, retryExecID)
+		retryResolved, retryCh, retryStartErr = s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		resolved = retryResolved
 		if retryStartErr == nil {
 			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, retryExecID)
 			result = retryResult
@@ -567,12 +718,16 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 
 	// Record execution history.
 	if drainErr != nil {
-		applyCronResult(&result, failedCronResult(t, execID, "execution_failed", time.Now()))
-		result.diagnosticError = diagnosticCronError("execution_failed", drainErr)
+		failureCode := cronExecutionFailureCode(drainErr)
+		applyCronResult(&result, failedCronResult(t, execID, failureCode, time.Now()))
+		result.diagnosticError = diagnosticCronError(failureCode, drainErr)
 	}
 	status := result.canonical.Status
 	errMsg := result.diagnosticError
-	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
+	if persistErr := s.finishExecution(ctx, t, execID, resolved, start, result, errMsg, status, taskStatusAfterExecution(t)); persistErr != nil {
+		s.logger.Warn(logger.CatApp, "cron: L1 terminal persistence rejected", "task_id", t.ID, "run_id", execID, "err", persistErr)
+		return
+	}
 	s.notifyTaskComplete(t, status == "success", firstLineSummary(result.replyText))
 
 	// Deliver result through the session's bound channel (QQ/WeChat).
@@ -591,12 +746,18 @@ func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
 		s.logger.Error(logger.CatApp, "cron: L1 task drain error", "task_id", t.ID, "err", drainErr)
 	}
 
-	s.updateTaskAfterExecution(ctx, t)
 }
 
 // executeL2Task handles tasks targeting an L2 team. Creates a temporary
 // L2 session, executes the task, and queues the result for L1 delivery.
 func (s *Scheduler) executeL2Task(t Task) {
+	s.executeL2TaskGeneration(t, s.oneTimeGeneration(t))
+}
+
+func (s *Scheduler) executeL2TaskGeneration(t Task, generation uint64) {
+	if !s.isCurrentOneTimeGeneration(t, generation) {
+		return
+	}
 	ctx := context.Background()
 	start := time.Now()
 	execID := uuid.New().String()
@@ -607,17 +768,20 @@ func (s *Scheduler) executeL2Task(t Task) {
 	claimed, err := s.dbStore.ClaimTask(ctx, t.ID)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: failed to claim L2 task", "task_id", t.ID, "err", err)
+		s.retryOneTimeClaim(t, generation)
 		return
 	}
 	if !claimed {
 		s.logger.Debug(logger.CatApp, "cron: L2 task already claimed, skipping", "task_id", t.ID)
 		return
 	}
-
+	if !s.isCurrentOneTimeGeneration(t, generation) {
+		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+		return
+	}
 	// Panic recovery.
 	defer func() {
 		if panicValue := recover(); panicValue != nil {
-			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
 			s.handleCronPanic(ctx, t, start, execID, resolved, l2Session, true, panicValue)
 		}
 	}()
@@ -643,21 +807,23 @@ func (s *Scheduler) executeL2Task(t Task) {
 
 	s.notifyTaskStarted(t)
 
-	cronCtx := s.buildCronContext(t, execID)
+	cronCtx := s.buildCronContext(ctx, t, execID)
 	var ch <-chan iface.AgentEvent
 	resolved, ch, err = s.askWithTaskModel(cronCtx, t, l2Session)
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L2 task execution failed to start", "task_id", t.ID, "err", err)
-		if errors.Is(err, errTaskModelResolution) {
-			_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "failed")
-		} else {
-			s.updateTaskAfterExecution(ctx, t)
-		}
 		failureResult := drainEventsResult{}
 		applyCronResult(&failureResult, failedCronResult(t, execID, "execution_start_failed", time.Now()))
 		failureResult.diagnosticError = diagnosticCronError("execution_start_failed", err)
 		failureResult.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
-		s.recordExecution(ctx, t, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status)
+		taskStatus := taskStatusAfterExecution(t)
+		if errors.Is(err, errTaskModelResolution) {
+			taskStatus = "failed"
+		}
+		if persistErr := s.finishExecution(ctx, t, execID, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status, taskStatus); persistErr != nil {
+			s.logger.Warn(logger.CatApp, "cron: L2 start failure terminal persistence rejected", "task_id", t.ID, "run_id", execID, "err", persistErr)
+			return
+		}
 		s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
 		s.deliverL2ResultViaChannel(ctx, t, l2Session, failureResult.replyText)
 		return
@@ -666,10 +832,12 @@ func (s *Scheduler) executeL2Task(t Task) {
 	result, drainErr := s.drainEventsWithTimeline(ch, t, execID)
 
 	// ── 1-time 10s Retry Logic ──
-	if drainErr != nil {
+	if drainErr != nil && canAutomaticallyRetry(result) {
 		s.logger.Warn(logger.CatApp, "cron: L2 task drain error, preparing 10s retry",
 			"task_id", t.ID, "tool_calls", result.toolCallCount, "err", drainErr)
-		time.Sleep(s.retryDelay)
+		if !waitContext(ctx, s.retryDelay) {
+			return
+		}
 
 		var retrySess Session
 		var retryPrompt string
@@ -696,10 +864,14 @@ func (s *Scheduler) executeL2Task(t Task) {
 		}
 
 		retryExecID := uuid.New().String() + "-retry"
-		retryCtx := s.buildCronContext(t, retryExecID)
-		retryResolved, retryCh, retryStartErr := s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
-		resolved = retryResolved
+		var retryCtx context.Context
+		var retryResolved ResolvedModel
+		var retryCh <-chan iface.AgentEvent
+		var retryStartErr error
 		execID = retryExecID
+		retryCtx = s.buildCronContext(ctx, t, retryExecID)
+		retryResolved, retryCh, retryStartErr = s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		resolved = retryResolved
 		if retryStartErr == nil {
 			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, retryExecID)
 			result = retryResult
@@ -724,12 +896,16 @@ func (s *Scheduler) executeL2Task(t Task) {
 
 	// Record execution history.
 	if drainErr != nil {
-		applyCronResult(&result, failedCronResult(t, execID, "execution_failed", time.Now()))
-		result.diagnosticError = diagnosticCronError("execution_failed", drainErr)
+		failureCode := cronExecutionFailureCode(drainErr)
+		applyCronResult(&result, failedCronResult(t, execID, failureCode, time.Now()))
+		result.diagnosticError = diagnosticCronError(failureCode, drainErr)
 	}
 	status := result.canonical.Status
 	errMsg := result.diagnosticError
-	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
+	if persistErr := s.finishExecution(ctx, t, execID, resolved, start, result, errMsg, status, taskStatusAfterExecution(t)); persistErr != nil {
+		s.logger.Warn(logger.CatApp, "cron: L2 terminal persistence rejected", "task_id", t.ID, "run_id", execID, "err", persistErr)
+		return
+	}
 	s.notifyTaskComplete(t, status == "success", firstLineSummary(result.replyText))
 
 	// Deliver through L2's bound channel. If L2 has no configured notification
@@ -748,7 +924,6 @@ func (s *Scheduler) executeL2Task(t Task) {
 		s.logger.Error(logger.CatApp, "cron: L2 task drain error", "task_id", t.ID, "err", drainErr)
 	}
 
-	s.updateTaskAfterExecution(ctx, t)
 }
 
 func (s *Scheduler) deliverL2ResultViaChannel(ctx context.Context, t Task, l2Session Session, replyText string) {
@@ -806,8 +981,8 @@ func (s *Scheduler) buildTaskPrompt(t Task) string {
 }
 
 // buildCronContext creates a context with bypass-confirm flag.
-func (s *Scheduler) buildCronContext(t Task, runID string) context.Context {
-	cronCtx := iface.ContextWithBypassConfirm(context.Background())
+func (s *Scheduler) buildCronContext(parent context.Context, t Task, runID string) context.Context {
+	cronCtx := iface.ContextWithBypassConfirm(parent)
 	return telemetryctx.WithMetadata(cronCtx, telemetryctx.Metadata{
 		RunID:    runID,
 		Origin:   telemetryctx.OriginCron,
@@ -848,6 +1023,14 @@ type drainEventsResult struct {
 	mediaFiles      []SendFileMedia
 	timelineDir     string // relative path from workDir: logs/cron/<taskID>/<execID>
 	toolCallCount   int
+}
+
+// canAutomaticallyRetry permits replay only before the run has produced any
+// externally observable output or tool side effect. Once either is visible,
+// replay could duplicate actions even if the transport later failed.
+func canAutomaticallyRetry(result drainEventsResult) bool {
+	return strings.TrimSpace(result.replyText) == "" &&
+		result.toolCallCount == 0 && len(result.mediaFiles) == 0
 }
 
 func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (CronResultV1, error) {
@@ -967,6 +1150,13 @@ func diagnosticCronError(code string, err error) string {
 		return code
 	}
 	return code + ": " + err.Error()
+}
+
+func cronExecutionFailureCode(err error) string {
+	if code := runwatch.CodeOf(err); code != "" {
+		return string(code)
+	}
+	return "execution_failed"
 }
 
 func cronResultError(code, message string) *string {
@@ -1203,7 +1393,7 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		case "ErrorEvent":
 			errField := rv.FieldByName("Err")
 			if errField.IsValid() && !errField.IsNil() {
-				agentErr := fmt.Errorf("agent error: %v", errField.Elem().Interface())
+				agentErr := fmt.Errorf("agent error: %w", errField.Elem().Interface().(error))
 				_ = tl.AppendControl(&timeline.ControlPayload{Action: "error", Reason: "cron_execution_error", Content: agentErr.Error()})
 				return result, agentErr
 			}
@@ -1219,7 +1409,7 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 				flushAssistant(contentBuf.String(), reasoningBuf.String(), nil)
 			}
 			if errVal, ok := consumer.Error(); ok {
-				agentErr := fmt.Errorf("agent error: %v", errVal)
+				agentErr := fmt.Errorf("agent error: %w", errVal)
 				_ = tl.AppendControl(&timeline.ControlPayload{Action: "error", Reason: "cron_execution_error", Content: agentErr.Error()})
 				return result, agentErr
 			}
@@ -1278,12 +1468,15 @@ func (s *Scheduler) recordExecution(ctx context.Context, t Task, resolved Resolv
 	if s.dbStore == nil {
 		return
 	}
-	// The existing history schema accepts success/failed/panic only. A partial
-	// canonical result is a completed execution with a normalization warning;
-	// preserve that warning in error_message and the standardized result text.
 	historyStatus := status
 	if historyStatus == "partial" {
 		historyStatus = "success"
+	}
+	terminalCode := "completed"
+	if result.canonical.Error != nil {
+		terminalCode, _, _ = strings.Cut(*result.canonical.Error, ":")
+	} else if historyStatus != "success" {
+		terminalCode = "execution_failed"
 	}
 	_ = s.dbStore.RecordExecution(ctx, ExecutionRecord{
 		ID:            uuid.New().String(),
@@ -1299,7 +1492,34 @@ func (s *Scheduler) recordExecution(ctx context.Context, t Task, resolved Resolv
 		ModelID:       resolved.Params.ModelID,
 		ProviderID:    resolved.Params.ProviderID,
 		TimelineDir:   result.timelineDir,
+		TerminalCode:  terminalCode,
 	})
+}
+
+// updateTaskAfterExecution advances the task state after a run completes.
+func (s *Scheduler) updateTaskAfterExecution(ctx context.Context, t Task) {
+	if s.dbStore == nil {
+		return
+	}
+	if t.IsOneTime() {
+		_ = s.dbStore.MarkCompleted(ctx, t.ID)
+		return
+	}
+	next, _ := NextTrigger(t.Expression, time.Now())
+	_ = s.dbStore.UpdateNextRun(ctx, t.ID, time.Now(), next)
+}
+
+// finishExecution records history and advances the task state after execution.
+func (s *Scheduler) finishExecution(ctx context.Context, t Task, runID string, resolved ResolvedModel, start time.Time, result drainEventsResult, errMsg string, status string, taskStatus string) error {
+	if s.dbStore == nil {
+		return nil
+	}
+	s.recordExecution(ctx, t, resolved, start, result, errMsg, status)
+	if taskStatus == "failed" {
+		return s.dbStore.UpdateTaskStatus(ctx, t.ID, "failed")
+	}
+	s.updateTaskAfterExecution(ctx, t)
+	return nil
 }
 
 // l1QueueLoop runs in a background goroutine. It processes queued L1 tasks
@@ -1344,20 +1564,48 @@ func (s *Scheduler) l1QueueLoop() {
 					return
 				}
 			}
-			s.runL1Task(context.Background(), ct.task, l1Session)
+			s.executeQueuedL1Generation(ct.task, l1Session, ct.generation)
 		}
 
 		s.l1Mu.Lock()
 	}
 }
 
-// updateTaskAfterExecution updates DB timestamps after successful execution.
-func (s *Scheduler) updateTaskAfterExecution(ctx context.Context, t Task) {
+func (s *Scheduler) executeQueuedL1(task Task, l1Session Session) {
+	s.executeQueuedL1Generation(task, l1Session, s.oneTimeGeneration(task))
+}
+
+func (s *Scheduler) executeQueuedL1Generation(task Task, l1Session Session, generation uint64) {
+	if !s.isCurrentOneTimeGeneration(task, generation) {
+		return
+	}
+	runID := uuid.New().String()
+	claimed, err := s.dbStore.ClaimTask(context.Background(), task.ID)
+	if err != nil {
+		s.logger.Error(logger.CatApp, "cron: failed to claim queued L1 task", "task_id", task.ID, "err", err)
+		s.retryOneTimeClaim(task, generation)
+	} else if claimed && !s.isCurrentOneTimeGeneration(task, generation) {
+		_ = s.dbStore.UpdateTaskStatus(context.Background(), task.ID, "active")
+	} else if claimed {
+		s.runL1TaskWithGeneration(context.Background(), task, l1Session, runID, generation)
+	}
+}
+
+func taskStatusAfterExecution(t Task) string {
 	if t.IsOneTime() {
-		_ = s.dbStore.MarkCompleted(ctx, t.ID)
-	} else {
-		next, _ := NextTrigger(t.Expression, time.Now())
-		_ = s.dbStore.UpdateNextRun(ctx, t.ID, time.Now(), next)
+		return "completed"
+	}
+	return "active"
+}
+
+func waitContext(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 

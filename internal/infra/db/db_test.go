@@ -20,6 +20,45 @@ func TestOpen_Memory(t *testing.T) {
 	}
 }
 
+func TestOpenFreshDatabaseIncludesCronHistoryTerminalCode(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "cron-history.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer database.Close()
+
+	for table, columns := range map[string][]string{
+		"cron_execution_history": {"terminal_code"},
+	} {
+		for _, column := range columns {
+			var count int
+			query := `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`
+			if err := database.QueryRow(query, table, column).Scan(&count); err != nil {
+				t.Fatalf("inspect %s.%s: %v", table, column, err)
+			}
+			if count != 1 {
+				t.Fatalf("column %s.%s count = %d", table, column, count)
+			}
+		}
+	}
+	for _, column := range []string{"active_run_id", "lease_expires_at"} {
+		var count int
+		if err := database.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, "scheduled_tasks", column).Scan(&count); err != nil {
+			t.Fatalf("inspect removed scheduled_tasks.%s: %v", column, err)
+		}
+		if count != 0 {
+			t.Fatalf("removed column scheduled_tasks.%s still exists", column)
+		}
+	}
+	var intentTables int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'cron_terminal_intents'`).Scan(&intentTables); err != nil {
+		t.Fatalf("inspect removed cron_terminal_intents table: %v", err)
+	}
+	if intentTables != 0 {
+		t.Fatal("removed cron_terminal_intents table still exists")
+	}
+}
+
 func TestOpen_File(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
