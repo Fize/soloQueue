@@ -11,11 +11,9 @@ func TestModelToolsDoNotBypassExecutor(t *testing.T) {
 	t.Parallel()
 
 	allowDirectHostAccess := map[string]bool{
-		"exec.go":                    true,
-		"exec_unix.go":               true,
-		"exec_windows.go":            true,
-		"runtime_process_unix.go":    true,
-		"runtime_process_windows.go": true,
+		"exec.go":            true,
+		"run_command.go":     true,
+		"runtime_process.go": true,
 	}
 	forbidden := []string{
 		"os.Open(",

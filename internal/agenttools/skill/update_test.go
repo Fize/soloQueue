@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -170,9 +169,6 @@ func TestCompareDirectoriesIgnoresGitMetadata(t *testing.T) {
 }
 
 func TestCompareDirectoriesDetectsPermissionChanges(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows does not expose Unix executable permission bits")
-	}
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()
 	for _, dir := range []string{srcDir, dstDir} {
@@ -236,9 +232,6 @@ func TestGitignoreMatcherSupportsNegation(t *testing.T) {
 }
 
 func TestSyncManagedFilesOverlaysRemoteAndPreservesLocalRuntime(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows does not expose Unix executable permission bits")
-	}
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()
 
@@ -280,9 +273,6 @@ func TestSyncManagedFilesOverlaysRemoteAndPreservesLocalRuntime(t *testing.T) {
 }
 
 func TestManagedRemoteSymlinksAreRejected(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test requires symlink support")
-	}
 	for _, tt := range []struct {
 		name string
 		rel  string
@@ -326,9 +316,6 @@ func TestManagedRemoteSymlinksAreRejected(t *testing.T) {
 }
 
 func TestRemoteSkillSourcePathRejectsSymlinkAndTraversal(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test requires symlink support")
-	}
 	repoDir := t.TempDir()
 	outside := t.TempDir()
 	if err := os.Symlink(outside, filepath.Join(repoDir, "linked-skill")); err != nil {
@@ -343,9 +330,6 @@ func TestRemoteSkillSourcePathRejectsSymlinkAndTraversal(t *testing.T) {
 }
 
 func TestSyncManagedFilesTypeConflictsPreserveLocalContent(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test requires Unix-like filesystem semantics")
-	}
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, srcDir, dstDir string)
@@ -396,9 +380,6 @@ func TestSyncManagedFilesTypeConflictsPreserveLocalContent(t *testing.T) {
 }
 
 func TestSyncRemoteSkillsIncrementalOverlay(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test relies on Unix file permissions")
-	}
 	workDir := t.TempDir()
 	userDir := filepath.Join(workDir, "user-skills")
 	remoteDir := filepath.Join(workDir, "remote")

@@ -67,12 +67,8 @@ func newShellExecTool(cfg Config) *shellExecTool {
 func (shellExecTool) Name() string { return "Bash" }
 
 func (shellExecTool) Description() string {
-	shell := "/bin/sh -c"
-	if runtime.GOOS == "windows" {
-		shell = "powershell.exe -Command (falls back to cmd.exe /c)"
-	}
 	return "Run a shell command. Commands matching the configured blocklist are rejected. " +
-		"Uses " + shell + " <cmd>. " +
+		"Uses /bin/sh -c <cmd>. " +
 		"Returns {exit_code,stdout,stderr,truncated}. " +
 		"Supports optional working_directory parameter."
 }

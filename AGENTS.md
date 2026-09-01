@@ -20,22 +20,11 @@ make build-web        # Build the full Web Console
 make build-status     # Build the read-only Status UI
 make build-assets     # Build both UIs and embed Skills
 make build-go         # Build Go binary only (assumes assets already exist)
-make build-win        # Cross-compile Go for Windows
 make start            # Start backend and both browser UIs on one port
 make clean            # Remove all build artifacts
 ```
 
 The Go binary embeds independent `internal/assets/dist/web`, `status`, and `skills` bundles. Always run `make build-assets` (or `make build`) before a production build.
-
-### Windows (PowerShell)
-
-```powershell
-./scripts/build.ps1              # Build browser assets and Go binary
-./scripts/build.ps1 build-web    # Build Web Console
-./scripts/build.ps1 build-status # Build Status UI
-./scripts/build.ps1 build-go     # Build Go binary only
-./scripts/build.ps1 clean        # Remove all build artifacts
-```
 
 ## Testing
 
@@ -208,7 +197,7 @@ LLM-driven conversation summaries triggered on context window compaction. `Manag
 - **Config hot-reload**: callers read latest via `cfg.Get()`; fsnotify under the hood.
 - **Agent state machine**: `Idle → Processing → (Idle | Stopping → Stopped)`.
 - **FakeLLM** (`internal/agent/llm.go`): scripted LLM stub for testing — use instead of mocking across packages.
-- **Platform-specific RunCommand**: `exec_unix.go` (`/bin/sh -c`, Setpgid+SIGKILL) vs `exec_windows.go`. Build tags handle selection.
+- **RunCommand**: `run_command.go` executes `/bin/sh -c` and uses process-group cancellation on supported Unix-like platforms.
 - **Environment info in prompts**: `internal/prompt/environment.go` injects `<environment>` into system prompts with OS, arch, shell, working directory, explore directory.
 - **QQ returns `expires_in` as a string** — do not parse as integer.
 - **Test conventions**: no `TestMain` or shared fixtures. Self-contained per package.
