@@ -11,6 +11,10 @@ function parseHeadersJson(json: string): Record<string, string> {
     throw new Error('Headers must be valid JSON object: ' + (e as Error).message)
   }
 }
+
+export function normalizeProviderTimeoutMs(value: number | undefined): number {
+  return Number(value ?? 0)
+}
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -131,7 +135,7 @@ export function LLMSection({
       apiKeyEnv: '',
       enabled: true,
       isDefault: false,
-      timeoutMs: 30000,
+      timeoutMs: 0,
       headers: {},
     })
     setProviderHeadersJson('{}')
@@ -160,7 +164,7 @@ export function LLMSection({
       apiKeyEnv: providerForm.apiKeyEnv || '',
       enabled: providerForm.enabled ?? true,
       isDefault: providerForm.isDefault ?? false,
-      timeoutMs: Number(providerForm.timeoutMs || 30000),
+      timeoutMs: normalizeProviderTimeoutMs(providerForm.timeoutMs),
       retry: { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2.0 },
       headers,
     }
@@ -415,7 +419,7 @@ export function LLMSection({
                 <label className="text-xs font-semibold text-muted-foreground">{t('config.llmTimeoutMs')}</label>
                 <Input
                   type="number"
-                  value={providerForm.timeoutMs || 30000}
+                  value={providerForm.timeoutMs ?? 0}
                   onChange={(e) =>
                     setProviderForm({ ...providerForm, timeoutMs: Number(e.target.value) })
                   }
