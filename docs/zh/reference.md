@@ -65,10 +65,9 @@ model_routes:
 在 `127.0.0.1` 启动 HTTP REST、WebSocket 及 Agent 运行时服务：
 - `--port, -p`：监听端口（默认 `57647`；`0` 表示随机端口）。
 - `--verbose, -v`：启用详细的 stderr 日志输出。
-- `--bypass`：全局绕过工具确认提示。
 
 ### `soloqueue start`
-在一个 `127.0.0.1` 监听器中启动后端运行时、`/` 下的 Web Console 和 `/status/` 下的状态页。支持与 `serve` 相同的 port、verbose 和 bypass 参数。
+在一个 `127.0.0.1` 监听器中启动后端运行时、`/` 下的 Web Console 和 `/status/` 下的状态页。支持与 `serve` 相同的 port 和 verbose 参数。
 
 ### `soloqueue web`
 只启动独立 Web Console。使用 `--backend` 设置后端地址，默认值为 `http://127.0.0.1:57647`。

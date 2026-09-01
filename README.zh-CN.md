@@ -16,7 +16,7 @@
 ## 核心功能
 
 - 使用本地优先的运行时维护长期 Agent 会话。
-- 使用团队、Agent 模板、委派和工具确认构建多智能体工作台。
+- 使用团队、Agent 模板和委派构建多智能体工作台。
 - 支持通过任务路由、Memory、Skills、MCP/LSP、定时任务和消息渠道进行
   Harness Engineering 实验。
 - 提供完整的浏览器 Web Console 和独立的嵌入式只读状态页。

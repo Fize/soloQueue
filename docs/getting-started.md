@@ -77,8 +77,8 @@ Navigate to **Chat**, select the registered project, and submit a prompt:
 Inspect README.md and list the build commands. Do not modify files.
 ```
 
-### 4. Tool Confirmations
-When an agent tool call matches a confirmation policy (e.g., shell command execution or file writes), SoloQueue pauses execution and presents a confirmation prompt in the UI. Review the requested scope and command before approving. The `--bypass` flag globally disables confirmations and should only be used in controlled test environments.
+### 4. Tool Execution Safety
+SoloQueue does not automatically create a sandbox. For deployment, run it inside a configured Docker container or VM and treat that environment as the isolation boundary. When run directly on the host, tools execute with the host process's permissions and without automatic isolation; use this only in a trusted development environment. Deterministic safety checks remain active: shell blocklists reject configured commands, WebFetch blocks private addresses, and file/path/size and timeout limits are enforced.
 
 ---
 
@@ -103,4 +103,4 @@ deployment.
 - **Port In Use**: Specify a different port using `./soloqueue serve --port 8765`.
 - **No Model Response**: Verify provider API key, check `model_routes` mapping, and inspect server logs.
 - **Remote access**: Configure the external reverse proxy and keep SoloQueue bound to its loopback address.
-- **Tool Blocked**: Review tool confirmation cards or inspect `settings.yaml` under `tools` section for shell/file path policy blocks.
+- **Tool Blocked**: Inspect `settings.yaml` under the `tools` section for shell blocklist or file/path policy restrictions.
