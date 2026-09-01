@@ -100,9 +100,6 @@ func TestSessionRejectsAskWhenDispatchManagerInitializationFails(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = a.Stop(time.Second) })
 	s := NewSession("session-1", "default", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), tw, nil)
-	if _, err := s.Ask(context.Background(), "hello"); err == nil || !strings.Contains(err.Error(), "dispatch manager") {
-		t.Fatalf("Ask error=%v", err)
-	}
 	if _, err := s.AskStream(context.Background(), "hello"); err == nil || !strings.Contains(err.Error(), "dispatch manager") {
 		t.Fatalf("AskStream error=%v", err)
 	}
@@ -156,88 +153,6 @@ func factoryFromFake(t *testing.T, fake *agenttest.FakeLLM) AgentFactory {
 		}
 		cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 		return a, cw, nil, nil
-	}
-}
-
-// ─── Session.Ask ──────────────────────────────────────────────────────
-
-func TestSession_Ask_UpdatesHistory(t *testing.T) {
-	fake := &agenttest.FakeLLM{Responses: []string{"hi there"}}
-	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
-
-	reply, err := s.Ask(context.Background(), "hello")
-	if err != nil {
-		t.Fatalf("Ask: %v", err)
-	}
-	if reply != "hi there" {
-		t.Errorf("reply = %q", reply)
-	}
-	h := s.History()
-	if len(h) != 2 {
-		t.Fatalf("history len = %d, want 2", len(h))
-	}
-	if h[0].Role != "user" || h[0].Content != "hello" {
-		t.Errorf("h[0] = %+v", h[0])
-	}
-	if h[1].Role != "assistant" || h[1].Content != "hi there" {
-		t.Errorf("h[1] = %+v", h[1])
-	}
-}
-
-func TestSession_Ask_ErrorDoesNotAppendHistory(t *testing.T) {
-	myErr := errors.New("kaboom")
-	fake := &agenttest.FakeLLM{Err: myErr}
-	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
-
-	_, err := s.Ask(context.Background(), "hi")
-	if !errors.Is(err, myErr) {
-		t.Errorf("err = %v, want %v", err, myErr)
-	}
-	if len(s.History()) != 0 {
-		t.Errorf("history len = %d, want 0", len(s.History()))
-	}
-}
-
-func TestSession_Ask_BusyReturnsErr(t *testing.T) {
-	fake := &agenttest.FakeLLM{
-		Responses: []string{"slow"},
-		Delay:     300 * time.Millisecond,
-	}
-	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
-
-	// goroutine 1 starts a slow Ask
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = s.Ask(context.Background(), "one")
-	}()
-	// wait for it to enter
-	time.Sleep(30 * time.Millisecond)
-
-	// goroutine 2: should see Queued
-	_, err := s.Ask(context.Background(), "two")
-	if !errors.Is(err, ErrQueued) {
-		t.Errorf("second Ask err = %v, want ErrQueued", err)
-	}
-
-	<-done
-	// after completion, Ask should work again
-	if _, err := s.Ask(context.Background(), "three"); err != nil {
-		t.Errorf("Ask after busy release: %v", err)
-	}
-}
-
-func TestSession_Ask_ClosedReturnsErr(t *testing.T) {
-	fake := &agenttest.FakeLLM{Responses: []string{"r"}}
-	a := startAgent(t, fake)
-	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
-	s.Close()
-	_, err := s.Ask(context.Background(), "hi")
-	if !errors.Is(err, ErrSessionClosed) {
-		t.Errorf("err = %v, want ErrSessionClosed", err)
 	}
 }
 
@@ -1022,7 +937,7 @@ func TestGenerationRebuildReapsOldSupervisorDomain(t *testing.T) {
 	_ = fresh.Stop(time.Second)
 }
 
-func TestSession_AskOwnsWatchdogRoot(t *testing.T) {
+func TestSession_AskStreamOwnsWatchdogRoot(t *testing.T) {
 	watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute})
 	defer watchdog.Close()
 	a := startAgent(t, &agenttest.FakeLLM{Responses: []string{"done"}, Delay: 50 * time.Millisecond})
@@ -1031,8 +946,14 @@ func TestSession_AskOwnsWatchdogRoot(t *testing.T) {
 	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "sync-run"})
 	done := make(chan error, 1)
 	go func() {
-		_, err := s.Ask(ctx, "sync work")
-		done <- err
+		stream, err := s.AskStream(ctx, "sync work")
+		if err != nil {
+			done <- err
+			return
+		}
+		for range stream {
+		}
+		done <- nil
 	}()
 	deadline := time.Now().Add(time.Second)
 	for {
@@ -1040,7 +961,7 @@ func TestSession_AskOwnsWatchdogRoot(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("Ask did not register watchdog root")
+			t.Fatal("AskStream did not register watchdog root")
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -1048,7 +969,7 @@ func TestSession_AskOwnsWatchdogRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := watchdog.Snapshot("sync-run"); ok {
-		t.Fatal("Ask watchdog root survived completion")
+		t.Fatal("AskStream watchdog root survived completion")
 	}
 }
 
@@ -1500,10 +1421,10 @@ func TestSessionManager_Shutdown(t *testing.T) {
 		t.Errorf("Init after Shutdown err = %v, want ErrSessionClosed", err)
 	}
 
-	// Ask on shutdown session returns ErrSessionClosed
-	_, err = s.Ask(context.Background(), "hi")
+	// AskStream on shutdown session returns ErrSessionClosed
+	_, err = s.AskStream(context.Background(), "hi")
 	if !errors.Is(err, ErrSessionClosed) {
-		t.Errorf("Ask after Shutdown err = %v, want ErrSessionClosed", err)
+		t.Errorf("AskStream after Shutdown err = %v, want ErrSessionClosed", err)
 	}
 }
 
