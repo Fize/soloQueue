@@ -65,9 +65,11 @@ type Gateway struct {
 	tokens TokenProvider
 
 	// heartbeat
+	heartbeatMu       sync.Mutex
 	heartbeatInterval time.Duration
 	heartbeatTicker   *time.Ticker
 	heartbeatDone     chan struct{}
+	heartbeatWG       sync.WaitGroup
 
 	// reconnect
 	reconnectCh chan struct{} // signal to trigger reconnect
@@ -422,12 +424,19 @@ func (g *Gateway) handleAudioMessage(ctx context.Context, raw json.RawMessage) {
 // ─── Heartbeat ────────────────────────────────────────────────────────────────
 
 func (g *Gateway) startHeartbeat(ctx context.Context) {
-	g.stopHeartbeat() // ensure no previous ticker running
+	g.heartbeatMu.Lock()
+	defer g.heartbeatMu.Unlock()
 
-	g.heartbeatTicker = time.NewTicker(g.heartbeatInterval)
-	g.heartbeatDone = make(chan struct{})
+	g.stopHeartbeatLocked() // ensure no previous ticker running
+
+	ticker := time.NewTicker(g.heartbeatInterval)
+	done := make(chan struct{})
+	g.heartbeatTicker = ticker
+	g.heartbeatDone = done
+	g.heartbeatWG.Add(1)
 
 	go func() {
+		defer g.heartbeatWG.Done()
 
 		// First heartbeat uses null
 		if err := g.sendHeartbeat(ctx, nil); err != nil {
@@ -437,14 +446,14 @@ func (g *Gateway) startHeartbeat(ctx context.Context) {
 
 		for {
 			select {
-			case <-g.heartbeatTicker.C:
+			case <-ticker.C:
 				seq := int(g.seq.Load())
 				if seq <= 0 {
 					_ = g.sendHeartbeat(ctx, nil)
 				} else {
 					_ = g.sendHeartbeat(ctx, &seq)
 				}
-			case <-g.heartbeatDone:
+			case <-done:
 				return
 			}
 		}
@@ -452,18 +461,26 @@ func (g *Gateway) startHeartbeat(ctx context.Context) {
 }
 
 func (g *Gateway) stopHeartbeat() {
-	if g.heartbeatTicker != nil {
-		g.heartbeatTicker.Stop()
-		g.heartbeatTicker = nil
+	g.heartbeatMu.Lock()
+	defer g.heartbeatMu.Unlock()
+	g.stopHeartbeatLocked()
+}
+
+// stopHeartbeatLocked stops the current generation and waits for its
+// goroutine to exit. The caller must hold heartbeatMu.
+func (g *Gateway) stopHeartbeatLocked() {
+	ticker := g.heartbeatTicker
+	done := g.heartbeatDone
+	g.heartbeatTicker = nil
+	g.heartbeatDone = nil
+
+	if ticker != nil {
+		ticker.Stop()
 	}
-	if g.heartbeatDone != nil {
-		select {
-		case <-g.heartbeatDone:
-		default:
-			close(g.heartbeatDone)
-		}
-		g.heartbeatDone = nil
+	if done != nil {
+		close(done)
 	}
+	g.heartbeatWG.Wait()
 }
 
 func (g *Gateway) sendHeartbeat(ctx context.Context, seq *int) error {

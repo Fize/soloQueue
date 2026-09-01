@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -235,5 +236,37 @@ func TestHandleAudioMessage_EmptyAttachments(t *testing.T) {
 	msg := handler.lastMessage
 	if msg.AudioURL != "" {
 		t.Errorf("AudioURL = %q, want empty", msg.AudioURL)
+	}
+}
+
+func TestHeartbeatLifecycleConcurrentStartStop(t *testing.T) {
+	g := &Gateway{
+		heartbeatInterval: time.Millisecond,
+		log:               testLogger(t),
+	}
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				if j%2 == 0 {
+					g.startHeartbeat(ctx)
+				} else {
+					g.stopHeartbeat()
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	g.stopHeartbeat()
+
+	if g.heartbeatTicker != nil {
+		t.Fatal("heartbeat ticker still running after stopHeartbeat")
+	}
+	if g.heartbeatDone != nil {
+		t.Fatal("heartbeat done channel still set after stopHeartbeat")
 	}
 }
