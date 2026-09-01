@@ -4,7 +4,7 @@
 //
 //   - A Session corresponds to "a single independent conversation": bound to an *agent.Agent, holding
 //     *ctxwin.ContextWindow to manage full conversation history (including intermediate tool call messages).
-//   - Ask/AskStream within the same Session is serial: new Ask returns directly if the previous round is not finished
+//   - Requests within the same Session are serial: a new request returns directly if the previous round is not finished
 //     ErrSessionBusy (avoids context window out-of-order). The agent itself is also serial, offering double protection.
 //   - SessionManager manages the unique active session; globally there is only one session.
 package session
@@ -39,7 +39,7 @@ import (
 // ─── Errors ────────────────────────────────────────────────────────────────
 
 var (
-	// ErrSessionBusy is returned when the session is busy with another Ask
+	// ErrSessionBusy is returned when the session is busy with another request.
 	ErrSessionBusy = errors.New("session: busy (another Ask in flight)")
 
 	// ErrQueued is returned when the message is queued in the pending queue
@@ -184,7 +184,7 @@ type Session struct {
 	// into ContextWindow before the agent's next LLM API call in the tool loop, merging consecutive messages
 	pending *PendingQueue
 
-	// inFlight CAS lock for concurrent Asks: 0 -> 1 enter; returns ErrSessionBusy on failure
+	// inFlight CAS lock for concurrent requests: 0 -> 1 enter; returns ErrSessionBusy on failure
 	inFlight    atomic.Int32
 	flightSeq   atomic.Uint64
 	flightOwner atomic.Uint64
@@ -194,7 +194,7 @@ type Session struct {
 	closeOnce   sync.Once
 	disposeOnce sync.Once
 
-	// lastActive for reaper cleanup; updated on every Ask
+	// lastActive for reaper cleanup; updated on every request
 	lastActive atomic.Int64 // unix nanos
 
 	// delegationPending indicates if an async delegation is in progress
@@ -790,7 +790,7 @@ func (s *Session) ContextWindow() *ctxwin.ContextWindow {
 	return s.cw
 }
 
-// Idle returns true if there is no Ask or AskStream currently in flight.
+// Idle returns true if there is no request currently in flight.
 func (s *Session) Idle() bool {
 	return s.inFlight.Load() == 0
 }
@@ -1585,7 +1585,7 @@ func (s *Session) FlushMemory(ctx context.Context) {
 // If both conditions are met, it compresses the conversation history into
 // a summary and replaces the CW content with system_prompt + summary.
 //
-// Must be called while inFlight is held (no concurrent Ask).
+// Must be called while inFlight is held (no concurrent request).
 func (s *Session) checkAutoClear() {
 	timeout := s.idleTimeout
 	threshold := s.compactThreshold
@@ -1626,31 +1626,6 @@ func (s *Session) checkAutoClear() {
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "auto-clear: context compressed and replaced",
 		"summary_len", len(summary))
-}
-
-// Ask sends a round of prompt through the same tracked streaming lifecycle as
-// every other public execution entrypoint.
-func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
-	stream, err := s.AskStream(ctx, prompt)
-	if err != nil {
-		return "", err
-	}
-	var content strings.Builder
-	var final string
-	for ev := range stream {
-		switch e := ev.(type) {
-		case agent.ContentDeltaEvent:
-			content.WriteString(e.Delta)
-		case agent.DoneEvent:
-			final = e.Content
-		case agent.ErrorEvent:
-			return "", e.Err
-		}
-	}
-	if final != "" {
-		return final, nil
-	}
-	return content.String(), nil
 }
 
 // AskStream streaming version; caller must range over the returned channel until closed
@@ -2407,7 +2382,7 @@ func partialFlushRemainder(pending, persisted string) string {
 	return pending
 }
 
-// Close marks session as closed, preventing new Asks; does not stop agent
+// Close marks session as closed, preventing new requests; does not stop agent
 func (s *Session) beginClose() {
 	s.closed.Store(true)
 	// Synchronize with generation construction/publication. A factory already

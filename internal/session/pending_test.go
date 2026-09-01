@@ -63,8 +63,8 @@ func TestBusyAskRetainsTemporalMetadataWithoutChangingQueueOwnership(t *testing.
 	sess.inFlight.Store(1)
 	receivedAt := time.Date(2026, time.August, 27, 9, 35, 59, 0, time.Local)
 	ctx := withTemporalExposure(context.Background(), receivedAt)
-	if _, err := sess.Ask(ctx, "queued"); !errors.Is(err, ErrQueued) {
-		t.Fatalf("Ask error = %v, want ErrQueued", err)
+	if _, err := sess.AskStream(ctx, "queued"); !errors.Is(err, ErrQueued) {
+		t.Fatalf("AskStream error = %v, want ErrQueued", err)
 	}
 	drained := sess.pending.Drain()
 	if len(drained.Parts) != 1 || drained.Parts[0].Prompt != "queued" || !drained.Parts[0].ExposeTimestamp || !drained.Parts[0].ReceivedAt.Equal(receivedAt) {
