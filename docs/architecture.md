@@ -22,7 +22,7 @@ Session Manager (internal/session)
        ├── Agent Actor Loop & Supervisors (internal/agent)
        │       ├── Task Router & Model Clients (internal/router, internal/llm)
        │       ├── Native Tools, Skills, MCP/LSP (internal/agenttools)
-       │       └── Tool Confirmation Interlock
+       │       └── Deterministic tool safety checks
        ├── Cron & Simulation Runtimes (internal/cron, internal/simulation)
        ├── Channel Bridges (internal/channel/qq, internal/channel/wechat)
        └── Memory, Timeline, SQLite DB & Logger (internal/infra, internal/memory)

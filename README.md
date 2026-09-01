@@ -17,8 +17,7 @@ personal project rather than a production-ready enterprise platform.
 ## Features
 
 - SoloQueue runs a local-first runtime for persistent agent sessions.
-- SoloQueue uses a multi-agent workspace with teams, agent templates, delegation, and
-  tool confirmations.
+- SoloQueue uses a multi-agent workspace with teams, agent templates, and delegation.
 - SoloQueue supports task routing, memory, skills, MCP/LSP tools,
   scheduled tasks, and channel delivery.
 - SoloQueue provides a full browser Web Console plus an embedded read-only Status UI for

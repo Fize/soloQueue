@@ -50,7 +50,7 @@ model_routes:
 | `models` | Model definitions, context windows, generation, and thinking parameters |
 | `model_routes` | Task type routing mappings (`general`, `engineering`, `research`, `classifier`, `fallback`) |
 | `tools` | File paths, shell execute regex filters, HTTP host allowlists, output limits |
-| `agent` | Internal tool & MCP server permissions |
+| `agent` | Internal agent tool and MCP server settings |
 | `qqbots` / `wechat_bots` | Credentials, bindings, and user whitelists for QQ/WeChat channels |
 | `lspmcp` | Language server binary paths, arguments, and language/file extension bindings |
 | `embedding` | Vector embedding provider and model settings (optional) |
@@ -65,10 +65,9 @@ The primary binary is `soloqueue`. Run `soloqueue --help` for complete subcomman
 Starts the HTTP REST, WebSocket, and agent runtime server on `127.0.0.1`.
 - `--port, -p`: Listening port (default: `57647`; `0` for random port).
 - `--verbose, -v`: Enables verbose stderr logging.
-- `--bypass`: Globally bypasses tool confirmation prompts.
 
 ### `soloqueue start`
-Starts the backend runtime, Web Console at `/`, and Status UI at `/status/` on one `127.0.0.1` listener. It accepts the same port, verbose, and bypass flags as `serve`.
+Starts the backend runtime, Web Console at `/`, and Status UI at `/status/` on one `127.0.0.1` listener. It accepts the same port and verbose flags as `serve`.
 
 ### `soloqueue web`
 Starts only the standalone Web Console. Use `--backend` to set the backend URL; the default is `http://127.0.0.1:57647`.

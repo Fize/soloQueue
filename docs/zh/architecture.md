@@ -22,7 +22,7 @@ Session Manager (internal/session)
        ├── Agent Actor 循环与 Supervisor (internal/agent)
        │       ├── 任务路由与 Model Client (internal/router, internal/llm)
        │       ├── 原生工具、Skills、MCP/LSP (internal/agenttools)
-       │       └── 工具确认互锁机制
+       │       └── 确定性工具安全检查
        ├── Cron 与 Simulation 运行时 (internal/cron, internal/simulation)
        ├── 渠道桥接 (internal/channel/qq, internal/channel/wechat)
        └── 记忆、时间线、SQLite 数据库与日志 (internal/infra, internal/memory)

@@ -83,7 +83,7 @@ Open the Web Console Vite dev server at `http://localhost:5173`; it proxies `/ap
 
 `soloqueue start` is the combined browser mode. `serve` defaults to port 57647 and `web` to 57648. All bind `127.0.0.1` by default.
 Other subcommands: `version`.
-`serve` flags: `--bypass` (skip tool confirmations), `--verbose` / `-v` (logs to stderr).
+`serve` flags: `--verbose` / `-v` (logs to stderr).
 
 ## Config & data
 
@@ -207,7 +207,6 @@ LLM-driven conversation summaries triggered on context window compaction. `Manag
 - **Logger categories**: `logger.CatApp`, `logger.CatActor`, `logger.CatMessages`, `logger.CatConfig`, `logger.CatTool`, `logger.CatLLM`, `logger.CatMCP`.
 - **Config hot-reload**: callers read latest via `cfg.Get()`; fsnotify under the hood.
 - **Agent state machine**: `Idle → Processing → (Idle | Stopping → Stopped)`.
-- **Agent bypass** — three layers: template (`permission: true`), global (`--bypass`), per-ask (`agent.WithBypassConfirmCtx(ctx)`).
 - **FakeLLM** (`internal/agent/llm.go`): scripted LLM stub for testing — use instead of mocking across packages.
 - **Platform-specific RunCommand**: `exec_unix.go` (`/bin/sh -c`, Setpgid+SIGKILL) vs `exec_windows.go`. Build tags handle selection.
 - **Environment info in prompts**: `internal/prompt/environment.go` injects `<environment>` into system prompts with OS, arch, shell, working directory, explore directory.
