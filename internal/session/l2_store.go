@@ -71,6 +71,7 @@ type L2SessionStore struct {
 	channelMediaSenders map[string]map[string]func(context.Context, []channel.OutboundMedia) error
 
 	builder   *Builder
+	buildL2   func(context.Context, string, string, string) (*Session, error)
 	logger    *logger.Logger
 	metaStore ChannelMetadataStore
 	workDir   string
@@ -78,7 +79,7 @@ type L2SessionStore struct {
 
 // NewL2SessionStore creates a new L2SessionStore.
 func NewL2SessionStore(builder *Builder, workDir string, log *logger.Logger) *L2SessionStore {
-	return &L2SessionStore{
+	store := &L2SessionStore{
 		sessions:            make(map[string]*L2SessionEntry),
 		channelSenders:      make(map[string]map[string]func(context.Context, string) error),
 		channelMediaSenders: make(map[string]map[string]func(context.Context, []channel.OutboundMedia) error),
@@ -86,6 +87,10 @@ func NewL2SessionStore(builder *Builder, workDir string, log *logger.Logger) *L2
 		logger:              log,
 		workDir:             workDir,
 	}
+	if builder != nil {
+		store.buildL2 = builder.BuildL2
+	}
+	return store
 }
 
 func (s *L2SessionStore) SetChannelMediaSenderForGroup(group, channelType string, fn func(context.Context, []channel.OutboundMedia) error) {
@@ -393,21 +398,30 @@ func (s *L2SessionStore) Activate(ctx context.Context, id string) (*Session, err
 					return
 				}
 			}
-			sess, err = s.builder.BuildL2(buildCtx, id, group, workDir)
+			if s.buildL2 == nil {
+				err = errors.New("L2 session builder is unavailable")
+				return
+			}
+			sess, err = s.buildL2(buildCtx, id, group, workDir)
 		}()
 
 		s.mu.Lock()
 		if err != nil || entry.state == l2StateDeleting {
-			if entry.state != l2StateDeleting {
+			// Keep the entry activating/deleting until cleanup completes. The
+			// activationDone signal is also DestroyL2's cleanup barrier.
+			deleting := entry.state == l2StateDeleting
+			s.mu.Unlock()
+			if sess != nil {
+				// Never run external cleanup while holding the store lock.
+				sess.DisposeGeneration(5 * time.Second)
+			}
+			s.mu.Lock()
+			if !deleting && entry.state != l2StateDeleting {
 				entry.state = l2StateInactive
 			}
 			entry.activationErr = err
 			close(doneCh)
 			s.mu.Unlock()
-			if sess != nil {
-				// Never run external cleanup while holding the store lock.
-				sess.Close()
-			}
 			if err != nil {
 				return nil, fmt.Errorf("activate L2 session %q: %w", id, err)
 			}
@@ -605,24 +619,9 @@ func (s *L2SessionStore) DestroyL2(ctx context.Context, id string, deletePersist
 	s.mu.Unlock()
 
 	if sess != nil {
-		_ = sess.CancelCurrent("L2 session destroyed")
-
-		if sess.Supervisor != nil {
-			_ = sess.Supervisor.ReapAll(5 * time.Second)
-			if s.builder != nil && s.builder.RT != nil {
-				s.builder.RT.RemoveSupervisor(sess.Supervisor)
-			}
-		}
-
-		if sess.Agent != nil {
-			sess.Agent.Stop(5 * time.Second)
-
-			if s.builder != nil && s.builder.RT != nil && s.builder.RT.AgentRegistry != nil {
-				s.builder.RT.AgentRegistry.Unregister(sess.Agent.InstanceID)
-			}
-		}
-
-		sess.Close()
+		// L2SessionStore owns the persistent generation lifecycle. Ordinary
+		// Session.Close intentionally remains resource-only.
+		sess.DisposeGeneration(5 * time.Second)
 	}
 
 	if deletePersistentData {
@@ -676,8 +675,10 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 	result := make([]L2SessionInfo, 0, len(s.sessions))
 	for _, entry := range s.sessions {
 		agentInstanceID := ""
-		if entry.Session != nil && entry.Session.Agent != nil {
-			agentInstanceID = entry.Session.Agent.InstanceID
+		if entry.Session != nil {
+			if a := entry.Session.CurrentAgent(); a != nil {
+				agentInstanceID = a.InstanceID
+			}
 		}
 		ctxwinUsed, ctxwinLimit := 0, 0
 		if entry.Session != nil && entry.Session.CW() != nil {
@@ -778,8 +779,10 @@ func (s *L2SessionStore) FindByAgentInstanceID(instanceID string) *Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, entry := range s.sessions {
-		if entry.Session != nil && entry.Session.Agent != nil && entry.Session.Agent.InstanceID == instanceID {
-			return entry.Session
+		if entry.Session != nil {
+			if a := entry.Session.CurrentAgent(); a != nil && a.InstanceID == instanceID {
+				return entry.Session
+			}
 		}
 	}
 	return nil

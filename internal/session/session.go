@@ -11,6 +11,7 @@ package session
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -32,6 +33,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // ─── Errors ────────────────────────────────────────────────────────────────
@@ -49,6 +51,10 @@ var (
 	// ErrNoActiveTask is returned when there is no active task to cancel
 	ErrNoActiveTask = errors.New("session: no active task")
 )
+
+// IsSessionBusyError lets scheduler-facing interfaces classify contention
+// without importing the concrete session package or matching error strings.
+func (s *Session) IsSessionBusyError(err error) bool { return errors.Is(err, ErrSessionBusy) }
 
 type rejectBusyQueueKey struct{}
 
@@ -102,7 +108,7 @@ func (s *Session) enqueuePending(ctx context.Context, prompt string) {
 // Version is the current version of soloqueue. It is set at startup by the main command.
 var Version = "0.1.0"
 
-const defaultRequestTimeout = 20 * time.Minute
+const defaultRequestTimeout time.Duration = 0
 
 // CurrentLevel returns the classification level of the last routed task.
 // Returns "" if no task has been routed yet or routing is disabled.
@@ -158,16 +164,20 @@ type ChannelMetadataStore interface {
 type Session struct {
 	TargetID string
 	TeamID   string
-	Agent    *agent.Agent
 	Router   TaskRouterFunc // Optional: task routing classifier (nil = no routing, use default model)
 	Created  time.Time
 
 	mu              sync.Mutex
+	agentMu         sync.RWMutex // serializes generation snapshots and swaps
+	rebuildMu       sync.Mutex   // single-flight generation construction/swap
+	generation      agentGeneration
 	cw              *ctxwin.ContextWindow // Replaces original history, manages full conversation context
 	tl              *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
 	dispatchManager *dispatch.Manager
 	dispatchInitErr error
+	runWatch        *runwatch.Manager
 	logger          *logger.Logger       // Session-level logger
+	resourceCloser  func() error         // closes the logger handler owned by this Session
 	metaStore       ChannelMetadataStore // Optional: for persisting channel sender metadata
 
 	// pending queue: new messages enqueue when session is busy, popped and injected
@@ -175,10 +185,14 @@ type Session struct {
 	pending *PendingQueue
 
 	// inFlight CAS lock for concurrent Asks: 0 -> 1 enter; returns ErrSessionBusy on failure
-	inFlight atomic.Int32
+	inFlight    atomic.Int32
+	flightSeq   atomic.Uint64
+	flightOwner atomic.Uint64
 
 	// closed indicates if the Session has been deleted
-	closed atomic.Bool
+	closed      atomic.Bool
+	closeOnce   sync.Once
+	disposeOnce sync.Once
 
 	// lastActive for reaper cleanup; updated on every Ask
 	lastActive atomic.Int64 // unix nanos
@@ -197,20 +211,13 @@ type Session struct {
 	// cancelling it stops the whole request tree without stopping the reusable
 	// Session or Agent instances.
 	cancelMu      sync.Mutex
-	activeCancels map[uint64]activeTurnCancel
-	nextCancelID  uint64
-
-	// Supervisor is the L3 child manager for L2 sessions; nil for L1 sessions
-	Supervisor *agent.Supervisor
+	activeCancels map[string]activeTurnCancel
 
 	// channelSenders maps channel type ("qq"/"wechat") to send functions.
 	// Registered by bridges when OnMessage fires. Protected by channelSendersMu.
 	channelSenders      map[string]func(context.Context, string) error
 	channelMediaSenders map[string]func(context.Context, []channel.OutboundMedia) error
 	channelSendersMu    sync.RWMutex
-
-	// cancelled: forwarder sets this when cancelled, consumed and reset by the adapter
-	cancelled atomic.Bool
 
 	lastLevel          string       // last classified task type
 	lastLevelMu        sync.RWMutex // protects lastLevel and lastRouteResult
@@ -243,11 +250,53 @@ type Session struct {
 
 	VisionDescriber VisionDescriberFunc // optional callback to transcribe images when active model lacks vision
 
-	idleTimeout      time.Duration // 0 = disabled; auto-clear idle sessions
-	compactThreshold int           // 0 = disabled; minimum CW tokens to trigger compact
-	requestTimeout   time.Duration // session-scoped so deadline behavior can be tested without a production-length wait
-	askStreamHistory func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error)
-	isQBot           atomic.Bool
+	idleTimeout       time.Duration // 0 = disabled; auto-clear idle sessions
+	compactThreshold  int           // 0 = disabled; minimum CW tokens to trigger compact
+	requestTimeout    time.Duration // session-scoped so deadline behavior can be tested without a production-length wait
+	askStreamHistory  func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error)
+	rebuildGeneration func(context.Context) (*agent.Agent, *agent.Supervisor, error)
+	publishSupervisor func(*agent.Supervisor)
+	removeSupervisor  func(*agent.Supervisor)
+	agentRegistry     *agent.Registry
+	lastJob           *agent.JobHandle
+	isQBot            atomic.Bool
+}
+
+type agentGeneration struct {
+	agent      *agent.Agent
+	supervisor *agent.Supervisor
+}
+
+// RequestRoute is the immutable routing decision captured synchronously for a
+// specific desktop request before AskStream returns. It does not depend on the
+// actor having started and therefore survives queueing, yield, and generation
+// replacement timing.
+type RequestRoute struct {
+	TaskType        string
+	ModelID         string
+	ProviderID      string
+	AgentInstanceID string
+}
+
+type requestRouteCapture struct {
+	once sync.Once
+	ch   chan RequestRoute
+}
+
+type requestRouteCaptureKey struct{}
+
+// WithRequestRouteCapture installs a request-owned one-shot route sink. The
+// buffered channel is owned by the caller context: no Session map or cleanup
+// path can leak if setup fails, a socket disconnects, or no consumer reads it.
+func WithRequestRouteCapture(ctx context.Context) (context.Context, <-chan RequestRoute) {
+	capture := &requestRouteCapture{ch: make(chan RequestRoute, 1)}
+	return context.WithValue(ctx, requestRouteCaptureKey{}, capture), capture.ch
+}
+
+var quarantineGraceNanos atomic.Int64
+
+func init() {
+	quarantineGraceNanos.Store(int64(agent.JobWatchdogGrace))
 }
 
 // NewSession constructs and starts a session (agent should already have started)
@@ -265,17 +314,26 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	}
 
 	s := &Session{
-		TargetID:         id,
-		TeamID:           teamID,
-		Agent:            a,
-		Created:          time.Now(),
-		cw:               cw,
-		tl:               tl,
-		logger:           l,
-		pending:          &PendingQueue{},
-		activeCancels:    make(map[uint64]activeTurnCancel),
-		requestTimeout:   defaultRequestTimeout,
-		askStreamHistory: a.AskStreamWithHistory,
+		TargetID:       id,
+		TeamID:         teamID,
+		Created:        time.Now(),
+		generation:     agentGeneration{agent: a},
+		cw:             cw,
+		tl:             tl,
+		logger:         l,
+		resourceCloser: l.Close,
+		pending:        &PendingQueue{},
+		activeCancels:  make(map[string]activeTurnCancel),
+		requestTimeout: defaultRequestTimeout,
+	}
+	if a != nil {
+		s.askStreamHistory = func(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (<-chan agent.AgentEvent, error) {
+			ch, job, err := a.AskStreamWithHistoryTracked(ctx, cw, prompt)
+			s.agentMu.Lock()
+			s.lastJob = job
+			s.agentMu.Unlock()
+			return ch, err
+		}
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 	if tl != nil {
@@ -333,6 +391,303 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	)
 
 	return s
+}
+
+func (s *Session) publishRequestRoute(ctx context.Context, a *agent.Agent, result RouteResult) {
+	capture, _ := ctx.Value(requestRouteCaptureKey{}).(*requestRouteCapture)
+	if capture == nil || a == nil {
+		return
+	}
+	route := RequestRoute{
+		TaskType:        result.Level,
+		ModelID:         result.ModelID,
+		ProviderID:      result.ProviderID,
+		AgentInstanceID: a.InstanceID,
+	}
+	if override := iface.ModelOverrideFromContext(ctx); override != nil {
+		if route.TaskType == "" {
+			route.TaskType = override.TaskType
+		}
+		if route.ModelID == "" {
+			route.ModelID = override.ModelID
+		}
+		if route.ProviderID == "" {
+			route.ProviderID = override.ProviderID
+		}
+	}
+	if route.ModelID == "" {
+		route.ModelID = a.Def.ModelID
+	}
+	if route.ProviderID == "" {
+		route.ProviderID = a.Def.ProviderID
+	}
+	capture.once.Do(func() {
+		capture.ch <- route
+		close(capture.ch)
+	})
+}
+
+// SetRunWatch attaches the process-owned supervisor after Session construction
+// so runtime wiring does not create a dependency cycle.
+func (s *Session) SetRunWatch(manager *runwatch.Manager) {
+	s.runWatch = manager
+}
+
+// SetAgentRebuilder supplies the owner-controlled fresh-generation factory
+// used after a quarantined Agent ignored request cancellation.
+func (s *Session) SetAgentRebuilder(fn func(context.Context) (*agent.Agent, error)) {
+	s.agentMu.Lock()
+	defer s.agentMu.Unlock()
+	if fn == nil {
+		s.rebuildGeneration = nil
+		return
+	}
+	s.rebuildGeneration = func(ctx context.Context) (*agent.Agent, *agent.Supervisor, error) {
+		a, err := fn(ctx)
+		return a, nil, err
+	}
+}
+
+// SetGenerationRebuilder installs the owner-controlled factory for a complete
+// Agent generation. Persistent L2 sessions use this to replace both the leader
+// and its Supervisor/L3 ownership domain.
+func (s *Session) SetGenerationRebuilder(fn func(context.Context) (*agent.Agent, *agent.Supervisor, error)) {
+	s.agentMu.Lock()
+	defer s.agentMu.Unlock()
+	s.rebuildGeneration = fn
+}
+
+// SetSupervisor publishes the Supervisor belonging to the current Agent.
+func (s *Session) SetSupervisor(sv *agent.Supervisor, remove func(*agent.Supervisor)) {
+	s.agentMu.Lock()
+	s.generation.supervisor = sv
+	s.removeSupervisor = remove
+	s.agentMu.Unlock()
+}
+
+// SetSupervisorPublisher supplies the Runtime ownership hook used only after a
+// prepared Agent/Supervisor generation has won the Session publication check.
+// Construction must not publish the Supervisor itself.
+func (s *Session) SetSupervisorPublisher(publish func(*agent.Supervisor)) {
+	s.agentMu.Lock()
+	s.publishSupervisor = publish
+	s.agentMu.Unlock()
+}
+
+// PublishInitialGeneration makes the already constructed first generation
+// discoverable only after Session has installed all lifecycle ownership hooks.
+func (s *Session) PublishInitialGeneration() {
+	s.agentMu.Lock()
+	defer s.agentMu.Unlock()
+	if s.generation.supervisor != nil && s.publishSupervisor != nil {
+		s.publishSupervisor(s.generation.supervisor)
+	}
+	if s.generation.agent != nil {
+		s.generation.agent.ActivateScheduling()
+	}
+}
+
+// SetAgentRegistry supplies the registry owner so generation replacement can
+// remove quarantined agents from the active scheduling/index set.
+func (s *Session) SetAgentRegistry(registry *agent.Registry) {
+	s.agentMu.Lock()
+	s.agentRegistry = registry
+	s.agentMu.Unlock()
+}
+
+// CurrentAgent returns a consistent snapshot of the active Agent generation.
+// Callers must retain the returned pointer for the duration of one operation;
+// a later watchdog replacement may publish a different generation.
+func (s *Session) CurrentAgent() *agent.Agent {
+	if s == nil {
+		return nil
+	}
+	s.agentMu.RLock()
+	defer s.agentMu.RUnlock()
+	return s.generation.agent
+}
+
+// CurrentSupervisor returns the L3 owner paired with CurrentAgent's generation.
+func (s *Session) CurrentSupervisor() *agent.Supervisor {
+	if s == nil {
+		return nil
+	}
+	s.agentMu.RLock()
+	defer s.agentMu.RUnlock()
+	return s.generation.supervisor
+}
+
+func (s *Session) acquireFlight() (uint64, bool) {
+	if !s.inFlight.CompareAndSwap(0, 1) {
+		return 0, false
+	}
+	id := s.flightSeq.Add(1)
+	s.flightOwner.Store(id)
+	return id, true
+}
+
+func (s *Session) releaseFlight(id uint64) {
+	if id != 0 && s.flightOwner.CompareAndSwap(id, 0) {
+		s.inFlight.Store(0)
+	}
+}
+
+func (s *Session) askStream(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (<-chan agent.AgentEvent, *agent.JobHandle, error) {
+	s.agentMu.RLock()
+	legacy := s.askStreamHistory
+	s.agentMu.RUnlock()
+	s.agentMu.Lock()
+	s.lastJob = nil
+	s.agentMu.Unlock()
+	if legacy == nil {
+		return nil, nil, errors.New("session: agent stream unavailable")
+	}
+	ch, err := legacy(ctx, cw, prompt)
+	s.agentMu.RLock()
+	job := s.lastJob
+	s.agentMu.RUnlock()
+	return ch, job, err
+}
+
+func (s *Session) rebuildQuarantinedAgent(ctx context.Context, expected ...*agent.Agent) error {
+	s.rebuildMu.Lock()
+	defer s.rebuildMu.Unlock()
+	s.agentMu.RLock()
+	current := s.generation.agent
+	rebuilder := s.rebuildGeneration
+	s.agentMu.RUnlock()
+	if len(expected) > 0 && expected[0] != nil && current != expected[0] {
+		return nil
+	}
+	if rebuilder == nil {
+		return agent.ErrQuarantined
+	}
+	newAgent, newSupervisor, err := rebuilder(ctx)
+	if err != nil {
+		return err
+	}
+	if newAgent == nil {
+		return errors.New("session: agent rebuilder returned nil agent")
+	}
+	// A conforming factory creates the replacement pending. Keep the lifecycle
+	// boundary defensive for legacy/test factories that return a schedulable
+	// Agent so no work can be acquired between return and atomic publication.
+	newAgent.DeactivateScheduling()
+	fresh := agentGeneration{agent: newAgent, supervisor: newSupervisor}
+	s.agentMu.Lock()
+	// Close may begin while the factory is constructing outside agentMu. The
+	// lifecycle owner revalidates both closed state and expected generation
+	// before publication; rejected fresh resources are retired symmetrically.
+	if s.closed.Load() || (len(expected) > 0 && expected[0] != nil && s.generation.agent != expected[0]) {
+		closed := s.closed.Load()
+		s.agentMu.Unlock()
+		s.retireGeneration(fresh, true)
+		if closed {
+			return ErrSessionClosed
+		}
+		return nil
+	}
+	old := s.generation
+	publish := func() {
+		s.generation = fresh
+		if s.publishSupervisor != nil && fresh.supervisor != nil {
+			s.publishSupervisor(fresh.supervisor)
+		}
+		s.askStreamHistory = func(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (<-chan agent.AgentEvent, error) {
+			ch, job, err := newAgent.AskStreamWithHistoryTracked(ctx, cw, prompt)
+			s.agentMu.Lock()
+			s.lastJob = job
+			s.agentMu.Unlock()
+			return ch, err
+		}
+	}
+	if s.agentRegistry != nil && old.agent != nil {
+		if err := s.agentRegistry.PublishReplacement(old.agent, newAgent, publish); err != nil {
+			s.agentMu.Unlock()
+			s.retireGeneration(fresh, true)
+			return fmt.Errorf("session: publish replacement generation: %w", err)
+		}
+	} else {
+		if old.agent != nil {
+			old.agent.DeactivateScheduling()
+		}
+		publish()
+		newAgent.ActivateScheduling()
+	}
+	s.agentMu.Unlock()
+	s.retireGeneration(old, false)
+	return nil
+}
+
+func (s *Session) retireGeneration(g agentGeneration, stop bool) {
+	s.agentMu.RLock()
+	registry := s.agentRegistry
+	removeSupervisor := s.removeSupervisor
+	s.agentMu.RUnlock()
+	if g.agent != nil {
+		g.agent.DeactivateScheduling()
+	}
+	if g.supervisor != nil {
+		_ = g.supervisor.ReapAll(5 * time.Second)
+		if removeSupervisor != nil {
+			removeSupervisor(g.supervisor)
+		}
+	}
+	if registry != nil && g.agent != nil {
+		registry.Unregister(g.agent.InstanceID)
+	}
+	if g.agent != nil {
+		if stop {
+			_ = g.agent.Stop(5 * time.Second)
+		} else {
+			g.agent.Quarantine(agent.ErrQuarantined)
+		}
+	}
+}
+
+func (s *Session) WatchdogSnapshot(runID string) (runwatch.Snapshot, bool) {
+	if s.runWatch == nil {
+		return runwatch.Snapshot{}, false
+	}
+	return s.runWatch.Snapshot(runID)
+}
+
+// quarantineAgentAfterWatchdog prevents a non-cooperative job from keeping an
+// Agent mailbox blocked after the request-facing watchdog has terminated.
+// Replacement is owned by the SessionManager/Supervisor; this generation is
+// deliberately never restarted in place because its late goroutine is unsafe.
+func (s *Session) quarantineAgentAfterWatchdog(cause error, a *agent.Agent, job *agent.JobHandle) {
+	if s == nil || a == nil || job == nil || !isWatchdogCause(cause) {
+		return
+	}
+	if !job.Fence() {
+		return
+	}
+	go func(a *agent.Agent, job *agent.JobHandle) {
+		timer := time.NewTimer(time.Duration(quarantineGraceNanos.Load()))
+		defer timer.Stop()
+		select {
+		case <-job.Done():
+			job.ReleaseFence()
+			return
+		case <-timer.C:
+		}
+		// Revalidate completion, the exact installed fence, and actor ownership
+		// in one Agent-owned transition. A simultaneous Done or async yield wins
+		// over this timer and can never quarantine later work.
+		job.QuarantineIfStillBlocking(cause)
+	}(a, job)
+}
+
+func isWatchdogCause(cause error) bool {
+	switch runwatch.CodeOf(cause) {
+	case runwatch.CodeModelTransportStalled, runwatch.CodeModelFirstProgressStalled,
+		runwatch.CodeModelSemanticStalled, runwatch.CodeToolStalled,
+		runwatch.CodeDelegationOrphaned, runwatch.CodeRootOrphaned:
+		return true
+	default:
+		return false
+	}
 }
 
 // History returns a snapshot of the current context window for the REST API.
@@ -490,8 +845,8 @@ func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.Outbo
 		return nil
 	}
 	notifyChannel := ""
-	if s.Agent != nil {
-		notifyChannel = s.Agent.Def.NotifyChannel
+	if a := s.CurrentAgent(); a != nil {
+		notifyChannel = a.Def.NotifyChannel
 	}
 	if notifyChannel == "" {
 		return nil
@@ -519,7 +874,8 @@ func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.Outbo
 // HasNotifyChannel reports whether this session's agent has configured a
 // notification channel. It does not claim that a live sender is available.
 func (s *Session) HasNotifyChannel() bool {
-	return s.Agent != nil && s.Agent.Def.NotifyChannel != ""
+	a := s.CurrentAgent()
+	return a != nil && a.Def.NotifyChannel != ""
 }
 
 // SendViaChannel sends text through the configured notify channel.
@@ -527,8 +883,8 @@ func (s *Session) HasNotifyChannel() bool {
 // If notify_channel or its active sender is absent, no notification is sent.
 func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 	notifyChannel := ""
-	if s.Agent != nil {
-		notifyChannel = s.Agent.Def.NotifyChannel
+	if a := s.CurrentAgent(); a != nil {
+		notifyChannel = a.Def.NotifyChannel
 	}
 	if notifyChannel == "" {
 		s.logger.WarnContext(ctx, logger.CatApp, "session: SendViaChannel skipped, no notify_channel configured",
@@ -626,10 +982,30 @@ func (s *Session) withSessionTelemetry(ctx context.Context) context.Context {
 	if metadata.SessionID == "" {
 		metadata.SessionID = s.TargetID
 	}
-	if metadata.AgentID == "" && s.Agent != nil {
-		metadata.AgentID = s.Agent.InstanceID
+	if metadata.AgentID == "" {
+		if a := s.CurrentAgent(); a != nil {
+			metadata.AgentID = a.InstanceID
+		}
 	}
 	return telemetry.WithTelemetryMetadata(ctx, metadata)
+}
+
+func effectiveRunID(ctx context.Context) string {
+	metadata := telemetry.MetadataFromContext(ctx)
+	if metadata.RunID != "" {
+		return metadata.RunID
+	}
+	if metadata.RequestID != "" {
+		return metadata.RequestID
+	}
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		panic(fmt.Sprintf("session: generate run ID: %v", err))
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
 }
 
 func (s *Session) withDispatchScope(ctx context.Context) context.Context {
@@ -637,6 +1013,48 @@ func (s *Session) withDispatchScope(ctx context.Context) context.Context {
 		return ctx
 	}
 	return dispatch.WithScope(ctx, dispatch.Scope{Manager: s.dispatchManager})
+}
+
+// beginRunLifecycle attaches one Runtime-owned watchdog root to a public
+// Session execution entrypoint. Nested helpers reuse an existing handle so
+// model overrides and adapters cannot accidentally create duplicate roots.
+func (s *Session) beginRunLifecycle(ctx context.Context, phase string) (context.Context, *runwatch.Handle, string, error) {
+	runID := effectiveRunID(ctx)
+	metadata := telemetry.MetadataFromContext(ctx)
+	metadata.RunID = runID
+	ctx = telemetry.WithTelemetryMetadata(ctx, metadata)
+	if runwatch.HandleFromContext(ctx) != nil || s.runWatch == nil {
+		return ctx, nil, runID, nil
+	}
+	watchCtx, handle, err := s.runWatch.Start(ctx, runwatch.Metadata{
+		RunID: runID, OwnerSessionID: s.TargetID, Phase: phase,
+	})
+	return watchCtx, handle, runID, err
+}
+
+// applyWatchdogEvent updates supervision before the event becomes externally
+// observable. Confirmation pause/resume stays at the execution layer, which
+// owns the exact interval and handle being suspended.
+func (s *Session) applyWatchdogEvent(runHandle *runwatch.Handle, ev iface.AgentEvent) {
+	if runHandle == nil {
+		return
+	}
+	switch ev.(type) {
+	case agent.DelegationStartedEvent:
+		runHandle.Pulse(runwatch.ProgressStructural, "delegating")
+	case agent.ContentDeltaEvent:
+		runHandle.Pulse(runwatch.ProgressSemantic, "streaming")
+	case agent.ReasoningDeltaEvent:
+		runHandle.Pulse(runwatch.ProgressSemantic, "reasoning")
+	case agent.ToolCallDeltaEvent:
+		runHandle.Pulse(runwatch.ProgressSemantic, "tool_call")
+	case agent.ToolExecStartEvent:
+		runHandle.Pulse(runwatch.ProgressStructural, "tool_execution")
+	case agent.ToolExecDoneEvent, agent.IterationDoneEvent, agent.DelegationCompletedEvent:
+		runHandle.Pulse(runwatch.ProgressStructural, "streaming")
+	case agent.DoneEvent:
+		runHandle.Pulse(runwatch.ProgressSemantic, "completed")
+	}
 }
 
 // AskIsolated executes a prompt in a clean context: it calls the underlying
@@ -656,86 +1074,103 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 	if s.dispatchInitErr != nil {
 		return nil, s.dispatchInitErr
 	}
-	ctx = iface.ContextWithIsQBot(ctx, s.IsQBot())
-	ctx = iface.ContextWithMediaDelivery(ctx, s.HasNotifyChannel())
-	ch, err := s.Agent.AskStream(ctx, prompt)
+	flightID, acquired := s.acquireFlight()
+	if !acquired {
+		return nil, ErrSessionBusy
+	}
+	askCtx, askCancel := context.WithCancelCause(ctx)
+	var runHandle *runwatch.Handle
+	var runID string
+	var err error
+	askCtx, runHandle, runID, err = s.beginRunLifecycle(askCtx, "isolated")
 	if err != nil {
+		askCancel(context.Canceled)
+		s.releaseFlight(flightID)
+		return nil, err
+	}
+	cancelID := s.registerActiveCancel(runID, lifecycleCancel(runHandle, askCancel))
+	askCtx = iface.ContextWithIsQBot(askCtx, s.IsQBot())
+	askCtx = iface.ContextWithMediaDelivery(askCtx, s.HasNotifyChannel())
+	a := s.CurrentAgent()
+	if a == nil {
+		s.unregisterActiveCancel(cancelID)
+		askCancel(context.Canceled)
+		if runHandle != nil {
+			runHandle.Complete()
+		}
+		s.releaseFlight(flightID)
+		return nil, errors.New("session: no active agent")
+	}
+	ch, job, err := a.AskStreamTracked(askCtx, prompt)
+	if errors.Is(err, agent.ErrQuarantined) && s.rebuildGeneration != nil {
+		if rebuildErr := s.rebuildQuarantinedAgent(context.Background(), a); rebuildErr == nil {
+			a = s.CurrentAgent()
+			ch, job, err = a.AskStreamTracked(askCtx, prompt)
+		} else {
+			err = rebuildErr
+		}
+	}
+	if err != nil {
+		s.unregisterActiveCancel(cancelID)
+		askCancel(context.Canceled)
+		if runHandle != nil {
+			runHandle.Complete()
+		}
+		s.releaseFlight(flightID)
 		return nil, err
 	}
 	// Wrap AgentEvent channel to iface.AgentEvent channel (they are the same type via embedding)
 	out := make(chan iface.AgentEvent, 64)
 	go func() {
 		defer close(out)
-		for ev := range ch {
-			out <- ev
+		defer s.releaseFlight(flightID)
+		defer s.unregisterActiveCancel(cancelID)
+		defer askCancel(context.Canceled)
+		if runHandle != nil {
+			defer runHandle.Complete()
+		}
+		for {
+			select {
+			case <-askCtx.Done():
+				s.quarantineAgentAfterWatchdog(context.Cause(askCtx), a, job)
+				if cause := context.Cause(askCtx); cause != nil && (!errors.Is(cause, context.Canceled) || runwatch.CodeOf(cause) != "") {
+					select {
+					case out <- agent.ErrorEvent{Err: cause}:
+					default:
+					}
+				}
+				return
+			case ev, ok := <-ch:
+				if !ok {
+					return
+				}
+				s.applyWatchdogEvent(runHandle, ev)
+				select {
+				case out <- ev:
+				case <-askCtx.Done():
+					s.quarantineAgentAfterWatchdog(context.Cause(askCtx), a, job)
+					return
+				}
+			}
 		}
 	}()
 	return out, nil
 }
 
-// AskIsolatedWithModel executes an isolated scheduled task with an explicit
-// per-run model. The override is cleared when the returned stream closes so it
-// cannot leak into the next user request.
-// AskStreamWithModel executes a prompt via AskStream (pushing to timeline)
-// with an explicit per-run model. The override is cleared when the stream closes.
+// AskStreamWithModel and AskIsolatedWithModel carry an explicit model route in
+// the request context. They never mutate reusable Agent state.
 func (s *Session) AskStreamWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error) {
 	if params == nil {
 		return s.AskStream(ctx, prompt)
 	}
-	s.Agent.SetModelOverride(&agent.ModelParams{
-		ProviderID:      params.ProviderID,
-		ModelID:         params.ModelID,
-		ThinkingEnabled: params.ThinkingEnabled,
-		ReasoningEffort: params.ReasoningEffort,
-		ThinkingType:    params.ThinkingType,
-		TaskType:        params.TaskType,
-		ContextWindow:   params.ContextWindow,
-		Vision:          params.Vision,
-	})
-	ch, err := s.AskStream(ctx, prompt)
-	if err != nil {
-		s.Agent.ClearModelOverride()
-		return nil, err
-	}
-	out := make(chan iface.AgentEvent, 64)
-	go func() {
-		defer close(out)
-		defer s.Agent.ClearModelOverride()
-		for ev := range ch {
-			out <- ev
-		}
-	}()
-	return out, nil
+	return s.AskStream(iface.ContextWithModelOverride(ctx, params), prompt)
 }
 
 func (s *Session) AskIsolatedWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error) {
 	if params == nil {
 		return s.AskIsolated(ctx, prompt)
 	}
-	s.Agent.SetModelOverride(&agent.ModelParams{
-		ProviderID:      params.ProviderID,
-		ModelID:         params.ModelID,
-		ThinkingEnabled: params.ThinkingEnabled,
-		ReasoningEffort: params.ReasoningEffort,
-		ThinkingType:    params.ThinkingType,
-		TaskType:        params.TaskType,
-		ContextWindow:   params.ContextWindow,
-		Vision:          params.Vision,
-	})
-	ch, err := s.AskIsolated(ctx, prompt)
-	if err != nil {
-		s.Agent.ClearModelOverride()
-		return nil, err
-	}
-	out := make(chan iface.AgentEvent, 64)
-	go func() {
-		defer close(out)
-		defer s.Agent.ClearModelOverride()
-		for ev := range ch {
-			out <- ev
-		}
-	}()
-	return out, nil
+	return s.AskIsolated(iface.ContextWithModelOverride(ctx, params), prompt)
 }
 
 // QueueMessage enqueues a user message into the pending queue without blocking.
@@ -916,6 +1351,9 @@ func (s *Session) Compact(ctx context.Context) (string, error) {
 	if err != nil {
 		s.logger.LogError(context.Background(), logger.CatApp, "session compact failed", err)
 		return "", fmt.Errorf("session: compact: %w", err)
+	}
+	if cause := context.Cause(compactCtx); cause != nil {
+		return "", cause
 	}
 
 	s.logger.InfoContext(context.Background(), logger.CatApp, "session compacted",
@@ -1190,102 +1628,29 @@ func (s *Session) checkAutoClear() {
 		"summary_len", len(summary))
 }
 
-// Ask sends a round of prompt and returns the final content
-//
-// Semantics:
-//   - Ask is serialized within the same session (inFlight CAS 0→1, otherwise ErrSessionBusy)
-//   - First push user prompt to ContextWindow
-//   - Call Agent.AskWithHistory (with full history)
-//   - Success: push assistant reply to ContextWindow
-//   - Failure: PopLast removes the user prompt just pushed
-//   - ctx cancellation propagates to agent; Session does not manage timeout.
+// Ask sends a round of prompt through the same tracked streaming lifecycle as
+// every other public execution entrypoint.
 func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
-	// Inject telemetry context
-	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
-	ctx = s.withSessionTelemetry(ctx)
-	ctx = s.withDispatchScope(ctx)
-
-	if s.closed.Load() {
-		s.logger.DebugContext(ctx, logger.CatApp, "ask rejected: session closed")
-		return "", ErrSessionClosed
-	}
-	if s.dispatchInitErr != nil {
-		return "", s.dispatchInitErr
-	}
-	if !s.inFlight.CompareAndSwap(0, 1) {
-		s.logger.InfoContext(ctx, logger.CatApp, "ask rejected: session busy, message queued",
-			"target_id", s.TargetID,
-			"prompt_len", len(prompt),
-		)
-		s.enqueuePending(ctx, prompt)
-		return "", ErrQueued
-	}
-	defer s.inFlight.Store(0)
-	defer s.touch()
-
-	s.checkAutoClear()
-
-	start := time.Now()
-
-	ctx = iface.ContextWithIsQBot(ctx, s.IsQBot())
-
-	// Resize to default model's context window and push user prompt
-	effectiveCW := s.Agent.Def.ContextWindow
-	if effectiveCW <= 0 {
-		effectiveCW = agent.DefaultContextWindow
-	}
-	s.mu.Lock()
-	s.cw.Resize(effectiveCW, 0, 0)
-	cwLenBeforeTurn := s.cw.Len()
-	s.maybeInjectPersonaState()
-	s.cw.Push(ctxwin.RoleUser, prompt, inputPushOptions(ctx)...)
-	s.mu.Unlock()
-
-	s.logger.DebugContext(ctx, logger.CatApp, "ask: prompt pushed to context window",
-		"target_id", s.TargetID,
-		"prompt_len", len(prompt),
-	)
-
-	reply, reasoningContent, err := s.Agent.AskWithHistory(ctx, s.cw, prompt)
-	duration := time.Since(start).Milliseconds()
-
+	stream, err := s.AskStream(ctx, prompt)
 	if err != nil {
-		s.mu.Lock()
-		s.cw.Truncate(cwLenBeforeTurn)
-		s.mu.Unlock()
-
-		s.logger.WarnContext(ctx, logger.CatApp, "ask failed, user prompt removed",
-			"target_id", s.TargetID,
-			"duration_ms", duration,
-			"err", err.Error(),
-		)
 		return "", err
 	}
-
-	// Empty assistant reply with no tool calls is invalid for LLM API.
-	// Skip the push but keep the user prompt so LLM retains context.
-	if reply == "" {
-		s.logger.WarnContext(ctx, logger.CatApp, "ask: empty assistant reply skipped",
-			"target_id", s.TargetID,
-			"duration_ms", duration,
-			"reasoning_len", len(reasoningContent),
-		)
-		return "", fmt.Errorf("session: assistant returned empty reply")
+	var content strings.Builder
+	var final string
+	for ev := range stream {
+		switch e := ev.(type) {
+		case agent.ContentDeltaEvent:
+			content.WriteString(e.Delta)
+		case agent.DoneEvent:
+			final = e.Content
+		case agent.ErrorEvent:
+			return "", e.Err
+		}
 	}
-
-	s.mu.Lock()
-	opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(reasoningContent)}
-	s.cw.Push(ctxwin.RoleAssistant, reply, opts...)
-	s.mu.Unlock()
-
-	s.logger.DebugContext(ctx, logger.CatApp, "ask complete",
-		"target_id", s.TargetID,
-		"reply_len", len(reply),
-		"reasoning_len", len(reasoningContent),
-		"duration_ms", duration,
-	)
-
-	return reply, nil
+	if final != "" {
+		return final, nil
+	}
+	return content.String(), nil
 }
 
 // AskStream streaming version; caller must range over the returned channel until closed
@@ -1329,6 +1694,14 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			return nil, ErrQueued
 		}
 		s.touch()
+		compactBase, compactCancel := context.WithCancelCause(context.WithoutCancel(ctx))
+		compactCtx, runHandle, runID, watchErr := s.beginRunLifecycle(compactBase, "compact")
+		if watchErr != nil {
+			compactCancel(context.Canceled)
+			s.inFlight.Store(0)
+			return nil, watchErr
+		}
+		cancelID := s.registerActiveCancel(runID, lifecycleCancel(runHandle, compactCancel))
 		// Record the "/compact" prompt in CW + timeline so it survives the
 		// post-completion loadHistory. Without this the user's prompt is
 		// silently dropped from the chat UI.
@@ -1337,11 +1710,21 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
 			defer close(out)
+			defer func() {
+				s.unregisterActiveCancel(cancelID)
+				compactCancel(context.Canceled)
+				if runHandle != nil {
+					runHandle.Complete()
+				}
+			}()
 			defer s.inFlight.Store(0)
 			defer s.touch()
-			if summary, err := s.Compact(ctx); err != nil {
-				out <- agent.ContentDeltaEvent{Delta: "Compact failed: " + err.Error()}
-				out <- agent.DoneEvent{Content: "Compact failed: " + err.Error()}
+			if summary, err := s.Compact(compactCtx); err != nil {
+				if cause := context.Cause(compactCtx); cause != nil {
+					out <- agent.ErrorEvent{Err: cause}
+					return
+				}
+				out <- agent.ErrorEvent{Err: err}
 			} else {
 				if summary == "" {
 					summary = "Context window compacted (no content to summarize)"
@@ -1391,8 +1774,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			defer s.inFlight.Store(0)
 			defer s.touch()
 			if err := s.Clear(); err != nil {
-				out <- agent.ContentDeltaEvent{Delta: "Clear failed: " + err.Error()}
-				out <- agent.DoneEvent{Content: "Clear failed: " + err.Error()}
+				out <- agent.ErrorEvent{Err: err}
 			} else {
 				out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared and saved to conversation."}
 				out <- agent.DoneEvent{Content: "Session history cleared."}
@@ -1416,7 +1798,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		return out, nil
 
 	case "/init":
-		if s.Agent.WorkDir == "" {
+		initAgent := s.CurrentAgent()
+		if initAgent == nil || initAgent.WorkDir == "" {
 			out := make(chan iface.AgentEvent, 1)
 			go func() {
 				defer close(out)
@@ -1428,21 +1811,16 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		}
 		// Replace prompt with LLM init instructions; fall through to normal processing.
 		// The agent will explore the project and create/update AGENTS.md using tools.
-		prompt = BuildInitPrompt(s.Agent.WorkDir)
+		prompt = BuildInitPrompt(initAgent.WorkDir)
 		// Intentionally no return — let it reach the LLM agent below.
 
 	}
 
-	// Reset cancelled flag to prevent leakage of the residual flag from previous AskStream to this call.
-	// See isCancelledAndReset - forwarder goroutine sets this flag when askCtx is cancelled,
-	// consumed by the adapter (e.g. qqbot_adapter) after the event loop. If the adapter
-	// returns early due to ErrorEvent and does not consume it, the residual flag causes the next AskStream to incorrectly report cancellation.
-	s.cancelled.Store(false)
-
 	// L1 async delegation does not block new messages. Agent mailbox guarantees serial execution of jobs:
 	// resumeTurn (high priority) executes before new message jobs, keeping CW order naturally correct.
 
-	if !s.inFlight.CompareAndSwap(0, 1) {
+	flightID, acquired := s.acquireFlight()
+	if !acquired {
 		s.logger.InfoContext(ctx, logger.CatApp, "askstream rejected: session busy, message queued",
 			"target_id", s.TargetID,
 			"prompt_len", len(prompt),
@@ -1453,9 +1831,28 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		return nil, ErrQueued
 	}
 	clientCtx := ctx
-	askCtx, askCancel := context.WithTimeout(context.WithoutCancel(ctx), s.requestTimeout)
+	var askCtx context.Context
+	var askCancel context.CancelCauseFunc
+	if s.requestTimeout > 0 {
+		var deadlineCancel context.CancelFunc
+		askCtx, deadlineCancel = context.WithTimeout(context.WithoutCancel(ctx), s.requestTimeout)
+		askCancel = func(error) { deadlineCancel() }
+	} else {
+		askCtx, askCancel = context.WithCancelCause(context.WithoutCancel(ctx))
+	}
 	askCtx = iface.ContextWithIsQBot(askCtx, s.IsQBot())
-	cancelID := s.registerActiveCancel(askCancel)
+	var runHandle *runwatch.Handle
+	var runID string
+	var watchErr error
+	var askAgent *agent.Agent
+	var jobHandle *agent.JobHandle
+	askCtx, runHandle, runID, watchErr = s.beginRunLifecycle(askCtx, "routing")
+	if watchErr != nil {
+		askCancel(context.Canceled)
+		s.releaseFlight(flightID)
+		return nil, watchErr
+	}
+	cancelID := s.registerActiveCancel(runID, lifecycleCancel(runHandle, askCancel))
 	// Routing, memory recall, the leader LLM, local children, and cross-team
 	// helpers all use this same cancellation root.
 	ctx = askCtx
@@ -1467,7 +1864,17 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	start := time.Now()
 
 	// ── Task routing: classify prompt and set model override ──
-	effectiveCW := s.Agent.Def.ContextWindow
+	askAgent = s.CurrentAgent()
+	if askAgent == nil {
+		askCancel(context.Canceled)
+		s.unregisterActiveCancel(cancelID)
+		if runHandle != nil {
+			runHandle.Complete()
+		}
+		s.releaseFlight(flightID)
+		return nil, errors.New("session: no active agent")
+	}
+	effectiveCW := askAgent.Def.ContextWindow
 	if effectiveCW <= 0 {
 		effectiveCW = agent.DefaultContextWindow
 	}
@@ -1500,7 +1907,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 				"reasoning_effort", result.ReasoningEffort,
 				"level", result.Level,
 			)
-			s.Agent.SetModelOverride(&agent.ModelParams{
+			askCtx = iface.ContextWithModelOverride(askCtx, &iface.ModelOverrideParams{
 				ProviderID:      result.ProviderID,
 				ModelID:         result.ModelID,
 				ThinkingEnabled: result.ThinkingEnabled,
@@ -1553,7 +1960,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	if images, ok := ctx.Value(ctxwin.ImageContextKey).([]llm.ImageContent); ok && len(images) > 0 {
 		pushOpts = append(pushOpts, ctxwin.WithImages(images))
 
-		effectiveVision := s.Agent.Def.Vision
+		effectiveVision := askAgent.Def.Vision
 		if activeRouteResult.ModelID != "" {
 			effectiveVision = activeRouteResult.Vision
 		}
@@ -1583,22 +1990,35 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		"prompt_len", len(prompt),
 	)
 
-	srcCh, err := s.askStreamHistory(askCtx, s.cw, prompt)
+	srcCh, jobHandle, err := s.askStream(askCtx, s.cw, prompt)
 	if err != nil {
-		// Agent stopped: attempt to restart and retry once
+		// A stopped Agent may be restarted; a quarantined generation must be
+		// replaced because its old job may still be running outside the actor.
+		if errors.Is(err, agent.ErrQuarantined) && s.rebuildGeneration != nil {
+			if rebuildErr := s.rebuildQuarantinedAgent(context.Background(), askAgent); rebuildErr == nil {
+				askAgent = s.CurrentAgent()
+				srcCh, jobHandle, err = s.askStream(askCtx, s.cw, prompt)
+				if err == nil {
+					goto enqueued
+				}
+			} else {
+				s.logger.WarnContext(ctx, logger.CatApp, "askstream: quarantined agent replacement failed",
+					"target_id", s.TargetID, "err", rebuildErr.Error())
+			}
+		}
 		if errors.Is(err, agent.ErrStopped) || errors.Is(err, agent.ErrNotStarted) {
 			s.logger.InfoContext(ctx, logger.CatApp, "askstream: agent not running, attempting restart",
 				"target_id", s.TargetID,
 				"err", err.Error(),
 			)
-			if startErr := s.Agent.Start(context.Background()); startErr != nil {
+			if startErr := askAgent.Start(context.Background()); startErr != nil {
 				s.logger.WarnContext(ctx, logger.CatApp, "askstream: agent restart failed",
 					"target_id", s.TargetID,
 					"err", startErr.Error(),
 				)
 			} else {
 				// Retry once
-				srcCh, err = s.askStreamHistory(askCtx, s.cw, prompt)
+				srcCh, jobHandle, err = s.askStream(askCtx, s.cw, prompt)
 				if err == nil {
 					goto enqueued
 				}
@@ -1607,12 +2027,15 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 
 		// Enqueue failure: cleanup
 		s.unregisterActiveCancel(cancelID)
-		askCancel()
+		askCancel(context.Canceled)
+		if runHandle != nil {
+			runHandle.Complete()
+		}
 
 		s.mu.Lock()
 		s.cw.Truncate(cwLenBeforeTurn)
 		s.mu.Unlock()
-		s.inFlight.Store(0)
+		s.releaseFlight(flightID)
 
 		s.logger.WarnContext(ctx, logger.CatApp, "askstream: agent stream setup failed",
 			"target_id", s.TargetID,
@@ -1622,16 +2045,23 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	}
 
 enqueued:
+	// Capture the request route before returning to the WebSocket layer. Actor
+	// execution is asynchronous, so Agent.activeModelOverride is not an
+	// authoritative source for the just-accepted request.
+	s.publishRequestRoute(clientCtx, askAgent, activeRouteResult)
 
 	out := make(chan iface.AgentEvent, 64)
 	go func() {
 		// Cleanup: unregister this turn and release askCtx when the goroutine ends.
+		defer close(out)
 		defer func() {
 			s.unregisterActiveCancel(cancelID)
-			askCancel()
+			askCancel(context.Canceled)
+			if runHandle != nil {
+				runHandle.Complete()
+			}
 		}()
-		defer close(out)
-		defer s.inFlight.Store(0)
+		defer s.releaseFlight(flightID)
 		defer s.touch()
 		defer s.closeTurnDone()
 		defer func() {
@@ -1725,7 +2155,7 @@ enqueued:
 					Role:             "assistant",
 					Content:          pending,
 					ReasoningContent: accReasoning.String(),
-					AgentID:          s.Agent.InstanceID,
+					AgentID:          askAgent.InstanceID,
 				})
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial assistant content flushed to timeline",
 					"target_id", s.TargetID,
@@ -1735,14 +2165,14 @@ enqueued:
 		}()
 
 		clientDisconnected := false
-		deadlineErrorEmitted := false
+		terminalErrorEmitted := false
 		deadlineError := fmt.Errorf("Session request timed out after %s", formatRequestTimeout(s.requestTimeout))
-		emitDeadlineError := func() {
-			if deadlineErrorEmitted {
+		emitTerminalError := func(terminalErr error) {
+			if terminalErrorEmitted {
 				return
 			}
-			deadlineErrorEmitted = true
-			terminal := agent.ErrorEvent{Err: deadlineError}
+			terminalErrorEmitted = true
+			terminal := agent.ErrorEvent{Err: terminalErr}
 			select {
 			case out <- terminal:
 				eventCount++
@@ -1759,20 +2189,26 @@ enqueued:
 			out <- terminal
 			eventCount++
 		}
-		terminateContext := func(err error) bool {
-			switch {
-			case errors.Is(err, context.DeadlineExceeded):
-				s.cancelled.Store(true)
-				rollbackTurn()
-				emitDeadlineError()
-				return true
-			case errors.Is(err, context.Canceled):
-				s.cancelled.Store(true)
-				rollbackTurn()
-				return true
-			default:
+		terminalErrorForCause := func(cause error) error {
+			if errors.Is(cause, context.DeadlineExceeded) {
+				return deadlineError
+			}
+			return cause
+		}
+		shouldExposeTerminal := func(cause error) bool {
+			return !errors.Is(cause, context.Canceled) || runwatch.CodeOf(cause) != ""
+		}
+		terminateContext := func() bool {
+			cause := context.Cause(askCtx)
+			if cause == nil {
 				return false
 			}
+			s.quarantineAgentAfterWatchdog(cause, askAgent, jobHandle)
+			rollbackTurn()
+			if shouldExposeTerminal(cause) {
+				emitTerminalError(terminalErrorForCause(cause))
+			}
+			return true
 		}
 		for {
 			var ev agent.AgentEvent
@@ -1784,7 +2220,7 @@ enqueued:
 					}
 					ev = e
 				case <-askCtx.Done():
-					terminateContext(askCtx.Err())
+					terminateContext()
 
 					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
 						"target_id", s.TargetID,
@@ -1801,7 +2237,7 @@ enqueued:
 					}
 					ev = e
 				case <-askCtx.Done():
-					terminateContext(askCtx.Err())
+					terminateContext()
 
 					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (read)",
 						"target_id", s.TargetID,
@@ -1814,17 +2250,34 @@ enqueued:
 					continue
 				}
 			}
+			sourceTerminal := false
+			errorEvent := false
 			if e, ok := ev.(agent.ErrorEvent); ok {
+				errorEvent = true
 				// The agent uses the same request context, so its context error is
 				// another observation of this request's terminal state only when it
 				// matches askCtx. An upstream context error while askCtx is still
 				// live remains an ordinary source error and must be forwarded intact.
-				askErr := askCtx.Err()
-				if (errors.Is(e.Err, context.DeadlineExceeded) && errors.Is(askErr, context.DeadlineExceeded)) ||
-					(errors.Is(e.Err, context.Canceled) && errors.Is(askErr, context.Canceled)) {
-					terminateContext(askErr)
-					return
+				cause := context.Cause(askCtx)
+				if sameTerminalCause(e.Err, cause) {
+					ev = agent.ErrorEvent{Err: terminalErrorForCause(cause)}
+					sourceTerminal = true
 				}
+				// ErrorEvent terminates AskStream. Roll back before publishing it so
+				// callers that return from the stream cannot observe a partial turn
+				// in history while the forwarder is still unwinding.
+				rollbackTurn()
+				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event, user prompt removed",
+					"target_id", s.TargetID,
+					"err", e.Err,
+				)
+			}
+			s.applyWatchdogEvent(runHandle, ev)
+			if sourceTerminal {
+				if shouldExposeTerminal(context.Cause(askCtx)) {
+					emitTerminalError(ev.(agent.ErrorEvent).Err)
+				}
+				return
 			}
 			if clientDisconnected {
 				select {
@@ -1837,7 +2290,7 @@ enqueued:
 				case out <- ev:
 					eventCount++
 				case <-askCtx.Done():
-					terminateContext(askCtx.Err())
+					terminateContext()
 
 					s.logger.DebugContext(ctx, logger.CatApp, "askstream cancelled (write)",
 						"target_id", s.TargetID,
@@ -1854,7 +2307,9 @@ enqueued:
 					}
 				}
 			}
-
+			if errorEvent {
+				return
+			}
 			switch e := ev.(type) {
 			case agent.ToolNeedsConfirmEvent:
 				s.logger.InfoContext(ctx, logger.CatApp, "session-forwarder: confirm event received and forwarded",
@@ -1868,7 +2323,7 @@ enqueued:
 					"target_id", s.TargetID,
 				)
 				s.newTurnDone()
-				s.inFlight.Store(0)
+				s.releaseFlight(flightID)
 			case agent.ContentDeltaEvent:
 				accContent.WriteString(e.Delta)
 			case agent.ReasoningDeltaEvent:
@@ -1882,19 +2337,11 @@ enqueued:
 					"content_len", len(e.Content),
 					"reasoning_len", len(e.ReasoningContent),
 				)
-			case agent.ErrorEvent:
-				// Error: roll back the entire incomplete turn.
-				rollbackTurn()
-
-				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event, user prompt removed",
-					"target_id", s.TargetID,
-					"err", e.Err.Error(),
-				)
 			}
 		}
 	done:
 		// Check if cancellation occurred between goto done and this label (narrow race window)
-		if terminateContext(askCtx.Err()) {
+		if terminateContext() {
 		} else if gotDone {
 			if finalContent != "" {
 				s.mu.Lock()
@@ -1961,23 +2408,79 @@ func partialFlushRemainder(pending, persisted string) string {
 }
 
 // Close marks session as closed, preventing new Asks; does not stop agent
-func (s *Session) Close() {
+func (s *Session) beginClose() {
 	s.closed.Store(true)
+	// Synchronize with generation construction/publication. A factory already
+	// in progress observes closed before publish and retires its fresh domain.
+	s.rebuildMu.Lock()
+	s.rebuildMu.Unlock()
+}
 
-	s.logger.InfoContext(context.Background(), logger.CatApp, "session closed",
-		"target_id", s.TargetID,
-		"lifetime_sec", time.Since(s.Created).Seconds(),
-	)
+func (s *Session) Close() {
+	s.beginClose()
 
-	// Close timeline Writer, flush to disk and release file handle
-	if s.tl != nil {
-		s.tl.Close()
+	s.closeOnce.Do(func() {
+		s.logger.InfoContext(context.Background(), logger.CatApp, "session closed",
+			"target_id", s.TargetID,
+			"lifetime_sec", time.Since(s.Created).Seconds(),
+		)
+
+		// Close timeline Writer, flush to disk and release file handle.
+		if s.tl != nil {
+			s.tl.Close()
+		}
+
+		// The Session owns the generation logger handler. L1 rebuilds reuse
+		// this handler, so one close releases every generation's log writers.
+		if err := s.resourceCloser(); err != nil {
+			fmt.Fprintf(os.Stderr, "session close: logger close error: %v\n", err)
+		}
+	})
+}
+
+// DisposeGeneration is the lifecycle-owner cleanup for a Session's complete
+// Agent generation. Unlike Close, it makes the generation undiscoverable,
+// reaps its Supervisor domain, unregisters and stops the leader, and then
+// closes Session-owned resources. Calls are idempotent.
+func (s *Session) DisposeGeneration(timeout time.Duration) {
+	if s == nil {
+		return
 	}
+	s.disposeOnce.Do(func() {
+		// Fence a concurrent rebuild before detaching the generation snapshot.
+		s.beginClose()
+		_ = s.CancelCurrent("session generation disposed")
 
-	// Close session logger
-	if err := s.logger.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "session close: logger close error: %v\n", err)
-	}
+		s.agentMu.Lock()
+		generation := s.generation
+		s.generation = agentGeneration{}
+		s.askStreamHistory = nil
+		s.lastJob = nil
+		s.agentMu.Unlock()
+
+		if generation.agent != nil {
+			generation.agent.DeactivateScheduling()
+		}
+		if generation.supervisor != nil {
+			_ = generation.supervisor.ReapAll(timeout)
+			s.agentMu.RLock()
+			removeSupervisor := s.removeSupervisor
+			s.agentMu.RUnlock()
+			if removeSupervisor != nil {
+				removeSupervisor(generation.supervisor)
+			}
+		}
+		if generation.agent != nil {
+			s.agentMu.RLock()
+			registry := s.agentRegistry
+			s.agentMu.RUnlock()
+			if registry != nil {
+				registry.Unregister(generation.agent.InstanceID)
+			}
+			_ = generation.agent.Stop(timeout)
+		}
+		s.Close()
+	})
 }
 
 // closeTurnDone safely closes turnDone channel and cleans up state.
@@ -2014,21 +2517,28 @@ func (s *Session) LastActive() time.Time {
 }
 
 type activeTurnCancel struct {
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc
 	done   chan struct{}
 }
 
-// registerActiveCancel adds a top-level turn cancellation root to the session.
-func (s *Session) registerActiveCancel(cancel context.CancelFunc) uint64 {
-	s.cancelMu.Lock()
-	defer s.cancelMu.Unlock()
-	s.nextCancelID++
-	id := s.nextCancelID
-	s.activeCancels[id] = activeTurnCancel{cancel: cancel, done: make(chan struct{})}
-	return id
+func lifecycleCancel(handle *runwatch.Handle, cancel context.CancelCauseFunc) context.CancelCauseFunc {
+	return func(cause error) {
+		if handle != nil && runwatch.CodeOf(cause) != "" {
+			handle.Fail(cause)
+		}
+		cancel(cause)
+	}
 }
 
-func (s *Session) unregisterActiveCancel(id uint64) {
+// registerActiveCancel adds a top-level turn cancellation root to the session.
+func (s *Session) registerActiveCancel(runID string, cancel context.CancelCauseFunc) string {
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	s.activeCancels[runID] = activeTurnCancel{cancel: cancel, done: make(chan struct{})}
+	return runID
+}
+
+func (s *Session) unregisterActiveCancel(id string) {
 	s.cancelMu.Lock()
 	turn, ok := s.activeCancels[id]
 	if ok {
@@ -2038,15 +2548,55 @@ func (s *Session) unregisterActiveCancel(id uint64) {
 	s.cancelMu.Unlock()
 }
 
+func (s *Session) hasActiveRun(runID string) bool {
+	s.cancelMu.Lock()
+	_, ok := s.activeCancels[runID]
+	s.cancelMu.Unlock()
+	return ok
+}
+
+// CancelRun targets one request tree because L1 can own multiple independent
+// runs whose cancellation scopes must never leak into each other.
+func (s *Session) CancelRun(runID, reason string) error {
+	s.cancelMu.Lock()
+	turn, ok := s.activeCancels[runID]
+	s.cancelMu.Unlock()
+	if !ok {
+		return ErrNoActiveTask
+	}
+	turn.cancel(&runwatch.Cause{Code: runwatch.CodeCancelledByUser, OperationID: runID})
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-turn.done:
+	case <-timer.C:
+		return fmt.Errorf("session: timed out waiting for run %q cancellation", runID)
+	}
+	s.logger.InfoContext(context.Background(), logger.CatApp, "session run cancelled",
+		"target_id", s.TargetID,
+		"run_id", runID,
+		"reason", reason,
+	)
+	return nil
+}
+
 // CancelCurrent cancels every live top-level turn in this session. Delegated
 // and cross-team calls derive their contexts from these roots, so cancellation
 // propagates through the complete request tree. Session and Agent lifecycles
 // are intentionally left untouched and can serve later messages normally.
 func (s *Session) CancelCurrent(reason string) error {
+	return s.cancelCurrent(reason, false)
+}
+
+func (s *Session) cancelCurrent(reason string, byUser bool) error {
 	s.cancelMu.Lock()
-	turns := make([]activeTurnCancel, 0, len(s.activeCancels))
-	for _, turn := range s.activeCancels {
-		turns = append(turns, turn)
+	type identifiedTurn struct {
+		id string
+		activeTurnCancel
+	}
+	turns := make([]identifiedTurn, 0, len(s.activeCancels))
+	for id, turn := range s.activeCancels {
+		turns = append(turns, identifiedTurn{id: id, activeTurnCancel: turn})
 	}
 	s.cancelMu.Unlock()
 
@@ -2054,7 +2604,11 @@ func (s *Session) CancelCurrent(reason string) error {
 		return ErrNoActiveTask
 	}
 	for _, turn := range turns {
-		turn.cancel()
+		cause := error(context.Canceled)
+		if byUser {
+			cause = &runwatch.Cause{Code: runwatch.CodeCancelledByUser, OperationID: turn.id}
+		}
+		turn.cancel(cause)
 	}
 
 	// WebSocket messages are handled serially. Waiting for the forwarding
@@ -2083,11 +2637,15 @@ func (s *Session) CancelCurrent(reason string) error {
 	return nil
 }
 
-// isCancelledAndReset checks if the forwarder exited due to cancellation.
-// Consumes the one-time cancelled flag and resets it to false, ensuring ErrCancelled is returned only once.
-// Called by SessionAskAdapter after the AskStream event loop.
-func (s *Session) isCancelledAndReset() bool {
-	return s.cancelled.CompareAndSwap(true, false)
+func sameTerminalCause(source, cause error) bool {
+	if source == nil || cause == nil {
+		return false
+	}
+	if errors.Is(source, cause) || errors.Is(cause, source) {
+		return true
+	}
+	sourceCode, causeCode := runwatch.CodeOf(source), runwatch.CodeOf(cause)
+	return sourceCode != "" && sourceCode == causeCode
 }
 
 // ─── SessionManager ──────────────────────────────────────────────────────
@@ -2116,10 +2674,12 @@ type SessionManager struct {
 	personaProviderID string // fast/classifier model provider for reflection LLM calls
 	personaModelID    string // fast/classifier model ID for reflection LLM calls
 
-	logger *logger.Logger
+	logger        *logger.Logger
+	agentRegistry *agent.Registry
 
 	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum tokens to trigger compact
+	runWatch         *runwatch.Manager
 
 	mu      sync.Mutex
 	session *Session
@@ -2162,6 +2722,22 @@ func (m *SessionManager) SetVisionDescriber(fn VisionDescriberFunc) {
 // Must be set alongside SetMemoryHook. Not thread-safe for setup.
 func (m *SessionManager) SetMemoryManager(mm *conversation.Manager) {
 	m.memoryManager = mm
+}
+
+// SetRunWatch wires the process-owned manager into Sessions created later.
+func (m *SessionManager) SetRunWatch(manager *runwatch.Manager) {
+	m.runWatch = manager
+}
+
+// SetAgentRegistry wires the active-agent registry used for generation
+// replacement cleanup. Must be set before Init.
+func (m *SessionManager) SetAgentRegistry(registry *agent.Registry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.session == nil {
+		// Store through a setup-only field added below.
+		m.agentRegistry = registry
+	}
 }
 
 // SetPersonaStatePath sets the state.md path for persona state injection.
@@ -2233,7 +2809,19 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	id := "l1-session"
 
 	sessionLogger := m.logger.Child()
+	if a != nil && a.Log != nil {
+		sessionLogger = a.Log.Child()
+	}
 	s := NewSession(id, teamID, a, cw, tl, sessionLogger)
+	s.SetAgentRegistry(m.agentRegistry)
+	s.SetAgentRebuilder(func(rebuildCtx context.Context) (*agent.Agent, error) {
+		fresh, _, freshTimeline, err := m.factory(rebuildCtx, teamID)
+		if freshTimeline != nil {
+			_ = freshTimeline.Close()
+		}
+		return fresh, err
+	})
+	s.SetRunWatch(m.runWatch)
 	s.SetPersonaStatePath(m.personaStatePath)
 	s.SetPersonaReflection(m.personaLLM, m.personaProviderID, m.personaModelID, m.personaName)
 
@@ -2256,13 +2844,18 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 		s.idleTimeout = m.idleTimeout
 		s.compactThreshold = m.compactThreshold
 	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed.Load() {
+		s.beginClose()
 		_ = a.Stop(time.Second)
+		if m.agentRegistry != nil {
+			m.agentRegistry.Unregister(a.InstanceID)
+		}
+		s.Close()
 		return nil, ErrSessionClosed
 	}
+	s.PublishInitialGeneration()
 	m.session = s
 
 	m.logger.InfoContext(ctx, logger.CatApp, "session initialized",
@@ -2290,7 +2883,11 @@ func (m *SessionManager) Shutdown(stopTimeout time.Duration) {
 	m.mu.Unlock()
 
 	if s != nil {
-		_ = s.Agent.Stop(stopTimeout)
+		// Fence generation publication before choosing the Agent to stop.
+		s.beginClose()
+		if a := s.CurrentAgent(); a != nil {
+			_ = a.Stop(stopTimeout)
+		}
 		s.Close()
 	}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 func withChannelTelemetry(ctx context.Context) context.Context {
@@ -36,6 +37,8 @@ type channelAdapterBase struct {
 	log           *logger.Logger
 	supervisorsFn func() []*agent.Supervisor
 	registry      *agent.Registry
+	runMu         sync.Mutex
+	channelRuns   []string
 }
 
 // SetSupervisorsFn sets the supervisor accessor for reaping child agents on cancel.
@@ -73,16 +76,60 @@ func (b *channelAdapterBase) reapSupervisorChildren(tag string) {
 	}
 }
 
-// cancelCurrent cancels the current request tree while keeping the session and
-// its agents reusable. Reaping is defensive cleanup for delegated children
-// whose implementations fail to exit promptly after their context is cancelled.
-func (b *channelAdapterBase) cancelCurrent(sess *Session, reason string) error {
-	err := sess.CancelCurrent(reason)
-	b.reapSupervisorChildren("cancel")
-	if errors.Is(err, ErrNoActiveTask) {
-		return nil
+func (b *channelAdapterBase) trackChannelRun(runID string) {
+	if runID == "" {
+		return
 	}
-	return err
+	b.runMu.Lock()
+	b.channelRuns = append(b.channelRuns, runID)
+	b.runMu.Unlock()
+}
+
+func (b *channelAdapterBase) untrackChannelRun(runID string) {
+	b.runMu.Lock()
+	defer b.runMu.Unlock()
+	for i := len(b.channelRuns) - 1; i >= 0; i-- {
+		if b.channelRuns[i] == runID {
+			b.channelRuns = append(b.channelRuns[:i], b.channelRuns[i+1:]...)
+			return
+		}
+	}
+}
+
+func (b *channelAdapterBase) channelRunsNewestFirst() []string {
+	b.runMu.Lock()
+	defer b.runMu.Unlock()
+	runs := make([]string, len(b.channelRuns))
+	for i := range b.channelRuns {
+		runs[i] = b.channelRuns[len(b.channelRuns)-1-i]
+	}
+	return runs
+}
+
+func (b *channelAdapterBase) withChannelRunID(ctx context.Context) (context.Context, string) {
+	runID := effectiveRunID(ctx)
+	metadata := telemetry.MetadataFromContext(ctx)
+	metadata.RunID = runID
+	return telemetry.WithTelemetryMetadata(ctx, metadata), runID
+}
+
+// cancelCurrent cancels only the latest live run started by this channel
+// adapter. A shared L1 Session may simultaneously own Web or other channel
+// roots, which must remain untouched.
+func (b *channelAdapterBase) cancelCurrent(sess *Session, reason string) error {
+	for _, runID := range b.channelRunsNewestFirst() {
+		if !sess.hasActiveRun(runID) {
+			continue
+		}
+		err := sess.CancelRun(runID, reason)
+		if errors.Is(err, ErrNoActiveTask) {
+			// The selected run completed between the liveness check and
+			// cancellation. Continue to the next live owned root.
+			continue
+		}
+		return err
+	}
+	return nil
 }
 
 // compactAndReap compacts the session and reaps orphaned supervisor children.
@@ -212,12 +259,14 @@ func (b *channelAdapterBase) consumeAskStreamEventsWithDelegation(
 				"tool_name", e.Name,
 				"call_id", e.CallID,
 			)
-			if err := sess.Agent.Confirm(e.CallID, "approve"); err != nil {
-				b.log.WarnContext(ctx, logger.CatApp, "channel adapter: auto-approve failed",
-					"target_id", sess.TargetID,
-					"call_id", e.CallID,
-					"err", err.Error(),
-				)
+			if a := sess.CurrentAgent(); a != nil {
+				if err := a.Confirm(e.CallID, "approve"); err != nil {
+					b.log.WarnContext(ctx, logger.CatApp, "channel adapter: auto-approve failed",
+						"target_id", sess.TargetID,
+						"call_id", e.CallID,
+						"err", err.Error(),
+					)
+				}
 			}
 
 		case agent.ToolExecDoneEvent:
@@ -259,13 +308,11 @@ func (b *channelAdapterBase) consumeAskStreamEventsWithDelegation(
 			reasoningContent = e.ReasoningContent
 
 		case agent.ErrorEvent:
-			_ = sess.isCancelledAndReset()
+			if runwatch.CodeOf(e.Err) == runwatch.CodeCancelledByUser {
+				return nil, channel.ErrTaskCancelled
+			}
 			return nil, e.Err
 		}
-	}
-
-	if sess.isCancelledAndReset() {
-		return nil, channel.ErrTaskCancelled
 	}
 
 	finalContent := contentBuf.String()[sentLen:]
@@ -283,7 +330,11 @@ func (b *channelAdapterBase) consumeAskStreamEventsWithDelegation(
 
 // saveUploadedFileToSession saves an uploaded file to the session's downloads directory.
 func (b *channelAdapterBase) saveUploadedFileToSession(sess *Session, filename string, content []byte) (string, error) {
-	workDir := sess.Agent.WorkDir
+	a := sess.CurrentAgent()
+	if a == nil {
+		return "", errors.New("session agent unavailable")
+	}
+	workDir := a.WorkDir
 	if workDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -383,7 +434,9 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 	sess.SetIsQBot(true)
 
 	if a.registry != nil {
-		_ = a.registry.Register(sess.Agent)
+		if current := sess.CurrentAgent(); current != nil {
+			_ = a.registry.Register(current)
+		}
 	}
 
 	cw := sess.CW()
@@ -398,6 +451,9 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 
 	ctx = agent.WithBypassConfirmCtx(ctx)
 	ctx = iface.ContextWithMediaDelivery(ctx, true)
+	ctx, channelRunID := a.withChannelRunID(ctx)
+	a.trackChannelRun(channelRunID)
+	defer a.untrackChannelRun(channelRunID)
 
 	eventCh, releaseRoute, err := a.askChannelStream(ctx, sess, prompt)
 	if err != nil {
@@ -542,7 +598,9 @@ func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onInter
 	sess.SetIsQBot(true)
 
 	if a.registry != nil {
-		_ = a.registry.Register(sess.Agent)
+		if current := sess.CurrentAgent(); current != nil {
+			_ = a.registry.Register(current)
+		}
 	}
 
 	cw := sess.CW()
@@ -557,6 +615,9 @@ func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onInter
 
 	ctx = agent.WithBypassConfirmCtx(ctx)
 	ctx = iface.ContextWithMediaDelivery(ctx, true)
+	ctx, channelRunID := a.withChannelRunID(ctx)
+	a.trackChannelRun(channelRunID)
+	defer a.untrackChannelRun(channelRunID)
 
 	eventCh, releaseRoute, err := a.askChannelStream(ctx, sess, prompt)
 	if err != nil {

@@ -6,6 +6,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/runtime"
 )
 
 func TestConcurrentActivation_SingleFlight(t *testing.T) {
@@ -97,5 +101,73 @@ func TestDestroyL2_WaitsForActivationCleanup(t *testing.T) {
 	close(activationDone)
 	if err := <-destroyed; err != nil {
 		t.Fatalf("DestroyL2: %v", err)
+	}
+}
+
+func TestDestroyL2DisposesSessionBuiltAfterDeletionWins(t *testing.T) {
+	dir := t.TempDir()
+	registry := agent.NewRegistry(nil)
+	rt := &runtime.Stack{AgentRegistry: registry}
+	store := NewL2SessionStore(&Builder{WorkDir: dir}, dir, nil)
+	built := make(chan struct{})
+	buildCanceled := make(chan struct{})
+	releaseBuild := make(chan struct{})
+	var fresh *agent.Agent
+	var resourceCloses atomic.Int32
+	store.buildL2 = func(ctx context.Context, id, group, workDir string) (*Session, error) {
+		fresh = agent.NewAgent(agent.Definition{ID: "leader"}, &agenttest.FakeLLM{}, nil, agent.WithSchedulingPending())
+		if err := fresh.Start(context.Background()); err != nil {
+			return nil, err
+		}
+		if err := registry.Register(fresh); err != nil {
+			return nil, err
+		}
+		sv := agent.NewSupervisor(fresh, nil, nil)
+		sess := NewSession("l2-"+id, group, fresh, nil, nil, nil)
+		sess.resourceCloser = func() error { resourceCloses.Add(1); return nil }
+		sess.SetAgentRegistry(registry)
+		sess.SetSupervisor(sv, rt.RemoveSupervisor)
+		sess.SetSupervisorPublisher(rt.AddSupervisor)
+		sess.PublishInitialGeneration()
+		close(built)
+		<-ctx.Done()
+		close(buildCanceled)
+		<-releaseBuild
+		return sess, nil
+	}
+	const id = "destroy-published-build"
+	if _, err := store.Create(context.Background(), id, "dev", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	activated := make(chan error, 1)
+	go func() {
+		_, err := store.Activate(context.Background(), id)
+		activated <- err
+	}()
+	<-built
+	destroyed := make(chan error, 1)
+	go func() { destroyed <- store.DestroyL2(context.Background(), id, false) }()
+	<-buildCanceled
+	close(releaseBuild)
+	if err := <-activated; err == nil {
+		t.Fatal("activation succeeded after deletion won")
+	}
+	if err := <-destroyed; err != nil {
+		t.Fatal(err)
+	}
+	if registry.Len() != 0 {
+		t.Fatalf("rejected activation leaked %d registered Agent(s)", registry.Len())
+	}
+	if _, ok := registry.Locate("leader"); ok {
+		t.Fatal("rejected activation left fresh Agent schedulable")
+	}
+	if got := len(rt.SupervisorsSnapshot()); got != 0 {
+		t.Fatalf("rejected activation leaked %d Runtime Supervisor(s)", got)
+	}
+	if fresh == nil || fresh.State() != agent.StateStopped {
+		t.Fatalf("rejected activation Agent state = %v, want stopped", fresh.State())
+	}
+	if got := resourceCloses.Load(); got != 1 {
+		t.Fatalf("Session resource closes = %d, want 1", got)
 	}
 }
