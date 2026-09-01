@@ -8,8 +8,11 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
-// jobWatchdogGrace: bounded wait for async goroutines after ctx cancellation.
-const jobWatchdogGrace = 10 * time.Second
+// JobWatchdogGrace is the bounded recovery window before a non-cooperative
+// Agent generation is quarantined by its owning Session/Supervisor.
+const JobWatchdogGrace = 10 * time.Second
+
+const jobWatchdogGrace = JobWatchdogGrace
 
 // runJob releases the actor loop as soon as a job yields or completes.
 // Async tasks are awaited only during agent shutdown so delegation can run in
@@ -86,6 +89,12 @@ func (a *Agent) run(ctx context.Context, mailbox <-chan job, done chan<- struct{
 			)
 			return
 		case jb := <-mailbox:
+			if !a.waitForRecoveryFence(ctx) {
+				jb(ctx)
+				a.setRuntimeState(StateStopping)
+				a.drainMailbox(ctx, mailbox)
+				return
+			}
 			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
 			a.runJob(ctx, jb)
@@ -122,6 +131,12 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 			)
 			return
 		case pj := <-pm.HighCh():
+			if !a.waitForRecoveryFence(ctx) {
+				pj.job(ctx)
+				a.setRuntimeState(StateStopping)
+				a.drainPriorityMailbox(ctx, pm)
+				return
+			}
 			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
 			a.runJob(ctx, pj.job)
@@ -140,15 +155,49 @@ func (a *Agent) runWithPriorityMailbox(ctx context.Context, pm *PriorityMailbox,
 			)
 			return
 		case pj := <-pm.HighCh():
+			if !a.waitForRecoveryFence(ctx) {
+				pj.job(ctx)
+				a.setRuntimeState(StateStopping)
+				a.drainPriorityMailbox(ctx, pm)
+				return
+			}
 			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
 			a.runJob(ctx, pj.job)
 			a.setRuntimeState(StateIdle)
 		case pj := <-pm.NormalCh():
+			if !a.waitForRecoveryFence(ctx) {
+				pj.job(ctx)
+				a.setRuntimeState(StateStopping)
+				a.drainPriorityMailbox(ctx, pm)
+				return
+			}
 			a.setRuntimeState(StateProcessing)
 			a.ResetErrors()
 			a.runJob(ctx, pj.job)
 			a.setRuntimeState(StateIdle)
+		}
+	}
+}
+
+// waitForRecoveryFence gates work already dequeued before a watchdog fence was
+// installed. Enqueue checks alone are insufficient because both mailbox lanes
+// may already contain unrelated jobs. The actor waits without holding a lock;
+// permanent quarantine wakes it through the Agent context.
+func (a *Agent) waitForRecoveryFence(ctx context.Context) bool {
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		a.scheduleMu.Lock()
+		blocked := a.quarantined.Load() || a.recoveryFenced()
+		a.scheduleMu.Unlock()
+		if !blocked {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
 		}
 	}
 }

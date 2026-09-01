@@ -18,6 +18,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // mockAsyncTool implements AsyncTool for testing.
@@ -25,6 +26,316 @@ type mockAsyncTool struct {
 	name      string
 	action    *tools.AsyncAction
 	actionErr error
+}
+
+type lateCancelLocatable struct {
+	stream    <-chan iface.AgentEvent
+	started   chan struct{}
+	doneCalls atomic.Int32
+	startOnce sync.Once
+}
+
+func (l *lateCancelLocatable) Ask(context.Context, string) (string, error) { return "", nil }
+func (l *lateCancelLocatable) AskStream(context.Context, string) (<-chan iface.AgentEvent, error) {
+	l.startOnce.Do(func() { close(l.started) })
+	return l.stream, nil
+}
+func (l *lateCancelLocatable) Confirm(string, string) error { return nil }
+func (l *lateCancelLocatable) ErrorCount() int32            { return 0 }
+func (l *lateCancelLocatable) LastError() string            { return "" }
+func (l *lateCancelLocatable) OnDelegationDone()            { l.doneCalls.Add(1) }
+
+func TestAsyncResumeSubmissionFailureClosesStreamAndTracker(t *testing.T) {
+	a := NewAgent(Definition{ID: "stopped"}, &agenttest.FakeLLM{}, newTestLogger(t), WithPriorityMailbox())
+	tracker := &jobTracker{id: 99, done: make(chan struct{})}
+	out := make(chan AgentEvent)
+	turn := &asyncTurnState{
+		iter:      7,
+		out:       out,
+		callerCtx: withJobTracker(context.Background(), tracker),
+	}
+	a.turnMu.Lock()
+	a.asyncTurns[turn.iter] = turn
+	a.turnMu.Unlock()
+
+	a.submitAsyncResume(turn, func(context.Context) {})
+	select {
+	case <-out:
+	case <-time.After(time.Second):
+		t.Fatal("failed continuation submission left output stream open")
+	}
+	select {
+	case <-tracker.done:
+	case <-time.After(time.Second):
+		t.Fatal("failed continuation submission left tracker open")
+	}
+}
+
+func TestAsyncResumeHighQueueCancellationTerminatesPromptly(t *testing.T) {
+	a := startedAgent(t, &agenttest.FakeLLM{}, WithPriorityMailbox())
+	occupied := make(chan struct{})
+	actorStarted := make(chan struct{})
+	defer close(occupied)
+	if err := a.submit(context.Background(), func(context.Context) {
+		close(actorStarted)
+		<-occupied
+	}); err != nil {
+		t.Fatal(err)
+	}
+	<-actorStarted
+	for range 4 {
+		a.priorityMailbox.SubmitHigh(func(context.Context) {})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	tracker := &jobTracker{id: 100, done: make(chan struct{})}
+	out := make(chan AgentEvent)
+	mergedCanceled := make(chan struct{})
+	turn := &asyncTurnState{
+		iter:      8,
+		out:       out,
+		callerCtx: withJobTracker(ctx, tracker),
+		cancelMerged: func() {
+			select {
+			case <-mergedCanceled:
+			default:
+				close(mergedCanceled)
+			}
+		},
+	}
+	a.turnMu.Lock()
+	a.asyncTurns[turn.iter] = turn
+	a.turnMu.Unlock()
+	a.taskWg.Add(1)
+	go func() {
+		defer a.taskWg.Done()
+		a.submitAsyncResume(turn, func(context.Context) {})
+	}()
+	cancel()
+	waits := []struct {
+		name string
+		wait func() bool
+	}{
+		{"output", func() bool {
+			select {
+			case <-out:
+				return true
+			case <-time.After(200 * time.Millisecond):
+				return false
+			}
+		}},
+		{"tracker", func() bool {
+			select {
+			case <-tracker.done:
+				return true
+			case <-time.After(200 * time.Millisecond):
+				return false
+			}
+		}},
+		{"merged context", func() bool {
+			select {
+			case <-mergedCanceled:
+				return true
+			case <-time.After(200 * time.Millisecond):
+				return false
+			}
+		}},
+	}
+	for _, item := range waits {
+		if !item.wait() {
+			t.Fatalf("%s was retained by full high-priority queue", item.name)
+		}
+	}
+	waited := make(chan struct{})
+	go func() { a.taskWg.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("taskWg retained canceled continuation submission")
+	}
+}
+
+func TestAbandonedAsyncTurnIgnoresLateWatcherCompletion(t *testing.T) {
+	a := NewAgent(Definition{ID: "abandon"}, &agenttest.FakeLLM{}, newTestLogger(t), WithPriorityMailbox())
+	tracker := &jobTracker{id: 101, done: make(chan struct{})}
+	out := make(chan AgentEvent)
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	turn := &asyncTurnState{
+		iter:      9,
+		out:       out,
+		cw:        cw,
+		callerCtx: withJobTracker(context.Background(), tracker),
+		results:   make([]string, 1),
+	}
+	turn.pending.Store(1)
+	reply := make(chan delegateResult, 1)
+	task := &delegatedTask{turn: turn, callIndex: 0, replyCh: reply}
+	a.turnMu.Lock()
+	a.asyncTurns[turn.iter] = turn
+	a.turnMu.Unlock()
+	a.taskWg.Add(1)
+	go func() {
+		defer a.taskWg.Done()
+		a.watchDelegatedTask(task)
+	}()
+
+	if !a.abandonAsyncTurnForOutput(out) {
+		t.Fatal("registered async turn was not abandoned")
+	}
+	reply <- delegateResult{content: "late result"}
+	waited := make(chan struct{})
+	go func() { a.taskWg.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(time.Second):
+		t.Fatal("late watcher did not exit")
+	}
+	select {
+	case <-out:
+	default:
+		t.Fatal("abandoned output was not closed")
+	}
+	select {
+	case <-tracker.done:
+	default:
+		t.Fatal("abandoned tracker was not finished")
+	}
+	if cw.Len() != 0 {
+		t.Fatalf("late watcher mutated context window: len=%d", cw.Len())
+	}
+}
+
+func TestQueuedAsyncResumeKeepsCancellationOwnerUntilCallbackStarts(t *testing.T) {
+	a := startedAgent(t, &agenttest.FakeLLM{}, WithPriorityMailbox())
+	occupied := make(chan struct{})
+	actorStarted := make(chan struct{})
+	if err := a.submit(context.Background(), func(context.Context) {
+		close(actorStarted)
+		<-occupied
+	}); err != nil {
+		t.Fatal(err)
+	}
+	<-actorStarted
+	ctx, cancel := context.WithCancel(context.Background())
+	tracker := &jobTracker{id: 102, done: make(chan struct{})}
+	out := make(chan AgentEvent)
+	mergedCanceled := make(chan struct{})
+	turn := &asyncTurnState{
+		iter: 10, out: out, callerCtx: withJobTracker(ctx, tracker),
+		cancelMerged: func() { close(mergedCanceled) },
+	}
+	a.turnMu.Lock()
+	a.asyncTurns[turn.iter] = turn
+	a.turnMu.Unlock()
+	a.submitAsyncResume(turn, func(context.Context) { a.resumeTurn(turn) })
+	cancel()
+	for name, ch := range map[string]<-chan struct{}{
+		"tracker": tracker.done, "merged context": mergedCanceled,
+	} {
+		select {
+		case <-ch:
+		case <-time.After(200 * time.Millisecond):
+			close(occupied)
+			t.Fatalf("queued callback retained %s after cancellation", name)
+		}
+	}
+	select {
+	case <-out:
+	case <-time.After(200 * time.Millisecond):
+		close(occupied)
+		t.Fatal("queued callback retained output after cancellation")
+	}
+	waited := make(chan struct{})
+	go func() { a.taskWg.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(200 * time.Millisecond):
+		close(occupied)
+		t.Fatal("queued cancellation owner retained taskWg")
+	}
+	close(occupied)
+	waitFor(t, time.Second, func() bool { return a.State() == StateIdle })
+	if a.ErrorCount() != 0 {
+		t.Fatalf("late queued callback panicked: %s", a.LastError())
+	}
+}
+
+func TestCancelAfterResumeClaimBeforeMutationPreventsContextWrite(t *testing.T) {
+	a := startedAgent(t, &agenttest.FakeLLM{}, WithPriorityMailbox())
+	ctx, cancel := context.WithCancel(context.Background())
+	tracker := &jobTracker{id: 103, done: make(chan struct{})}
+	out := make(chan AgentEvent)
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	claimed := make(chan struct{})
+	releaseMutation := make(chan struct{})
+	mergedCanceled := make(chan struct{})
+	turn := &asyncTurnState{
+		iter: 11, out: out, cw: cw, callerCtx: withJobTracker(ctx, tracker),
+		toolCalls: []llm.ToolCall{{Type: "function", ID: "call-1", Function: llm.FunctionCall{Name: "delegate"}}},
+		results:   []string{"late result"},
+		cancelMerged: func() {
+			close(mergedCanceled)
+		},
+		beforeResumeMutation: func() {
+			close(claimed)
+			<-releaseMutation
+		},
+	}
+	a.turnMu.Lock()
+	a.asyncTurns[turn.iter] = turn
+	a.turnMu.Unlock()
+	a.submitAsyncResume(turn, func(context.Context) { a.resumeTurn(turn) })
+	select {
+	case <-claimed:
+	case <-time.After(time.Second):
+		t.Fatal("resume callback did not reach pre-mutation barrier")
+	}
+	cancel()
+	waits := []struct {
+		name string
+		wait func() bool
+	}{
+		{"output", func() bool {
+			select {
+			case <-out:
+				return true
+			case <-time.After(200 * time.Millisecond):
+				return false
+			}
+		}},
+		{"tracker", func() bool {
+			select {
+			case <-tracker.done:
+				return true
+			case <-time.After(200 * time.Millisecond):
+				return false
+			}
+		}},
+		{"merged context", func() bool {
+			select {
+			case <-mergedCanceled:
+				return true
+			case <-time.After(200 * time.Millisecond):
+				return false
+			}
+		}},
+	}
+	for _, item := range waits {
+		if !item.wait() {
+			close(releaseMutation)
+			t.Fatalf("pre-mutation cancellation did not close %s", item.name)
+		}
+	}
+	close(releaseMutation)
+	waited := make(chan struct{})
+	go func() { a.taskWg.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(time.Second):
+		t.Fatal("resume barrier path retained taskWg")
+	}
+	if cw.Len() != 0 {
+		t.Fatalf("canceled old turn mutated context window: len=%d", cw.Len())
+	}
 }
 
 func (m *mockAsyncTool) Name() string                { return m.name }
@@ -116,6 +427,57 @@ func TestExecToolsWithAsync_SingleAsyncTool(t *testing.T) {
 
 	if results[0] != "" {
 		t.Errorf("results[0] changed to %q after async completion, want empty placeholder", results[0])
+	}
+}
+
+func TestAsyncDelegationCancellationDropsLateTargetEvents(t *testing.T) {
+	events := make(chan iface.AgentEvent, 1)
+	target := &lateCancelLocatable{stream: events, started: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	var persisted atomic.Int32
+	var finished atomic.Int32
+	finishErr := make(chan error, 1)
+	asyncTool := &mockAsyncTool{name: "delegate", action: &tools.AsyncAction{
+		Target:  target,
+		Prompt:  "task",
+		Context: ctx,
+		OnEvent: func(iface.AgentEvent) error {
+			persisted.Add(1)
+			return nil
+		},
+		OnFinish: func(err error) error {
+			finished.Add(1)
+			finishErr <- err
+			return nil
+		},
+	}}
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t), WithTools(asyncTool), WithPriorityMailbox())
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	a.execToolsWithAsync(ctx, 0, []llm.ToolCall{{ID: "call", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{}`}}}, make(chan AgentEvent, 64), ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer()))
+	<-target.started
+	cancel()
+	events <- DoneEvent{Content: "late"}
+	close(events)
+
+	select {
+	case err := <-finishErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("OnFinish error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("OnFinish was not called")
+	}
+	if got := persisted.Load(); got != 0 {
+		t.Fatalf("late canceled events persisted = %d, want 0", got)
+	}
+	if got := target.doneCalls.Load(); got != 1 {
+		t.Fatalf("OnDelegationDone calls = %d, want 1", got)
+	}
+	if got := finished.Load(); got != 1 {
+		t.Fatalf("OnFinish calls = %d, want 1", got)
 	}
 }
 
@@ -216,8 +578,14 @@ func TestAsyncDelegation_ChildToolRequiresConfirmation(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = parent.Stop(time.Second) })
 
+	manager := runwatch.NewManager(runwatch.Policy{ScanInterval: time.Millisecond, RootIdle: 100 * time.Millisecond})
+	t.Cleanup(manager.Close)
+	watchCtx, _, err := manager.Start(context.Background(), runwatch.Metadata{RunID: "async-confirm"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	out := make(chan AgentEvent, 64)
-	parent.execToolsWithAsync(context.Background(), 0, []llm.ToolCall{{
+	parent.execToolsWithAsync(watchCtx, 0, []llm.ToolCall{{
 		Type: "function",
 		ID:   "delegate_call",
 		Function: llm.FunctionCall{
@@ -243,6 +611,10 @@ func TestAsyncDelegation_ChildToolRequiresConfirmation(t *testing.T) {
 	if got := danger.CallCount(); got != 0 {
 		t.Fatalf("danger tool calls before confirmation = %d, want 0", got)
 	}
+	paused, _ := manager.Snapshot("async-confirm")
+	if paused.PausedReason != "tool_confirmation" || !paused.WatchdogDueAt.IsZero() {
+		t.Fatalf("async paused Snapshot() = %+v", paused)
+	}
 
 	confirmed := false
 	for i := 0; i < 100; i++ {
@@ -256,6 +628,18 @@ func TestAsyncDelegation_ChildToolRequiresConfirmation(t *testing.T) {
 		t.Fatal("parent confirmation proxy was not registered")
 	}
 	waitFor(t, time.Second, func() bool { return danger.CallCount() == 1 })
+	resumed, _ := manager.Snapshot("async-confirm")
+	if resumed.PausedReason != "" || resumed.WatchdogDueAt.IsZero() {
+		t.Fatalf("async resumed Snapshot() = %+v", resumed)
+	}
+	select {
+	case <-watchCtx.Done():
+		if got := runwatch.CodeOf(context.Cause(watchCtx)); got != runwatch.CodeRootOrphaned {
+			t.Fatalf("async post-confirm cancellation code = %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("async post-confirm root lease did not restart")
+	}
 }
 
 func TestAsyncDelegation_ExplicitBypassStillSkipsChildConfirmation(t *testing.T) {
@@ -797,9 +1181,10 @@ func TestEndToEnd_AsyncDelegation(t *testing.T) {
 	delegateTool := &mockAsyncTool{
 		name: "delegate",
 		action: &tools.AsyncAction{
-			Target:  target,
-			Prompt:  "test task",
-			Timeout: 5 * time.Second,
+			Target:     target,
+			Prompt:     "test task",
+			Timeout:    5 * time.Second,
+			DispatchID: "dlg_test_secret",
 		},
 	}
 
@@ -851,6 +1236,11 @@ func TestEndToEnd_AsyncDelegation(t *testing.T) {
 	}
 	if !hasStarted {
 		t.Error("should receive DelegationStartedEvent")
+	}
+	for _, ev := range events {
+		if e, ok := ev.(ContentDeltaEvent); ok && (strings.Contains(e.Delta, "Delegation started") || strings.Contains(e.Delta, "dlg_test_secret")) {
+			t.Errorf("delegation control data leaked into ContentDeltaEvent: %q", e.Delta)
+		}
 	}
 
 	// Verify a final answer is given
@@ -915,8 +1305,8 @@ func TestDelegateTool_ExecuteAsync(t *testing.T) {
 	if action.Prompt != "test" {
 		t.Errorf("action.Prompt = %q, want 'test'", action.Prompt)
 	}
-	if action.Timeout != 5*time.Minute {
-		t.Errorf("action.Timeout = %v, want 5m", action.Timeout)
+	if action.Timeout != 0 {
+		t.Errorf("action.Timeout = %v, want no total runtime cap", action.Timeout)
 	}
 }
 

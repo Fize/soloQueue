@@ -18,6 +18,9 @@ func (a *Agent) Start(parent context.Context) error {
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.quarantined.Load() {
+		return ErrQuarantined
+	}
 
 	// Previous 'done' not yet closed + ctx non-nil = still running.
 	if a.ctx != nil {
@@ -55,6 +58,30 @@ func (a *Agent) Start(parent context.Context) error {
 		"priority_mailbox", a.priorityMailbox != nil,
 	)
 	return nil
+}
+
+// Quarantine permanently fences this Agent generation after a job has ignored
+// request cancellation. A fresh generation must be built by its owner; the
+// leaked job is never allowed to accept subsequent mailbox work.
+func (a *Agent) Quarantine(cause error) {
+	if !a.quarantined.CompareAndSwap(false, true) {
+		return
+	}
+	a.finishQuarantine(cause)
+}
+
+func (a *Agent) finishQuarantine(cause error) {
+	if cause == nil {
+		cause = ErrQuarantined
+	}
+	a.setRuntimeExitErr(cause)
+	a.setRuntimeState(StateQuarantined)
+	a.mu.Lock()
+	cancel := a.cancel
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // Stop cancels the agent context, drains pending jobs, and waits for the run

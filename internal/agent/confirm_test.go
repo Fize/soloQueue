@@ -3,12 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
@@ -18,6 +20,23 @@ type fakeConfirmableTool struct {
 	fakeTool
 	needsConfirm bool
 	prompt       string
+}
+
+type confirmFakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *confirmFakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *confirmFakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	c.mu.Unlock()
 }
 
 func newFakeConfirmableTool(name string, needsConfirm bool, prompt string) *fakeConfirmableTool {
@@ -112,6 +131,93 @@ func TestAgent_Confirmable_Approved(t *testing.T) {
 	}
 	if confirmTool.CallCount() != 1 {
 		t.Errorf("tool called %d times, want 1", confirmTool.CallCount())
+	}
+}
+
+func TestAgent_Confirmable_ContextCancellationResumesPausedWatchdog(t *testing.T) {
+	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
+	fake := &agenttest.FakeLLM{ToolCallsByTurn: [][]llm.ToolCall{{{
+		ID: "call_cancel", Type: "function",
+		Function: llm.FunctionCall{Name: "danger", Arguments: `{}`},
+	}}}}
+	a := startedAgentWithTools(t, fake, confirmTool)
+	manager := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute})
+	t.Cleanup(manager.Close)
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx, _, err := manager.Start(parent, runwatch.Metadata{RunID: "confirm-cancel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := a.AskStream(ctx, "do it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ev := range events {
+		if _, ok := ev.(ToolNeedsConfirmEvent); ok {
+			cancel()
+		}
+	}
+	snapshot, ok := manager.Snapshot("confirm-cancel")
+	if !ok {
+		t.Fatal("watchdog root disappeared before lifecycle completion")
+	}
+	if snapshot.PausedReason != "" {
+		t.Fatalf("PausedReason = %q after confirmation cancellation", snapshot.PausedReason)
+	}
+}
+
+func TestAgent_Confirmable_ApprovalResumesBeforeExecutionAndRestartsLease(t *testing.T) {
+	confirmTool := newFakeConfirmableTool("danger", true, "are you sure?")
+	confirmTool.result = `{"ok":true}`
+	fake := &agenttest.FakeLLM{
+		ToolCallsByTurn: [][]llm.ToolCall{{{
+			ID: "call_watch", Type: "function",
+			Function: llm.FunctionCall{Name: "danger", Arguments: `{}`},
+		}}},
+		Responses: []string{"done"},
+	}
+	a := startedAgentWithTools(t, fake, confirmTool)
+	clock := &confirmFakeClock{now: time.Unix(1_700_000_000, 0)}
+	manager := runwatch.NewManager(runwatch.Policy{
+		ScanInterval: time.Hour, RootIdle: 100 * time.Millisecond,
+		FirstSemantic: time.Minute, TransportIdle: time.Minute, SemanticIdle: time.Minute,
+	}, runwatch.WithClock(clock))
+	t.Cleanup(manager.Close)
+	ctx, _, err := manager.Start(context.Background(), runwatch.Metadata{RunID: "confirm-approve"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := a.AskStream(ctx, "do it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawExecution := false
+	for ev := range events {
+		switch e := ev.(type) {
+		case ToolNeedsConfirmEvent:
+			snapshot, _ := manager.Snapshot("confirm-approve")
+			if snapshot.PausedReason != "tool_confirmation" || !snapshot.WatchdogDueAt.IsZero() {
+				t.Fatalf("paused Snapshot() = %+v", snapshot)
+			}
+			if err := a.Confirm(e.CallID, string(tools.ChoiceApprove)); err != nil {
+				t.Fatal(err)
+			}
+		case ToolExecDoneEvent:
+			sawExecution = true
+			snapshot, _ := manager.Snapshot("confirm-approve")
+			if snapshot.PausedReason != "" || snapshot.WatchdogDueAt.IsZero() {
+				t.Fatalf("resumed Snapshot() = %+v", snapshot)
+			}
+		}
+	}
+	if !sawExecution {
+		t.Fatal("approved tool did not execute")
+	}
+	clock.Advance(101 * time.Millisecond)
+	manager.Scan()
+	if got := runwatch.CodeOf(context.Cause(ctx)); got != runwatch.CodeRootOrphaned {
+		t.Fatalf("post-confirm cancellation code = %q", got)
 	}
 }
 
@@ -495,6 +601,57 @@ func TestAgent_Confirmable_ParallelPartialConfirm(t *testing.T) {
 	}
 	if echoTool.CallCount() != 1 {
 		t.Errorf("echo tool called %d times, want 1", echoTool.CallCount())
+	}
+}
+
+func TestAgent_Confirmable_ParallelConfirmationsPauseIndependentBranches(t *testing.T) {
+	first := newFakeConfirmableTool("danger-a", true, "approve a?")
+	second := newFakeConfirmableTool("danger-b", true, "approve b?")
+	first.result, second.result = `{"ok":"a"}`, `{"ok":"b"}`
+	fake := &agenttest.FakeLLM{
+		ToolCallsByTurn: [][]llm.ToolCall{{
+			{ID: "confirm-a", Type: "function", Function: llm.FunctionCall{Name: "danger-a", Arguments: `{}`}},
+			{ID: "confirm-b", Type: "function", Function: llm.FunctionCall{Name: "danger-b", Arguments: `{}`}},
+		}},
+		Responses: []string{"done"},
+	}
+	a := startedAgentWithTools(t, fake, first, second)
+	a.parallelTools = true
+	manager := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute, FirstSemantic: time.Minute, TransportIdle: time.Minute, SemanticIdle: time.Minute})
+	t.Cleanup(manager.Close)
+	ctx, _, err := manager.Start(context.Background(), runwatch.Metadata{RunID: "parallel-confirm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := a.AskStream(ctx, "do both")
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmations := map[string]ToolNeedsConfirmEvent{}
+	for len(confirmations) < 2 {
+		ev := <-events
+		if confirm, ok := ev.(ToolNeedsConfirmEvent); ok {
+			confirmations[confirm.CallID] = confirm
+		}
+	}
+	if err := a.Confirm("confirm-a", string(tools.ChoiceApprove)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for first.CallCount() != 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	snapshot, _ := manager.Snapshot("parallel-confirm")
+	if snapshot.PausedReason != "tool_confirmation" || !snapshot.WatchdogDueAt.IsZero() {
+		t.Fatalf("approving one confirmation resumed sibling branch: %+v", snapshot)
+	}
+	if err := a.Confirm("confirm-b", string(tools.ChoiceApprove)); err != nil {
+		t.Fatal(err)
+	}
+	for range events {
+	}
+	if first.CallCount() != 1 || second.CallCount() != 1 {
+		t.Fatalf("tool calls = %d/%d", first.CallCount(), second.CallCount())
 	}
 }
 

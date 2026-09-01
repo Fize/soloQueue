@@ -22,13 +22,18 @@ const sseDoneMarker = "[DONE]"
 //	    // payload is the JSON string after "data: "
 //	}
 type sseReader struct {
-	sc *bufio.Scanner
+	sc         *bufio.Scanner
+	onActivity func()
 }
 
-func newSSEReader(r io.Reader) *sseReader {
+func newSSEReader(r io.Reader, activity ...func()) *sseReader {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	return &sseReader{sc: sc}
+	var onActivity func()
+	if len(activity) > 0 {
+		onActivity = activity[0]
+	}
+	return &sseReader{sc: sc, onActivity: onActivity}
 }
 
 // Sentinel error: [DONE] marker reached.
@@ -49,6 +54,9 @@ func (*sseDoneErr) Error() string { return "sse: [DONE]" }
 //   - Underlying scanner ends (EOF / connection closed) → returns io.EOF
 func (r *sseReader) Next() (string, error) {
 	for r.sc.Scan() {
+		if r.onActivity != nil {
+			r.onActivity()
+		}
 		line := r.sc.Text()
 
 		// Skip empty lines (SSE event delimiters)

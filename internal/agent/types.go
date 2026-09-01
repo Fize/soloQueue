@@ -72,6 +72,8 @@ const (
 	StateStopping
 	// StateStopped run goroutine has exited
 	StateStopped
+	// StateQuarantined rejects new work after a job ignored cancellation.
+	StateQuarantined
 )
 
 func (s State) String() string {
@@ -84,6 +86,8 @@ func (s State) String() string {
 		return "stopping"
 	case StateStopped:
 		return "stopped"
+	case StateQuarantined:
+		return "quarantined"
 	default:
 		return "unknown"
 	}

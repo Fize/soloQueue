@@ -4,6 +4,7 @@ package runtime
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	llmsupervised "github.com/xiaobaitu/soloqueue/internal/llm/supervised"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
@@ -23,6 +25,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/vectorstore"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
@@ -58,6 +61,7 @@ type Stack struct {
 	SharedDB      *db.DB                // Shared SQLite connection
 	MCPManager    *mcp.Manager          // MCP server manager
 	LSPManager    *lsp.Manager          // Built-in LSP MCP server manager
+	RunWatch      *runwatch.Manager     // Shared progress-aware execution supervisor
 
 	BypassConfirm bool // --bypass flag: all agents skip tool confirmations
 
@@ -182,7 +186,10 @@ func (s *Stack) Shutdown() {
 	if s.skillsSyncCancel != nil {
 		s.skillsSyncCancel()
 	}
-	for _, sv := range s.Supervisors {
+	if s.RunWatch != nil {
+		s.RunWatch.Close()
+	}
+	for _, sv := range s.SupervisorsSnapshot() {
 		_ = sv.ReapAll(5 * time.Second)
 	}
 	if s.MCPManager != nil {
@@ -199,6 +206,18 @@ func (s *Stack) Shutdown() {
 			fmt.Fprintf(os.Stderr, "warning: shared sqlite db close failed: %v\n", err)
 		}
 	}
+}
+
+// SupervisorsSnapshot returns an immutable caller-owned view of the currently
+// registered supervisors. Runtime hot reload and L2 generation replacement
+// mutate the backing slice, so production readers must never retain it.
+func (s *Stack) SupervisorsSnapshot() []*agent.Supervisor {
+	if s == nil {
+		return nil
+	}
+	s.CfgMu.RLock()
+	defer s.CfgMu.RUnlock()
+	return append([]*agent.Supervisor(nil), s.Supervisors...)
 }
 
 // ReadLLMClient returns the current LLM client (concurrency-safe).
@@ -304,10 +323,16 @@ func (s *Stack) L1MCPServers() []string {
 // OnConfigChange rebuilds the LLM client and updates the stack's cached configurations
 // dynamically when DB settings change.
 func (s *Stack) OnConfigChange() error {
+	return s.OnSettingsChange(s.Settings.Get())
+}
+
+// OnSettingsChange validates and applies an explicit settings snapshot. File
+// reload uses this before Loader publishes the candidate, so rejected settings
+// are never visible through GlobalService.Get.
+func (s *Stack) OnSettingsChange(settings config.Settings) error {
 	s.CfgMu.Lock()
 	defer s.CfgMu.Unlock()
 
-	settings := s.Settings.Get()
 	clients := make(map[string]agent.LLMClient)
 
 	for _, prov := range settings.Providers {
@@ -318,7 +343,7 @@ func (s *Stack) OnConfigChange() error {
 		if err != nil {
 			return fmt.Errorf("failed to rebuild LLM client for provider %q: %w", prov.ID, err)
 		}
-		clients[prov.ID] = telemetry.NewTelemetryClient(client, s.SharedDB)
+		clients[prov.ID] = llmsupervised.New(telemetry.NewTelemetryClient(client, s.SharedDB), s.RunWatch)
 	}
 
 	if len(clients) == 0 {
@@ -333,14 +358,14 @@ func (s *Stack) OnConfigChange() error {
 		s.LLMClient = agent.NewRoutingClient(clients)
 	}
 
-	generalModel := s.Settings.DefaultModelForTask(tasktype.General)
+	generalModel := modelForTaskSettings(settings, tasktype.General)
 	if generalModel != nil {
 		s.DefaultModel = generalModel
 		if s.AgentFactory != nil {
 			s.AgentFactory.UpdateDefaultModelID(generalModel.ID)
 		}
 	}
-	if classifierModel := s.Settings.DefaultClassifierModel(); classifierModel != nil && s.TaskRouter != nil {
+	if classifierModel := classifierModelSettings(settings); classifierModel != nil && s.TaskRouter != nil {
 		effectiveModel := classifierModel.APIModel
 		if effectiveModel == "" {
 			effectiveModel = classifierModel.ID
@@ -363,29 +388,29 @@ func (s *Stack) OnConfigChange() error {
 		s.AgentFactory.SetToolsConfig(newToolsCfg)
 	}
 
-	s.rebuildMemoryEngine(settings.Embedding)
+	s.rebuildMemoryEngine(settings)
 
 	if s.AgentFactory != nil {
 		s.AgentFactory.UpdateLLM(s.LLMClient)
 	}
-
 	s.Log.Info(logger.CatConfig, "LLM provider, default model, and tools configurations hot-reloaded successfully from DB")
 	return nil
 }
 
-func (s *Stack) rebuildMemoryEngine(cfg config.EmbeddingConfig) {
+func (s *Stack) rebuildMemoryEngine(settings config.Settings) {
 	if s.SharedDB == nil {
 		return
 	}
+	cfg := settings.Embedding
 
 	var emb embedding.Embedder
 	var vecStore vectorstore.VectorStore
 
 	switch cfg.Provider {
 	case "openai":
-		embModel := s.Settings.DefaultEmbeddingModel()
+		embModel := defaultEmbeddingModelSettings(settings)
 		if embModel != nil && embModel.Enabled {
-			embProvider := s.Settings.EmbeddingProviderByID(embModel.ProviderID)
+			embProvider := embeddingProviderSettings(settings, embModel.ProviderID)
 			if embProvider != nil && embProvider.Enabled {
 				apiKey := embProvider.APIKey
 				if apiKey == "" {
@@ -430,4 +455,73 @@ func (s *Stack) rebuildMemoryEngine(cfg config.EmbeddingConfig) {
 	s.Log.Info(logger.CatConfig, "memory engine hot-reloaded",
 		"provider", cfg.Provider,
 		"has_vector", emb != nil)
+}
+
+func modelForTaskSettings(settings config.Settings, task tasktype.TaskType) *config.LLMModel {
+	var compiledDefault string
+	switch task {
+	case tasktype.General:
+		compiledDefault = "deepseek:deepseek-v4-flash-thinking"
+	case tasktype.Engineering, tasktype.Research:
+		compiledDefault = "deepseek:deepseek-v4-flash-thinking-max"
+	}
+	for _, ref := range []string{settings.ModelRoutes.TaskRef(task), settings.ModelRoutes.Fallback, compiledDefault} {
+		if model := enabledModelSettings(settings, ref); model != nil {
+			return model
+		}
+	}
+	return nil
+}
+
+func classifierModelSettings(settings config.Settings) *config.LLMModel {
+	for _, ref := range []string{settings.ModelRoutes.Classifier, settings.ModelRoutes.Fallback, "deepseek:deepseek-v4-flash"} {
+		if model := enabledModelSettings(settings, ref); model != nil {
+			return model
+		}
+	}
+	return nil
+}
+
+func enabledModelSettings(settings config.Settings, ref string) *config.LLMModel {
+	providerID, modelID, ok := strings.Cut(ref, ":")
+	if !ok || providerID == "" || modelID == "" {
+		return nil
+	}
+	providerEnabled := false
+	for i := range settings.Providers {
+		if settings.Providers[i].ID == providerID && settings.Providers[i].Enabled {
+			providerEnabled = true
+			break
+		}
+	}
+	if !providerEnabled {
+		return nil
+	}
+	for i := range settings.Models {
+		model := settings.Models[i]
+		if model.ProviderID == providerID && model.ID == modelID && model.Enabled {
+			return &model
+		}
+	}
+	return nil
+}
+
+func defaultEmbeddingModelSettings(settings config.Settings) *config.EmbeddingModel {
+	for i := range settings.Embedding.Models {
+		model := settings.Embedding.Models[i]
+		if model.IsDefault {
+			return &model
+		}
+	}
+	return nil
+}
+
+func embeddingProviderSettings(settings config.Settings, id string) *config.EmbeddingProvider {
+	for i := range settings.Embedding.Providers {
+		provider := settings.Embedding.Providers[i]
+		if provider.ID == id {
+			return &provider
+		}
+	}
+	return nil
 }

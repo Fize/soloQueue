@@ -20,14 +20,16 @@ type Loader[T any] struct {
 	path     string
 	defaults T
 
-	current T
-	mu      sync.RWMutex
+	current  T
+	mu       sync.RWMutex
+	reloadMu sync.Mutex
 
-	watcher   *fsnotify.Watcher
-	watchMu   sync.Mutex
-	watchStop chan struct{}
-	onChange  func() error
-	onError   func(error)
+	watcher     *fsnotify.Watcher
+	watchMu     sync.Mutex
+	watchStop   chan struct{}
+	onChange    func(T) error
+	onCommitted func(T)
+	onError     func(error)
 
 	lastWrite time.Time
 	writeMu   sync.Mutex
@@ -54,46 +56,30 @@ func (l *Loader[T]) Load() error {
 
 // LoadContext loads the single config file over the defaults.
 func (l *Loader[T]) LoadContext(ctx context.Context) error {
-	result := l.defaults
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	expanded, err := l.expandedPath()
+	result, err := l.readCandidate(ctx)
 	if err != nil {
 		return err
 	}
-
-	data, err := os.ReadFile(expanded)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No file yet: keep defaults.
-			l.mu.Lock()
-			l.current = result
-			l.mu.Unlock()
-			return nil
-		}
-		return fmt.Errorf("read %s: %w", expanded, err)
-	}
-
-	if err := yaml.Unmarshal(data, &result); err != nil {
-		return fmt.Errorf("parse %s: %w", expanded, err)
-	}
-
+	l.reloadMu.Lock()
+	defer l.reloadMu.Unlock()
 	l.mu.Lock()
 	l.current = result
 	l.mu.Unlock()
 	return nil
 }
 
-// ReadFromDisk reads and merges configurations from the filesystem without modifying the internal state of the Loader.
-func (l *Loader[T]) ReadFromDisk() (T, error) {
+func (l *Loader[T]) readCandidate(ctx context.Context) (T, error) {
 	var zero T
 	result := l.defaults
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
+
 	expanded, err := l.expandedPath()
 	if err != nil {
 		return zero, err
 	}
+
 	data, err := os.ReadFile(expanded)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -101,10 +87,16 @@ func (l *Loader[T]) ReadFromDisk() (T, error) {
 		}
 		return zero, fmt.Errorf("read %s: %w", expanded, err)
 	}
+
 	if err := yaml.Unmarshal(data, &result); err != nil {
 		return zero, fmt.Errorf("parse %s: %w", expanded, err)
 	}
 	return result, nil
+}
+
+// ReadFromDisk reads and merges configurations from the filesystem without modifying the internal state of the Loader.
+func (l *Loader[T]) ReadFromDisk() (T, error) {
+	return l.readCandidate(context.Background())
 }
 
 // Get returns a copy of the current configuration snapshot (concurrency-safe).
@@ -116,9 +108,11 @@ func (l *Loader[T]) Get() T {
 
 // Set applies a mutation to the current config, persists it to disk, and returns the updated snapshot.
 func (l *Loader[T]) Set(mutate func(*T)) (T, error) {
+	l.reloadMu.Lock()
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	mutate(&l.current)
+	candidate := l.current
+	l.mu.Unlock()
 
 	l.writeMu.Lock()
 	l.lastWrite = time.Now()
@@ -126,9 +120,26 @@ func (l *Loader[T]) Set(mutate func(*T)) (T, error) {
 
 	pp, err := l.expandedPath()
 	if err != nil {
-		return l.current, err
+		l.reloadMu.Unlock()
+		return candidate, err
 	}
-	return l.current, l.saveTo(pp, l.current)
+	if err := l.saveTo(pp, candidate); err != nil {
+		l.reloadMu.Unlock()
+		return candidate, err
+	}
+	l.reloadMu.Unlock()
+
+	// Set is the programmatic equivalent of an accepted file-watch reload:
+	// notify consumers only after the candidate has been durably written. Keep
+	// this callback outside the loader locks so consumers may safely inspect
+	// configuration or perform their own synchronization.
+	l.mu.RLock()
+	onCommitted := l.onCommitted
+	l.mu.RUnlock()
+	if onCommitted != nil {
+		onCommitted(candidate)
+	}
+	return candidate, nil
 }
 
 // Save atomically writes the current settings to the config file.
@@ -152,9 +163,19 @@ func (l *Loader[T]) SaveContext(ctx context.Context) error {
 }
 
 // SetOnChange registers a callback invoked after a file change is detected by Watch.
-func (l *Loader[T]) SetOnChange(fn func() error) {
+func (l *Loader[T]) SetOnChange(fn func(T) error) {
 	l.mu.Lock()
 	l.onChange = fn
+	l.mu.Unlock()
+}
+
+// SetOnCommitted registers an infallible notification invoked after an
+// accepted file-watch candidate has been published to Get. Validation and any
+// operation that may reject a candidate belong in SetOnChange; a committed
+// notification cannot roll back the already-published snapshot.
+func (l *Loader[T]) SetOnCommitted(fn func(T)) {
+	l.mu.Lock()
+	l.onCommitted = fn
 	l.mu.Unlock()
 }
 
@@ -236,7 +257,8 @@ func (l *Loader[T]) watchLoop(watcher *fsnotify.Watcher, stop <-chan struct{}, p
 			if skip {
 				continue
 			}
-			if err := l.Load(); err != nil {
+			candidate, err := l.readCandidate(context.Background())
+			if err != nil {
 				l.mu.RLock()
 				onError := l.onError
 				l.mu.RUnlock()
@@ -245,11 +267,13 @@ func (l *Loader[T]) watchLoop(watcher *fsnotify.Watcher, stop <-chan struct{}, p
 				}
 				continue
 			}
-			l.mu.RLock()
-			onChange := l.onChange
-			l.mu.RUnlock()
-			if onChange != nil {
-				_ = onChange()
+			if err := l.applyReloadCandidate(candidate); err != nil {
+				l.mu.RLock()
+				onError := l.onError
+				l.mu.RUnlock()
+				if onError != nil {
+					onError(err)
+				}
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -263,6 +287,32 @@ func (l *Loader[T]) watchLoop(watcher *fsnotify.Watcher, stop <-chan struct{}, p
 			}
 		}
 	}
+}
+
+// applyReloadCandidate lets the callback validate and apply the candidate
+// before publishing it. Concurrent Get calls keep observing the last accepted
+// snapshot for the complete callback window. reloadMu prevents overlapping
+// file events from interleaving.
+func (l *Loader[T]) applyReloadCandidate(candidate T) error {
+	l.reloadMu.Lock()
+	l.mu.RLock()
+	onChange := l.onChange
+	l.mu.RUnlock()
+	if onChange != nil {
+		if err := onChange(candidate); err != nil {
+			l.reloadMu.Unlock()
+			return fmt.Errorf("apply reloaded config: %w", err)
+		}
+	}
+	l.mu.Lock()
+	l.current = candidate
+	onCommitted := l.onCommitted
+	l.mu.Unlock()
+	l.reloadMu.Unlock()
+	if onCommitted != nil {
+		onCommitted(candidate)
+	}
+	return nil
 }
 
 func (l *Loader[T]) expandedPath() (string, error) {

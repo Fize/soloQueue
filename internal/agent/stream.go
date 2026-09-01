@@ -14,6 +14,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // WithBypassConfirmCtx returns a context that skips all tool confirmations.
@@ -49,8 +50,9 @@ func (a *Agent) processStreamEvents(
 	for !streamDone {
 		select {
 		case <-ctx.Done():
-			a.emit(ctx, out, ErrorEvent{Err: ctx.Err()})
-			return ctx.Err()
+			cause := context.Cause(ctx)
+			a.emit(ctx, out, ErrorEvent{Err: cause})
+			return cause
 		case ev, ok := <-evCh:
 			if !ok {
 				// channel close but no Done/Error — abnormal end, report as error
@@ -67,6 +69,9 @@ func (a *Agent) processStreamEvents(
 			}
 			switch ev.Type {
 			case llm.EventDelta:
+				if isSemanticModelEvent(ev) {
+					runwatch.Pulse(ctx, runwatch.ProgressSemantic, "streaming")
+				}
 				// Preserve reasoning before content in the event stream.
 				if ev.ReasoningContentDelta != "" {
 					acc.reasoning.WriteString(ev.ReasoningContentDelta)
@@ -97,6 +102,7 @@ func (a *Agent) processStreamEvents(
 					}
 				}
 			case llm.EventDone:
+				runwatch.Pulse(ctx, runwatch.ProgressStructural, "model_done")
 				acc.finish = ev.FinishReason
 				if ev.Usage != nil {
 					acc.usage = *ev.Usage
@@ -115,6 +121,24 @@ func (a *Agent) processStreamEvents(
 		}
 	}
 	return nil
+}
+
+func isSemanticModelEvent(ev llm.Event) bool {
+	return ev.Type == llm.EventDelta &&
+		(ev.ContentDelta != "" || ev.ReasoningContentDelta != "" || ev.ToolCallDelta != nil)
+}
+
+func beginModelWatch(ctx context.Context, agentID string, iter int) (context.Context, *runwatch.Handle, error) {
+	parent := runwatch.HandleFromContext(ctx)
+	if parent == nil {
+		return ctx, nil, nil
+	}
+	id := fmt.Sprintf("model:%s:%d", agentID, iter)
+	handle, err := parent.BeginOperation(runwatch.KindModel, id, runwatch.Policy{})
+	if err != nil {
+		return nil, nil, err
+	}
+	return runwatch.ContextWithHandle(ctx, handle), handle, nil
 }
 
 // streamStrategy abstracts variant behavior across streaming functions.
@@ -183,7 +207,9 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 	// next streamLoop call which will close out on its final exit.
 	defer func() {
 		if !yielded {
-			close(out)
+			if !a.abandonAsyncTurnForOutput(out) {
+				close(out)
+			}
 		}
 	}()
 	defer a.recoverAndEmit(ctx, out)
@@ -220,7 +246,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 
 	for iter := startIter; iter < maxIter; iter++ {
 		if err := ctx.Err(); err != nil {
-			a.emit(ctx, out, ErrorEvent{Err: err})
+			a.emit(ctx, out, ErrorEvent{Err: context.Cause(ctx)})
 			return
 		}
 
@@ -250,8 +276,10 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			IncludeUsage:    true,
 		}
 
-		// Apply per-ask model override (set by router, cleared after ask)
-		if override := a.modelOverride.Load(); override != nil && !a.Def.ExplicitModel {
+		// The request context is the routing authority. The Agent-global value
+		// remains a compatibility fallback for direct callers and observability.
+		override := modelOverrideForContext(ctx, a)
+		if override != nil && !a.Def.ExplicitModel {
 			if override.ModelID != "" {
 				req.Model = override.ModelID
 			}
@@ -273,8 +301,16 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		)
 
 		start := time.Now()
-		evCh, err := a.LLM.ChatStream(ctx, req)
+		modelCtx, modelWatch, watchErr := beginModelWatch(ctx, a.InstanceID, iter)
+		if watchErr != nil {
+			a.emit(ctx, out, ErrorEvent{Err: watchErr})
+			return
+		}
+		evCh, err := a.LLM.ChatStream(modelCtx, req)
 		if err != nil {
+			if modelWatch != nil {
+				modelWatch.Complete()
+			}
 			durMs := time.Since(start).Milliseconds()
 			a.logError(ctx, logger.CatLLM, "llm chat failed", err,
 				"iter", iter,
@@ -304,8 +340,14 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		acc := &streamAccumulator{
 			tcSlots: make(map[int]*llm.ToolCall),
 		}
-		if err := a.processStreamEvents(ctx, iter, evCh, out, start, acc); err != nil {
+		if err := a.processStreamEvents(modelCtx, iter, evCh, out, start, acc); err != nil {
+			if modelWatch != nil {
+				modelWatch.Complete()
+			}
 			return
+		}
+		if modelWatch != nil {
+			modelWatch.Complete()
 		}
 
 		durMs := time.Since(start).Milliseconds()
@@ -382,6 +424,12 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		}
 
 		results := strat.execTools(a, ctx, iter, toolCalls, out)
+		// A tool may ignore cancellation and return late. Do not let that stale
+		// generation cross the next conversation/timeline mutation boundary.
+		if err := ctx.Err(); err != nil && !a.userDenied.Load() {
+			a.emit(ctx, out, ErrorEvent{Err: context.Cause(ctx)})
+			return false
+		}
 		if strat.postIteration(a, ctx, iter, acc, toolCalls, results, out) {
 			return true // async delegation started, loop yields — out stays open
 		}
@@ -686,18 +734,40 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 // Returns true if the stream loop yielded (async delegation started);
 // the caller must keep the context alive until resumeTurn completes.
 func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) bool {
-	defer a.ClearModelOverride()
+	tracker := jobTrackerFromContext(ctx)
+	if tracker != nil {
+		a.beginTrackedJob(tracker)
+	}
 	a.setWorkStart(prompt)
-	yielded := a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
+	yielded := false
+	if tracker != nil {
+		defer func() {
+			a.endTrackedJob(tracker)
+			if !yielded {
+				tracker.finish()
+			}
+		}()
+	}
+	yielded = a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
 	if !yielded {
-		// When the stream exits without yielding (cancel, error, or normal
-		// completion), clean up any pending async turns BEFORE close(out).
-		// Otherwise, async goroutines that complete after this point will
-		// try to resumeTurn → emit to the now-closed channel → PANIC.
-		a.cleanupAsyncTurns()
 		a.clearWork()
 	}
 	return yielded
+}
+
+func modelOverrideForContext(ctx context.Context, a *Agent) *ModelParams {
+	if override := iface.ModelOverrideFromContext(ctx); override != nil {
+		return &ModelParams{
+			ProviderID: override.ProviderID, ModelID: override.ModelID,
+			ThinkingEnabled: override.ThinkingEnabled, ReasoningEffort: override.ReasoningEffort,
+			ThinkingType: override.ThinkingType, TaskType: override.TaskType,
+			ContextWindow: override.ContextWindow, Vision: override.Vision,
+		}
+	}
+	if a == nil {
+		return nil
+	}
+	return a.modelOverride.Load()
 }
 
 // runOnceStreamWithHistoryFromIter resumes the tool loop from a given
@@ -709,7 +779,18 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 	out chan<- AgentEvent,
 	startIter int,
 ) bool {
-	yielded := a.streamLoop(ctx, out, &historyStrategy{cw: cw}, startIter)
+	tracker := jobTrackerFromContext(ctx)
+	yielded := false
+	if tracker != nil {
+		a.beginTrackedJob(tracker)
+		defer func() {
+			a.endTrackedJob(tracker)
+			if !yielded {
+				tracker.finish()
+			}
+		}()
+	}
+	yielded = a.streamLoop(ctx, out, &historyStrategy{cw: cw}, startIter)
 	if !yielded {
 		a.clearWork()
 	}
@@ -896,6 +977,32 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			needsConfirm, prompt := c.CheckConfirmation(args)
 			if needsConfirm {
 				options := c.ConfirmationOptions(args)
+				var confirmationWatch *runwatch.Handle
+				var releasePause = func(string) {}
+				if parent := runwatch.HandleFromContext(ctx); parent != nil {
+					operationID := fmt.Sprintf("confirmation:%s:%d:%s", a.InstanceID, iter, tc.ID)
+					var watchErr error
+					confirmationWatch, watchErr = parent.BeginOperation(runwatch.KindTool, operationID, runwatch.Policy{})
+					if watchErr != nil {
+						return "error: " + watchErr.Error()
+					}
+					releasePause = confirmationWatch.AcquirePause("tool_confirmation")
+				}
+				resumed := false
+				resumeConfirmation := func() {
+					if resumed {
+						return
+					}
+					resumed = true
+					releasePause("tool_execution")
+					if confirmationWatch != nil {
+						confirmationWatch.Complete()
+					}
+				}
+				// Every exit after Pause must restore the lease. The successful
+				// choice path invokes this before Execute; defer covers emit and
+				// cancellation failures.
+				defer resumeConfirmation()
 
 				slot := &confirmSlot{ch: make(chan string, 1)}
 				a.confirmMu.Lock()
@@ -931,6 +1038,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 				var choice string
 				select {
 				case choice = <-slot.ch:
+					resumeConfirmation()
 				case <-ctx.Done():
 					a.confirmMu.Lock()
 					delete(a.pendingConfirm, tc.ID)
@@ -972,8 +1080,9 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 
 	// Apply per-tool timeout in priority order:
 	//   1. Explicit WithToolTimeout config
-	//   2. Tool's own PreferredTimeout() (e.g. DelegateTool 25/30 min)
+	//   2. A concrete tool's own PreferredTimeout()
 	//   3. Global DefaultToolTimeout (5 min)
+	// Progress-supervised tools such as Delegate intentionally have no total cap.
 	// Parent ctx cancellation still takes priority (WithTimeout adds a deadline).
 	execCtx := ctx
 	var timeoutDur time.Duration
@@ -989,12 +1098,25 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 			defer cancel()
 			timeoutDur = d
 		}
-	} else {
+	} else if supervised, ok := tool.(tools.ProgressSupervised); !ok || !supervised.ProgressSupervised() {
 		// Global fallback timeout — prevents indefinite blocking
 		var cancel context.CancelFunc
 		execCtx, cancel = context.WithTimeout(ctx, DefaultToolTimeout)
 		defer cancel()
 		timeoutDur = DefaultToolTimeout
+	}
+	var toolWatch *runwatch.Handle
+	if timeoutDur > 0 {
+		if parent := runwatch.HandleFromContext(ctx); parent != nil {
+			operationID := fmt.Sprintf("tool:%s:%d:%s", a.InstanceID, iter, tc.ID)
+			var watchErr error
+			toolWatch, watchErr = parent.BeginOperation(runwatch.KindTool, operationID, runwatch.Policy{OrphanIdle: timeoutDur})
+			if watchErr != nil {
+				return "error: " + watchErr.Error()
+			}
+			defer toolWatch.Complete()
+			execCtx = runwatch.ContextWithHandle(execCtx, toolWatch)
+		}
 	}
 
 	start := time.Now()
@@ -1028,7 +1150,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 
 	// Propagate model override to child agents via context (for delegation chain).
 	// When this tool is a DelegateTool, it reads this from ctx and sets it on the target agent.
-	if override := a.modelOverride.Load(); override != nil {
+	if override := modelOverrideForContext(ctx, a); override != nil {
 		toolCtx = iface.ContextWithModelOverride(toolCtx, override.ToIFaceOverride())
 	}
 
@@ -1060,7 +1182,12 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		)
 		var errResult string
 		if isToolTimeout {
-			errResult = fmt.Sprintf("error: tool timeout after %s", timeoutDur)
+			cause := &runwatch.Cause{Code: runwatch.CodeToolStalled, OperationID: tc.ID}
+			if toolWatch != nil {
+				toolWatch.Fail(cause)
+			}
+			err = cause
+			errResult = fmt.Sprintf("error: tool timeout after %s (%s)", timeoutDur, cause.Error())
 		} else {
 			errResult = "error: " + err.Error()
 		}

@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/xiaobaitu/soloqueue/internal/iface"
-	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -103,11 +103,24 @@ type Agent struct {
 	// Set by the router before submitting an ask job, consumed by streamLoop,
 	// and auto-cleared when the ask completes. Thread-safe via atomic pointer.
 	modelOverride atomic.Pointer[ModelParams]
+	// activeModelOverride projects the currently executing tracked job for
+	// runtime/UI observation. Execution itself reads the request context.
+	activeModelOverride atomic.Pointer[ModelParams]
 
 	// turnTerminated is set by execToolStream when a TurnTerminator tool
 	// successfully completes and signals the turn should end. streamLoop
 	// checks this flag after postIteration and breaks the loop.
 	turnTerminated atomic.Bool
+	quarantined    atomic.Bool
+	schedulable    atomic.Bool
+
+	jobMu      sync.Mutex
+	scheduleMu sync.Mutex
+	currentJob *jobTracker
+	// recoveryFence rejects new mailbox work while the exact request that
+	// tripped a watchdog is being given its cancellation grace period.
+	recoveryFence *jobTracker
+	jobSeq        atomic.Uint64
 
 	// runtime bundles all mutable runtime observability state under a single
 	// RWMutex. Includes lifecycle state, error tracking, circuit breaker,
@@ -250,6 +263,36 @@ func WithPriorityMailbox() Option {
 	}
 }
 
+// WithSchedulingPending constructs an Agent that may be started and registered
+// but cannot be selected through Registry scheduling until its lifecycle owner
+// publishes the generation with ActivateScheduling.
+func WithSchedulingPending() Option {
+	return func(a *Agent) { a.schedulable.Store(false) }
+}
+
+// ActivateScheduling publishes a fully owned Agent generation to Registry
+// locators. Direct lifecycle calls remain available while pending so Session
+// can prepare and retire a rejected candidate safely.
+func (a *Agent) ActivateScheduling() {
+	if a != nil {
+		a.schedulable.Store(true)
+	}
+}
+
+// DeactivateScheduling removes an Agent generation from scheduling selection
+// before its replacement is published.
+func (a *Agent) DeactivateScheduling() {
+	if a != nil {
+		a.schedulable.Store(false)
+	}
+}
+
+// Schedulable reports whether Registry locators may hand this Agent to new
+// external work.
+func (a *Agent) Schedulable() bool {
+	return a != nil && a.schedulable.Load()
+}
+
 // WithInstanceID overrides the auto-generated UUID instance ID.
 // Primarily for deterministic testing.
 func WithInstanceID(id string) Option {
@@ -374,6 +417,9 @@ func (a *Agent) ClearModelOverride() {
 // ModelOverride returns the current per-ask model override, or nil if none is active.
 // Thread-safe (atomic pointer load).
 func (a *Agent) ModelOverride() *ModelParams {
+	if active := a.activeModelOverride.Load(); active != nil {
+		return active
+	}
 	return a.modelOverride.Load()
 }
 
@@ -403,7 +449,7 @@ func (a *Agent) EffectiveModelID() string {
 	if a.Def.ExplicitModel {
 		return a.Def.ModelID
 	}
-	if mp := a.modelOverride.Load(); mp != nil && mp.ModelID != "" {
+	if mp := a.ModelOverride(); mp != nil && mp.ModelID != "" {
 		return mp.ModelID
 	}
 	return ""
@@ -428,7 +474,7 @@ func (a *Agent) EffectiveProviderID() string {
 	if a.Def.ExplicitModel {
 		return a.Def.ProviderID
 	}
-	if mp := a.modelOverride.Load(); mp != nil && mp.ProviderID != "" {
+	if mp := a.ModelOverride(); mp != nil && mp.ProviderID != "" {
 		return mp.ProviderID
 	}
 	return ""
@@ -438,7 +484,7 @@ func (a *Agent) EffectiveProviderID() string {
 // It prefers the per-ask override (set by the router) and falls back to the
 // Definition default. Thread-safe (atomic pointer load).
 func (a *Agent) EffectiveContextWindow() int {
-	if mp := a.modelOverride.Load(); mp != nil && mp.ContextWindow > 0 && !a.Def.ExplicitModel {
+	if mp := a.ModelOverride(); mp != nil && mp.ContextWindow > 0 && !a.Def.ExplicitModel {
 		return mp.ContextWindow
 	}
 	return a.Def.ContextWindow
@@ -447,7 +493,7 @@ func (a *Agent) EffectiveContextWindow() int {
 // EffectiveTaskType returns the task type from the current per-ask override.
 // Thread-safe (atomic pointer load).
 func (a *Agent) EffectiveTaskType() string {
-	if mp := a.modelOverride.Load(); mp != nil {
+	if mp := a.ModelOverride(); mp != nil {
 		return mp.TaskType
 	}
 	return ""
@@ -567,6 +613,9 @@ func (a *Agent) SetOnStateChange(fn func(State)) {
 }
 
 func (a *Agent) setRuntimeState(s State) {
+	if a.quarantined.Load() {
+		s = StateQuarantined
+	}
 	a.runtimeMu.Lock()
 	a.runtime.state = s
 	a.runtimeMu.Unlock()
@@ -583,7 +632,11 @@ func (a *Agent) setRuntimeExitErr(err error) {
 
 func (a *Agent) setWorkStart(prompt string) {
 	a.runtimeMu.Lock()
-	a.runtime.state = StateProcessing
+	if a.quarantined.Load() {
+		a.runtime.state = StateQuarantined
+	} else {
+		a.runtime.state = StateProcessing
+	}
 	a.runtime.prompt = prompt
 	a.runtime.startedAt = time.Now()
 	a.runtimeMu.Unlock()
@@ -615,21 +668,28 @@ func (a *Agent) clearWork() {
 	a.runtime.iter = 0
 	a.runtime.tool = ""
 	a.runtime.toolArgs = ""
-	a.runtime.state = StateIdle
+	if a.quarantined.Load() {
+		a.runtime.state = StateQuarantined
+	} else {
+		a.runtime.state = StateIdle
+	}
 	a.runtimeMu.Unlock()
 }
 
-// cleanupAsyncTurns removes all pending async turn state entries. Called when
-// streamLoop exits without yielding (cancel, error, normal completion) before
-// the out channel is closed. Without this, async goroutines that complete after
-// close(out) will call resumeTurn, which tries to emit to the closed channel
-// and panics (send on closed channel).
+// cleanupAsyncTurns terminalizes all pending turns. Exact stream exits use
+// abandonAsyncTurnForOutput so a foreground L1 completion cannot cancel an
+// unrelated yielded delegation.
 func (a *Agent) cleanupAsyncTurns() {
 	a.turnMu.Lock()
-	for iter := range a.asyncTurns {
+	turns := make([]*asyncTurnState, 0, len(a.asyncTurns))
+	for iter, turn := range a.asyncTurns {
+		turns = append(turns, turn)
 		delete(a.asyncTurns, iter)
 	}
 	a.turnMu.Unlock()
+	for _, turn := range turns {
+		a.terminateAsyncTurn(turn)
+	}
 }
 
 // ─── Event subscription (Watch mode) ────────────────────────────────────
@@ -699,6 +759,7 @@ func NewAgent(def Definition, llm LLMClient, log *logger.Logger, opts ...Option)
 		confirmStore:   NewMemoryConfirmStore(),
 		bypassConfirm:  def.BypassConfirm,
 	}
+	a.schedulable.Store(true)
 	for _, opt := range opts {
 		opt(a)
 	}

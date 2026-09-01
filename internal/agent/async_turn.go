@@ -31,6 +31,16 @@ type delegateResult struct {
 	duration time.Duration
 }
 
+type asyncTurnPhase uint8
+
+const (
+	asyncTurnPending asyncTurnPhase = iota
+	asyncTurnQueued
+	asyncTurnResuming
+	asyncTurnHandedOff
+	asyncTurnTerminal
+)
+
 // asyncTurnState tracks and aggregates all tool_call results in an async turn.
 type asyncTurnState struct {
 	agentID   string
@@ -52,6 +62,143 @@ type asyncTurnState struct {
 	// — resumeTurn still needs it. Instead, the cancel is deferred here
 	// and invoked after the final streamLoop completes in resumeTurn.
 	cancelMerged context.CancelFunc
+
+	terminalMu    sync.Mutex
+	phase         asyncTurnPhase
+	ownershipDone chan struct{}
+	ownershipOnce sync.Once
+	terminalOnce  sync.Once
+
+	// Test-only scheduling hook used to deterministically exercise cancellation
+	// after queued->resuming but before the first persistent mutation.
+	beforeResumeMutation func()
+}
+
+func (t *asyncTurnState) claimResume() bool {
+	if t == nil {
+		return false
+	}
+	t.terminalMu.Lock()
+	defer t.terminalMu.Unlock()
+	if t.phase != asyncTurnPending {
+		return false
+	}
+	t.phase = asyncTurnQueued
+	t.ensureOwnershipDoneLocked()
+	return true
+}
+
+func (t *asyncTurnState) recordCancellation(callIndex int) bool {
+	if t == nil {
+		return false
+	}
+	t.terminalMu.Lock()
+	defer t.terminalMu.Unlock()
+	if t.phase != asyncTurnPending {
+		return false
+	}
+	if callIndex >= 0 && callIndex < len(t.results) {
+		t.results[callIndex] = "error: delegation cancelled"
+	}
+	t.pending.Add(-1)
+	return true
+}
+
+func (t *asyncTurnState) recordResult(callIndex int, result string, duration time.Duration) (accepted, allDone bool) {
+	if t == nil {
+		return false, false
+	}
+	t.terminalMu.Lock()
+	defer t.terminalMu.Unlock()
+	if t.phase != asyncTurnPending {
+		return false, false
+	}
+	if callIndex >= 0 && callIndex < len(t.results) {
+		t.results[callIndex] = result
+		t.setDuration(callIndex, duration)
+	}
+	return true, t.pending.Add(-1) == 0
+}
+
+func (t *asyncTurnState) beginResume() bool {
+	if t == nil {
+		return false
+	}
+	t.terminalMu.Lock()
+	defer t.terminalMu.Unlock()
+	if t.phase != asyncTurnQueued && t.phase != asyncTurnPending {
+		return false
+	}
+	t.phase = asyncTurnResuming
+	return true
+}
+
+func (t *asyncTurnState) ensureOwnershipDoneLocked() chan struct{} {
+	if t.ownershipDone == nil {
+		t.ownershipDone = make(chan struct{})
+	}
+	return t.ownershipDone
+}
+
+func (t *asyncTurnState) ownershipSignal() <-chan struct{} {
+	t.terminalMu.Lock()
+	ch := t.ensureOwnershipDoneLocked()
+	if t.phase == asyncTurnHandedOff || t.phase == asyncTurnTerminal {
+		t.ownershipOnce.Do(func() { close(ch) })
+	}
+	t.terminalMu.Unlock()
+	return ch
+}
+
+func (t *asyncTurnState) signalOwnershipLocked() {
+	ch := t.ensureOwnershipDoneLocked()
+	t.ownershipOnce.Do(func() { close(ch) })
+}
+
+// handoffInitialMutation makes cancellation and the first resumed persistence
+// mutation one ordered transition. The winner of terminalMu owns the boundary.
+func (t *asyncTurnState) handoffInitialMutation(ctx context.Context, mutate func()) bool {
+	if t == nil {
+		return false
+	}
+	t.terminalMu.Lock()
+	if t.phase != asyncTurnResuming || ctx.Err() != nil {
+		t.terminalMu.Unlock()
+		return false
+	}
+	if mutate != nil {
+		mutate()
+	}
+	t.phase = asyncTurnHandedOff
+	t.signalOwnershipLocked()
+	t.terminalMu.Unlock()
+	return true
+}
+
+func (t *asyncTurnState) setCancelMerged(cancel context.CancelFunc) bool {
+	if t == nil || cancel == nil {
+		return false
+	}
+	t.terminalMu.Lock()
+	if t.phase == asyncTurnTerminal {
+		t.terminalMu.Unlock()
+		cancel()
+		return false
+	}
+	t.cancelMerged = cancel
+	t.terminalMu.Unlock()
+	return true
+}
+
+func (t *asyncTurnState) takeCancelMerged() context.CancelFunc {
+	if t == nil {
+		return nil
+	}
+	t.terminalMu.Lock()
+	cancel := t.cancelMerged
+	t.cancelMerged = nil
+	t.terminalMu.Unlock()
+	return cancel
 }
 
 // setDuration assigns d to durations[index], growing slice lazily for tests.
@@ -135,7 +282,7 @@ func (a *Agent) execToolsWithAsync(
 		if a.Def.Name != "" {
 			asyncCtx = iface.ContextWithAgentName(asyncCtx, a.Def.Name)
 		}
-		if override := a.modelOverride.Load(); override != nil {
+		if override := modelOverrideForContext(ctx, a); override != nil {
 			asyncCtx = iface.ContextWithModelOverride(asyncCtx, override.ToIFaceOverride())
 		}
 
@@ -154,10 +301,6 @@ func (a *Agent) execToolsWithAsync(
 		results[i] = formatDelegationStarted(tc)
 		if action.DispatchID != "" {
 			results[i] += "\nDispatch ID: " + action.DispatchID
-			a.emit(ctx, out, ContentDeltaEvent{
-				Iter:  iter,
-				Delta: fmt.Sprintf("Delegation started. Dispatch ID: %s\n", action.DispatchID),
-			})
 		}
 
 		targetInstanceID := ""
@@ -220,19 +363,18 @@ func (a *Agent) execToolsWithAsync(
 				complete()
 			}()
 
-			timeout := action.Timeout
-			if timeout <= 0 {
-				timeout = tools.DelegateDefaultTimeout
-			}
 			delCtx := turnState.callerCtx
 			if action.Context != nil {
 				delCtx = action.Context
 			}
-			delCtx, cancel := context.WithTimeout(delCtx, timeout)
-			defer cancel()
+			if action.Timeout > 0 {
+				var cancel context.CancelFunc
+				delCtx, cancel = context.WithTimeout(delCtx, action.Timeout)
+				defer cancel()
+			}
 
 			a.logInfo(delCtx, logger.CatTool, "async-goroutine: starting, about to call AskStream",
-				"timeout", timeout,
+				"timeout", action.Timeout,
 			)
 
 			// --- Inject confirm relay (aligned with execToolStream synchronous path) ---
@@ -276,9 +418,28 @@ func (a *Agent) execToolsWithAsync(
 
 			var content string
 			var finalErr error
-			for ev := range evCh {
+		eventLoop:
+			for {
+				var ev iface.AgentEvent
+				var ok bool
+				select {
+				case <-delCtx.Done():
+					finalErr = errors.Join(finalErr, delCtx.Err())
+					break eventLoop
+				case ev, ok = <-evCh:
+					if !ok {
+						break eventLoop
+					}
+				}
 				if ev == nil {
 					continue
+				}
+				// Cancellation owns the persistence boundary. A target may publish
+				// buffered events after observing cancellation; those events must
+				// not reach persistence, relay, or response aggregation.
+				if delCtx.Err() != nil {
+					finalErr = errors.Join(finalErr, delCtx.Err())
+					break eventLoop
 				}
 				if action.OnEvent != nil {
 					finalErr = errors.Join(finalErr, action.OnEvent(ev))
@@ -287,6 +448,8 @@ func (a *Agent) execToolsWithAsync(
 				select {
 				case relayCh <- ev:
 				case <-delCtx.Done():
+					finalErr = errors.Join(finalErr, delCtx.Err())
+					break eventLoop
 				}
 
 				ec, ok := ev.(iface.EventConsumer)
@@ -394,69 +557,163 @@ func (a *Agent) execToolsWithAsync(
 
 // watchDelegatedTask awaits one async result, stores it, and triggers resumeTurn when all pending complete.
 func (a *Agent) watchDelegatedTask(task *delegatedTask) {
-	select {
-	case result := <-task.replyCh:
-		// Fill result
+	recordResult := func(result delegateResult) {
 		toolResult := result.content
 		if result.err != nil {
 			toolResult = "error: " + result.err.Error()
 			a.RecordError(result.err)
 		}
-		task.turn.results[task.callIndex] = toolResult
-		task.turn.setDuration(task.callIndex, result.duration)
-
-		// Check if all completed
-		if task.turn.pending.Add(-1) == 0 {
-			// All asynchronous results have arrived, submit a high-priority job to resume the tool loop
-			a.submitHighPriority(func(ctx context.Context) {
+		accepted, allDone := task.turn.recordResult(task.callIndex, toolResult, result.duration)
+		if accepted && allDone {
+			a.submitAsyncResume(task.turn, func(ctx context.Context) {
 				a.resumeTurn(task.turn)
 			})
 		}
+	}
+	select {
+	case result := <-task.replyCh:
+		recordResult(result)
 	case <-task.turn.callerCtx.Done():
-		// Caller context cancelled. Give replyCh a short grace period —
-		// the result might already be in-flight and arrive momentarily.
+		// Preserve the established short grace for a result already in flight,
+		// but never wait on mailbox capacity after cancellation.
+		timer := time.NewTimer(10 * time.Millisecond)
+		defer timer.Stop()
 		select {
 		case result := <-task.replyCh:
-			toolResult := result.content
-			if result.err != nil {
-				toolResult = "error: " + result.err.Error()
-				a.RecordError(result.err)
+			recordResult(result)
+		case <-timer.C:
+			if task.turn.recordCancellation(task.callIndex) {
+				a.RecordError(errors.New("delegation cancelled"))
 			}
-			task.turn.results[task.callIndex] = toolResult
-			task.turn.setDuration(task.callIndex, result.duration)
-
-			if task.turn.pending.Add(-1) == 0 {
-				a.submitHighPriority(func(ctx context.Context) {
-					a.resumeTurn(task.turn)
-				})
-			}
-		case <-time.After(10 * time.Millisecond):
-			// Genuinely cancelled — fill a synthetic error result and
-			// ensure resumeTurn is still triggered so out gets closed.
-			task.turn.results[task.callIndex] = "error: delegation cancelled"
-			a.RecordError(errors.New("delegation cancelled"))
-			if task.turn.pending.Add(-1) == 0 {
-				a.submitHighPriority(func(ctx context.Context) {
-					a.resumeTurn(task.turn)
-				})
-			}
+			a.terminateAsyncTurn(task.turn)
 		}
 	}
 }
 
+func (a *Agent) submitAsyncResume(turn *asyncTurnState, resume job) {
+	if !turn.claimResume() {
+		return
+	}
+	ownershipDone := turn.ownershipSignal()
+	if err := a.submitHighPriority(turn.callerCtx, resume); err == nil {
+		a.observeAsyncTurnCancellation(turn, ownershipDone)
+		return
+	}
+	a.terminateAsyncTurn(turn)
+}
+
+func (a *Agent) observeAsyncTurnCancellation(turn *asyncTurnState, ownershipDone <-chan struct{}) {
+	if a == nil || turn == nil {
+		return
+	}
+	ctx := turn.callerCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	a.taskWg.Add(1)
+	go func() {
+		defer a.taskWg.Done()
+		select {
+		case <-ctx.Done():
+			a.terminateAsyncTurn(turn)
+		case <-ownershipDone:
+		}
+	}()
+}
+
+func (a *Agent) removeAsyncTurnIfSame(turn *asyncTurnState) {
+	if a == nil || turn == nil {
+		return
+	}
+	a.turnMu.Lock()
+	if a.asyncTurns[turn.iter] == turn {
+		delete(a.asyncTurns, turn.iter)
+	}
+	a.turnMu.Unlock()
+}
+
+// terminateAsyncTurn owns every abnormal terminal side effect exactly once.
+// Successful resume transfers close/tracker ownership back to streamLoop.
+func (a *Agent) terminateAsyncTurn(turn *asyncTurnState) {
+	a.transitionAsyncTurnToTerminal(turn, false)
+}
+
+func (a *Agent) finishHandedOffAsyncTurn(turn *asyncTurnState) {
+	a.transitionAsyncTurnToTerminal(turn, true)
+}
+
+func (a *Agent) transitionAsyncTurnToTerminal(turn *asyncTurnState, includeHandedOff bool) {
+	if a == nil || turn == nil {
+		return
+	}
+	turn.terminalMu.Lock()
+	if turn.phase == asyncTurnTerminal || (turn.phase == asyncTurnHandedOff && !includeHandedOff) {
+		turn.terminalMu.Unlock()
+		return
+	}
+	turn.phase = asyncTurnTerminal
+	turn.signalOwnershipLocked()
+	cancel := turn.cancelMerged
+	turn.cancelMerged = nil
+	turn.terminalMu.Unlock()
+	turn.terminalOnce.Do(func() {
+		a.removeAsyncTurnIfSame(turn)
+		if cancel != nil {
+			cancel()
+		}
+		if tracker := jobTrackerFromContext(turn.callerCtx); tracker != nil {
+			tracker.finish()
+		}
+		if turn.out != nil {
+			close(turn.out)
+		}
+	})
+}
+
+// abandonAsyncTurnForOutput transfers stream close ownership to the exact
+// registered async turn. It never affects another yielded request on L1.
+func (a *Agent) abandonAsyncTurnForOutput(out chan<- AgentEvent) bool {
+	a.turnMu.RLock()
+	var turn *asyncTurnState
+	for _, candidate := range a.asyncTurns {
+		if candidate != nil && candidate.out == out {
+			turn = candidate
+			break
+		}
+	}
+	a.turnMu.RUnlock()
+	if turn == nil {
+		return false
+	}
+	a.terminateAsyncTurn(turn)
+	return true
+}
+
 // resumeTurn formats async delegation results, pushes to CW, emits events, and continues the tool loop.
 func (a *Agent) resumeTurn(turn *asyncTurnState) {
-	// Clean up asyncTurns registration
-	a.turnMu.Lock()
-	delete(a.asyncTurns, turn.iter)
-	a.turnMu.Unlock()
+	if !turn.beginResume() {
+		return
+	}
+	if turn.beforeResumeMutation != nil {
+		turn.beforeResumeMutation()
+	}
 
 	// Format the actual delegation results as a user message and push to cw
 	// Wrap into an assistant(tool_calls) + tool(result) + user(result) structure,
 	// to ensure the LLM correctly understands this as a tool call return result.
 	resultMsg := formatDelegationCompleted(turn.toolCalls, turn.results)
-	if resultMsg != "" {
-		turn.cw.Push(ctxwin.RoleUser, resultMsg, ctxwin.WithEphemeral(true))
+	if !turn.handoffInitialMutation(turn.callerCtx, func() {
+		if resultMsg != "" {
+			turn.cw.Push(ctxwin.RoleUser, resultMsg, ctxwin.WithEphemeral(true))
+		}
+	}) {
+		a.terminateAsyncTurn(turn)
+		return
+	}
+	a.removeAsyncTurnIfSame(turn)
+	if err := turn.callerCtx.Err(); err != nil {
+		a.finishHandedOffAsyncTurn(turn)
+		return
 	}
 
 	// Emit DelegationCompletedEvent
@@ -500,10 +757,7 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 		err := fmt.Errorf("context overflow after async delegation: %d tokens exceed effective limit %d",
 			current, max)
 		a.emit(turn.callerCtx, turn.out, ErrorEvent{Err: err})
-		close(turn.out)
-		if turn.cancelMerged != nil {
-			turn.cancelMerged()
-		}
+		a.finishHandedOffAsyncTurn(turn)
 		return
 	}
 
@@ -521,12 +775,13 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	// (saveAsyncCancel is only called by the outer AskStreamWithHistory,
 	// not by the inner continueToolLoop). Transfer our cancelMerged to
 	// the new turn so it can cancel on its own completion.
+	cancelMerged := turn.takeCancelMerged()
 	if yielded {
-		if turn.cancelMerged != nil {
-			a.saveAsyncCancel(turn.callerCtx, turn.cancelMerged)
+		if cancelMerged != nil {
+			a.saveAsyncCancel(turn.callerCtx, cancelMerged)
 		}
-	} else if turn.cancelMerged != nil {
-		turn.cancelMerged()
+	} else if cancelMerged != nil {
+		cancelMerged()
 	}
 }
 
@@ -549,13 +804,17 @@ func (a *Agent) continueToolLoop(
 // If no matching asyncTurnState is found (should not happen), cancel is
 // invoked immediately to prevent context leak.
 func (a *Agent) saveAsyncCancel(ctx context.Context, cancel context.CancelFunc) {
-	a.turnMu.Lock()
-	defer a.turnMu.Unlock()
+	a.turnMu.RLock()
+	var turn *asyncTurnState
 	for _, ts := range a.asyncTurns {
 		if ts.callerCtx == ctx {
-			ts.cancelMerged = cancel
-			return
+			turn = ts
+			break
 		}
+	}
+	a.turnMu.RUnlock()
+	if turn != nil && turn.setCancelMerged(cancel) {
+		return
 	}
 	// Defensive: no matching turn found — cancel now to prevent leak.
 	cancel()

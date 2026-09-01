@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
@@ -317,6 +318,81 @@ func TestRegistry_LocateIdle(t *testing.T) {
 	byTmpl := r.GetByTemplate("dev")
 	if len(byTmpl) != 2 {
 		t.Errorf("GetByTemplate len = %d, want 2", len(byTmpl))
+	}
+}
+
+func TestRegistry_LocateSkipsSchedulingPendingAgent(t *testing.T) {
+	r := NewRegistry(nil)
+	pending := NewAgent(Definition{ID: "dev"}, &agenttest.FakeLLM{}, nil, WithSchedulingPending())
+	if err := pending.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pending.Stop(time.Second) })
+	if err := r.Register(pending); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Locate("dev"); ok {
+		t.Fatal("scheduling-pending Agent was externally locatable")
+	}
+	pending.ActivateScheduling()
+	if _, ok := r.Locate("dev"); !ok {
+		t.Fatal("published Agent was not locatable")
+	}
+}
+
+func TestRegistryPublishReplacementHasNoSchedulingGap(t *testing.T) {
+	r := NewRegistry(nil)
+	old := NewAgent(Definition{ID: "leader"}, &agenttest.FakeLLM{}, nil)
+	fresh := NewAgent(Definition{ID: "leader"}, &agenttest.FakeLLM{}, nil, WithSchedulingPending())
+	for _, a := range []*Agent{old, fresh} {
+		if err := a.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Register(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		_ = old.Stop(time.Second)
+		_ = fresh.Stop(time.Second)
+	})
+
+	midpoint := make(chan struct{})
+	release := make(chan struct{})
+	r.beforeSchedulingPublish = func() {
+		close(midpoint)
+		<-release
+	}
+	replaced := make(chan error, 1)
+	go func() {
+		replaced <- r.PublishReplacement(old, fresh, func() {})
+	}()
+	<-midpoint
+
+	located := make(chan iface.Locatable, 1)
+	go func() {
+		loc, _ := r.Locate("leader")
+		located <- loc
+	}()
+	select {
+	case <-located:
+		t.Fatal("Locate observed Registry while replacement publication was incomplete")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if err := <-replaced; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case loc := <-located:
+		if loc == nil || loc.(*LocatableAdapter).Agent != fresh {
+			t.Fatal("Locate did not return the fresh generation after atomic publication")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Locate remained blocked after replacement publication")
+	}
+	if old.Schedulable() || !fresh.Schedulable() {
+		t.Fatal("replacement did not atomically transfer scheduling ownership")
 	}
 }
 

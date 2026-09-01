@@ -14,6 +14,8 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -38,6 +40,244 @@ func drainEvents(t *testing.T, ch <-chan AgentEvent, d time.Duration) []AgentEve
 			t.Fatalf("drainEvents: channel did not close within %v (collected %d events)", d, len(evs))
 			return evs
 		}
+	}
+}
+
+func waitJobDone(t *testing.T, handle *JobHandle, d time.Duration) {
+	t.Helper()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-handle.Done():
+	case <-timer.C:
+		t.Fatalf("tracked job did not finish within %v", d)
+	}
+}
+
+func TestBeginModelWatchCreatesLeafOperation(t *testing.T) {
+	manager := runwatch.NewManager(runwatch.Policy{})
+	defer manager.Close()
+	ctx, _, err := manager.Start(context.Background(), runwatch.Metadata{RunID: "run-model"})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	modelCtx, handle, err := beginModelWatch(ctx, "agent-1", 2)
+	if err != nil {
+		t.Fatalf("beginModelWatch() error = %v", err)
+	}
+	if runwatch.HandleFromContext(modelCtx) != handle {
+		t.Fatal("model context does not carry leaf handle")
+	}
+	if _, ok := handle.Snapshot(); !ok {
+		t.Fatal("model leaf was not registered")
+	}
+}
+
+func TestAskStreamWithHistoryTrackedDoesNotAliasLaterRequest(t *testing.T) {
+	fake := &agenttest.FakeLLM{Responses: []string{"first", "second"}, Delay: 50 * time.Millisecond}
+	a := startedAgent(t, fake)
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+
+	first, firstJob, err := a.AskStreamWithHistoryTracked(context.Background(), cw, "first")
+	if err != nil {
+		t.Fatalf("first request: %v", err)
+	}
+	drainEvents(t, first, 2*time.Second)
+	select {
+	case <-firstJob.Done():
+	case <-time.After(time.Second):
+		t.Fatal("first job did not finish")
+	}
+	if firstJob.Active() {
+		t.Fatal("completed first job still reported active")
+	}
+
+	second, secondJob, err := a.AskStreamWithHistoryTracked(context.Background(), cw, "second")
+	if err != nil {
+		t.Fatalf("second request: %v", err)
+	}
+	deadline := time.After(time.Second)
+	for !secondJob.Active() {
+		select {
+		case <-deadline:
+			t.Fatal("second job did not become active")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if firstJob.Active() {
+		t.Fatal("first job aliased the active second job")
+	}
+	drainEvents(t, second, 2*time.Second)
+}
+
+func TestRecoveryFenceRejectsNewWorkUntilExactJobFinishes(t *testing.T) {
+	fake := &agenttest.FakeLLM{Responses: []string{"first", "second"}, Delay: 75 * time.Millisecond}
+	a := startedAgent(t, fake)
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+
+	first, firstJob, err := a.AskStreamWithHistoryTracked(context.Background(), cw, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(time.Second)
+	for !firstJob.Active() {
+		select {
+		case <-deadline:
+			t.Fatal("first job did not become active")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if !firstJob.Fence() {
+		t.Fatal("failed to fence active job")
+	}
+	if _, _, err := a.AskStreamTracked(context.Background(), "must not queue"); !errors.Is(err, ErrQuarantined) {
+		t.Fatalf("submit while recovery-fenced error = %v, want ErrQuarantined", err)
+	}
+	drainEvents(t, first, 2*time.Second)
+	waitJobDone(t, firstJob, time.Second)
+	if !firstJob.ReleaseFence() {
+		t.Fatal("completed exact job did not release its recovery fence")
+	}
+	second, _, err := a.AskStreamTracked(context.Background(), "second")
+	if err != nil {
+		t.Fatalf("submit after release: %v", err)
+	}
+	drainEvents(t, second, 2*time.Second)
+}
+
+func TestRecoveryFenceIsNotBlockedByFullMailbox(t *testing.T) {
+	tool := &ignoresCancelTool{started: make(chan struct{}), release: make(chan struct{})}
+	fake := &agenttest.FakeLLM{
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+			Index: 0, ID: "block", Name: tool.Name(), Arguments: `{}`,
+		}}},
+		FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
+	}
+	a := startedAgent(t, fake, WithTools(tool), WithMailboxCap(1))
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	first, firstJob, err := a.AskStreamWithHistoryTracked(context.Background(), cw, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-tool.started:
+	case <-time.After(time.Second):
+		t.Fatal("blocking tool did not start")
+	}
+	if err := a.Submit(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("fill mailbox: %v", err)
+	}
+	blockedSubmit := make(chan error, 1)
+	go func() {
+		blockedSubmit <- a.Submit(context.Background(), func(context.Context) error { return nil })
+	}()
+	time.Sleep(5 * time.Millisecond)
+	fenced := make(chan bool, 1)
+	go func() { fenced <- firstJob.Fence() }()
+	select {
+	case ok := <-fenced:
+		if !ok {
+			t.Fatal("active job was not fenced")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("full mailbox blocked watchdog fence")
+	}
+	select {
+	case err := <-blockedSubmit:
+		if !errors.Is(err, ErrQuarantined) {
+			t.Fatalf("blocked submit error = %v, want ErrQuarantined", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked submit did not observe recovery fence")
+	}
+	close(tool.release)
+	drainEvents(t, first, 2*time.Second)
+	waitJobDone(t, firstJob, time.Second)
+	firstJob.ReleaseFence()
+}
+
+func TestRecoveryFenceDoesNotFenceYieldedJobOrQuarantineCompletedBoundary(t *testing.T) {
+	a := NewAgent(Definition{ID: "fence-boundary"}, &agenttest.FakeLLM{}, nil)
+	yielded := &jobTracker{id: 1, done: make(chan struct{})}
+	if (&JobHandle{agent: a, tracker: yielded}).Fence() {
+		t.Fatal("yielded job with no actor ownership installed a recovery fence")
+	}
+
+	blocking := &jobTracker{id: 2, done: make(chan struct{})}
+	a.jobMu.Lock()
+	a.currentJob = blocking
+	a.jobMu.Unlock()
+	h := &JobHandle{agent: a, tracker: blocking}
+	if !h.Fence() {
+		t.Fatal("active blocking job was not fenced")
+	}
+	blocking.finish()
+	if h.QuarantineIfStillBlocking(errors.New("expired")) {
+		t.Fatal("completed boundary quarantined the generation")
+	}
+	if a.quarantined.Load() || a.recoveryFenced() {
+		t.Fatal("completed boundary left generation quarantined or fenced")
+	}
+}
+
+func TestRecoveryFenceGatesAlreadyQueuedNormalAndHighPriorityJobs(t *testing.T) {
+	for _, high := range []bool{false, true} {
+		name := "normal"
+		if high {
+			name = "high"
+		}
+		t.Run(name, func(t *testing.T) {
+			tool := &ignoresCancelTool{started: make(chan struct{}), release: make(chan struct{})}
+			fake := &agenttest.FakeLLM{
+				ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{Index: 0, ID: "block", Name: tool.Name(), Arguments: `{}`}}},
+				FinishByTurn:         []llm.FinishReason{llm.FinishToolCalls},
+			}
+			options := []Option{WithMailboxCap(2), WithTools(tool)}
+			if high {
+				options = append(options, WithPriorityMailbox())
+			}
+			a := startedAgent(t, fake, options...)
+			cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+			first, handle, err := a.AskStreamWithHistoryTracked(context.Background(), cw, "first")
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-tool.started:
+			case <-time.After(time.Second):
+				t.Fatal("blocking tool did not start")
+			}
+			ran := make(chan struct{})
+			queued := func(context.Context) { close(ran) }
+			if high {
+				if err := a.submitHighPriority(context.Background(), queued); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := a.submit(context.Background(), queued); err != nil {
+				t.Fatal(err)
+			}
+			if !handle.Fence() {
+				t.Fatal("active job was not fenced")
+			}
+			close(tool.release)
+			drainEvents(t, first, 2*time.Second)
+			waitJobDone(t, handle, time.Second)
+			select {
+			case <-ran:
+				t.Fatal("already queued unrelated job ran through recovery fence")
+			case <-time.After(20 * time.Millisecond):
+			}
+			if !handle.ReleaseFence() {
+				t.Fatal("completed job did not release exact fence")
+			}
+			select {
+			case <-ran:
+			case <-time.After(time.Second):
+				t.Fatal("queued job did not run after fence release")
+			}
+		})
 	}
 }
 
@@ -198,6 +438,15 @@ func TestProcessStreamEvents_EmitsReasoningBeforeContentWithinSameDelta(t *testi
 	}
 	if got, ok := second.(ContentDeltaEvent); !ok || got.Delta != "answer" {
 		t.Errorf("second event = %#v, want content delta", second)
+	}
+}
+
+func TestProcessStreamEvents_EmptyTransportDeltaDoesNotCountAsSemanticProgress(t *testing.T) {
+	if isSemanticModelEvent(llm.Event{Type: llm.EventDelta}) {
+		t.Fatal("empty transport delta counted as semantic progress")
+	}
+	if !isSemanticModelEvent(llm.Event{Type: llm.EventDelta, ContentDelta: "token"}) {
+		t.Fatal("content delta did not count as semantic progress")
 	}
 }
 
@@ -691,6 +940,49 @@ type slowTool struct {
 	count atomic.Int32
 }
 
+type ignoresCancelTool struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (t *ignoresCancelTool) Name() string                { return "ignores_cancel" }
+func (t *ignoresCancelTool) Description() string         { return "returns only when explicitly released" }
+func (t *ignoresCancelTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (t *ignoresCancelTool) Execute(context.Context, string) (string, error) {
+	close(t.started)
+	<-t.release
+	return "late result", nil
+}
+
+func TestCancelledLateToolResultCannotMutateConversation(t *testing.T) {
+	tool := &ignoresCancelTool{started: make(chan struct{}), release: make(chan struct{})}
+	fake := &agenttest.FakeLLM{
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+			Index: 0, ID: "late", Name: tool.Name(), Arguments: `{}`,
+		}}},
+		FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
+	}
+	a := startedAgent(t, fake, WithTools(tool))
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	before := cw.Len()
+	ctx, cancel := context.WithCancel(context.Background())
+	stream, _, err := a.AskStreamWithHistoryTracked(ctx, cw, "late tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-tool.started:
+	case <-time.After(time.Second):
+		t.Fatal("tool did not start")
+	}
+	cancel()
+	close(tool.release)
+	drainEvents(t, stream, 2*time.Second)
+	if got := cw.Len(); got != before {
+		t.Fatalf("cancelled late result mutated context window: len %d -> %d", before, got)
+	}
+}
+
 func (s *slowTool) Name() string                { return s.name }
 func (s *slowTool) Description() string         { return "slow tool " + s.name }
 func (s *slowTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
@@ -745,6 +1037,40 @@ func TestAskStream_ToolTimeout_EmitsErrorFedBack(t *testing.T) {
 	}
 	if !strings.HasPrefix(capturedContent, "error: tool timeout after") {
 		t.Errorf("fed-back content = %q, want 'error: tool timeout after ...'", capturedContent)
+	}
+}
+
+func TestExecToolStream_RealTimeoutFailsRunWithTypedToolCause(t *testing.T) {
+	slow := &slowTool{name: "typed-slow", delay: time.Second}
+	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil,
+		WithTools(slow), WithToolTimeout("typed-slow", 20*time.Millisecond))
+	manager := runwatch.NewManager(runwatch.Policy{})
+	defer manager.Close()
+	ctx, _, err := manager.Start(context.Background(), runwatch.Metadata{RunID: "run-tool-timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make(chan AgentEvent, 4)
+	result := a.execToolStream(ctx, 0, llm.ToolCall{ID: "call-typed", Function: llm.FunctionCall{Name: "typed-slow", Arguments: `{}`}}, out)
+	if !strings.Contains(result, string(runwatch.CodeToolStalled)) {
+		t.Fatalf("tool result = %q, want typed cause", result)
+	}
+	if got := runwatch.CodeOf(context.Cause(ctx)); got != runwatch.CodeToolStalled {
+		t.Fatalf("run cause = %q, want %q", got, runwatch.CodeToolStalled)
+	}
+	select {
+	case event := <-out:
+		_ = event // ToolExecStartEvent
+	default:
+	}
+	var typed bool
+	for len(out) > 0 {
+		if done, ok := (<-out).(ToolExecDoneEvent); ok && runwatch.CodeOf(done.Err) == runwatch.CodeToolStalled {
+			typed = true
+		}
+	}
+	if !typed {
+		t.Fatal("ToolExecDoneEvent did not expose typed tool_stalled error")
 	}
 }
 

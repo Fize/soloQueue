@@ -128,7 +128,7 @@ func TestSubmitHighPriority_AgentStopped(t *testing.T) {
 	}
 
 	// After stop, submitHighPriority should reject.
-	err := a.submitHighPriority(func(ctx context.Context) {
+	err := a.submitHighPriority(context.Background(), func(ctx context.Context) {
 		t.Error("job should not execute after agent stopped")
 	})
 	if err != ErrStopped {
@@ -143,7 +143,7 @@ func TestSubmitHighPriority_NormalPath(t *testing.T) {
 	a := startedAgent(t, fake, WithPriorityMailbox())
 
 	executed := make(chan struct{}, 1)
-	err := a.submitHighPriority(func(ctx context.Context) {
+	err := a.submitHighPriority(context.Background(), func(ctx context.Context) {
 		close(executed)
 	})
 	if err != nil {

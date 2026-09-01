@@ -89,6 +89,7 @@ type CreateOptions struct {
 	ExtraSystemPrompt string
 	ExtraTools        []tools.Tool
 	MemoryPolicy      MemoryPolicy
+	SchedulingPending bool
 }
 
 type MemoryPolicy uint8
@@ -851,6 +852,9 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	}
 	if opts.ExtraSystemPrompt != "" {
 		def.SystemPrompt += "\n\n" + opts.ExtraSystemPrompt
+	}
+	if opts.SchedulingPending {
+		agentOpts = append(agentOpts, WithSchedulingPending())
 	}
 
 	// 5. Create Agent
