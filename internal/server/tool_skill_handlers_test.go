@@ -1,363 +1,125 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 )
 
-func TestHTTP_SkillManagementFlow(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// 1. Set up simulated Store catalog directory
-	storeSkillsDir := filepath.Join(tempDir, "store", "skills")
-	testSkillDir := filepath.Join(storeSkillsDir, "test-catalog-skill")
-	if err := os.MkdirAll(testSkillDir, 0755); err != nil {
-		t.Fatalf("failed to create store skill directory: %v", err)
+func TestHTTP_InstalledSkillsAreReadOnly(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "skills", "directory-name")
+	if err := os.MkdirAll(filepath.Join(skillDir, "references"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-
-	skillMD := `---
-name: "test-catalog-skill"
-description: "A test store skill"
-triggers:
-  - "run test catalog"
+	content := `---
+name: catalog-id
+description: An installed skill
+metadata:
+  openclaw:
+    requires:
+      env: [TEST_SKILL_TOKEN]
 ---
-Instructions for test catalog skill
+Use this installed skill.
 `
-	if err := os.WriteFile(filepath.Join(testSkillDir, "SKILL.md"), []byte(skillMD), 0644); err != nil {
-		t.Fatalf("failed to write store SKILL.md: %v", err)
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "references", "guide.md"), []byte("guide"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	// 2. Set up user skills directory
-	userSkillsDir := filepath.Join(tempDir, "user", "skills")
-	if err := os.MkdirAll(userSkillsDir, 0755); err != nil {
-		t.Fatalf("failed to create user skills directory: %v", err)
-	}
-
-	// Initialize the skill registry
 	reg := skill.NewSkillRegistry()
-	dirs := map[string]string{
-		"builtin": storeSkillsDir,
-		"user":    userSkillsDir,
-	}
+	dirs := map[string]string{"user": filepath.Join(root, "skills")}
 	if err := reg.Rebuild(dirs); err != nil {
-		t.Fatalf("failed to build skill registry: %v", err)
+		t.Fatal(err)
 	}
-
-	// Create Server Mux
-	mux := NewMux(tempDir, nil,
-		WithSkillRegistry(reg),
-		WithSkillDirs(dirs),
-		WithSkillFS(os.DirFS(filepath.Join(tempDir, "store", "skills"))),
-	)
+	mux := NewMux(root, nil, WithSkillRegistry(reg), WithSkillDirs(dirs))
 	srv := httptest.NewServer(mux)
-	t.Cleanup(func() {
-		srv.Close()
-		mux.Close()
-	})
+	t.Cleanup(func() { srv.Close(); mux.Close() })
 
-	client := srv.Client()
-
-	// Keep the request origin local to match the application listener contract.
-	setLoopbackHeaders := func(req *http.Request) {
-		req.Host = "localhost:8765"
-		req.Header.Set("X-Forwarded-For", "127.0.0.1")
+	get := func(path string) (*http.Response, []byte) {
+		t.Helper()
+		resp, err := srv.Client().Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp, body
 	}
 
-	// ── Test 1: GET /api/skills/store (ListStoreSkills) ──
-	{
-		req, _ := http.NewRequest("GET", srv.URL+"/api/skills/store", nil)
-		setLoopbackHeaders(req)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("GET /api/skills/store failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
-		}
-
-		body, _ := io.ReadAll(resp.Body)
-		var listResp struct {
-			Skills []struct {
-				ID          string   `json:"id"`
-				Name        string   `json:"name"`
-				Description string   `json:"description"`
-				Triggers    []string `json:"triggers"`
-				Enabled     bool     `json:"enabled"`
-			} `json:"skills"`
-		}
-		if err := json.Unmarshal(body, &listResp); err != nil {
-			t.Fatalf("failed to unmarshal JSON: %v, body: %s", err, body)
-		}
-
-		if len(listResp.Skills) != 1 || listResp.Skills[0].ID != "test-catalog-skill" {
-			t.Errorf("expected test-catalog-skill in store list, got %+v", listResp.Skills)
-		}
+	resp, body := get("/api/skills")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/skills status = %d, body = %s", resp.StatusCode, body)
+	}
+	var list SkillListResponse
+	if err := json.Unmarshal(body, &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.Total != 1 || list.Skills[0].ID != "catalog-id" {
+		t.Fatalf("unexpected installed skill list: %+v", list)
+	}
+	if list.Skills[0].RequiredEnv[0] != "TEST_SKILL_TOKEN" {
+		t.Fatalf("openclaw metadata was not loaded: %+v", list.Skills[0])
 	}
 
-	// ── Test 2: POST /api/skills/install (InstallSkill from store) ──
-	{
-		installBody := map[string]string{
-			"source": "store",
-			"id":     "test-catalog-skill",
-		}
-		jsonBytes, _ := json.Marshal(installBody)
-		req, _ := http.NewRequest("POST", srv.URL+"/api/skills/install", bytes.NewBuffer(jsonBytes))
-		setLoopbackHeaders(req)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("POST /api/skills/install failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			t.Errorf("expected 200 OK, got %d, body: %s", resp.StatusCode, string(bodyBytes))
-		}
-
-		// Verify file got copied to userSkillsDir
-		userSkillMDPath := filepath.Join(userSkillsDir, "test-catalog-skill", "SKILL.md")
-		if _, err := os.Stat(userSkillMDPath); os.IsNotExist(err) {
-			t.Errorf("expected skill to be copied to user directory, file not found: %s", userSkillMDPath)
-		}
+	resp, body = get("/api/skills/catalog-id")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET detail status = %d, body = %s", resp.StatusCode, body)
+	}
+	var detail SkillInfoResponse
+	if err := json.Unmarshal(body, &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Body != "Use this installed skill." {
+		t.Fatalf("unexpected detail body: %q", detail.Body)
 	}
 
-	// ── Test 3: GET /api/skills/{id} (GetSkillDetail) ──
-	{
-		req, _ := http.NewRequest("GET", srv.URL+"/api/skills/test-catalog-skill", nil)
-		setLoopbackHeaders(req)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("GET /api/skills/{id} failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
-		}
-
-		body, _ := io.ReadAll(resp.Body)
-		var detailResp struct {
-			ID          string `json:"id"`
-			Description string `json:"description"`
-			Body        string `json:"body"`
-		}
-		if err := json.Unmarshal(body, &detailResp); err != nil {
-			t.Fatalf("failed to unmarshal JSON: %v, body: %s", err, body)
-		}
-
-		if detailResp.ID != "test-catalog-skill" || !strings.Contains(detailResp.Body, "Instructions for test catalog skill") {
-			t.Errorf("unexpected detail payload: %+v", detailResp)
-		}
+	resp, body = get("/api/skills/catalog-id/files")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET files status = %d, body = %s", resp.StatusCode, body)
+	}
+	var files struct {
+		Files []skill.SkillFileEntry `json:"files"`
+	}
+	if err := json.Unmarshal(body, &files); err != nil {
+		t.Fatal(err)
+	}
+	if len(files.Files) != 3 {
+		t.Fatalf("unexpected installed skill files: %+v", files.Files)
 	}
 
-	// ── Test 4: PUT /api/skills/{id} (UpdateUserSkill) ──
-	{
-		updatePayload := map[string]any{
-			"description": "Updated description",
-			"body":        "Updated instructions content",
-			"triggers":    []string{"updated trigger 1", "updated trigger 2"},
-		}
-		jsonBytes, _ := json.Marshal(updatePayload)
-		req, _ := http.NewRequest("PUT", srv.URL+"/api/skills/test-catalog-skill", bytes.NewBuffer(jsonBytes))
-		setLoopbackHeaders(req)
-		resp, err := client.Do(req)
+	for _, methodPath := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/skills/store"},
+		{http.MethodPost, "/api/skills/install"},
+		{http.MethodPost, "/api/skills/catalog-id/toggle"},
+		{http.MethodPut, "/api/skills/catalog-id"},
+		{http.MethodDelete, "/api/skills/catalog-id"},
+	} {
+		req, err := http.NewRequest(methodPath.method, srv.URL+methodPath.path, nil)
 		if err != nil {
-			t.Fatalf("PUT /api/skills/{id} failed: %v", err)
+			t.Fatal(err)
 		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
-		}
-
-		// Re-fetch details and verify updates
-		reqDetail, _ := http.NewRequest("GET", srv.URL+"/api/skills/test-catalog-skill", nil)
-		setLoopbackHeaders(reqDetail)
-		detailResp, err := client.Do(reqDetail)
+		got, err := srv.Client().Do(req)
 		if err != nil {
-			t.Fatalf("re-fetching detail failed: %v", err)
+			t.Fatal(err)
 		}
-		defer detailResp.Body.Close()
-
-		body, _ := io.ReadAll(detailResp.Body)
-		var detail struct {
-			ID          string   `json:"id"`
-			Description string   `json:"description"`
-			Body        string   `json:"body"`
-			Triggers    []string `json:"triggers"`
-		}
-		json.Unmarshal(body, &detail)
-
-		if strings.TrimSpace(detail.Description) != "Updated description" || !strings.Contains(detail.Body, "Updated instructions content") {
-			t.Errorf("skill updates not persisted: description=%q, body=%q, detail=%#v", detail.Description, detail.Body, detail)
-		}
-		if len(detail.Triggers) != 2 || detail.Triggers[0] != "updated trigger 1" {
-			t.Errorf("skill triggers not updated, got %+v", detail.Triggers)
-		}
-	}
-
-	// ── Test 5: GET /api/skills/{id}/files (ListSkillFiles) ──
-	{
-		req, _ := http.NewRequest("GET", srv.URL+"/api/skills/test-catalog-skill/files", nil)
-		setLoopbackHeaders(req)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("GET /api/skills/{id}/files failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
-		}
-
-		body, _ := io.ReadAll(resp.Body)
-		var filesResp struct {
-			Files []struct {
-				Path string `json:"path"`
-				Kind string `json:"kind"`
-			} `json:"files"`
-		}
-		if err := json.Unmarshal(body, &filesResp); err != nil {
-			t.Fatalf("failed to unmarshal JSON: %v, body: %s", err, body)
-		}
-
-		if len(filesResp.Files) != 1 || filesResp.Files[0].Path != "SKILL.md" {
-			t.Errorf("expected list containing only SKILL.md, got %+v", filesResp.Files)
-		}
-	}
-
-	// ── Test 6: POST /api/skills/{id}/toggle (ToggleSkill) ──
-	{
-		// 1. Toggle to disabled (creates .disabled)
-		reqToggle, _ := http.NewRequest("POST", srv.URL+"/api/skills/test-catalog-skill/toggle", nil)
-		setLoopbackHeaders(reqToggle)
-		resp, err := client.Do(reqToggle)
-		if err != nil {
-			t.Fatalf("POST /api/skills/{id}/toggle failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
-		}
-
-		disabledFile := filepath.Join(userSkillsDir, "test-catalog-skill", ".disabled")
-		if _, err := os.Stat(disabledFile); os.IsNotExist(err) {
-			t.Errorf("expected .disabled file to exist after disabling, not found")
-		}
-
-		// 2. Toggle to enabled (removes .disabled)
-		reqToggle2, _ := http.NewRequest("POST", srv.URL+"/api/skills/test-catalog-skill/toggle", nil)
-		setLoopbackHeaders(reqToggle2)
-		resp2, err := client.Do(reqToggle2)
-		if err != nil {
-			t.Fatalf("POST /api/skills/{id}/toggle second call failed: %v", err)
-		}
-		defer resp2.Body.Close()
-
-		if resp2.StatusCode != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", resp2.StatusCode)
-		}
-
-		if _, err := os.Stat(disabledFile); err == nil {
-			t.Errorf("expected .disabled file to be deleted after enabling, but it exists")
-		}
-	}
-
-	// ── Test 7: POST /api/skills (ImportSkill) ──
-	{
-		importPayload := map[string]any{
-			"name":        "new-imported-skill",
-			"description": "An imported user skill",
-			"body":        "Instructions for imported skill",
-			"triggers":    []string{"imported action"},
-		}
-		jsonBytes, _ := json.Marshal(importPayload)
-		req, _ := http.NewRequest("POST", srv.URL+"/api/skills", bytes.NewBuffer(jsonBytes))
-		setLoopbackHeaders(req)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("POST /api/skills failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusCreated {
-			t.Errorf("expected 201 Created, got %d", resp.StatusCode)
-		}
-
-		userSkillMDPath := filepath.Join(userSkillsDir, "new-imported-skill", "SKILL.md")
-		if _, err := os.Stat(userSkillMDPath); os.IsNotExist(err) {
-			t.Errorf("expected imported skill to exist in user directory, file not found: %s", userSkillMDPath)
-		}
-	}
-
-	// ── Test 8: DELETE /api/skills/{id} (Delete/Uninstall Skill) ──
-	{
-		req, _ := http.NewRequest("DELETE", srv.URL+"/api/skills/test-catalog-skill", nil)
-		setLoopbackHeaders(req)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("DELETE /api/skills/{id} failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
-		}
-
-		// Verify user skill directory is deleted
-		deletedDir := filepath.Join(userSkillsDir, "test-catalog-skill")
-		if _, err := os.Stat(deletedDir); err == nil {
-			t.Errorf("expected skill directory %s to be deleted, but it still exists", deletedDir)
-		}
-	}
-
-	// ── Test 9: POST /api/skills/{id}/auto-update (ToggleAutoUpdate) ──
-	{
-		autoUpdatePayload := map[string]any{
-			"enabled": true,
-		}
-		jsonBytes, _ := json.Marshal(autoUpdatePayload)
-		req, _ := http.NewRequest("POST", srv.URL+"/api/skills/new-imported-skill/auto-update", bytes.NewBuffer(jsonBytes))
-		setLoopbackHeaders(req)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("POST /api/skills/{id}/auto-update failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
-		}
-
-		body, _ := io.ReadAll(resp.Body)
-		var autoUpdateResp struct {
-			ID         string `json:"id"`
-			AutoUpdate bool   `json:"auto_update"`
-		}
-		if err := json.Unmarshal(body, &autoUpdateResp); err != nil {
-			t.Fatalf("failed to unmarshal JSON: %v, body: %s", err, body)
-		}
-
-		if autoUpdateResp.ID != "new-imported-skill" || !autoUpdateResp.AutoUpdate {
-			t.Errorf("unexpected auto-update response: %+v", autoUpdateResp)
-		}
-
-		// Verify state is persisted to skills_update.yaml in tempDir
-		yamlPath := filepath.Join(tempDir, "skills_update.yaml")
-		if _, err := os.Stat(yamlPath); err != nil {
-			t.Errorf("expected skills_update.yaml to exist, got: %v", err)
+		got.Body.Close()
+		if got.StatusCode != http.StatusNotFound && got.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s status = %d, want 404 or 405", methodPath.method, methodPath.path, got.StatusCode)
 		}
 	}
 }

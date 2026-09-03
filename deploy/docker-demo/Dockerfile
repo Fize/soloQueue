@@ -30,7 +30,6 @@ COPY --from=status-build /src/status-ui/dist ./status-ui/dist
 RUN mkdir -p internal/assets/dist \
     && cp -r web/dist internal/assets/dist/web \
     && cp -r status-ui/dist internal/assets/dist/status \
-    && cp -r skills internal/assets/dist/skills \
     && go build -ldflags="-s -w" -o /out/soloqueue ./cmd/soloqueue
 
 FROM alpine:3.22

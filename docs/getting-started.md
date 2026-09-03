@@ -12,6 +12,7 @@ This guide covers prerequisites, building from source, first-run configuration, 
 - **Node.js & pnpm**: Node.js environment with `pnpm` installed.
 - **Git**.
 - **API Key**: At least one enabled LLM provider API key (e.g., `DEEPSEEK_API_KEY`).
+- **Optional Skills CLI**: Install [ClawHub](https://github.com/openclaw/clawhub) if you want to manage skills from the command line.
 
 ---
 
@@ -58,12 +59,29 @@ The Vite dev server proxies `/api` and `/ws` requests to `http://localhost:8765`
 | `make build-go` | Builds Go binary (assumes browser assets exist) |
 | `make build` | Builds browser assets and Go binary |
 | `make build-status` | Builds the read-only Status UI |
-| `make build-assets` | Builds Web Console, Status UI, and embeds Skills |
+| `make build-assets` | Builds Web Console and Status UI |
 | `make start` | Builds and starts backend plus both browser UIs |
 
 ---
 
 ## First Run & Basic Workflow
+
+### Managing Skills
+
+SoloQueue reads installed global skills from `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and hot-reloads their `SKILL.md` definitions when skill directories or recognized entrypoints change. Agents running in a project also load compatible project skills from `<project>/.claude/skills/` when they are created. Set `SOLOQUEUE_WORK_DIR` to change the SoloQueue work directory. Skill installation and updates are intentionally external:
+
+```bash
+SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills inspect @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills list
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
+```
+
+The assistant only consults ClawHub when a Skill is actually needed. Skill search and lifecycle operations are performed directly by L1; L2/L3 only use installed Skills and report missing Skill IDs to L1. Mutating operations still require explicit intent.
 
 ### 1. Model Provider Setup
 Open **Settings → Models** in the UI to confirm an enabled provider and model. The default configuration uses DeepSeek with key read from `DEEPSEEK_API_KEY`. Route format follows `provider:model` (e.g., `deepseek:deepseek-v4-flash-thinking`).

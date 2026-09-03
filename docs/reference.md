@@ -81,6 +81,23 @@ Generates a JSON governance report on installed skills, showing invocation frequ
 soloqueue skills report --days 30
 ```
 
+### ClawHub skill lifecycle
+
+Skill packages are not embedded in SoloQueue and are not managed by its HTTP API. Use the standalone [ClawHub](https://github.com/openclaw/clawhub) CLI against `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}`. Set `SOLOQUEUE_WORK_DIR` when using a non-default work directory:
+
+```bash
+SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills list
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills inspect @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
+```
+
+SoloQueue discovers global `SKILL.md` packages from `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and compatible project packages from `<project>/.claude/skills/`. Global `SKILL.md` definitions reload when a skill directory or recognized entrypoint changes; project packages are loaded when an Agent is created. Changes to supporting files do not rebuild the global Skill registry. The Web Console exposes only read-only inspection. Do not use `openclaw` or SoloQueue management endpoints for this lifecycle; use standalone `clawhub` commands instead.
+
 ### `soloqueue memory`
 Inspects or cleans long-term memory:
 ```bash

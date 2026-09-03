@@ -8,7 +8,7 @@ This document provides a technical overview of SoloQueue's internal architecture
 
 ## 1. Process Boundary & Layering
 
-SoloQueue is structured as a local-first application comprising a Go backend server, an embedded browser Web Console (`web/`), and an independent read-only Status UI (`status-ui/`). Both bundles and the Skill Store are embedded separately under `internal/assets/`.
+SoloQueue is structured as a local-first application comprising a Go backend server, an embedded browser Web Console (`web/`), and an independent read-only Status UI (`status-ui/`). Only browser assets are embedded under `internal/assets/`; Skills remain external packages installed in the work directory.
 
 ```text
 Web Console / Status UI

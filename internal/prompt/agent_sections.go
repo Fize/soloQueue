@@ -5,6 +5,22 @@ package prompt
 
 // L2EnforcedDirectivesPart1 is the Segment 3 framework-enforced constant.
 // Placed at the very end to leverage the recency effect, giving it the highest priority and preventing user privilege escalation.
+const SkillLifecycleBoundary = `
+# Skill Lifecycle Boundary
+- Do not search, install, update, or uninstall Skills with ClawHub. Skill lifecycle management belongs to L1 and must not be delegated.
+- If a required Skill is missing, report its Skill ID and requirement to L1.
+`
+
+// BuildSkillForkSystemPrompt keeps the lifecycle boundary on every temporary
+// Skill executor, including forks created by the L1 session builder.
+func BuildSkillForkSystemPrompt(basePrompt, content string) string {
+	finalPrompt := content + "\n\n" + SkillLifecycleBoundary
+	if basePrompt != "" {
+		return basePrompt + "\n\n# Skill Execution Instructions\n" + finalPrompt
+	}
+	return finalPrompt
+}
+
 const L2EnforcedDirectivesPart1 = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
@@ -31,7 +47,7 @@ GOOD: "Read /workspace/main.go, find the panic on line 42, fix it, and return th
 # Skill Use at L2 (both sides)
 - Delegator: standalone tasks carry domain signals (goal, file types, artifact shape, keywords); skill-step tasks carry the explicit step marker (This is step N of the <skill> SOP — execute this step as specified; do not re-select skills); never pass skill IDs.
 - Receiver: classify incoming tasks — skill instance / skill step / standalone (see Shared Execution Rules). Modes 1-2: execute without re-matching; mode 3: match your own skills and run the full SOP, or raw tools if nothing matches.
-`
+` + SkillLifecycleBoundary
 const L2EnforcedPlanSection = `
 # 3. MANDATORY Plan Before Execution (Plan & Todo File Tracking)
 This rule establishes a **MANDATORY Plan Before Execution** policy for all non-trivial implementation tasks.
@@ -186,7 +202,7 @@ GOOD: execute task1 → mark done in file → execute task2 → mark done in fil
 
 # Skill Use at L3 (receiver)
 When a task arrives, classify it: (1) skill instance — your system prompt contains the skill's execution logic; run its SOP end-to-end, no re-matching. (2) skill step — the task is marked as a step of an upstream skill's SOP; execute the step as specified, do not re-select skills. (3) standalone — match your Skill catalog against the task's domain signals; if a skill matches, invoke it and run its full SOP before raw tools; if none matches, use raw tools without forced invocation.
-`
+` + SkillLifecycleBoundary
 
 const L3EnforcedPostPlan = `
 # 5. Escalation Decision Rule

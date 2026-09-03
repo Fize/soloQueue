@@ -8,7 +8,7 @@
 
 ## 1. 进程边界与分层架构
 
-SoloQueue 采用本地优先架构，由 Go 后端服务、完整浏览器 Web Console（`web/`）和独立只读状态页（`status-ui/`）组成。两个前端与内置 Skill Store 分别嵌入 `internal/assets/`。
+SoloQueue 采用本地优先架构，由 Go 后端服务、完整浏览器 Web Console（`web/`）和独立只读状态页（`status-ui/`）组成。`internal/assets/` 只嵌入两个前端，Skills 作为外部包安装在工作目录中。
 
 ```text
 Web Console / 状态页

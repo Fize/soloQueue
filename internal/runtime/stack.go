@@ -79,7 +79,7 @@ type Stack struct {
 	promptRebuildFuncs []func() error
 	promptRebuildMu    sync.Mutex
 	promptWatcherClose func()
-	skillsSyncCancel   func()
+	skillWatcherClose  func()
 }
 
 // ReloadFromTeamStore reloads groups, leaders, and templates from the DB-backed
@@ -181,8 +181,8 @@ func (s *Stack) Shutdown() {
 	if s.promptWatcherClose != nil {
 		s.promptWatcherClose()
 	}
-	if s.skillsSyncCancel != nil {
-		s.skillsSyncCancel()
+	if s.skillWatcherClose != nil {
+		s.skillWatcherClose()
 	}
 	if s.RunWatch != nil {
 		s.RunWatch.Close()

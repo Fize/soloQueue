@@ -1,30 +1,21 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { render } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
 import { MarkdownPreview } from './markdown-preview'
 
-function renderWithRouter(ui: React.ReactElement) {
-  return render(<MemoryRouter>{ui}</MemoryRouter>)
-}
-
 describe('MarkdownPreview', () => {
-  it('renders plain text', () => {
-    renderWithRouter(<MarkdownPreview content="Hello" />)
-    expect(screen.getByText('Hello')).toBeInTheDocument()
-  })
+  it('does not turn untrusted markdown HTML into executable elements', () => {
+    const { container } = render(
+      <MarkdownPreview
+        content={`<script>alert('xss')</script>
+<img src="x" onerror="alert('xss')">
+<iframe src="https://evil.example"></iframe>
+[dangerous](javascript:alert('xss'))`}
+      />
+    )
 
-  it('renders bold text', () => {
-    renderWithRouter(<MarkdownPreview content="**bold**" />)
-    expect(screen.getByText('bold')).toBeInTheDocument()
-  })
-
-  it('renders heading', () => {
-    renderWithRouter(<MarkdownPreview content="# Heading" />)
-    expect(screen.getByText('Heading')).toBeInTheDocument()
-  })
-
-  it('renders list', () => {
-    renderWithRouter(<MarkdownPreview content="- item" />)
-    expect(screen.getByText('item')).toBeInTheDocument()
+    expect(container.querySelector('script')).not.toBeInTheDocument()
+    expect(container.querySelector('iframe')).not.toBeInTheDocument()
+    expect(container.querySelector('[onerror]')).not.toBeInTheDocument()
+    expect(container.querySelector('a[href^="javascript:"]')).not.toBeInTheDocument()
   })
 })

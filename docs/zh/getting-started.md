@@ -12,6 +12,7 @@
 - **Node.js 与 pnpm**：已安装 Node.js 及 `pnpm`。
 - **Git**。
 - **API Key**：至少一个已启用的 LLM Provider API Key（如 `DEEPSEEK_API_KEY`）。
+- **可选 Skills CLI**：需要管理技能时，安装 [ClawHub](https://github.com/openclaw/clawhub)。
 
 ---
 
@@ -58,12 +59,29 @@ Vite 开发服务器会自动把 `/api` 与 `/ws` 转发至 `http://localhost:87
 | `make build-go` | 构建 Go 二进制（要求浏览器资源已存在） |
 | `make build` | 构建浏览器资源及 Go 二进制 |
 | `make build-status` | 构建只读状态页 |
-| `make build-assets` | 构建 Web Console、状态页并嵌入 Skills |
+| `make build-assets` | 构建 Web Console 和状态页 |
 | `make start` | 构建并启动后端与两个浏览器前端 |
 
 ---
 
 ## 首次运行与基本工作流
+
+### 管理 Skills
+
+SoloQueue 从 `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` 读取全局已安装技能，并在技能目录或受支持的入口文件变化时热加载其 `SKILL.md` 定义。Agent 在项目目录创建时，也会加载 `<project>/.claude/skills/` 中兼容的项目级技能。设置 `SOLOQUEUE_WORK_DIR` 可以更换 SoloQueue 工作目录。技能安装和更新由外部工具负责：
+
+```bash
+SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills inspect @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills list
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
+```
+
+只有在确实需要某个 Skill 时，助手才会查询 ClawHub。Skill 的搜索和生命周期操作由 L1 直接执行；L2/L3 只使用已安装技能，缺少技能时向 L1 报告 Skill ID。涉及修改的操作仍需明确提出。
 
 ### 1. 模型 Provider 配置
 在 UI 中打开 **Settings → Models**，确认 Provider 与 Model 已启用。默认配置使用 DeepSeek 并从环境变量 `DEEPSEEK_API_KEY` 读取 Key。路由映射格式为 `provider:model`（如 `deepseek:deepseek-v4-flash-thinking`）。

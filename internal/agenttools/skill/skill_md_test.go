@@ -42,9 +42,6 @@ Do the thing.
 	if md.Instructions != "# My Skill\n\nDo the thing." {
 		t.Errorf("Instructions = %q", md.Instructions)
 	}
-	if md.Category != SkillUser {
-		t.Errorf("Category = %v, want %v", md.Category, SkillUser)
-	}
 	if md.FilePath == "" {
 		t.Error("FilePath should not be empty for MDSkill")
 	}
@@ -268,56 +265,96 @@ func TestLoadSkillsFromDir_NotExist(t *testing.T) {
 	}
 }
 
-func TestBuiltinSkill(t *testing.T) {
-	s := NewBuiltinSkill("test", "A test skill", "Do the thing.")
-	if s.ID != "test" {
-		t.Errorf("ID = %q", s.ID)
+func TestParseSkillMD_RejectsSymlinkEntrypoint(t *testing.T) {
+	root := t.TempDir()
+	external := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(external, []byte("outside secret"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if s.Description != "A test skill" {
-		t.Errorf("Description = %q", s.Description)
+	path := filepath.Join(root, "SKILL.md")
+	if err := os.Symlink(external, path); err != nil {
+		t.Fatal(err)
 	}
-	if s.Instructions != "Do the thing." {
-		t.Errorf("Instructions = %q", s.Instructions)
-	}
-	if !s.UserInvocable {
-		t.Error("UserInvocable default should be true")
-	}
-	if s.Category != SkillBuiltin {
-		t.Errorf("Category = %v", s.Category)
-	}
-	if s.FilePath != "" {
-		t.Errorf("BuiltinSkill FilePath should be empty, got %q", s.FilePath)
+
+	if _, err := ParseSkillMD(path); err == nil {
+		t.Fatal("ParseSkillMD accepted a symlink entrypoint")
 	}
 }
 
-func TestBuiltinSkill_WithOptions(t *testing.T) {
-	s := NewBuiltinSkill("test", "desc", "instructions",
-		WithDisableModelInvocation(),
-		WithUserInvocable(false),
-		WithContext("fork"),
-		WithAgent("Explore"),
-		WithAllowedTools([]string{"Read", "Grep"}),
-	)
-	if !s.DisableModelInvocation {
-		t.Error("DisableModelInvocation should be true")
+func TestLoadSkillsFromDir_IgnoresSymlinkDirectory(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	writeSkillFile(t, filepath.Join(external, "SKILL.md"), "outside", "must not load")
+	if err := os.Symlink(external, filepath.Join(root, "outside")); err != nil {
+		t.Fatal(err)
 	}
-	if s.UserInvocable {
-		t.Error("UserInvocable should be false")
+
+	skills, err := LoadSkillsFromDir(root)
+	if err != nil {
+		t.Fatalf("LoadSkillsFromDir: %v", err)
 	}
-	if s.Context != "fork" {
-		t.Errorf("Context = %q, want %q", s.Context, "fork")
+	if len(skills) != 0 {
+		t.Fatalf("loaded symlink directory skills: %+v", skills)
 	}
-	if s.Agent != "Explore" {
-		t.Errorf("Agent = %q, want %q", s.Agent, "Explore")
+}
+
+func TestLoadSkillsFromDirs_ReturnsDirectoryErrors(t *testing.T) {
+	root := t.TempDir()
+	badPath := filepath.Join(root, "not-a-directory")
+	if err := os.WriteFile(badPath, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if len(s.AllowedTools) != 2 {
-		t.Errorf("AllowedTools = %v, want 2 items", s.AllowedTools)
+
+	if _, err := LoadSkillsFromDirs(map[string]string{"user": badPath}); err == nil {
+		t.Fatal("LoadSkillsFromDirs swallowed a directory read error")
+	}
+}
+
+func TestSkillRegistry_RebuildKeepsSnapshotOnScanError(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "stable", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, path, "stable", "still present")
+
+	r := NewSkillRegistry()
+	if err := r.Rebuild(map[string]string{"user": root}); err != nil {
+		t.Fatalf("initial Rebuild: %v", err)
+	}
+	badPath := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(badPath, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Rebuild(map[string]string{"user": badPath}); err == nil {
+		t.Fatal("Rebuild succeeded for an unreadable skills directory")
+	}
+	if _, ok := r.GetSkill("stable"); !ok {
+		t.Fatal("Rebuild scan error cleared the previous registry snapshot")
+	}
+}
+
+func writeSkillFile(t *testing.T, path, name, description string) {
+	t.Helper()
+	content := "---\nname: " + name + "\ndescription: " + description + "\n---\n\nInstructions.\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func newTestSkill(id, description, instructions string) *Skill {
+	return &Skill{
+		ID:            id,
+		Name:          id,
+		Description:   description,
+		Instructions:  instructions,
+		UserInvocable: true,
 	}
 }
 
 func TestSkillRegistry_RegisterAndGet(t *testing.T) {
 	r := NewSkillRegistry()
-	s := NewBuiltinSkill("test", "desc", "instructions")
+	s := newTestSkill("test", "desc", "instructions")
 
 	if err := r.Register(s); err != nil {
 		t.Fatalf("Register: %v", err)
@@ -334,8 +371,8 @@ func TestSkillRegistry_RegisterAndGet(t *testing.T) {
 
 func TestSkillRegistry_Duplicate(t *testing.T) {
 	r := NewSkillRegistry()
-	_ = r.Register(NewBuiltinSkill("x", "d", "i"))
-	err := r.Register(NewBuiltinSkill("x", "d2", "i2"))
+	_ = r.Register(newTestSkill("x", "d", "i"))
+	err := r.Register(newTestSkill("x", "d2", "i2"))
 	if err == nil {
 		t.Error("duplicate register should error")
 	}

@@ -1,6 +1,5 @@
-// Package assets owns the three independent asset bundles embedded in the
-// server binary. Keeping the Web Console, Status UI, and built-in Skill Store
-// separate prevents a missing frontend bundle from changing Skill behavior.
+// Package assets owns the two independent browser bundles embedded in the
+// server binary: the Web Console and the read-only Status UI.
 package assets
 
 import (
@@ -24,6 +23,3 @@ func WebFS() fs.FS { return subdir("web") }
 
 // StatusFS returns the read-only Status UI bundle.
 func StatusFS() fs.FS { return subdir("status") }
-
-// SkillsFS returns built-in Skill Store files.
-func SkillsFS() fs.FS { return subdir("skills") }

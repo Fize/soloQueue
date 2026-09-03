@@ -18,13 +18,13 @@ required before running the Makefile targets.
 make build            # Build both browser UIs and Go binary
 make build-web        # Build the full Web Console
 make build-status     # Build the read-only Status UI
-make build-assets     # Build both UIs and embed Skills
+make build-assets     # Build both browser UIs
 make build-go         # Build Go binary only (assumes assets already exist)
 make start            # Start backend and both browser UIs on one port
 make clean            # Remove all build artifacts
 ```
 
-The Go binary embeds independent `internal/assets/dist/web`, `status`, and `skills` bundles. Always run `make build-assets` (or `make build`) before a production build.
+The Go binary embeds only the independent Web Console and Status UI bundles. Skills are installed into `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and are never bundled into the binary. Always run `make build-assets` (or `make build`) before a production build.
 
 ## Testing
 
@@ -76,11 +76,11 @@ Other subcommands: `version`.
 
 ## Config & data
 
-- Work directory: `~/.soloqueue/` (`config.DefaultWorkDir()`)
+- Work directory: `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/` (`config.DefaultWorkDir()`)
 - Agent templates: `~/.soloqueue/agents/*.md` (YAML frontmatter + markdown; hot-reload via fsnotify)
 - Config: `~/.soloqueue/settings.yaml` (YAML; hot-reload via fsnotify)
 - MCP servers: `~/.soloqueue/mcp.json` (hot-reload)
-- Skills: `~/.soloqueue/skills/*.md` (hot-reload)
+- Skills: `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/<skill>/SKILL.md` (global definitions installed and hot-reloaded on skill-directory/entrypoint changes; lifecycle managed by `clawhub`); project-compatible Skills may also come from `<project>/.claude/skills/` when an Agent is created
 - Timeline JSONL: `~/.soloqueue/logs/timelines/`
 - Task level persistence: `logs/timelines/l2-<id>/level` — stores last routing level so restarted sessions preserve task context (prevents "这个功能做完了吗" being misclassified as L0)
 - Shared SQLite: `~/.soloqueue/soloqueue.db`
@@ -151,7 +151,7 @@ internal/team/          auto-reload for LLM-written agent/group files
 internal/team/store/    filesystem-backed team & agent persistence
 web/                    Full browser Web Console (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
 status-ui/              Independent read-only backend status page
-skills/                 Bundled skill definitions, copied into embedded dist at build time
+skills/                 Skill source packages maintained independently from this runtime
 ```
 
 ### Simulation engine (`internal/simulation/`)

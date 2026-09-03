@@ -2,10 +2,11 @@ package skill
 
 import (
 	"fmt"
-	"io/fs"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"gopkg.in/yaml.v3"
@@ -28,9 +29,6 @@ func SetPackageLogger(l *logger.Logger) {
 // SkillMDConfig is the YAML frontmatter for SKILL.md
 //
 // Aligns with Claude Code's Skill frontmatter fields.
-// SkillMDConfig is the YAML frontmatter for SKILL.md
-//
-// Aligns with Claude Code's Skill frontmatter fields.
 type SkillMDConfig struct {
 	Name                   string         `yaml:"name"`
 	Description            string         `yaml:"description"`
@@ -41,9 +39,6 @@ type SkillMDConfig struct {
 	Context                string         `yaml:"context"`
 	Agent                  string         `yaml:"agent"`
 	Triggers               []string       `yaml:"triggers"`
-	Upstream               string         `yaml:"upstream"`
-	Branch                 string         `yaml:"branch"`
-	SubPath                string         `yaml:"subpath"`
 	Metadata               map[string]any `yaml:"metadata"`
 	RequiredEnv            []string       `yaml:"required_env"`
 	RequiredEnvDash        []string       `yaml:"required-env"`
@@ -65,7 +60,7 @@ type SkillMDConfig struct {
 //	# Skill Instructions
 //	The actual markdown content...
 func ParseSkillMD(path string) (*Skill, error) {
-	data, err := os.ReadFile(path)
+	data, err := readSkillMarkdown(path)
 	if err != nil {
 		return nil, fmt.Errorf("read skill md: %w", err)
 	}
@@ -102,11 +97,6 @@ func ParseSkillMD(path string) (*Skill, error) {
 	// filePath: absolute path
 	absPath, _ := filepath.Abs(path)
 
-	disabled := false
-	if _, err := os.Stat(filepath.Join(filepath.Dir(absPath), ".disabled")); err == nil {
-		disabled = true
-	}
-
 	return &Skill{
 		ID:                     name,
 		Name:                   name,
@@ -118,14 +108,9 @@ func ParseSkillMD(path string) (*Skill, error) {
 		UserInvocable:          userInvocable,
 		Context:                cfg.Context,
 		Agent:                  cfg.Agent,
-		Category:               SkillUser,
 		FilePath:               absPath,
 		Dir:                    filepath.Dir(absPath),
 		Triggers:               cfg.Triggers,
-		Disabled:               disabled,
-		Upstream:               cfg.Upstream,
-		Branch:                 cfg.Branch,
-		SubPath:                cfg.SubPath,
 		RequiredEnv:            getRequiredEnv(cfg),
 	}, nil
 }
@@ -140,9 +125,24 @@ func ParseSkillMD(path string) (*Skill, error) {
 //	  <another-skill>/
 //	    SKILL.md
 //
-// Only scans SKILL.md files in immediate subdirectories.
+// Only scans supported skill entrypoint files in immediate subdirectories.
 // Returns nil, nil if the directory does not exist.
 func LoadSkillsFromDir(dir string) ([]*Skill, error) {
+	rootInfo, err := os.Lstat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if pkgLogger != nil {
+				pkgLogger.Debug(logger.CatApp, "skill: directory not found, skipping",
+					"dir", dir)
+			}
+			return nil, nil
+		}
+		return nil, fmt.Errorf("stat skills dir %s: %w", dir, err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return nil, fmt.Errorf("skills path %s is not a regular directory", dir)
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -158,12 +158,13 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	loaded := 0
 	var skills []*Skill
 	for _, e := range entries {
-		if !e.IsDir() {
+		path := filepath.Join(dir, e.Name())
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			continue
 		}
-		skillFile := filepath.Join(dir, e.Name(), "SKILL.md")
-		info, err := os.Stat(skillFile)
-		if err != nil || info.IsDir() {
+		skillFile, err := findSkillMarkdownFile(path)
+		if err != nil {
 			continue
 		}
 
@@ -187,6 +188,39 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	return skills, nil
 }
 
+// findSkillMarkdownFile accepts the filenames used by ClawHub and older
+// Claude/OpenClaw skill packages. ClawHub installs packages as directories;
+// SoloQueue only needs to discover their entrypoint and never manages them.
+func findSkillMarkdownFile(dir string) (string, error) {
+	for _, name := range []string{"SKILL.md", "skill.md", "skills.md"} {
+		path := filepath.Join(dir, name)
+		info, err := os.Lstat(path)
+		if err == nil && info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() {
+			return path, nil
+		}
+	}
+	return "", os.ErrNotExist
+}
+
+// readSkillMarkdown rejects symlink entrypoints both before and during the
+// open. The no-follow open keeps the check and read on the same filesystem
+// object when a package is being replaced concurrently.
+func readSkillMarkdown(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("skill markdown is not a regular file")
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
+
 // LoadSkillsFromDirs loads skills from multiple directories by priority.
 //
 // The keys of 'dirs' are scope identifiers ("plugin", "user", "project"), and values are directory paths.
@@ -202,7 +236,7 @@ func LoadSkillsFromDirs(dirs map[string]string) ([]*Skill, error) {
 		}
 		skills, err := LoadSkillsFromDir(dir)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("load %s skills: %w", scope, err)
 		}
 		for _, s := range skills {
 			seen[s.ID] = s // Later loads overwrite earlier ones
@@ -303,83 +337,6 @@ func firstParagraph(body string) string {
 	return desc
 }
 
-// ParseSkillMDFromFS parses a single SKILL.md file from a virtual filesystem.
-func ParseSkillMDFromFS(fsys fs.FS, path string) (*Skill, error) {
-	data, err := fs.ReadFile(fsys, path)
-	if err != nil {
-		return nil, fmt.Errorf("read skill md from fs: %w", err)
-	}
-
-	cfg, body, err := parseFrontmatter(data)
-	if err != nil {
-		return nil, fmt.Errorf("parse frontmatter %s: %w", path, err)
-	}
-
-	name := cfg.Name
-	if name == "" {
-		name = skillNameFromPath(path)
-	}
-
-	desc := cfg.Description
-	if desc == "" {
-		desc = firstParagraph(body)
-	}
-
-	userInvocable := true
-	if cfg.UserInvocable != nil {
-		userInvocable = *cfg.UserInvocable
-	}
-
-	var allowedTools []string
-	if cfg.AllowedTools != "" {
-		allowedTools = ParseAllowedTools(cfg.AllowedTools)
-	}
-
-	return &Skill{
-		ID:                     name,
-		Name:                   name,
-		Description:            desc,
-		WhenToUse:              cfg.WhenToUse,
-		Instructions:           strings.TrimSpace(body),
-		AllowedTools:           allowedTools,
-		DisableModelInvocation: cfg.DisableModelInvocation,
-		UserInvocable:          userInvocable,
-		Context:                cfg.Context,
-		Agent:                  cfg.Agent,
-		Category:               SkillBuiltin,
-		FilePath:               path,
-		Dir:                    filepath.ToSlash(filepath.Dir(path)),
-		Triggers:               cfg.Triggers,
-		Disabled:               false,
-		Upstream:               cfg.Upstream,
-		Branch:                 cfg.Branch,
-		SubPath:                cfg.SubPath,
-		RequiredEnv:            getRequiredEnv(cfg),
-	}, nil
-}
-
-// LoadSkillsFromFS walks a virtual directory in fs.FS and parses all SKILL.md files.
-func LoadSkillsFromFS(fsys fs.FS, dir string) ([]*Skill, error) {
-	entries, err := fs.ReadDir(fsys, dir)
-	if err != nil {
-		return nil, nil
-	}
-
-	var skills []*Skill
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		skillFile := filepath.ToSlash(filepath.Join(dir, e.Name(), "SKILL.md"))
-		md, err := ParseSkillMDFromFS(fsys, skillFile)
-		if err != nil {
-			continue
-		}
-		skills = append(skills, md)
-	}
-	return skills, nil
-}
-
 func getRequiredEnv(cfg SkillMDConfig) []string {
 	var envs []string
 	if len(cfg.RequiredEnv) > 0 {
@@ -388,17 +345,27 @@ func getRequiredEnv(cfg SkillMDConfig) []string {
 		envs = cfg.RequiredEnvDash
 	}
 
-	// Try extracting from metadata.clawdbot.requires.env
+	// ClawHub packages commonly use one of these metadata namespaces. Accept
+	// aliases so package metadata remains portable across compatible clients.
 	if cfg.Metadata != nil {
-		if clawdbot, ok := cfg.Metadata["clawdbot"].(map[string]any); ok {
-			if requires, ok := clawdbot["requires"].(map[string]any); ok {
-				if envList, ok := requires["env"].([]any); ok {
-					for _, item := range envList {
-						if str, ok := item.(string); ok {
-							envs = append(envs, str)
-						}
+		for _, namespace := range []string{"openclaw", "clawdbot", "clawdis"} {
+			metadata, ok := cfg.Metadata[namespace].(map[string]any)
+			if !ok {
+				continue
+			}
+			requires, ok := metadata["requires"].(map[string]any)
+			if !ok {
+				continue
+			}
+			switch envList := requires["env"].(type) {
+			case []any:
+				for _, item := range envList {
+					if str, ok := item.(string); ok {
+						envs = append(envs, str)
 					}
 				}
+			case []string:
+				envs = append(envs, envList...)
 			}
 		}
 	}

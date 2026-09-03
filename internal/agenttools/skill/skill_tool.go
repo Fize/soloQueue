@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,11 +22,105 @@ import (
 // SkillTool's Description dynamically compiles a list of all skills not marked for disable-model-invocation,
 // letting the LLM know when to use which skill.
 type SkillTool struct {
-	registry  *SkillRegistry
+	resolver  SkillResolver
 	forkSpawn SkillForkSpawnFn // If nil, fork mode degrades to inline
 	logger    *logger.Logger
 	stats     InvocationStats // Optional; telemetry + listing ordering
 	agentID   string          // Agent identity attached to recorded events
+}
+
+// SkillResolver supplies the current Skills visible to a SkillTool.
+// Implementations may resolve from a live registry so existing Agents observe
+// installed Skill changes without being recreated.
+type SkillResolver interface {
+	GetSkill(id string) (*Skill, bool)
+	Skills() []*Skill
+}
+
+// mergedSkillResolver preserves project-first lookup: project Skills override
+// global Skills with the same ID, while the global registry remains live so
+// installed Skill changes reach existing Agents.
+type mergedSkillResolver struct {
+	global  *SkillRegistry
+	project *SkillRegistry
+}
+
+// NewMergedSkillResolver creates a resolver backed by the live global registry
+// and a project-local snapshot.
+func NewMergedSkillResolver(global, project *SkillRegistry) SkillResolver {
+	return &mergedSkillResolver{global: global, project: project}
+}
+
+func (r *mergedSkillResolver) GetSkill(id string) (*Skill, bool) {
+	if r.project != nil {
+		if s, ok := r.project.GetSkill(id); ok {
+			return s, true
+		}
+	}
+	if r.global != nil {
+		return r.global.GetSkill(id)
+	}
+	return nil, false
+}
+
+func (r *mergedSkillResolver) Skills() []*Skill {
+	byID := make(map[string]*Skill)
+	if r.project != nil {
+		for _, s := range r.project.Skills() {
+			byID[s.ID] = s
+		}
+	}
+	if r.global != nil {
+		for _, s := range r.global.Skills() {
+			if _, exists := byID[s.ID]; !exists {
+				byID[s.ID] = s
+			}
+		}
+	}
+	result := make([]*Skill, 0, len(byID))
+	for _, s := range byID {
+		result = append(result, s)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+type filteredSkillResolver struct {
+	source  SkillResolver
+	allowed map[string]struct{}
+}
+
+// NewFilteredSkillResolver limits a resolver to the IDs configured on an
+// Agent while retaining live lookup for those IDs.
+func NewFilteredSkillResolver(source SkillResolver, ids []string) SkillResolver {
+	allowed := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		allowed[id] = struct{}{}
+	}
+	return &filteredSkillResolver{source: source, allowed: allowed}
+}
+
+func (r *filteredSkillResolver) GetSkill(id string) (*Skill, bool) {
+	if _, ok := r.allowed[id]; !ok {
+		return nil, false
+	}
+	if r.source == nil {
+		return nil, false
+	}
+	return r.source.GetSkill(id)
+}
+
+func (r *filteredSkillResolver) Skills() []*Skill {
+	if r.source == nil {
+		return nil
+	}
+	var result []*Skill
+	for _, s := range r.source.Skills() {
+		if _, ok := r.allowed[s.ID]; ok {
+			result = append(result, s)
+		}
+	}
+	return result
 }
 
 // SkillToolOption is an optional configuration for SkillTool
@@ -54,8 +149,13 @@ const statsWindow = 30 * 24 * time.Hour
 //
 // registry cannot be nil. forkSpawn can be nil (in which case fork mode degrades to inline).
 func NewSkillTool(registry *SkillRegistry, forkSpawn SkillForkSpawnFn, opts ...SkillToolOption) *SkillTool {
+	return NewSkillToolWithResolver(registry, forkSpawn, opts...)
+}
+
+// NewSkillToolWithResolver constructs a SkillTool using a live resolver.
+func NewSkillToolWithResolver(resolver SkillResolver, forkSpawn SkillForkSpawnFn, opts ...SkillToolOption) *SkillTool {
 	st := &SkillTool{
-		registry:  registry,
+		resolver:  resolver,
 		forkSpawn: forkSpawn,
 	}
 	for _, opt := range opts {
@@ -88,7 +188,10 @@ const ForkResultPrefix = "[Fork result] "
 // (counts desc, ID asc ties), so the system prompt stays cache-stable; size is
 // governed by catalog count — see README "Skills" for the best-practice range.
 func (t *SkillTool) Description() string {
-	skills := t.registry.Skills()
+	if t.resolver == nil {
+		return "Invoke a skill by name. No skills are currently available."
+	}
+	skills := t.resolver.Skills()
 
 	var visible []*Skill
 	byID := make(map[string]*Skill, len(skills))
@@ -167,7 +270,11 @@ func (t *SkillTool) Execute(ctx context.Context, rawArgs string) (string, error)
 			"skill_id", args.Skill, "has_args", args.Args != "")
 	}
 
-	s, ok := t.registry.GetSkill(args.Skill)
+	if t.resolver == nil {
+		t.record(ctx, args.Skill, args.Args, InvocationNotFound, started)
+		return fmt.Sprintf("error: skill %q not found", args.Skill), nil
+	}
+	s, ok := t.resolver.GetSkill(args.Skill)
 	if !ok {
 		t.record(ctx, args.Skill, args.Args, InvocationNotFound, started)
 		if t.logger != nil {

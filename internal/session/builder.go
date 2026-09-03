@@ -149,6 +149,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
 	sessionToolsCfg := toolsCfg
+	sessionToolsCfg.WorkDir = b.WorkDir
 	sessionToolsCfg.Logger = sessLog
 	sessionToolsCfg.TeamStore = b.RT.TeamStore
 	sessionToolsCfg.CronScope = tools.CronAccessScope{Mode: tools.CronAccessGlobal}
@@ -197,74 +198,66 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	inspectTool := tools.NewInspectAgentTool(agent.RegistryInspectQuery(b.RT.AgentRegistry))
 	allTools = append(allTools, inspectTool)
 
-	// Skills: use the global skillRegistry, filtering out disabled ones
-	var skillList []*skill.Skill
-	for _, s := range b.RT.SkillRegistry.Skills() {
-		if !s.Disabled {
-			skillList = append(skillList, s)
-		}
-	}
+	// Skills: use the global registry of installed skills.
+	skillList := b.RT.SkillRegistry.Skills()
 
-	// SkillTool: only register when skills exist
-	if b.RT.SkillRegistry.Len() > 0 {
-		// Fork spawn function: creates a temporary child agent to execute a fork-mode skill
-		forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
-			var basePrompt string
-			if s.Agent != "" {
-				// 1. Try loading base agent template from the skill's own agents/ directory
-				if baseTmpl, ok := agent.LoadSkillAgentTemplate(s.Dir, s.Agent); ok {
-					basePrompt = baseTmpl.SystemPrompt
-				} else {
-					// 2. Fallback to templates stack
-					for i := range b.RT.AllTemplates {
-						if strings.EqualFold(b.RT.AllTemplates[i].ID, s.Agent) {
-							basePrompt = b.RT.AllTemplates[i].SystemPrompt
-							break
-						}
+	// Keep SkillTool registered when the catalog is empty so an L1 session can
+	// discover skills installed through ClawHub after startup.
+	// Fork spawn function: creates a temporary child agent to execute a fork-mode skill
+	forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
+		var basePrompt string
+		if s.Agent != "" {
+			// 1. Try loading base agent template from the skill's own agents/ directory
+			if baseTmpl, ok := agent.LoadSkillAgentTemplate(s.Dir, s.Agent); ok {
+				basePrompt = baseTmpl.SystemPrompt
+			} else {
+				// 2. Fallback to templates stack
+				for i := range b.RT.AllTemplates {
+					if strings.EqualFold(b.RT.AllTemplates[i].ID, s.Agent) {
+						basePrompt = b.RT.AllTemplates[i].SystemPrompt
+						break
 					}
 				}
 			}
-
-			finalSystemPrompt := content
-			if basePrompt != "" {
-				finalSystemPrompt = basePrompt + "\n\n# Skill Execution Instructions\n" + content
-			}
-
-			forkDef := agent.Definition{
-				ID:           fmt.Sprintf("skill-fork-%s", s.ID),
-				ModelID:      def.ModelID,
-				SystemPrompt: finalSystemPrompt,
-			}
-			forkTools := tools.BuildBase(toolsCfg)
-			var filtered []tools.Tool
-			for _, t := range forkTools {
-				if t.Name() != "SendFile" && !tools.IsCronTool(t.Name()) {
-					filtered = append(filtered, t)
-				}
-			}
-			forkTools = filtered
-
-			if len(s.AllowedTools) > 0 {
-				forkTools = skill.FilterTools(forkTools, s.AllowedTools)
-			}
-			child := agent.NewAgent(forkDef, llmClient, sessLog,
-				agent.WithTools(forkTools...),
-				agent.WithParallelTools(true),
-			)
-			if err := child.Start(ctx); err != nil {
-				return nil, nil, fmt.Errorf("start fork agent: %w", err)
-			}
-			cleanup := func() { child.Stop(5) }
-			return &agent.LocatableAdapter{Agent: child}, cleanup, nil
 		}
 
-		skillOpts := []skill.SkillToolOption{skill.WithSkillLogger(sessLog), skill.WithAgentID(def.ID)}
-		if b.RT.SharedDB != nil {
-			skillOpts = append(skillOpts, skill.WithInvocationStats(skill.NewSQLiteInvocationStats(b.RT.SharedDB)))
+		finalSystemPrompt := prompt.BuildSkillForkSystemPrompt(basePrompt, content)
+
+		forkDef := agent.Definition{
+			ID:           fmt.Sprintf("skill-fork-%s", s.ID),
+			ModelID:      def.ModelID,
+			SystemPrompt: finalSystemPrompt,
 		}
-		skillTool := skill.NewSkillTool(b.RT.SkillRegistry, forkSpawn, skillOpts...)
-		allTools = append(allTools, skillTool)
+		forkTools := tools.BuildBase(sessionToolsCfg)
+		var filtered []tools.Tool
+		for _, t := range forkTools {
+			if t.Name() != "SendFile" && !tools.IsCronTool(t.Name()) {
+				filtered = append(filtered, t)
+			}
+		}
+		forkTools = filtered
+
+		if len(s.AllowedTools) > 0 {
+			forkTools = skill.FilterTools(forkTools, s.AllowedTools)
+		}
+		child := agent.NewAgent(forkDef, llmClient, sessLog,
+			agent.WithTools(forkTools...),
+			agent.WithAgentWorkDir(b.WorkDir),
+			agent.WithParallelTools(true),
+		)
+		if err := child.Start(ctx); err != nil {
+			return nil, nil, fmt.Errorf("start fork agent: %w", err)
+		}
+		cleanup := func() { child.Stop(5) }
+		return &agent.LocatableAdapter{Agent: child}, cleanup, nil
 	}
+
+	skillOpts := []skill.SkillToolOption{skill.WithSkillLogger(sessLog), skill.WithAgentID(def.ID)}
+	if b.RT.SharedDB != nil {
+		skillOpts = append(skillOpts, skill.WithInvocationStats(skill.NewSQLiteInvocationStats(b.RT.SharedDB)))
+	}
+	skillTool := skill.NewSkillTool(b.RT.SkillRegistry, forkSpawn, skillOpts...)
+	allTools = append(allTools, skillTool)
 
 	// Inject unified delegate tool for L1 agent
 	delegateResolver := func(ctx context.Context, name, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
@@ -375,6 +368,7 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	a = agent.NewAgent(def, llmClient, sessLog,
 		agent.WithTools(allTools...),
 		agent.WithSkills(skillList...),
+		agent.WithAgentWorkDir(b.WorkDir),
 		agent.WithParallelTools(true),
 		agent.WithPriorityMailbox(),
 		agent.WithSchedulingPending(),

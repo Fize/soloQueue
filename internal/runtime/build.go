@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,7 +51,6 @@ func Build(
 	cfg *config.GlobalService,
 	log *logger.Logger,
 	profileSetup ProfileSetupFn,
-	embeddedFS fs.FS,
 ) (*Stack, error) {
 	buildStart := time.Now()
 	settings := cfg.Get()
@@ -63,7 +61,6 @@ func Build(
 		settings:     settings,
 		log:          log,
 		profileSetup: profileSetup,
-		embeddedFS:   embeddedFS,
 	}
 
 	// Phase 1: Shared DB + TeamStore
@@ -112,74 +109,6 @@ func Build(
 
 	log.Debug(logger.CatApp, "build: total", "duration", time.Since(buildStart).String())
 	return rt, nil
-}
-
-// registerSkillHotReload watches the skills directory and rebuilds the registry on file changes.
-func registerSkillHotReload(reg *skill.SkillRegistry, dirs map[string]string, log *logger.Logger) {
-	var dirToWatch string
-	for _, d := range dirs {
-		dirToWatch = d
-		break
-	}
-	if dirToWatch == "" {
-		return
-	}
-
-	if err := os.MkdirAll(dirToWatch, 0o755); err != nil {
-		log.Warn(logger.CatApp, "skills hot-reload: cannot create skills dir", "err", err.Error())
-		return
-	}
-
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Warn(logger.CatApp, "skills hot-reload: cannot create watcher", "err", err.Error())
-		return
-	}
-	if err := w.Add(dirToWatch); err != nil {
-		_ = w.Close()
-		log.Warn(logger.CatApp, "skills hot-reload: cannot watch skills dir", "err", err.Error())
-		return
-	}
-
-	var debounceMu sync.Mutex
-	var debounceTimer *time.Timer
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Error(logger.CatApp, "skills hot-reload goroutine panic recovered", "panic", fmt.Sprintf("%v", r))
-			}
-		}()
-		for {
-			select {
-			case evt, ok := <-w.Events:
-				if !ok {
-					return
-				}
-				if !evt.Has(fsnotify.Write) && !evt.Has(fsnotify.Create) && !evt.Has(fsnotify.Rename) && !evt.Has(fsnotify.Remove) {
-					continue
-				}
-				debounceMu.Lock()
-				if debounceTimer != nil {
-					debounceTimer.Stop()
-				}
-				debounceTimer = time.AfterFunc(200*time.Millisecond, func() {
-					if err := reg.Rebuild(dirs); err != nil {
-						log.Warn(logger.CatApp, "skills hot-reload: rebuild failed", "err", err.Error())
-					} else {
-						log.Info(logger.CatApp, "skills hot-reload completed")
-					}
-				})
-				debounceMu.Unlock()
-			case err, ok := <-w.Errors:
-				if !ok {
-					return
-				}
-				log.Warn(logger.CatApp, "skills hot-reload watch error", "err", err.Error())
-			}
-		}
-	}()
-	log.Debug(logger.CatApp, "skills hot-reload: watching directory", "path", dirToWatch)
 }
 
 // BuildLLMClient creates a DeepSeek LLM client from provider configuration.
@@ -274,7 +203,6 @@ type buildContext struct {
 	settings     config.Settings
 	log          *logger.Logger
 	profileSetup ProfileSetupFn
-	embeddedFS   fs.FS
 
 	// Resolved config
 	provider            *config.LLMProvider
@@ -438,19 +366,11 @@ func (bc *buildContext) registerHotReload(rt *Stack) {
 		})
 	}
 
-	registerSkillHotReload(bc.skillReg, bc.skillDirs, bc.log)
+	rt.skillWatcherClose = registerSkillHotReload(bc.skillReg, bc.skillDirs, bc.log)
 
 	groupsDir := filepath.Join(bc.workDir, "groups")
 	agentsDir := filepath.Join(bc.workDir, "agents")
 	registerPromptHotReload(rt, bc.log, groupsDir, agentsDir)
-
-	// Start remote skill sync loop in the background
-	if rt.SkillRegistry != nil && len(bc.skillDirs) > 0 {
-		ctx, cancel := context.WithCancel(context.Background())
-		rt.skillsSyncCancel = cancel
-		userSkillsDir := bc.skillDirs["user"]
-		skill.StartRemoteSkillsSyncLoop(ctx, bc.workDir, userSkillsDir, rt.SkillRegistry, bc.log, 1*time.Hour, bc.embeddedFS)
-	}
 }
 
 // registerPromptHotReload watches the roles, groups, and agents directories and rebuilds the system prompt when soul.md, rules.md or team/agent markdown files change.

@@ -20,7 +20,7 @@
 //	PUT /api/agents/{id}/profile → update agent soul & rules
 //	GET /api/agents/{id}/config → get agent template YAML + system prompt
 //	GET /api/teams → list teams
-//	GET /api/skills → list skills (builtin + user)
+//	GET /api/skills → list installed skills (read-only)
 //	GET /api/files/content?path=<path> → serve file from plan dir or team workspace
 //	GET /api/files/list?dir=<path> → list directory contents
 //	GET /api/files/info?path=<path> → get file metadata
@@ -70,7 +70,7 @@ type Mux struct {
 	hub               *Hub
 	toolsCfg          *tools.Config
 	skillReg          *skill.SkillRegistry
-	skillDirs         map[string]string // skill categories → paths, for on-demand reload
+	skillDirs         map[string]string // installed skill scope → path
 	rebuildPrompt     func() error      // rebuilds L1 system prompt after soul/rules edit
 	reloadTeamCatalog func() error
 	agentsDir         string       // path to ~/.soloqueue/agents directory
@@ -84,7 +84,6 @@ type Mux struct {
 	sharedDB          *db.DB // for metric reporting
 	webFS             fs.FS
 	statusFS          fs.FS
-	skillFS           fs.FS
 	frontendMode      FrontendMode
 }
 
@@ -155,7 +154,7 @@ func WithSkillRegistry(reg *skill.SkillRegistry) MuxOption {
 	return func(m *Mux) { m.skillReg = reg }
 }
 
-// WithSkillDirs sets the skill directories for on-demand reload on each GET /api/skills.
+// WithSkillDirs sets the installed skill directories used by the registry.
 func WithSkillDirs(dirs map[string]string) MuxOption {
 	return func(m *Mux) { m.skillDirs = dirs }
 }
@@ -223,13 +222,6 @@ func WithWebFS(fsys fs.FS) MuxOption { return func(m *Mux) { m.webFS = fsys } }
 // WithStatusFS overrides the embedded Status UI filesystem.
 func WithStatusFS(fsys fs.FS) MuxOption { return func(m *Mux) { m.statusFS = fsys } }
 
-// WithSkillFS overrides the embedded Skill Store filesystem.
-func WithSkillFS(fsys fs.FS) MuxOption { return func(m *Mux) { m.skillFS = fsys } }
-
-// WithDistFS is a compatibility alias for the old combined test fixture. It
-// now supplies only the Skill Store bundle.
-func WithDistFS(fsys fs.FS) MuxOption { return WithSkillFS(fsys) }
-
 // WithFrontendMode selects the static bundle mounted by the API mux.
 func WithFrontendMode(mode FrontendMode) MuxOption { return func(m *Mux) { m.frontendMode = mode } }
 
@@ -267,9 +259,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	}
 	if m.statusFS == nil {
 		m.statusFS = assets.StatusFS()
-	}
-	if m.skillFS == nil {
-		m.skillFS = assets.SkillsFS()
 	}
 	if m.frontendMode == "" {
 		m.frontendMode = FrontendStatus
@@ -464,16 +453,9 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Get("/api/tools", m.handleListTools)
 	r.Route("/api/skills", func(r chi.Router) {
 		r.Get("/", m.handleListSkills)
-		r.Post("/", m.handleImportSkill)
-		r.Get("/store", m.handleListStoreSkills)
-		r.Post("/install", m.handleInstallSkill)
 		r.Route("/{id}", func(r chi.Router) {
 			r.Get("/", m.handleGetSkillDetail)
-			r.Put("/", m.handleUpdateSkill)
-			r.Delete("/", m.handleDeleteSkill)
 			r.Get("/files", m.handleGetSkillFiles)
-			r.Post("/toggle", m.handleToggleSkill)
-			r.Post("/auto-update", m.handleToggleSkillAutoUpdate)
 		})
 	})
 

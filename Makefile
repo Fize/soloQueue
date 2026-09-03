@@ -12,9 +12,7 @@ build-status: ## Build the read-only Status UI
 	cd status-ui && pnpm install --frozen-lockfile && pnpm test && pnpm build
 	rm -rf internal/assets/dist/status && mkdir -p internal/assets/dist && cp -r status-ui/dist internal/assets/dist/status
 
-build-assets: build-web build-status ## Build both browser bundles and copy built-in Skills
-	rm -rf internal/assets/dist/skills && mkdir -p internal/assets/dist/skills
-	rsync -a --exclude='.venv' --exclude='__pycache__' --exclude='*.pyc' skills/ internal/assets/dist/skills/
+build-assets: build-web build-status ## Build both browser bundles
 
 build-go: ## Build Go binary using already-built assets
 	go build -ldflags="-s -w" -o soloqueue ./cmd/soloqueue
@@ -28,4 +26,4 @@ web: build-web ## Build and start standalone Web Console
 	./soloqueue web
 
 clean: ## Remove generated binaries and embedded frontend bundles
-	rm -rf soloqueue web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status internal/assets/dist/skills
+	rm -rf soloqueue web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status

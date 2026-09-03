@@ -81,6 +81,23 @@ model_routes:
 soloqueue skills report --days 30
 ```
 
+### 使用 ClawHub 管理 Skill
+
+Skill 包不再嵌入 SoloQueue，也不通过 SoloQueue 的 HTTP API 管理。请使用独立的 [ClawHub](https://github.com/openclaw/clawhub) CLI，并指向 `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}`。如需使用其他目录，请先设置 `SOLOQUEUE_WORK_DIR`：
+
+```bash
+SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills list
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills inspect @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
+```
+
+SoloQueue 从 `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` 发现全局 `SKILL.md` 包，也会从 `<project>/.claude/skills/` 发现兼容的项目级技能。全局 `SKILL.md` 定义会在技能目录或受支持的入口文件变化时热加载，项目级技能在 Agent 创建时加载；其他辅助文件的变化不会触发全局 Skill 注册表重建。Web Console 只提供只读查看。不要使用 `openclaw` 或 SoloQueue 的管理接口处理生命周期，应使用独立的 `clawhub` 命令。
+
 ### `soloqueue memory`
 检查或清理长期记忆：
 ```bash

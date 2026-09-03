@@ -1,19 +1,13 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"io/fs"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
-	"gopkg.in/yaml.v3"
 )
 
 // ─── Tools Response Types ──────────────────────────────────────────────────
@@ -33,27 +27,22 @@ type ToolListResponse struct {
 
 // ─── Skills Response Types ─────────────────────────────────────────────────
 
-// SkillCategory is the category of a skill ("builtin" or "user").
-type SkillCategory = skill.SkillCategory
-
-// SkillInfoResponse is a single skill in the list.
+// SkillInfoResponse describes an installed skill. Skill lifecycle operations
+// are intentionally outside SoloQueue and are handled by the clawhub CLI.
 type SkillInfoResponse struct {
-	ID                     string        `json:"id"`
-	Name                   string        `json:"name"`
-	Description            string        `json:"description"`
-	WhenToUse              string        `json:"when_to_use"`
-	Category               SkillCategory `json:"category"`
-	UserInvocable          bool          `json:"user_invocable"`
-	DisableModelInvocation bool          `json:"disable_model_invocation"`
-	Context                string        `json:"context"`
-	Agent                  string        `json:"agent"`
-	FilePath               string        `json:"file_path"`
-	AllowedTools           []string      `json:"allowed_tools"`
-	Triggers               []string      `json:"triggers"`
-	Enabled                bool          `json:"enabled"`
-	AutoUpdate             bool          `json:"auto_update"`
-	Body                   string        `json:"body,omitempty"`
-	RequiredEnv            []string      `json:"required_env,omitempty"`
+	ID                     string   `json:"id"`
+	Name                   string   `json:"name"`
+	Description            string   `json:"description"`
+	WhenToUse              string   `json:"when_to_use"`
+	UserInvocable          bool     `json:"user_invocable"`
+	DisableModelInvocation bool     `json:"disable_model_invocation"`
+	Context                string   `json:"context"`
+	Agent                  string   `json:"agent"`
+	FilePath               string   `json:"file_path"`
+	AllowedTools           []string `json:"allowed_tools"`
+	Triggers               []string `json:"triggers"`
+	Body                   string   `json:"body,omitempty"`
+	RequiredEnv            []string `json:"required_env,omitempty"`
 }
 
 // SkillListResponse is the response for GET /api/skills.
@@ -73,8 +62,6 @@ func (m *Mux) handleListTools(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	allTools := tools.Build(*m.toolsCfg)
-
-	// Extract only metadata (name, description, parameters) — skip Execute.
 	toolInfos := make([]ToolInfoResponse, 0, len(allTools))
 	for _, t := range allTools {
 		toolInfos = append(toolInfos, ToolInfoResponse{
@@ -83,260 +70,34 @@ func (m *Mux) handleListTools(w http.ResponseWriter, _ *http.Request) {
 			Parameters:  t.Parameters(),
 		})
 	}
+	sort.Slice(toolInfos, func(i, j int) bool { return toolInfos[i].Name < toolInfos[j].Name })
 
-	// Sort by name for stable output.
-	sort.Slice(toolInfos, func(i, j int) bool {
-		return toolInfos[i].Name < toolInfos[j].Name
-	})
-
-	m.writeJSON(w, http.StatusOK, ToolListResponse{
-		Tools: toolInfos,
-		Total: len(toolInfos),
-	})
+	m.writeJSON(w, http.StatusOK, ToolListResponse{Tools: toolInfos, Total: len(toolInfos)})
 }
 
-// handleListSkills returns all registered skills (builtin + user).
-// GET /api/skills
-func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
-	tmpReg := skill.NewSkillRegistry()
-
-	if len(m.skillDirs) > 0 {
-		if userSkills, err := skill.LoadSkillsFromDirs(m.skillDirs); err == nil {
-			for _, s := range userSkills {
-				_ = tmpReg.Register(s)
-			}
-		}
-	}
-
-	allSkills := tmpReg.Skills()
-
-	updateCfg, _ := skill.LoadSkillsUpdateConfig(m.workDir)
-	hasUpdateCfg := updateCfg != nil
-
-	skillInfos := make([]SkillInfoResponse, 0, len(allSkills))
-	for _, s := range allSkills {
-		autoUpdate := false
-		if hasUpdateCfg {
-			autoUpdate = updateCfg.AutoUpdate[s.ID]
-		}
-		skillInfos = append(skillInfos, SkillInfoResponse{
-			ID:                     s.ID,
-			Name:                   s.Name,
-			Description:            s.Description,
-			WhenToUse:              s.WhenToUse,
-			Category:               s.Category,
-			UserInvocable:          s.UserInvocable,
-			DisableModelInvocation: s.DisableModelInvocation,
-			Context:                s.Context,
-			Agent:                  s.Agent,
-			FilePath:               s.FilePath,
-			AllowedTools:           s.AllowedTools,
-			Triggers:               s.Triggers,
-			Enabled:                !s.Disabled,
-			AutoUpdate:             autoUpdate,
-			RequiredEnv:            s.RequiredEnv,
-		})
-	}
-
-	m.writeJSON(w, http.StatusOK, SkillListResponse{
-		Skills: skillInfos,
-		Total:  len(skillInfos),
-	})
-}
-
-// findStoreSkillByID finds a skill in the embedded Skill Store by its catalog ID.
-// Some skills have a catalog ID that differs from their directory name (e.g. case),
-// so we scan the store rather than assuming id == directory name.
-func findStoreSkillByID(fsys fs.FS, id string) (*skill.Skill, string, error) {
-	entries, err := fs.ReadDir(fsys, ".")
-	if err != nil {
-		return nil, "", err
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		dirName := e.Name()
-		mdPath := filepath.ToSlash(filepath.Join(dirName, "SKILL.md"))
-		s, err := skill.ParseSkillMDFromFS(fsys, mdPath)
-		if err != nil {
-			continue
-		}
-		if s.ID == id {
-			return s, dirName, nil
-		}
-	}
-	return nil, "", fmt.Errorf("skill %s not found in store FS", id)
-}
-
-// getStoreSkills retrieves store skills from the embedded Skill Store.
-func (m *Mux) getStoreSkills() ([]*skill.Skill, error) {
-	return skill.LoadSkillsFromFS(m.skillFS, ".")
-}
-
-// installStoreSkill installs a skill from the embedded store into userSkillsDir.
-func (m *Mux) installStoreSkill(ctx context.Context, userSkillsDir, id string) error {
-	// Find the store skill by catalog ID, resolving directory name mismatches.
-	s, dirName, err := findStoreSkillByID(m.skillFS, id)
-	if err != nil {
-		return err
-	}
-
-	// If the skill has an upstream configured, clone it remotely
-	if s.Upstream != "" {
-		return skill.InstallGithubSkill(ctx, s.Upstream, s.Branch, s.SubPath, userSkillsDir)
-	}
-
-	return skill.InstallSkillFromFS(m.skillFS, ".", userSkillsDir, dirName)
-}
-
-// handleListStoreSkills returns all available skills in the store catalog.
-// GET /api/skills/store
-func (m *Mux) handleListStoreSkills(w http.ResponseWriter, _ *http.Request) {
-	userSkillsDir := m.skillDirs["user"]
-
-	storeSkills, err := m.getStoreSkills()
-	if err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	skillInfos := make([]SkillInfoResponse, 0, len(storeSkills))
-	for _, s := range storeSkills {
-		installed := false
-		if userSkillsDir != "" {
-			if _, err := os.Stat(filepath.Join(userSkillsDir, s.ID)); err == nil {
-				installed = true
-			}
-		}
-
-		skillInfos = append(skillInfos, SkillInfoResponse{
-			ID:            s.ID,
-			Name:          s.Name,
-			Description:   s.Description,
-			WhenToUse:     s.WhenToUse,
-			Category:      s.Category,
-			UserInvocable: s.UserInvocable,
-			Context:       s.Context,
-			Agent:         s.Agent,
-			Triggers:      s.Triggers,
-			Enabled:       installed, // We reuse 'Enabled' to denote 'Installed' status for store skills
-			RequiredEnv:   s.RequiredEnv,
-		})
-	}
-
-	m.writeJSON(w, http.StatusOK, SkillListResponse{
-		Skills: skillInfos,
-		Total:  len(skillInfos),
-	})
-}
-
-// handleInstallSkill installs a skill from the store, a local folder, or a github URL.
-// POST /api/skills/install
-func (m *Mux) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
-	userSkillsDir := m.skillDirs["user"]
-	if userSkillsDir == "" {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user skills directory not configured"})
-		return
-	}
-
-	var req struct {
-		Source  string `json:"source"`
-		ID      string `json:"id,omitempty"`
-		Path    string `json:"path,omitempty"`
-		URL     string `json:"url,omitempty"`
-		Branch  string `json:"branch,omitempty"`
-		SubPath string `json:"subpath,omitempty"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-		return
-	}
-
-	var err error
-	switch req.Source {
-	case "store":
-		err = m.installStoreSkill(r.Context(), userSkillsDir, req.ID)
-	case "local":
-		err = skill.InstallLocalSkill(req.Path, userSkillsDir)
-	case "github":
-		err = skill.InstallGithubSkill(r.Context(), req.URL, req.Branch, req.SubPath, userSkillsDir)
-	default:
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid source type"})
-		return
-	}
-
-	if err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Rebuild the in-memory skill registry
-	if m.skillReg != nil && len(m.skillDirs) > 0 {
-		_ = m.skillReg.Rebuild(m.skillDirs)
-	}
-
-	m.writeJSON(w, http.StatusOK, map[string]string{"status": "installed"})
-}
-
-// handleGetSkillDetail returns a single skill detail with its markdown body.
-// GET /api/skills/{id}
-func (m *Mux) handleGetSkillDetail(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	// Look in registry first
-	var s *skill.Skill
-	var ok bool
+// installedSkills returns the current registry snapshot. The directory
+// fallback keeps read-only HTTP tests and lightweight embedders functional;
+// production uses the hot-reloaded registry built by runtime.Build.
+func (m *Mux) installedSkills() []*skill.Skill {
 	if m.skillReg != nil {
-		s, ok = m.skillReg.GetSkill(id)
+		return m.skillReg.Skills()
 	}
-	if !ok {
-		userSkillsDir := m.skillDirs["user"]
-		var parsed *skill.Skill
-		var err error
-
-		// 1. Try reading from user folder
-		if userSkillsDir != "" {
-			userSkillPath := filepath.Join(userSkillsDir, id, "SKILL.md")
-			if _, statErr := os.Stat(userSkillPath); statErr == nil {
-				parsed, err = skill.ParseSkillMD(userSkillPath)
-			}
-		}
-
-		// 2. Fallback to embedded filesystem
-		if parsed == nil {
-			s, _, findErr := findStoreSkillByID(m.skillFS, id)
-			if findErr == nil {
-				parsed = s
-				err = nil
-			} else {
-				err = findErr
-			}
-		}
-
-		if err == nil && parsed != nil {
-			s = parsed
-			ok = true
-		}
+	if len(m.skillDirs) == 0 {
+		return nil
 	}
-
-	if !ok || s == nil {
-		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "skill not found"})
-		return
+	skills, err := skill.LoadSkillsFromDirs(m.skillDirs)
+	if err != nil {
+		return nil
 	}
+	return skills
+}
 
-	updateCfg, _ := skill.LoadSkillsUpdateConfig(m.workDir)
-	autoUpdate := false
-	if updateCfg != nil {
-		autoUpdate = updateCfg.AutoUpdate[s.ID]
-	}
-
-	m.writeJSON(w, http.StatusOK, SkillInfoResponse{
+func skillInfo(s *skill.Skill, includeBody bool) SkillInfoResponse {
+	info := SkillInfoResponse{
 		ID:                     s.ID,
 		Name:                   s.Name,
 		Description:            s.Description,
 		WhenToUse:              s.WhenToUse,
-		Category:               s.Category,
 		UserInvocable:          s.UserInvocable,
 		DisableModelInvocation: s.DisableModelInvocation,
 		Context:                s.Context,
@@ -344,223 +105,61 @@ func (m *Mux) handleGetSkillDetail(w http.ResponseWriter, r *http.Request) {
 		FilePath:               s.FilePath,
 		AllowedTools:           s.AllowedTools,
 		Triggers:               s.Triggers,
-		Enabled:                !s.Disabled,
-		AutoUpdate:             autoUpdate,
-		Body:                   s.Instructions,
 		RequiredEnv:            s.RequiredEnv,
-	})
+	}
+	if includeBody {
+		info.Body = s.Instructions
+	}
+	return info
 }
 
-// handleUpdateSkill updates a user-installed skill's SKILL.md.
-// PUT /api/skills/{id}
-func (m *Mux) handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	userSkillsDir := m.skillDirs["user"]
-	if userSkillsDir == "" {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user skills directory not configured"})
-		return
+func (m *Mux) installedSkill(id string) (*skill.Skill, bool) {
+	if m.skillReg != nil {
+		return m.skillReg.GetSkill(id)
 	}
-
-	var req struct {
-		Description string   `json:"description"`
-		Body        string   `json:"body"`
-		Triggers    []string `json:"triggers"`
+	for _, s := range m.installedSkills() {
+		if s.ID == id {
+			return s, true
+		}
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-		return
-	}
-
-	if err := skill.UpdateUserSkill(userSkillsDir, id, req.Description, req.Body, req.Triggers); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if m.skillReg != nil && len(m.skillDirs) > 0 {
-		_ = m.skillReg.Rebuild(m.skillDirs)
-	}
-
-	m.writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	return nil, false
 }
 
-// handleDeleteSkill deletes a user-installed skill.
-// DELETE /api/skills/{id}
-func (m *Mux) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	userSkillsDir := m.skillDirs["user"]
-	if userSkillsDir == "" {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user skills directory not configured"})
-		return
+// handleListSkills returns all skills installed in the configured skill
+// directories. The server does not expose a catalog or lifecycle mutation.
+// GET /api/skills
+func (m *Mux) handleListSkills(w http.ResponseWriter, _ *http.Request) {
+	allSkills := m.installedSkills()
+	infos := make([]SkillInfoResponse, 0, len(allSkills))
+	for _, s := range allSkills {
+		infos = append(infos, skillInfo(s, false))
 	}
-
-	if err := skill.UninstallSkill(userSkillsDir, id); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if m.skillReg != nil && len(m.skillDirs) > 0 {
-		_ = m.skillReg.Rebuild(m.skillDirs)
-	}
-
-	m.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	m.writeJSON(w, http.StatusOK, SkillListResponse{Skills: infos, Total: len(infos)})
 }
 
-// handleGetSkillFiles recursively lists all files inside the skill directory.
+// handleGetSkillDetail returns a single installed skill and its markdown body.
+// GET /api/skills/{id}
+func (m *Mux) handleGetSkillDetail(w http.ResponseWriter, r *http.Request) {
+	s, ok := m.installedSkill(chi.URLParam(r, "id"))
+	if !ok || s == nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "skill not found"})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, skillInfo(s, true))
+}
+
+// handleGetSkillFiles recursively lists files inside an installed skill.
 // GET /api/skills/{id}/files
 func (m *Mux) handleGetSkillFiles(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	userSkillsDir := m.skillDirs["user"]
-
-	// 1. Try reading from user folder
-	if userSkillsDir != "" {
-		dir := filepath.Join(userSkillsDir, id)
-		if _, err := os.Stat(dir); err == nil {
-			files, err := skill.ListSkillFiles(dir)
-			if err != nil {
-				m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-				return
-			}
-			m.writeJSON(w, http.StatusOK, map[string]any{"files": files})
-			return
-		}
-	}
-
-	// 2. Fallback to embedded filesystem
-	_, dirName, err := findStoreSkillByID(m.skillFS, id)
-	if err != nil {
+	s, ok := m.installedSkill(chi.URLParam(r, "id"))
+	if !ok || s == nil || s.Dir == "" {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "skill folder not found"})
 		return
 	}
-	files, err := skill.ListSkillFilesFromFS(m.skillFS, dirName)
-	if err != nil {
-		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "skill folder not found"})
-		return
-	}
-
-	// Map virtual file entries to JSON response format
-	var outFiles []any
-	for _, entry := range files {
-		outFiles = append(outFiles, map[string]any{
-			"path": entry.Path,
-			"kind": entry.Kind,
-			"size": entry.Size,
-		})
-	}
-
-	m.writeJSON(w, http.StatusOK, map[string]any{"files": outFiles})
-}
-
-// handleToggleSkill toggles the enabled/disabled state of a skill by creating/removing .disabled.
-// POST /api/skills/{id}/toggle
-func (m *Mux) handleToggleSkill(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	userSkillsDir := m.skillDirs["user"]
-	if userSkillsDir == "" {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user skills directory not configured"})
-		return
-	}
-
-	skillDir := filepath.Join(userSkillsDir, id)
-	if _, err := os.Stat(skillDir); os.IsNotExist(err) {
-		// If it doesn't exist in user skills, it might be a built-in skill from store.
-		// To disable it, we must copy it to user skills first, then disable it (shadowing).
-		if err := m.installStoreSkill(r.Context(), userSkillsDir, id); err != nil {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to override built-in skill: " + err.Error()})
-			return
-		}
-	}
-
-	disabledFile := filepath.Join(skillDir, ".disabled")
-	enabled := false
-
-	if _, err := os.Stat(disabledFile); err == nil {
-		// Currently disabled -> enable it (remove file)
-		if err := os.Remove(disabledFile); err != nil {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		enabled = true
-	} else {
-		// Currently enabled -> disable it (create file)
-		if err := os.WriteFile(disabledFile, []byte(""), 0o644); err != nil {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		enabled = false
-	}
-
-	if m.skillReg != nil && len(m.skillDirs) > 0 {
-		_ = m.skillReg.Rebuild(m.skillDirs)
-	}
-
-	m.writeJSON(w, http.StatusOK, map[string]any{"id": id, "enabled": enabled})
-}
-
-// handleImportSkill imports a new user-created skill.
-// POST /api/skills
-func (m *Mux) handleImportSkill(w http.ResponseWriter, r *http.Request) {
-	userSkillsDir := m.skillDirs["user"]
-	if userSkillsDir == "" {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user skills directory not configured"})
-		return
-	}
-
-	var req struct {
-		Name        string   `json:"name"`
-		Description string   `json:"description"`
-		Body        string   `json:"body"`
-		Triggers    []string `json:"triggers"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-		return
-	}
-
-	if err := skill.ImportUserSkill(userSkillsDir, req.Name, req.Description, req.Body, req.Triggers); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if m.skillReg != nil && len(m.skillDirs) > 0 {
-		_ = m.skillReg.Rebuild(m.skillDirs)
-	}
-
-	m.writeJSON(w, http.StatusCreated, map[string]string{"status": "imported", "id": req.Name})
-}
-
-// handleToggleSkillAutoUpdate sets the auto-update status of a skill.
-// POST /api/skills/{id}/auto-update
-func (m *Mux) handleToggleSkillAutoUpdate(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	var req struct {
-		Enabled bool `json:"enabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-		return
-	}
-
-	updateCfg, err := skill.LoadSkillsUpdateConfig(m.workDir)
+	files, err := skill.ListSkillFiles(s.Dir)
 	if err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-
-	updateCfg.AutoUpdate[id] = req.Enabled
-
-	// Save back to YAML.
-	path := filepath.Join(m.workDir, "skills_update.yaml")
-	data, err := yaml.Marshal(updateCfg)
-	if err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to marshal config: " + err.Error()})
-		return
-	}
-
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to save config: " + err.Error()})
-		return
-	}
-
-	m.writeJSON(w, http.StatusOK, map[string]any{"id": id, "auto_update": req.Enabled})
+	m.writeJSON(w, http.StatusOK, map[string]any{"files": files})
 }
