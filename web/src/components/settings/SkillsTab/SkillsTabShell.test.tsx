@@ -96,6 +96,14 @@ describe('SkillsTab refresh', () => {
     expect(mocks.fetchSkills).toHaveBeenCalledTimes(2)
   })
 
+  it('does not render the skill management guidance banner', async () => {
+    const { SkillsTab } = await import('./SkillsTabShell')
+    render(<SkillsTab />)
+
+    expect(screen.queryByText('skills.installedOnlyDesc')).not.toBeInTheDocument()
+    expect(screen.queryByText('skills.clawhubHint')).not.toBeInTheDocument()
+  })
+
   it('ignores an older detail response that arrives after refresh', async () => {
     let resolveOldDetail!: (value: typeof skill) => void
     const oldDetail = new Promise<typeof skill>((resolve) => {
