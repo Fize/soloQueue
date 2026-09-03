@@ -548,10 +548,6 @@ export const translations = {
       loadingSkills: 'Loading skills...',
       noSearchMatch: 'No installed skills match your search',
       noSkillsYet: 'No skills installed yet.',
-      installedOnlyDesc:
-        'SoloQueue only displays skills already installed in the local workspace. It does not provide a skill catalog or modify skill files.',
-      clawhubHint:
-        'Use the standalone clawhub CLI to search, inspect, install, update, or uninstall skills. You can also ask the assistant to guide or perform these actions when explicitly requested.',
       loadInstalledFailed: 'Unable to load the installed skill details.',
       skillDirectoryFiles: 'Skill Directory Files',
       loadingFiles: 'Loading files...',
@@ -1740,10 +1736,6 @@ export const translations = {
       loadingSkills: '加载技能中...',
       noSearchMatch: '没有已安装的技能匹配您的搜索',
       noSkillsYet: '尚未安装技能。',
-      installedOnlyDesc:
-        'SoloQueue 只展示本地工作区中已经安装的技能，不提供技能目录，也不修改技能文件。',
-      clawhubHint:
-        '请使用独立的 clawhub CLI 搜索、查看、安装、更新或卸载技能。明确提出需求时，也可以让助手引导或执行这些操作。',
       loadInstalledFailed: '无法加载已安装技能的详细信息。',
       skillDirectoryFiles: '技能目录文件',
       loadingFiles: '加载文件中...',
