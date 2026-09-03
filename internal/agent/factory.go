@@ -424,6 +424,46 @@ func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir
 	return f.CreateWithOptions(ctx, tmpl, workDir, opts)
 }
 
+func createSkillForkAgent(
+	ctx context.Context,
+	s *skill.Skill,
+	content, modelID, effectiveWorkDir string,
+	toolsCfg tools.Config,
+	llm LLMClient,
+	log *logger.Logger,
+	basePrompt string,
+) (iface.Locatable, func(), error) {
+	finalSystemPrompt := prompt.BuildSkillForkSystemPrompt(basePrompt, content)
+
+	forkDef := Definition{
+		ID:           fmt.Sprintf("skill-fork-%s", s.ID),
+		ModelID:      modelID,
+		SystemPrompt: finalSystemPrompt,
+	}
+	forkTools := tools.BuildBase(toolsCfg)
+	var filtered []tools.Tool
+	for _, t := range forkTools {
+		if t.Name() != "SendFile" && !tools.IsCronTool(t.Name()) {
+			filtered = append(filtered, t)
+		}
+	}
+	forkTools = filtered
+
+	if len(s.AllowedTools) > 0 {
+		forkTools = skill.FilterTools(forkTools, s.AllowedTools)
+	}
+	child := NewAgent(forkDef, llm, log,
+		WithTools(forkTools...),
+		WithParallelTools(true),
+		WithAgentWorkDir(effectiveWorkDir),
+	)
+	if err := child.Start(ctx); err != nil {
+		return nil, nil, fmt.Errorf("start fork agent: %w", err)
+	}
+	cleanup := func() { _ = child.Stop(5) }
+	return &LocatableAdapter{Agent: child}, cleanup, nil
+}
+
 // CreateWithOptions creates an agent with additional configuration.
 // ExtraSystemPrompt is appended to the system prompt.
 // ExtraTools are added to the agent's tool set after built-in tools.
@@ -556,17 +596,17 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 
 	// 2. Build built-in tools
 	var allTools []tools.Tool
-	if !strings.HasPrefix(tmpl.ID, "sim-") {
-		agentToolsCfg := toolsCfg
-		agentToolsCfg.WorkDir = effectiveWorkDir
-		agentToolsCfg.PlanDir = planDir
-		agentToolsCfg.CronScope = tools.CronAccessScope{}
-		if tmpl.IsLeader && tmpl.Group != "" && !iface.IsCronExecution(ctx) {
-			agentToolsCfg.CronScope = tools.CronAccessScope{
-				Mode:  tools.CronAccessTeam,
-				Owner: tmpl.Group,
-			}
+	agentToolsCfg := toolsCfg
+	agentToolsCfg.WorkDir = effectiveWorkDir
+	agentToolsCfg.PlanDir = planDir
+	agentToolsCfg.CronScope = tools.CronAccessScope{}
+	if tmpl.IsLeader && tmpl.Group != "" && !iface.IsCronExecution(ctx) {
+		agentToolsCfg.CronScope = tools.CronAccessScope{
+			Mode:  tools.CronAccessTeam,
+			Owner: tmpl.Group,
 		}
+	}
+	if !strings.HasPrefix(tmpl.ID, "sim-") {
 		allTools = tools.BuildBase(agentToolsCfg)
 		allTools = append(allTools, tools.BuildMemory(agentToolsCfg, memoryAccess)...)
 
@@ -582,20 +622,14 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		}
 	}
 
-	// 3. Load skills — merge global registry + project-level skills (project-level overrides global)
-	mergedSkillReg := skill.NewSkillRegistry()
-	if f.skillRegistry != nil {
-		for _, s := range f.skillRegistry.Skills() {
-			if !s.Disabled {
-				_ = mergedSkillReg.Register(s)
-			}
-		}
-	}
+	// 3. Load skills — keep the global registry live and the project registry
+	// local to this Agent. Project Skills override global Skills with the same ID,
+	// while global hot reloads still reach existing Agents.
+	projectSkillReg := skill.NewSkillRegistry()
 	for _, s := range projRes.skills {
-		if !s.Disabled {
-			_ = mergedSkillReg.Register(s) // override if same ID
-		}
+		_ = projectSkillReg.Register(s)
 	}
+	mergedSkillResolver := skill.NewMergedSkillResolver(f.skillRegistry, projectSkillReg)
 
 	// 2b. L2 leader / Top-level agent: inject single unified delegate tool
 	if tmpl.IsLeader {
@@ -639,8 +673,8 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			var baseAgentName string
 			var skillDir string
 
-			if skillID != "" && mergedSkillReg != nil {
-				if s, okSkill := mergedSkillReg.GetSkill(skillID); okSkill {
+			if skillID != "" && mergedSkillResolver != nil {
+				if s, okSkill := mergedSkillResolver.GetSkill(skillID); okSkill {
 					baseAgentName = s.Agent
 					skillDir = s.Dir
 					if s.Instructions != "" {
@@ -712,7 +746,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		dt := tools.NewDelegateTool(tmpl.ID, 25*time.Minute, delegateResolver, f.registry, f.log, workDirPolicy, delegateOpts...)
 		dt.PeerLocateOrSpawn = delegateResolver
 		dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
-			if s, ok := mergedSkillReg.GetSkill(skillID); ok {
+			if s, ok := mergedSkillResolver.GetSkill(skillID); ok {
 				return s.Instructions, s.Agent, s.Dir, true
 			}
 			return "", "", "", false
@@ -722,71 +756,35 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 
 	var skillList []*skill.Skill
 	if !strings.HasPrefix(tmpl.ID, "sim-") && len(tmpl.SkillIDs) > 0 {
-		sr := skill.NewSkillRegistry()
+		resolver := skill.NewFilteredSkillResolver(mergedSkillResolver, tmpl.SkillIDs)
 		for _, id := range tmpl.SkillIDs {
-			if s, ok := mergedSkillReg.GetSkill(id); ok {
+			if s, ok := resolver.GetSkill(id); ok {
 				skillList = append(skillList, s)
-				_ = sr.Register(s)
 			}
 		}
-		if sr.Len() > 0 {
-			// Fork spawn: create a temporary child agent to execute a skill in fork mode
-			forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
-				var basePrompt string
-				if s.Agent != "" {
-					// 1. Try loading base agent template from the skill's own agents/ directory
-					if baseTmpl, ok := LoadSkillAgentTemplate(s.Dir, s.Agent); ok {
+		// Fork spawn: create a temporary child agent to execute a skill in fork mode
+		forkSpawn := func(ctx context.Context, s *skill.Skill, content, args string) (iface.Locatable, func(), error) {
+			var basePrompt string
+			if s.Agent != "" {
+				// 1. Try loading base agent template from the skill's own agents/ directory
+				if baseTmpl, ok := LoadSkillAgentTemplate(s.Dir, s.Agent); ok {
+					basePrompt = baseTmpl.SystemPrompt
+				} else {
+					// 2. Fallback to global templates registry
+					if baseTmpl, ok := templates[strings.ToLower(s.Agent)]; ok {
 						basePrompt = baseTmpl.SystemPrompt
-					} else {
-						// 2. Fallback to global templates registry
-						if baseTmpl, ok := templates[strings.ToLower(s.Agent)]; ok {
-							basePrompt = baseTmpl.SystemPrompt
-						}
 					}
 				}
-
-				finalSystemPrompt := content
-				if basePrompt != "" {
-					finalSystemPrompt = basePrompt + "\n\n# Skill Execution Instructions\n" + content
-				}
-
-				forkDef := Definition{
-					ID:           fmt.Sprintf("skill-fork-%s", s.ID),
-					ModelID:      def.ModelID,
-					SystemPrompt: finalSystemPrompt,
-				}
-
-				// Build tools and filter out cron tools + SendFile because this is an L3 agent
-				forkTools := tools.BuildBase(toolsCfg)
-				var filtered []tools.Tool
-				for _, t := range forkTools {
-					if t.Name() != "SendFile" && !tools.IsCronTool(t.Name()) {
-						filtered = append(filtered, t)
-					}
-				}
-				forkTools = filtered
-
-				if len(s.AllowedTools) > 0 {
-					forkTools = skill.FilterTools(forkTools, s.AllowedTools)
-				}
-				child := NewAgent(forkDef, llm, f.log,
-					WithTools(forkTools...),
-					WithParallelTools(true),
-					WithAgentWorkDir(effectiveWorkDir),
-				)
-				if err := child.Start(ctx); err != nil {
-					return nil, nil, fmt.Errorf("start fork agent: %w", err)
-				}
-				cleanup := func() { child.Stop(5) }
-				return &LocatableAdapter{Agent: child}, cleanup, nil
 			}
-			skillOpts := []skill.SkillToolOption{skill.WithAgentID(tmpl.ID)}
-			if f.skillStats != nil {
-				skillOpts = append(skillOpts, skill.WithInvocationStats(f.skillStats))
-			}
-			skillTool := skill.NewSkillTool(sr, forkSpawn, skillOpts...)
-			allTools = append(allTools, skillTool)
+
+			return createSkillForkAgent(ctx, s, content, def.ModelID, effectiveWorkDir, agentToolsCfg, llm, f.log, basePrompt)
 		}
+		skillOpts := []skill.SkillToolOption{skill.WithAgentID(tmpl.ID)}
+		if f.skillStats != nil {
+			skillOpts = append(skillOpts, skill.WithInvocationStats(f.skillStats))
+		}
+		skillTool := skill.NewSkillToolWithResolver(resolver, forkSpawn, skillOpts...)
+		allTools = append(allTools, skillTool)
 	}
 
 	// 3d. Register MCP tools for servers listed in the agent template.

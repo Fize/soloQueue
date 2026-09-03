@@ -12,6 +12,7 @@ import (
 func (bc *buildContext) buildAgentInfra() {
 	// Initialize tools configuration
 	toolsCfg := bc.settings.Tools.ToToolsConfig()
+	toolsCfg.WorkDir = bc.workDir
 	toolsCfg.MemoryEngine = bc.memoryEngine
 	toolsCfg.PlanDir = bc.planDir
 	toolsCfg.Executor = bc.executor

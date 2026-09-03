@@ -23,6 +23,18 @@ personal project rather than a production-ready enterprise platform.
 - SoloQueue provides a full browser Web Console plus an embedded read-only Status UI for
   local use. Remote access is provided through a user-managed reverse proxy.
 
+Skills are installed and updated independently with [ClawHub](https://github.com/openclaw/clawhub). SoloQueue loads packages already present under `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and hot-reloads their `SKILL.md` definitions when skill directories or recognized entrypoints change; when an agent runs in a project, it also loads compatible project Skills from `<project>/.claude/skills/`. The Web Console provides read-only inspection. Set `SOLOQUEUE_WORK_DIR` to use a different SoloQueue work directory. Use `@owner/slug` for owner-qualified ClawHub resources, and the installed skill slug for uninstall.
+
+```bash
+SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills inspect @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
+```
+
 ## Non-goals
 
 SoloQueue is not intended to replace mature terminal coding tools, and it is

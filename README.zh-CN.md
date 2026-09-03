@@ -21,6 +21,18 @@
   Harness Engineering 实验。
 - 提供完整的浏览器 Web Console 和独立的嵌入式只读状态页。
 
+Skills 使用独立的 [ClawHub](https://github.com/openclaw/clawhub) 安装和更新。SoloQueue 加载 `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` 中已经存在的全局技能包，并在技能目录或受支持的入口文件变化时热加载其 `SKILL.md` 定义；Agent 在项目目录运行时，也会加载 `<project>/.claude/skills/` 中兼容的项目级技能。Web Console 仅提供只读查看。可以设置 `SOLOQUEUE_WORK_DIR` 使用其他工作目录。ClawHub 的所有者限定资源使用 `@owner/slug`，卸载使用已安装技能的 slug。
+
+~~~bash
+SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills inspect @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
+~~~
+
 ## 从源码快速开始
 
 ### 前置条件

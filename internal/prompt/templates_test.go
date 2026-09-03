@@ -115,6 +115,98 @@ func TestDefaultRules_EmotionalToneAdaptation(t *testing.T) {
 	}
 }
 
+func TestHardcodedL1Rules_ClawHubProgressiveLoading(t *testing.T) {
+	required := []string{
+		"Skill Acquisition via ClawHub",
+		"explicit exception to Delegate First",
+		"clawhub --help",
+		"identifies and runs the current version query option shown by that help",
+		"clawhub <command> --help",
+		"current official ClawHub installation or upgrade guidance",
+		"ask the user for explicit approval before installing or upgrading host-level CLI software",
+		"maintain the standalone CLI directly",
+		"never delegate that maintenance",
+		"Never delegate CLI help inspection, version querying, or maintenance",
+		"After maintenance, re-run clawhub --help",
+		"Do not hardcode, pin, or declare a ClawHub version or version-query option",
+		`--workdir "$PWD" --dir skills`,
+		"do not search it speculatively",
+		"Before installing, inspect the candidate",
+		"Never substitute openclaw",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(HardcodedL1Rules, phrase) {
+			t.Errorf("HardcodedL1Rules missing progressive ClawHub guidance %q", phrase)
+		}
+	}
+
+	start := strings.Index(HardcodedL1Rules, "20. **Skill Acquisition via ClawHub")
+	if start < 0 {
+		t.Fatal("could not find the compact ClawHub guidance block")
+	}
+	end := strings.Index(HardcodedL1Rules[start:], "\n22.")
+	if end < 0 {
+		t.Fatal("could not isolate the compact ClawHub guidance block")
+	}
+	if end > 1400 {
+		t.Fatalf("ClawHub guidance block grew beyond its compact progressive-loading budget: %d bytes", end)
+	}
+	block := HardcodedL1Rules[start : start+end]
+	helpIndex := strings.Index(block, "clawhub --help")
+	versionQueryIndex := strings.Index(block, "identifies and runs the current version query option shown by that help")
+	commandHelpIndex := strings.Index(block, "clawhub <command> --help")
+	inspectIndex := strings.Index(block, "Before installing, inspect the candidate")
+	approvalIndex := strings.Index(block, "ask the user for explicit approval before installing or upgrading host-level CLI software")
+	approvedMaintenanceIndex := strings.Index(block, "After approval, maintain the standalone CLI directly")
+	directIndex := strings.Index(block, "perform the operation directly")
+	if helpIndex < 0 || versionQueryIndex < 0 || commandHelpIndex < 0 || inspectIndex < 0 || approvalIndex < 0 || approvedMaintenanceIndex < 0 || directIndex < 0 || helpIndex >= versionQueryIndex || versionQueryIndex >= commandHelpIndex || commandHelpIndex >= inspectIndex || approvalIndex >= approvedMaintenanceIndex || approvedMaintenanceIndex >= directIndex {
+		t.Fatalf("ClawHub guidance must order help, dynamic version query, command help, inspection, approval, and direct mutation: help=%d version_query=%d command_help=%d inspect=%d approval=%d approved_maintenance=%d direct=%d", helpIndex, versionQueryIndex, commandHelpIndex, inspectIndex, approvalIndex, approvedMaintenanceIndex, directIndex)
+	}
+	afterStart := strings.Index(block, "After maintenance,")
+	if afterStart < 0 {
+		t.Fatal("missing post-maintenance verification sequence")
+	}
+	afterMaintenance := block[afterStart:]
+	helpAfter := strings.Index(afterMaintenance, "clawhub --help")
+	versionAfter := strings.Index(afterMaintenance, "identify and run its current version query option from that help")
+	commandHelpAfter := strings.Index(afterMaintenance, "clawhub <command> --help")
+	if helpAfter < 0 || versionAfter <= helpAfter || commandHelpAfter <= versionAfter {
+		t.Fatalf("post-maintenance checks must repeat help, dynamic version query, and command help in order: help=%d version_query=%d command_help=%d", helpAfter, versionAfter, commandHelpAfter)
+	}
+	for _, fixedOption := range []string{"clawhub --version", "--cli-version", "clawhub -V"} {
+		if strings.Contains(block, fixedOption) {
+			t.Errorf("ClawHub guidance must not hardcode version query option %q", fixedOption)
+		}
+	}
+}
+
+func TestHardcodedL1Rules_ClawHubLifecycleStaysWithL1(t *testing.T) {
+	required := []string{
+		"Skill lifecycle management is an L1-only responsibility",
+		"Never delegate Skill search, installation, update, or removal",
+		"perform the operation directly",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(HardcodedL1Rules, phrase) {
+			t.Errorf("HardcodedL1Rules missing direct L1 lifecycle guidance %q", phrase)
+		}
+	}
+}
+
+func TestBuildSkillForkSystemPrompt_ContainsSkillLifecycleBoundary(t *testing.T) {
+	got := BuildSkillForkSystemPrompt("base prompt", "skill instructions")
+	for _, phrase := range []string{
+		"base prompt",
+		"skill instructions",
+		"Do not search, install, update, or uninstall Skills with ClawHub",
+		"report its Skill ID and requirement to L1",
+	} {
+		if !strings.Contains(got, phrase) {
+			t.Errorf("Skill Fork prompt missing %q", phrase)
+		}
+	}
+}
+
 func TestSharedAgentRules_ThreeSkillExecutionModes(t *testing.T) {
 	// The old model made delegation and skill selection mutually exclusive.
 	// The new model classifies by HOW the task reaches the agent: skill

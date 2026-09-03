@@ -98,7 +98,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				return cfg.WriteSoul(prompt.DefaultProfileAnswers())
 			}
 
-			rt, err := runtime.Build(workDir, cfg, log, profileSetup, assets.SkillsFS())
+			rt, err := runtime.Build(workDir, cfg, log, profileSetup)
 			if err != nil {
 				return err
 			}

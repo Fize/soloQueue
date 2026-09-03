@@ -64,6 +64,7 @@ SoloQueue 将 Agent 运行时桥接到外部消息平台，复用同一套会话
 
 在不改变核心代码的前提下扩展内置工具层：
 
-- **Skills**：存放在 `~/.soloqueue/skills/<skill-name>/SKILL.md`，定义带指令、脚本及参考资料的可复用工作流，支持热加载。
+- **Skills**：全局技能安装在 `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/<skill-name>/SKILL.md`；Agent 创建时也会从 `<project>/.claude/skills/<skill-name>/SKILL.md` 加载兼容的项目级技能。技能定义带指令、脚本及参考资料的可复用工作流，全局 `SKILL.md` 定义会在技能目录或受支持的入口文件变化时热加载。SoloQueue 只负责发现、执行和展示已安装内容，不内置目录，也不修改技能文件。
+- **技能生命周期**：使用独立的 [ClawHub](https://github.com/openclaw/clawhub) CLI，并通过 `--workdir "$SOLOQUEUE_HOME" --dir skills` 指向工作目录，其中 `SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"`。`inspect` 和 `install` 使用 `@owner/slug`，更新使用 `update @owner/slug` 或 `update --all`，卸载使用已安装技能的 slug。搜索和查看是只读操作；安装、更新和卸载必须有明确意图，且只由 L1 Agent 直接执行。L2/L3 只使用已安装技能，缺少技能时向 L1 报告 Skill ID。
 - **MCP Server**：在 `~/.soloqueue/mcp.json` 中使用标准 `mcpServers` Map 结构配置，支持 `stdio` 传输机制。
 - **LSP 工具**：在 `settings.yaml` 的 `lspmcp` 下配置语言服务器二进制路径与语言绑定，提供补全、定义跳转等代码智能工具。

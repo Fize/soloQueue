@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getTools, getSkills, fetchStoreSkills as getStoreSkills } from '@/lib/api'
+import { getTools, getSkills } from '@/lib/api'
 import type { ToolListResponse, SkillListResponse } from '@/types'
 
 interface ToolsAndSkillsState {
@@ -10,10 +10,6 @@ interface ToolsAndSkillsState {
   skills: SkillListResponse | null
   skillsLoading: boolean
   fetchSkills: () => Promise<void>
-
-  storeSkills: SkillListResponse | null
-  storeSkillsLoading: boolean
-  fetchStoreSkills: () => Promise<void>
 }
 
 export const useToolsAndSkillsStore = create<ToolsAndSkillsState>((set) => ({
@@ -38,18 +34,6 @@ export const useToolsAndSkillsStore = create<ToolsAndSkillsState>((set) => ({
       set({ skills: data, skillsLoading: false })
     } catch {
       set({ skills: null, skillsLoading: false })
-    }
-  },
-
-  storeSkills: null,
-  storeSkillsLoading: false,
-  fetchStoreSkills: async () => {
-    set({ storeSkillsLoading: true })
-    try {
-      const data = await getStoreSkills()
-      set({ storeSkills: data, storeSkillsLoading: false })
-    } catch {
-      set({ storeSkills: null, storeSkillsLoading: false })
     }
   },
 }))

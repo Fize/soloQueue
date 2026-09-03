@@ -8,11 +8,9 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
 
-// buildSkills initializes the global skill registry and registers built-in and user-defined skills.
-//
-// The production catalog is the embedded skill store (see internal/server/dist/skills,
-// built by `make build-web` and embedded via //go:embed). User-installed skills live
-// in <workDir>/skills/ and override embedded entries with the same ID.
+// buildSkills initializes the registry from skills installed in the SoloQueue
+// work directory. ClawHub owns installation and updates; SoloQueue only loads
+// the resulting SKILL.md packages and hot-reloads their content.
 func (bc *buildContext) buildSkills() {
 	skillStart := time.Now()
 	skill.SetPackageLogger(bc.log)

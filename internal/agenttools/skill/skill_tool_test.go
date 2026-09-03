@@ -17,6 +17,60 @@ func TestSkillToolDescription_NoSkills(t *testing.T) {
 	}
 }
 
+func TestSkillToolDescription_ReflectsRegistryChanges(t *testing.T) {
+	reg := NewSkillRegistry()
+	st := NewSkillTool(reg, nil)
+
+	if got := st.Description(); strings.Contains(got, "after-install") {
+		t.Fatalf("empty registry description unexpectedly contains the later skill: %q", got)
+	}
+	if err := reg.Register(&Skill{
+		ID:          "after-install",
+		Name:        "after-install",
+		Description: "Skill installed after the session started",
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if got := st.Description(); !strings.Contains(got, "after-install") {
+		t.Fatalf("Description() did not reflect the updated registry: %q", got)
+	}
+}
+
+func TestMergedSkillResolver_ProjectOverridesGlobal(t *testing.T) {
+	global := NewSkillRegistry()
+	project := NewSkillRegistry()
+	globalSkill := &Skill{ID: "same", Name: "global", Description: "global description"}
+	projectSkill := &Skill{ID: "same", Name: "project", Description: "project description"}
+	if err := global.Register(globalSkill); err != nil {
+		t.Fatalf("register global skill: %v", err)
+	}
+	if err := project.Register(projectSkill); err != nil {
+		t.Fatalf("register project skill: %v", err)
+	}
+	if err := global.Register(&Skill{ID: "global-only", Description: "global-only description"}); err != nil {
+		t.Fatalf("register global-only skill: %v", err)
+	}
+	if err := project.Register(&Skill{ID: "project-only", Description: "project-only description"}); err != nil {
+		t.Fatalf("register project-only skill: %v", err)
+	}
+
+	resolver := NewMergedSkillResolver(global, project)
+	got, ok := resolver.GetSkill("same")
+	if !ok || got != projectSkill {
+		t.Fatalf("same-ID lookup = %#v, %v; want project skill", got, ok)
+	}
+
+	listed := resolver.Skills()
+	if len(listed) != 3 {
+		t.Fatalf("merged skill count = %d, want 3", len(listed))
+	}
+	for _, s := range listed {
+		if s.ID == "same" && s != projectSkill {
+			t.Fatalf("same-ID listing = %#v, want project skill", s)
+		}
+	}
+}
+
 func TestSkillToolDescription_KeepsDirectiveAndHeader(t *testing.T) {
 	reg := NewSkillRegistry()
 	_ = reg.Register(&Skill{ID: "x", Description: "d"})
@@ -63,7 +117,7 @@ func TestSkillToolDescription_SkipsDisableModelInvocation(t *testing.T) {
 	}
 }
 
-func TestSkillToolDescription_AllDisabled(t *testing.T) {
+func TestSkillToolDescription_AllModelInvocationDisabled(t *testing.T) {
 	reg := NewSkillRegistry()
 	_ = reg.Register(&Skill{ID: "hidden", Description: "h", DisableModelInvocation: true})
 	st := NewSkillTool(reg, nil)

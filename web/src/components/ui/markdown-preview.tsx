@@ -4,8 +4,12 @@ import { memo } from 'react'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
 import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
-import { ExploreFileChip, isExplorePath, getExploreLabel, preprocessExplorePaths } from '@/components/chat/ExploreFileChip'
+import {
+  ExploreFileChip,
+  isExplorePath,
+  getExploreLabel,
+  preprocessExplorePaths,
+} from '@/components/chat/ExploreFileChip'
 
 interface MarkdownPreviewProps {
   content?: string
@@ -44,7 +48,6 @@ function MarkdownPreviewInner({
         isAnimating={isAnimating}
         shikiTheme={['github-light', 'github-dark']}
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
         plugins={{ code }}
         controls={{ table: false, code: { copy: true, download: false } }}
         translations={{
@@ -124,7 +127,7 @@ export const MarkdownPreview = memo(
     prev.className === next.className &&
     prev.isAnimating === next.isAnimating &&
     prev.basePath === next.basePath &&
-    prev.onToggleCheckbox === next.onToggleCheckbox,
+    prev.onToggleCheckbox === next.onToggleCheckbox
 )
 
 // Both static documents and live chat output use the same Streamdown

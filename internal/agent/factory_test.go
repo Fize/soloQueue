@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/agent/llmtypes"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	sqlitedb "github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	memoryengine "github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
@@ -840,6 +842,56 @@ func TestL2L3Directives_ContainSkillUseRules(t *testing.T) {
 	}
 	if !strings.Contains(prompt.L3EnforcedDirectives, "standalone") {
 		t.Error("prompt.L3EnforcedDirectives should classify standalone tasks")
+	}
+}
+
+func TestL2L3Directives_KeepSkillLifecycleWithL1(t *testing.T) {
+	checks := []struct {
+		name string
+		text string
+	}{
+		{"L2", prompt.L2EnforcedDirectivesPart1},
+		{"L3", prompt.L3EnforcedDirectives},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if !strings.Contains(check.text, "Do not search, install, update, or uninstall Skills with ClawHub") {
+				t.Errorf("%s directives should forbid Skill lifecycle management", check.name)
+			}
+			if !strings.Contains(check.text, "report its Skill ID") {
+				t.Errorf("%s directives should route missing Skills to L1", check.name)
+			}
+		})
+	}
+}
+
+func TestBuildL2L3SystemPrompts_IncludeSkillLifecycleBoundary(t *testing.T) {
+	l2 := buildL2SystemPrompt(
+		AgentTemplate{ID: "leader", Name: "Leader", IsLeader: true, Group: "team"},
+		nil,
+		nil,
+		"/work/plan",
+		"/work",
+		"/work/explore",
+		nil,
+		false,
+	)
+	l3 := buildL3SystemPrompt(
+		AgentTemplate{ID: "worker", Name: "Worker"},
+		nil,
+		"/work/plan",
+		"/work",
+		"/work/explore",
+	)
+	for name, got := range map[string]string{"L2": l2, "L3": l3} {
+		t.Run(name, func(t *testing.T) {
+			if !strings.Contains(got, "Do not search, install, update, or uninstall Skills with ClawHub") {
+				t.Errorf("%s system prompt should include lifecycle boundary", name)
+			}
+			if !strings.Contains(got, "report its Skill ID and requirement to L1") {
+				t.Errorf("%s system prompt should route missing Skills to L1", name)
+			}
+		})
 	}
 }
 
@@ -1726,6 +1778,382 @@ func TestDefaultFactory_Create_WorkDirFallbackGroupWorkspace(t *testing.T) {
 
 	if ag3.WorkDir != globalWorkDir {
 		t.Errorf("ag3.WorkDir = %q, want %q", ag3.WorkDir, globalWorkDir)
+	}
+}
+
+func TestCreateSkillForkAgent_UsesEffectiveWorkDir(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		workDir string
+	}{
+		{name: "l2", workDir: filepath.Join(t.TempDir(), "workspace", "engineering")},
+		{name: "l3", workDir: filepath.Join(t.TempDir(), "project")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			log, err := logger.System(tc.workDir, logger.WithConsole(false))
+			if err != nil {
+				t.Fatalf("logger.System: %v", err)
+			}
+			defer log.Close()
+
+			loc, cleanup, err := createSkillForkAgent(
+				context.Background(),
+				&skill.Skill{ID: tc.name + "-skill"},
+				"execute skill",
+				"test-model",
+				tc.workDir,
+				tools.Config{},
+				&agenttest.FakeLLM{},
+				log,
+				"",
+			)
+			if err != nil {
+				t.Fatalf("createSkillForkAgent: %v", err)
+			}
+			defer cleanup()
+
+			child, ok := loc.(*LocatableAdapter)
+			if !ok {
+				t.Fatalf("fork locatable type = %T, want *LocatableAdapter", loc)
+			}
+			if child.Agent.WorkDir != tc.workDir {
+				t.Fatalf("fork Agent.WorkDir = %q, want %q", child.Agent.WorkDir, tc.workDir)
+			}
+		})
+	}
+}
+
+func TestCreateSkillForkAgent_ContainsSkillLifecycleBoundary(t *testing.T) {
+	workDir := t.TempDir()
+	log, err := logger.System(workDir, logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+
+	loc, cleanup, err := createSkillForkAgent(
+		context.Background(),
+		&skill.Skill{ID: "fork-skill"},
+		"execute skill",
+		"test-model",
+		workDir,
+		tools.Config{},
+		&agenttest.FakeLLM{},
+		log,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("createSkillForkAgent: %v", err)
+	}
+	defer cleanup()
+
+	child, ok := loc.(*LocatableAdapter)
+	if !ok {
+		t.Fatalf("fork locatable type = %T, want *LocatableAdapter", loc)
+	}
+	if !strings.Contains(child.Agent.Def.SystemPrompt, "Do not search, install, update, or uninstall Skills with ClawHub") {
+		t.Fatal("Skill Fork prompt should forbid Skill lifecycle management")
+	}
+	if !strings.Contains(child.Agent.Def.SystemPrompt, "report its Skill ID") {
+		t.Fatal("Skill Fork prompt should route missing Skills to L1")
+	}
+}
+
+func TestCreateSkillForkAgent_BashUsesEffectiveWorkDir(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		isLeader bool
+	}{
+		{name: "l2", isLeader: true},
+		{name: "l3", isLeader: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			globalWorkDir := t.TempDir()
+			log, err := logger.System(globalWorkDir, logger.WithConsole(false))
+			if err != nil {
+				t.Fatalf("logger.System: %v", err)
+			}
+			defer log.Close()
+
+			const skillID = "bash-cwd-skill"
+			skillReg := skill.NewSkillRegistry()
+			if err := skillReg.Register(&skill.Skill{
+				ID:           skillID,
+				Context:      "fork",
+				AllowedTools: []string{"Bash"},
+				Instructions: "execute the requested command",
+			}); err != nil {
+				t.Fatalf("register skill: %v", err)
+			}
+
+			var bashResult string
+			var forkToolNames []string
+			fakeLLM := &agenttest.FakeLLM{
+				Responses: []string{"fork complete"},
+				ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+					Index:     0,
+					ID:        "bash-cwd-call",
+					Name:      "Bash",
+					Arguments: `{"command":"pwd"}`,
+				}}},
+				FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
+				Hook: func(req llmtypes.LLMRequest) {
+					if len(req.Tools) > 0 {
+						forkToolNames = make([]string, 0, len(req.Tools))
+						for _, tool := range req.Tools {
+							forkToolNames = append(forkToolNames, tool.Function.Name)
+						}
+					}
+					for _, message := range req.Messages {
+						if message.Role == "tool" && message.Name == "Bash" {
+							bashResult = message.Content
+						}
+					}
+				},
+			}
+			factory := NewDefaultFactory(
+				NewRegistry(log),
+				fakeLLM,
+				tools.Config{},
+				log,
+				WithWorkDir(globalWorkDir),
+				WithSkillRegistry(skillReg),
+			)
+			parent, _, err := factory.Create(context.Background(), AgentTemplate{
+				ID:       tc.name + "-agent",
+				Name:     tc.name + " agent",
+				IsLeader: tc.isLeader,
+				SkillIDs: []string{skillID},
+			}, workDir)
+			if err != nil {
+				t.Fatalf("factory.Create: %v", err)
+			}
+			defer parent.Stop(time.Second)
+
+			skillTool, ok := parent.tools.Get("Skill")
+			if !ok {
+				t.Fatal("parent agent does not expose Skill")
+			}
+			if _, err := skillTool.Execute(context.Background(), `{"skill":"`+skillID+`","args":"inspect cwd"}`); err != nil {
+				t.Fatalf("Skill.Execute: %v", err)
+			}
+			if !strings.Contains(bashResult, workDir) {
+				t.Fatalf("fork Bash result = %q, want effective workdir %q", bashResult, workDir)
+			}
+			if len(forkToolNames) != 1 || forkToolNames[0] != "Bash" {
+				t.Fatalf("fork tools = %v, want only Bash after filtering", forkToolNames)
+			}
+		})
+	}
+}
+
+func TestDefaultFactory_ExistingAgentSeesGlobalSkillReload(t *testing.T) {
+	globalDir := t.TempDir()
+	skillDir := filepath.Join(globalDir, "dynamic")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	path := filepath.Join(skillDir, "SKILL.md")
+	writeFactorySkillMD(t, path, "dynamic", "first")
+
+	globalSkills, err := skill.LoadSkillsFromDir(globalDir)
+	if err != nil {
+		t.Fatalf("LoadSkillsFromDir: %v", err)
+	}
+	globalReg := skill.NewSkillRegistry()
+	for _, s := range globalSkills {
+		if err := globalReg.Register(s); err != nil {
+			t.Fatalf("register skill: %v", err)
+		}
+	}
+
+	workDir := t.TempDir()
+	log, err := logger.System(workDir, logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+
+	factory := NewDefaultFactory(NewRegistry(log), &agenttest.FakeLLM{}, tools.Config{}, log,
+		WithWorkDir(workDir), WithSkillRegistry(globalReg))
+	ag, _, err := factory.Create(context.Background(), AgentTemplate{
+		ID:       "dynamic-skill-agent",
+		Name:     "Dynamic Skill Agent",
+		SkillIDs: []string{"dynamic"},
+	}, workDir)
+	if err != nil {
+		t.Fatalf("factory.Create: %v", err)
+	}
+	defer ag.Stop(time.Second)
+
+	tool, ok := ag.tools.Get("Skill")
+	if !ok {
+		t.Fatal("agent does not expose Skill tool")
+	}
+	result, err := tool.Execute(context.Background(), `{"skill":"dynamic"}`)
+	if err != nil || !strings.Contains(result, "first instructions") {
+		t.Fatalf("initial Skill execution = %q, err = %v", result, err)
+	}
+
+	writeFactorySkillMD(t, path, "dynamic", "second")
+	if err := globalReg.Rebuild(map[string]string{"user": globalDir}); err != nil {
+		t.Fatalf("reload skill registry: %v", err)
+	}
+	result, err = tool.Execute(context.Background(), `{"skill":"dynamic"}`)
+	if err != nil || !strings.Contains(result, "second instructions") || strings.Contains(result, "first instructions") {
+		t.Fatalf("reloaded Skill execution = %q, err = %v", result, err)
+	}
+
+	if err := os.RemoveAll(skillDir); err != nil {
+		t.Fatalf("remove skill: %v", err)
+	}
+	if err := globalReg.Rebuild(map[string]string{"user": globalDir}); err != nil {
+		t.Fatalf("reload after delete: %v", err)
+	}
+	result, err = tool.Execute(context.Background(), `{"skill":"dynamic"}`)
+	if err != nil || !strings.Contains(result, `skill "dynamic" not found`) {
+		t.Fatalf("deleted Skill execution = %q, err = %v", result, err)
+	}
+}
+
+func TestDefaultFactory_RegistersSkillToolWhenConfiguredSkillIsMissing(t *testing.T) {
+	workDir := t.TempDir()
+	log, err := logger.System(workDir, logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+
+	factory := NewDefaultFactory(
+		NewRegistry(log),
+		&agenttest.FakeLLM{},
+		tools.Config{},
+		log,
+		WithWorkDir(workDir),
+		WithSkillRegistry(skill.NewSkillRegistry()),
+	)
+	ag, _, err := factory.Create(context.Background(), AgentTemplate{
+		ID:       "missing-skill-agent",
+		Name:     "Missing Skill Agent",
+		SkillIDs: []string{"not-installed"},
+	}, workDir)
+	if err != nil {
+		t.Fatalf("factory.Create: %v", err)
+	}
+	defer ag.Stop(time.Second)
+
+	if !ag.HasTool("Skill") {
+		t.Fatal("agent should expose Skill tool while a configured skill is missing")
+	}
+}
+
+func TestDefaultFactory_MissingConfiguredSkillBecomesUsableAfterRegistryReload(t *testing.T) {
+	globalDir := t.TempDir()
+	workDir := t.TempDir()
+	log, err := logger.System(workDir, logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+
+	globalReg := skill.NewSkillRegistry()
+	factory := NewDefaultFactory(
+		NewRegistry(log),
+		&agenttest.FakeLLM{},
+		tools.Config{},
+		log,
+		WithWorkDir(workDir),
+		WithSkillRegistry(globalReg),
+	)
+	ag, _, err := factory.Create(context.Background(), AgentTemplate{
+		ID:       "late-skill-agent",
+		Name:     "Late Skill Agent",
+		SkillIDs: []string{"late-skill"},
+	}, workDir)
+	if err != nil {
+		t.Fatalf("factory.Create: %v", err)
+	}
+	defer ag.Stop(time.Second)
+
+	tool, ok := ag.tools.Get("Skill")
+	if !ok {
+		t.Fatal("agent should expose Skill tool while the configured skill is missing")
+	}
+	result, err := tool.Execute(context.Background(), `{"skill":"late-skill"}`)
+	if err != nil || !strings.Contains(result, `skill "late-skill" not found`) {
+		t.Fatalf("missing Skill execution = %q, err = %v", result, err)
+	}
+
+	skillDir := filepath.Join(globalDir, "late-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	writeFactorySkillMD(t, filepath.Join(skillDir, "SKILL.md"), "late-skill", "late")
+	if err := globalReg.Rebuild(map[string]string{"user": globalDir}); err != nil {
+		t.Fatalf("reload skill registry: %v", err)
+	}
+
+	result, err = tool.Execute(context.Background(), `{"skill":"late-skill"}`)
+	if err != nil || !strings.Contains(result, "late instructions") {
+		t.Fatalf("reloaded Skill execution = %q, err = %v", result, err)
+	}
+}
+
+func TestDefaultFactory_ConfiguredSkillIDsFilterLiveResolver(t *testing.T) {
+	workDir := t.TempDir()
+	log, err := logger.System(workDir, logger.WithConsole(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+
+	globalReg := skill.NewSkillRegistry()
+	for _, s := range []*skill.Skill{
+		{ID: "allowed", Description: "allowed skill", Instructions: "allowed instructions"},
+		{ID: "unrelated", Description: "unrelated skill", Instructions: "unrelated instructions"},
+	} {
+		if err := globalReg.Register(s); err != nil {
+			t.Fatalf("register skill %q: %v", s.ID, err)
+		}
+	}
+
+	factory := NewDefaultFactory(
+		NewRegistry(log),
+		&agenttest.FakeLLM{},
+		tools.Config{},
+		log,
+		WithWorkDir(workDir),
+		WithSkillRegistry(globalReg),
+	)
+	ag, _, err := factory.Create(context.Background(), AgentTemplate{
+		ID:       "filtered-skill-agent",
+		Name:     "Filtered Skill Agent",
+		SkillIDs: []string{"allowed"},
+	}, workDir)
+	if err != nil {
+		t.Fatalf("factory.Create: %v", err)
+	}
+	defer ag.Stop(time.Second)
+
+	tool, ok := ag.tools.Get("Skill")
+	if !ok {
+		t.Fatal("agent should expose Skill tool")
+	}
+	if description := tool.Description(); !strings.Contains(description, "allowed") || strings.Contains(description, "unrelated") {
+		t.Fatalf("Skill description = %q, want only configured skill", description)
+	}
+	result, err := tool.Execute(context.Background(), `{"skill":"unrelated"}`)
+	if err != nil || !strings.Contains(result, `skill "unrelated" not found`) {
+		t.Fatalf("unrelated Skill execution = %q, err = %v", result, err)
+	}
+}
+
+func writeFactorySkillMD(t *testing.T, path, name, instruction string) {
+	t.Helper()
+	content := "---\nname: " + name + "\ndescription: " + instruction + "\n---\n\n" + instruction + " instructions.\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }
 

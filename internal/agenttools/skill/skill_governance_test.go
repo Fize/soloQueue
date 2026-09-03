@@ -68,24 +68,3 @@ func TestGovernanceReport_DescriptionQuality(t *testing.T) {
 		t.Errorf("well-formed skill should not be flagged: %+v", rep.QualityWarnings)
 	}
 }
-
-func TestGovernanceReport_DisabledSkillsExcluded(t *testing.T) {
-	reg := NewSkillRegistry()
-	_ = reg.Register(&Skill{ID: "enabled", Description: "d"})
-	_ = reg.Register(&Skill{ID: "disabled", Description: "", Disabled: true})
-
-	rep, err := BuildGovernanceReport(reg, nil, time.Now())
-	if err != nil {
-		t.Fatalf("report: %v", err)
-	}
-	for _, id := range rep.NeverInvoked {
-		if id == "disabled" {
-			t.Errorf("disabled skills must not appear in the report: %v", rep.NeverInvoked)
-		}
-	}
-	for _, w := range rep.QualityWarnings {
-		if w.SkillID == "disabled" {
-			t.Errorf("disabled skills must not be quality-flagged: %+v", rep.QualityWarnings)
-		}
-	}
-}

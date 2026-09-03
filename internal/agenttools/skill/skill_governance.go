@@ -19,8 +19,8 @@ type GovernanceWarning struct {
 
 // GovernanceReport is the outcome of a skill-hygiene inspection.
 type GovernanceReport struct {
-	// NeverInvoked lists visible (non-disabled, model-invocable) skills with no
-	// recorded invocations in the stats window. Nil stats ⇒ all qualify.
+	// NeverInvoked lists model-invocable skills with no recorded invocations in
+	// the stats window. Nil stats ⇒ all qualify.
 	NeverInvoked []string
 	// QualityWarnings lists skills whose metadata weakens model activation.
 	QualityWarnings []GovernanceWarning
@@ -41,7 +41,7 @@ func BuildGovernanceReport(reg *SkillRegistry, stats InvocationStats, since time
 	}
 
 	for _, s := range reg.Skills() {
-		if s.Disabled || s.DisableModelInvocation {
+		if s.DisableModelInvocation {
 			continue
 		}
 		if counts[s.ID] == 0 {

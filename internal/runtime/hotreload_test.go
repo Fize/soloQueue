@@ -9,10 +9,244 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 )
+
+func TestRegisterSkillHotReload_DelayedEntrypointWrite(t *testing.T) {
+	root := t.TempDir()
+	log, err := logger.System(root, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+
+	reg := skill.NewSkillRegistry()
+	closeWatcher := registerSkillHotReload(reg, map[string]string{"user": root}, log)
+	defer closeWatcher()
+
+	skillDir := filepath.Join(root, "delayed")
+	if err := os.Mkdir(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	time.Sleep(350 * time.Millisecond)
+	content := "---\nname: delayed\ndescription: loaded after extraction\n---\n\nInstructions.\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := reg.GetSkill("delayed"); ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("delayed SKILL.md write was not hot-reloaded")
+}
+
+func TestRegisterSkillHotReload_UpdatesExistingSkill(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "versioned")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	path := filepath.Join(skillDir, "SKILL.md")
+	writeSkillMD(t, path, "versioned", "first")
+
+	log, err := logger.System(root, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+	reg := skill.NewSkillRegistry()
+	if err := reg.Rebuild(map[string]string{"user": root}); err != nil {
+		t.Fatalf("initial rebuild: %v", err)
+	}
+	closeWatcher := registerSkillHotReload(reg, map[string]string{"user": root}, log)
+	defer closeWatcher()
+
+	writeSkillMD(t, path, "versioned", "second")
+	waitForSkill(t, reg, "versioned", "second")
+}
+
+func TestRegisterSkillHotReload_RemovesDeletedSkill(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "removable")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	writeSkillMD(t, filepath.Join(skillDir, "SKILL.md"), "removable", "present")
+
+	log, err := logger.System(root, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+	reg := skill.NewSkillRegistry()
+	if err := reg.Rebuild(map[string]string{"user": root}); err != nil {
+		t.Fatalf("initial rebuild: %v", err)
+	}
+	closeWatcher := registerSkillHotReload(reg, map[string]string{"user": root}, log)
+	defer closeWatcher()
+
+	if err := os.RemoveAll(skillDir); err != nil {
+		t.Fatalf("remove skill: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := reg.GetSkill("removable"); !ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("deleted skill remained in registry")
+}
+
+func TestStackShutdown_ClosesSkillHotReload(t *testing.T) {
+	root := t.TempDir()
+	log, err := logger.System(root, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+
+	reg := skill.NewSkillRegistry()
+	rt := &Stack{SkillRegistry: reg}
+	rt.skillWatcherClose = registerSkillHotReload(reg, map[string]string{"user": root}, log)
+	rt.Shutdown()
+
+	skillDir := filepath.Join(root, "after-shutdown")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	writeSkillMD(t, filepath.Join(skillDir, "SKILL.md"), "after-shutdown", "must not load")
+	time.Sleep(400 * time.Millisecond)
+	if _, ok := reg.GetSkill("after-shutdown"); ok {
+		t.Fatal("skill watcher rebuilt registry after Stack.Shutdown")
+	}
+}
+
+func TestSkillWatcher_SerializesRebuildAndWaitsOnClose(t *testing.T) {
+	root := t.TempDir()
+	log, err := logger.System(root, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+
+	sw, err := newSkillWatcher(skill.NewSkillRegistry(), map[string]string{"user": root}, log)
+	if err != nil {
+		t.Fatalf("newSkillWatcher: %v", err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	calls, active, maxActive := 0, 0, 0
+	sw.rebuildFn = func() error {
+		mu.Lock()
+		calls++
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		call := calls
+		mu.Unlock()
+
+		if call == 1 {
+			close(started)
+			<-release
+		}
+
+		mu.Lock()
+		active--
+		mu.Unlock()
+		return nil
+	}
+	go sw.run()
+
+	sw.scheduleRebuild()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		sw.Close()
+		t.Fatal("first rebuild did not start")
+	}
+	sw.scheduleRebuild()
+
+	closeDone := make(chan struct{})
+	go func() {
+		sw.Close()
+		close(closeDone)
+	}()
+	select {
+	case <-closeDone:
+		t.Fatal("Close returned while rebuild callback was active")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-closeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not wait for skill watcher shutdown")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if maxActive != 1 {
+		t.Fatalf("max concurrent rebuilds = %d, want 1", maxActive)
+	}
+}
+
+func TestRegisterSkillHotReload_IgnoresSymlinkDirectory(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	externalSkillDir := filepath.Join(external, "outside")
+	if err := os.MkdirAll(externalSkillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillMD(t, filepath.Join(externalSkillDir, "SKILL.md"), "outside", "must not load")
+	log, err := logger.System(root, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+	reg := skill.NewSkillRegistry()
+	closeWatcher := registerSkillHotReload(reg, map[string]string{"user": root}, log)
+	defer closeWatcher()
+
+	if err := os.Symlink(externalSkillDir, filepath.Join(root, "outside")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if _, ok := reg.GetSkill("outside"); ok {
+		t.Fatal("watcher loaded a Skill through a symlink directory")
+	}
+}
+
+func writeSkillMD(t *testing.T, path, name, instruction string) {
+	t.Helper()
+	content := "---\nname: " + name + "\ndescription: " + instruction + "\n---\n\n" + instruction + " instructions.\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func waitForSkill(t *testing.T, reg *skill.SkillRegistry, id, description string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if loaded, ok := reg.GetSkill(id); ok && loaded.Description == description {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("skill %q did not reach description %q", id, description)
+}
 
 func TestRegisterPromptHotReload(t *testing.T) {
 	tempDir := t.TempDir()

@@ -23,16 +23,6 @@ import (
 
 // ─── Skill Type ────────────────────────────────────────────────────────────
 
-// SkillCategory distinguishes between built-in and external Skills.
-type SkillCategory string
-
-const (
-	// SkillBuiltin represents a built-in Skill (registered by Go code).
-	SkillBuiltin SkillCategory = "builtin"
-	// SkillUser represents a user-defined external Skill (loaded from SKILL.md files).
-	SkillUser SkillCategory = "user"
-)
-
 // Skill is an immutable skill definition (not modified after construction).
 //
 // It aligns with Claude Code's Skill mechanism: a Skill is an executable capability callable by an LLM,
@@ -53,8 +43,7 @@ type Skill struct {
 
 	// Instructions contains the full instruction content.
 	//
-	// For skills loaded from SKILL.md, this is the body part;
-	// for built-in skills, this is the instruction text defined in Go code.
+	// For skills loaded from SKILL.md, this is the body part.
 	Instructions string
 
 	// AllowedTools is a tool whitelist; nil means no restrictions.
@@ -76,10 +65,7 @@ type Skill struct {
 	// Agent is the type of sub-agent when forking (e.g., "general-purpose", "Explore").
 	Agent string
 
-	// Category returns the Skill's classification (builtin or user).
-	Category SkillCategory
-
-	// FilePath is the absolute path to SKILL.md (empty for built-in skills).
+	// FilePath is the absolute path to SKILL.md.
 	FilePath string
 
 	// Dir is the directory containing SKILL.md (supports file reference resolution).
@@ -88,69 +74,8 @@ type Skill struct {
 	// Triggers are keywords that can trigger the skill.
 	Triggers []string
 
-	// Disabled indicates whether the skill is disabled.
-	Disabled bool
-
-	// Upstream is the remote Git repository address.
-	Upstream string
-
-	// Branch is the remote Git branch name.
-	Branch string
-
-	// SubPath is the sub-directory path within the remote Git repository.
-	SubPath string
-
 	// RequiredEnv required environment variables for the skill
 	RequiredEnv []string
-}
-
-// ─── Constructors ──────────────────────────────────────────────────────────────
-
-// SkillOption is an optional configuration for a Skill.
-type SkillOption func(*Skill)
-
-// WithAllowedTools sets the tool whitelist.
-func WithAllowedTools(tools []string) SkillOption {
-	return func(s *Skill) { s.AllowedTools = tools }
-}
-
-// WithDisableModelInvocation prevents AI from automatically calling the skill.
-func WithDisableModelInvocation() SkillOption {
-	return func(s *Skill) { s.DisableModelInvocation = true }
-}
-
-// WithUserInvocable sets whether the skill appears in the / menu.
-func WithUserInvocable(v bool) SkillOption {
-	return func(s *Skill) { s.UserInvocable = v }
-}
-
-// WithContext sets the execution mode ("fork" or "").
-func WithContext(ctx string) SkillOption {
-	return func(s *Skill) { s.Context = ctx }
-}
-
-// WithAgent sets the sub-agent type when forking.
-func WithAgent(agent string) SkillOption {
-	return func(s *Skill) { s.Agent = agent }
-}
-
-// NewBuiltinSkill constructs a built-in Skill.
-//
-// id must not be empty (will cause an error during registration).
-// instructions is the full instruction for the skill.
-func NewBuiltinSkill(id, desc, instructions string, opts ...SkillOption) *Skill {
-	s := &Skill{
-		ID:            id,
-		Name:          id,
-		Description:   desc,
-		Instructions:  instructions,
-		UserInvocable: true,
-		Category:      SkillBuiltin,
-	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
 }
 
 // maxSkillDescriptionChars is the maximum character count for the combined description, aligning with Claude Code.

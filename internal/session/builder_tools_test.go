@@ -59,10 +59,30 @@ func TestBuilderBuild_RegistersExpectedL1Tools(t *testing.T) {
 	if !hasToolSpec(a, "Remember") || !hasToolSpec(a, "RecallMemory") {
 		t.Fatal("L1 tools do not include L1-bound memory capabilities")
 	}
+	if !hasToolSpec(a, "Skill") {
+		t.Fatal("L1 tools must include Skill even when no skills are installed yet")
+	}
 	for _, removed := range []string{"workflow_list", "workflow_run", "workflow_get", "workflow_wait"} {
 		if hasToolSpec(a, removed) {
 			t.Fatalf("L1 tools still include removed tool %q", removed)
 		}
+	}
+}
+
+func TestBuilderBuild_PropagatesWorkDirToL1AgentAndTools(t *testing.T) {
+	workDir, cfg, rt := newBuilderRegistryTestHarness(t)
+
+	a, _, timelineWriter, err := NewBuilder(rt, workDir, cfg, false).Build(context.Background(), "default")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = a.Stop(time.Second)
+		_ = timelineWriter.Close()
+	})
+
+	if a.WorkDir != workDir {
+		t.Fatalf("L1 Agent.WorkDir = %q, want %q", a.WorkDir, workDir)
 	}
 }
 

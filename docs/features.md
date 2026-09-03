@@ -64,6 +64,7 @@ Channel notifications for Cron runs are delivered on a best-effort basis; the We
 
 Extend built-in tools without modifying core runtime code:
 
-- **Skills**: Kept under `~/.soloqueue/skills/<skill-name>/SKILL.md`. Define reusable workflows with instructions, scripts, and assets. Automatically hot-reloaded.
+- **Skills**: Global packages are installed under `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/<skill-name>/SKILL.md`; agents also load compatible project packages from `<project>/.claude/skills/<skill-name>/SKILL.md` when they are created. SoloQueue discovers, executes, and displays installed packages; global `SKILL.md` definitions hot-reload when skill directories or recognized entrypoints change. It does not embed a catalog or modify skill files.
+- **Skill lifecycle**: Use the standalone [ClawHub](https://github.com/openclaw/clawhub) CLI with `--workdir "$SOLOQUEUE_HOME" --dir skills`, where `SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"`. Use `@owner/slug` for `inspect` and `install`, `update @owner/slug` or `update --all` for updates, and the installed slug for `uninstall`. Search and inspect are read-only; installation, updates, and removal require explicit intent. Only the L1 agent performs these operations directly; L2/L3 agents use installed Skills and report missing Skill IDs to L1.
 - **MCP Servers**: Configured in `~/.soloqueue/mcp.json` using standard `mcpServers` map format. Support `stdio` transport servers.
 - **LSP Tools**: Language servers configured under `lspmcp` in `settings.yaml` provide code intelligence tools (code completion, symbol search, jump to definition).
