@@ -13,21 +13,19 @@ const (
 )
 
 const (
-	UsageChat       = "chat"
-	UsageRouter     = "router"
-	UsageCompactor  = "compactor"
-	UsageMemory     = "memory"
-	UsageSimulation = "simulation"
+	UsageChat      = "chat"
+	UsageRouter    = "router"
+	UsageCompactor = "compactor"
+	UsageMemory    = "memory"
 )
 
 const (
-	OriginDesktop    = "desktop"
-	OriginAPI        = "api"
-	OriginQQ         = "qq"
-	OriginWechat     = "wechat"
-	OriginCron       = "cron"
-	OriginSimulation = "simulation"
-	OriginSystem     = "system"
+	OriginDesktop = "desktop"
+	OriginAPI     = "api"
+	OriginQQ      = "qq"
+	OriginWechat  = "wechat"
+	OriginCron    = "cron"
+	OriginSystem  = "system"
 )
 
 type Metadata struct {

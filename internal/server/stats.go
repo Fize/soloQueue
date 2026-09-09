@@ -402,6 +402,8 @@ func (m *Mux) parseStatsQuery(w http.ResponseWriter, r *http.Request, withRange 
 		return statsQuery{}, false
 	}
 	query.Location = location
+	// Simulation is accepted only to query historical rows in the shared metrics
+	// database. Removing the engine must not hide or relabel recorded usage.
 	validEnums := []struct {
 		name  string
 		value string
@@ -598,6 +600,7 @@ func buildStatsMeta(query statsQuery, bucketSize string, rows []db.LLMCallMetric
 }
 
 func isKnownOrigin(value string) bool {
+	// Historical origins remain meaningful after their producing feature is removed.
 	return containsString([]string{"desktop", "api", "qq", "wechat", "cron", "simulation", "system"}, value)
 }
 

@@ -158,14 +158,6 @@ func DefaultSettings() Settings {
 			Fallback:    "deepseek:deepseek-v4-flash",
 		},
 		Agent: AgentConfig{},
-		Simulation: SimulationConfig{
-			DefaultMaxWallClockMs: 1080000,
-			EnableReflection:      true,
-			SimulatedHours:        168,
-			TickIntervalMs:        1000,
-			TimeScale:             300,
-			Language:              "zh",
-		},
 		Speech: SpeechConfig{
 			Enabled: false,
 			Model:   "small",

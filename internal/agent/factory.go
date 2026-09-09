@@ -418,7 +418,7 @@ func (f *DefaultFactory) Log() *logger.Logger {
 // If empty, the factory's global workDir (~/.soloqueue) is used.
 func (f *DefaultFactory) Create(ctx context.Context, tmpl AgentTemplate, workDir string) (*Agent, *ctxwin.ContextWindow, error) {
 	opts := CreateOptions{MemoryPolicy: MemoryDisabled}
-	if tmpl.IsLeader && tmpl.Group != "" && !strings.HasPrefix(tmpl.ID, "sim-") {
+	if tmpl.IsLeader && tmpl.Group != "" {
 		opts.MemoryPolicy = MemoryL2Group
 	}
 	return f.CreateWithOptions(ctx, tmpl, workDir, opts)
@@ -606,20 +606,18 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			Owner: tmpl.Group,
 		}
 	}
-	if !strings.HasPrefix(tmpl.ID, "sim-") {
-		allTools = tools.BuildBase(agentToolsCfg)
-		allTools = append(allTools, tools.BuildMemory(agentToolsCfg, memoryAccess)...)
+	allTools = tools.BuildBase(agentToolsCfg)
+	allTools = append(allTools, tools.BuildMemory(agentToolsCfg, memoryAccess)...)
 
-		// Additionally filter SendFile for L3 workers only
-		if !tmpl.IsLeader {
-			var filtered []tools.Tool
-			for _, t := range allTools {
-				if t.Name() != "SendFile" {
-					filtered = append(filtered, t)
-				}
+	// Additionally filter SendFile for L3 workers only
+	if !tmpl.IsLeader {
+		var filtered []tools.Tool
+		for _, t := range allTools {
+			if t.Name() != "SendFile" {
+				filtered = append(filtered, t)
 			}
-			allTools = filtered
 		}
+		allTools = filtered
 	}
 
 	// 3. Load skills — keep the global registry live and the project registry
@@ -755,7 +753,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	}
 
 	var skillList []*skill.Skill
-	if !strings.HasPrefix(tmpl.ID, "sim-") && len(tmpl.SkillIDs) > 0 {
+	if len(tmpl.SkillIDs) > 0 {
 		resolver := skill.NewFilteredSkillResolver(mergedSkillResolver, tmpl.SkillIDs)
 		for _, id := range tmpl.SkillIDs {
 			if s, ok := resolver.GetSkill(id); ok {
@@ -789,7 +787,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 
 	// 3d. Register MCP tools for servers listed in the agent template.
 	// Project-level MCP config overrides global config for the same server name.
-	if !strings.HasPrefix(tmpl.ID, "sim-") && f.mcpManager != nil && len(tmpl.MCPServers) > 0 {
+	if f.mcpManager != nil && len(tmpl.MCPServers) > 0 {
 		for _, serverName := range tmpl.MCPServers {
 			mcpTools := f.mcpManager.GetToolsWithOverride(ctx, serverName, projRes.mcpCfg)
 			if mcpTools == nil {
@@ -803,9 +801,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			allTools = append(allTools, mcpTools...)
 		}
 	}
-	if !strings.HasPrefix(tmpl.ID, "sim-") {
-		allTools = append(allTools, tools.NewInspectDelegationTool())
-	}
+	allTools = append(allTools, tools.NewInspectDelegationTool())
 
 	// 4. Build Option list
 	agentOpts := []Option{

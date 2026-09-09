@@ -4,42 +4,28 @@ import {
   updateToolsConfig,
   getSessionConfig,
   updateSessionConfig,
-  getSimulationConfig,
-  updateSimulationConfig,
-  listProviders,
-  listModels,
 } from '@/lib/api'
-import type { ToolsConfig, SessionConfig, SimulationConfig, LLMProvider, LLMModel } from '@/types'
+import type { ToolsConfig, SessionConfig } from '@/types'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
 import { ToolsSection } from './ConfigTab/ToolsSection'
 import { SessionSection } from './ConfigTab/SessionSection'
-import { SimulationSection } from './ConfigTab/SimulationSection'
 
 export function SafetyTab() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
   const [toolsConfig, setToolsConfig] = useState<ToolsConfig | null>(null)
   const [sessionConfig, setSessionConfig] = useState<SessionConfig | null>(null)
-  const [simulationConfig, setSimulationConfig] = useState<SimulationConfig | null>(null)
-  const [providers, setProviders] = useState<LLMProvider[]>([])
-  const [models, setModels] = useState<LLMModel[]>([])
 
   const loadData = async () => {
     setLoading(true)
     try {
-      const [dbTools, dbSession, dbSimulation, dbProviders, dbModels] = await Promise.all([
+      const [dbTools, dbSession] = await Promise.all([
         getToolsConfig(),
         getSessionConfig(),
-        getSimulationConfig(),
-        listProviders(),
-        listModels(),
       ])
       setToolsConfig(dbTools)
       setSessionConfig(dbSession)
-      setSimulationConfig(dbSimulation)
-      setProviders(dbProviders || [])
-      setModels(dbModels || [])
     } catch (err) {
       toast.error((err as Error).message)
     } finally {
@@ -76,17 +62,6 @@ export function SafetyTab() {
     }
   }
 
-  const handleSaveSimulation = async () => {
-    if (!simulationConfig) return
-    try {
-      await updateSimulationConfig(simulationConfig)
-      toast.success(t('config.toastSimulationUpdated'))
-      loadData()
-    } catch (err) {
-      toast.error((err as Error).message)
-    }
-  }
-
   if (loading) {
     return (
       <div className="text-sm font-mono text-muted-foreground p-6">
@@ -110,16 +85,6 @@ export function SafetyTab() {
           config={sessionConfig}
           onChange={setSessionConfig}
           onSave={handleSaveSession}
-        />
-      )}
-
-      {simulationConfig && (
-        <SimulationSection
-          config={simulationConfig}
-          onChange={setSimulationConfig}
-          onSave={handleSaveSimulation}
-          providers={providers}
-          models={models}
         />
       )}
     </div>

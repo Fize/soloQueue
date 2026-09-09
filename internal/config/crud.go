@@ -208,14 +208,6 @@ func (s *GlobalService) UpdateSession(sess SessionConfig) error {
 	return err
 }
 
-// UpdateSimulation replaces the simulation configuration.
-func (s *GlobalService) UpdateSimulation(sim SimulationConfig) error {
-	_, err := s.Set(func(st *Settings) {
-		st.Simulation = sim
-	})
-	return err
-}
-
 // UpdateSpeech replaces the speech-to-text configuration.
 func (s *GlobalService) UpdateSpeech(speech SpeechConfig) error {
 	_, err := s.Set(func(st *Settings) {

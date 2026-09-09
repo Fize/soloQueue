@@ -26,7 +26,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
-	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
@@ -69,8 +68,6 @@ type Stack struct {
 	// loaded from ~/.soloqueue/agents/main.md at startup.
 	L1Channels      map[string]string
 	L1NotifyChannel string
-
-	SimulationEngine *simulation.SimulationEngine // multi-agent simulation engine (nil = disabled)
 
 	// compactorInstance stores the concrete type for internal use.
 	compactorInstance *LLMCompactor

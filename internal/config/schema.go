@@ -29,23 +29,6 @@ type AgentConfig struct {
 	ExternalMCPServers []string `json:"externalMcpServers" yaml:"external_mcp_servers,omitempty"`
 }
 
-// ─── Simulation ──────────────────────────────────────────────────────────
-
-// SimulationConfig holds default simulation settings.
-type SimulationConfig struct {
-	DefaultModelID        string `json:"defaultModelId" yaml:"default_model_id,omitempty"`
-	DefaultProviderID     string `json:"defaultProviderId" yaml:"default_provider_id,omitempty"`
-	DBPath                string `json:"dbPath" yaml:"db_path,omitempty"`
-	DefaultMaxWallClockMs int    `json:"defaultMaxWallClockMs" yaml:"default_max_wall_clock_ms,omitempty"`
-
-	// Generative Agents mode
-	EnableReflection bool   `json:"enableReflection" yaml:"enable_reflection,omitempty"`
-	SimulatedHours   int    `json:"simulatedHours" yaml:"simulated_hours,omitempty"`
-	TickIntervalMs   int    `json:"tickIntervalMs" yaml:"tick_interval_ms,omitempty"`
-	TimeScale        int    `json:"timeScale" yaml:"time_scale,omitempty"`
-	Language         string `json:"language" yaml:"language,omitempty"`
-}
-
 // ─── Speech ───────────────────────────────────────────────────────────────
 
 // SpeechConfig controls local speech-to-text via whisper.cpp.
@@ -67,7 +50,6 @@ type Settings struct {
 	WechatBots  []WechatBotConfig `json:"wechatBots" yaml:"wechat_bots,omitempty"`
 	Agent       AgentConfig       `json:"agent" yaml:"agent,omitempty"`
 	LSPMCP      LSPMCPConfig      `json:"lspmcp" yaml:"lspmcp,omitempty"`
-	Simulation  SimulationConfig  `json:"simulation" yaml:"simulation,omitempty"`
 	Speech      SpeechConfig      `json:"speech" yaml:"speech,omitempty"`
 }
 
@@ -387,7 +369,6 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"wechat_bots", "WeChat iLink bot integrations", s.WechatBots},
 		{"lspmcp", "Built-in LSP-based MCP servers", s.LSPMCP},
 		{"tools", "Tool execution limits", s.Tools},
-		{"simulation", "Simulation engine defaults", s.Simulation},
 		{"speech", "Local speech-to-text via whisper.cpp", s.Speech},
 		{"agent", "MCP server whitelists: nil/omitted = load all; [] = load none", s.Agent},
 	}

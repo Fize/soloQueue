@@ -269,7 +269,6 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				server.WithOnConfigChange(func(candidate config.Settings) error {
 					return rt.OnSettingsChange(candidate)
 				}),
-				server.WithSimulationEngine(rt.SimulationEngine),
 				server.WithSharedDB(rt.SharedDB),
 			)
 

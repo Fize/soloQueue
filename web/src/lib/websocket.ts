@@ -3,8 +3,6 @@ import type {
   RuntimeStatus,
   AgentListResponse,
   AgentStreamState,
-  SimulationEvent,
-  SimulationProgress,
   NotificationPayload,
   ClientMessage,
 } from '@/types'
@@ -54,8 +52,6 @@ type MessageHandler = {
   runtime: Set<(data: RuntimeStatus) => void>
   agents: Set<(data: AgentListResponse) => void>
   status: Set<(status: ConnectionStatus) => void>
-  simulation_event: Set<(data: SimulationEvent) => void>
-  simulation_progress: Set<(data: SimulationProgress) => void>
   notification: Set<(data: NotificationPayload) => void>
 }
 
@@ -69,8 +65,6 @@ class WebSocketManager {
     runtime: new Set(),
     agents: new Set(),
     status: new Set(),
-    simulation_event: new Set(),
-    simulation_progress: new Set(),
     notification: new Set(),
   }
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -312,7 +306,7 @@ class WebSocketManager {
       }
     }
 
-    // State / simulation messages.
+    // Runtime state messages.
     if (msg.type === 'state') {
       if (msg.runtime) {
         if (msg.runtime.sessions) {
@@ -383,10 +377,6 @@ class WebSocketManager {
         useAgentStore.getState().setAgents(msg.agents)
         this.handlers.agents.forEach((h) => h(msg.agents))
       }
-    } else if (msg.type === 'simulation_event') {
-      this.handlers.simulation_event.forEach((h) => h(msg.event))
-    } else if (msg.type === 'simulation_progress' && msg.progress) {
-      this.handlers.simulation_progress.forEach((h) => h(msg.progress))
     } else if (msg.type === 'notification' && msg.notification) {
       this.handlers.notification.forEach((h) => h(msg.notification))
     }

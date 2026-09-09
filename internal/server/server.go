@@ -50,7 +50,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/session"
-	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
@@ -80,8 +79,7 @@ type Mux struct {
 	l2Store           *session.L2SessionStore     // L2 multi-session store (nil if not configured)
 	teamstore         *store.Store                // team/agent DB store; nil if not backed by SQLite
 	onConfigChange    func(config.Settings) error // callback on LLM config update
-	simEngine         *simulation.SimulationEngine
-	sharedDB          *db.DB // for metric reporting
+	sharedDB          *db.DB                      // for metric reporting
 	webFS             fs.FS
 	statusFS          fs.FS
 	frontendMode      FrontendMode
@@ -204,11 +202,6 @@ func WithSessionManager(mgr *session.SessionManager) MuxOption {
 // WithL2SessionStore sets the L2 session store for /api/session/l2 endpoints.
 func WithL2SessionStore(store *session.L2SessionStore) MuxOption {
 	return func(m *Mux) { m.l2Store = store }
-}
-
-// WithSimulationEngine sets the simulation engine for /api/simulations endpoints.
-func WithSimulationEngine(engine *simulation.SimulationEngine) MuxOption {
-	return func(m *Mux) { m.simEngine = engine }
 }
 
 // WithSharedDB sets the SQLite DB for token and router stats.
@@ -429,11 +422,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Put("/", m.handleUpdateSessionConfig)
 		})
 
-		r.Route("/simulation", func(r chi.Router) {
-			r.Get("/", m.handleGetSimulationConfig)
-			r.Put("/", m.handleUpdateSimulationConfig)
-		})
-
 		r.Route("/speech", func(r chi.Router) {
 			r.Get("/", m.handleGetSpeechConfig)
 			r.Put("/", m.handleUpdateSpeechConfig)
@@ -470,33 +458,6 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Get("/history/{execID}", m.handleGetCronHistory)
 		})
 	})
-
-	// Simulation routes (only if engine is configured)
-	if m.simEngine != nil {
-		r.Route("/api/simulations", func(r chi.Router) {
-			r.Get("/", m.handleListSimulations)
-			// 50MB body size limit for create endpoints
-			r.With(maxBodyMiddleware(50<<20)).Post("/", m.handleCreateSimulation)
-			r.With(maxBodyMiddleware(50<<20)).Post("/from-seed", m.handleCreateFromSeed)
-			r.Route("/{id}", func(r chi.Router) {
-				r.Get("/", m.handleGetSimulation)
-				r.Put("/", m.handleUpdateSimulation)
-				r.Post("/start", m.handleStartSimulation)
-				r.Post("/stop", m.handleStopSimulation)
-				r.Post("/pause", m.handlePauseSimulation)
-				r.Post("/resume", m.handleResumeSimulation)
-				r.Post("/step", m.handleStepSimulation)
-				r.Post("/agents/{personaId}/ask", m.handleAgentAsk)
-				r.Post("/fork", m.handleForkSimulation)
-				r.Delete("/", m.handleDeleteSimulation)
-				// Generative Agents extensions
-				r.Get("/environment", m.handleGetEnvironment)
-				r.Get("/agents/{personaId}/plan", m.handleGetAgentPlan)
-				r.Get("/agents/{personaId}/memory", m.handleGetAgentMemory)
-				r.Get("/agents/{personaId}/reflections", m.handleGetAgentReflections)
-			})
-		})
-	}
 
 	// Stats routes
 	r.Route("/api/stats", func(r chi.Router) {

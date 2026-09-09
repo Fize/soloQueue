@@ -610,55 +610,6 @@ func (m *Mux) handleUpdateSessionConfig(w http.ResponseWriter, r *http.Request) 
 	m.writeJSON(w, http.StatusOK, cfg)
 }
 
-// ─── Simulation Config ───────────────────────────────────────────────────────
-
-// GET /api/config/simulation
-func (m *Mux) handleGetSimulationConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
-		return
-	}
-	settings := m.configSvc.Get()
-	m.writeJSON(w, http.StatusOK, settings.Simulation)
-}
-
-// PUT /api/config/simulation
-func (m *Mux) handleUpdateSimulationConfig(w http.ResponseWriter, r *http.Request) {
-	if m.configSvc == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
-		return
-	}
-	var cfg config.SimulationConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	// Normalize zero values to sensible defaults
-	if cfg.SimulatedHours <= 0 {
-		cfg.SimulatedHours = 168
-	}
-	if cfg.TickIntervalMs <= 0 {
-		cfg.TickIntervalMs = 1000
-	}
-	if cfg.TimeScale <= 0 {
-		cfg.TimeScale = 300
-	}
-	if cfg.Language == "" {
-		cfg.Language = "zh"
-	}
-	if err := m.configSvc.UpdateSimulation(cfg); err != nil {
-		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if cfg.DBPath != "" && m.simEngine != nil {
-		if err := m.simEngine.SetDBPath(cfg.DBPath); err != nil {
-			m.log.WarnContext(r.Context(), logger.CatSimulation, "failed to update simulation engine DB path", "err", err.Error())
-		}
-	}
-	m.triggerOnConfigChange()
-	m.writeJSON(w, http.StatusOK, cfg)
-}
-
 // ─── Speech Config ─────────────────────────────────────────────────────────
 
 // GET /api/config/speech
