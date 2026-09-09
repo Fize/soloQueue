@@ -279,7 +279,7 @@ func TestL1CronToolRetryUsesStatefulSessionAndOneTimeline(t *testing.T) {
 	if !strings.Contains(timelineData.String(), `"name":"Write"`) || !strings.Contains(timelineData.String(), `"name":"SubmitCronResult"`) {
 		t.Fatalf("one execution timeline does not contain both attempts: %s", timelineData.String())
 	}
-	if !strings.Contains(timelineData.String(), "[SYSTEM NOTICE] The previous streaming response was interrupted") {
+	if !strings.Contains(timelineData.String(), "[SYSTEM NOTICE] The previous task attempt failed before completion") {
 		t.Fatalf("one execution timeline does not record the actual retry prompt: %s", timelineData.String())
 	}
 	for _, want := range []string{
@@ -292,8 +292,231 @@ func TestL1CronToolRetryUsesStatefulSessionAndOneTimeline(t *testing.T) {
 			t.Fatalf("one execution timeline contains first-attempt process %q %d times, want exactly once: %s", want, count, timelineData.String())
 		}
 	}
+	if count := strings.Count(timelineData.String(), `"action":"retry"`); count != 1 {
+		t.Fatalf("retry boundaries = %d, want one in one execution timeline", count)
+	}
 	if _, err := os.Stat(filepath.Join(s.workDir, records[0].TimelineDir, "attempts.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("attempts.json must not be created, err=%v", err)
+	}
+}
+
+func TestL1CronRetriesWholeTaskUpToThreeTimesWithPriorSessionContext(t *testing.T) {
+	store := openTestDB(t)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title: "Task retry budget", TaskType: TaskTypeGeneral, Expression: "0 8 * * *",
+		Instruction: "continue the task", TargetAgent: "L1", NextRunAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls int
+	var prompts []string
+	var notifications int
+	temporary := &mockSession{askStreamFn: func(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+		if !iface.IsCronExecution(ctx) {
+			t.Fatal("cron retry context is not marked as a cron execution")
+		}
+		calls++
+		prompts = append(prompts, prompt)
+		if calls <= 3 {
+			ch := make(chan iface.AgentEvent, 4)
+			ch <- &ToolExecStartEvent{CallID: fmt.Sprintf("write-%d", calls), Name: "Write", Args: `{"path":"state.txt"}`}
+			ch <- &ToolExecDoneEvent{CallID: fmt.Sprintf("write-%d", calls), Name: "Write", Result: "saved"}
+			ch <- &ErrorEvent{Err: fmt.Errorf("attempt %d interrupted", calls)}
+			close(ch)
+			return ch, nil
+		}
+		return successfulCronEvents("completed after retry"), nil
+	}}
+	permanent := &mockSession{sendViaChannelFn: func(context.Context, string) error {
+		notifications++
+		return nil
+	}}
+	manager := &mockSessionManager{session: permanent, getSession: func(context.Context, string, string) (Session, bool, func(), error) {
+		return temporary, true, func() {}, nil
+	}}
+	s := NewScheduler(store, manager, nil)
+	s.SetWorkDir(t.TempDir())
+	s.retryDelay = 0
+	s.executeL1Task(*task)
+
+	if calls != 4 {
+		t.Fatalf("attempt count = %d, want initial attempt plus three retries", calls)
+	}
+	if notifications != 1 {
+		t.Fatalf("notifications = %d, want one success notification after final attempt", notifications)
+	}
+	if len(prompts) != 4 || prompts[0] != s.buildTaskPrompt(*task) {
+		t.Fatalf("prompts = %#v, want original task followed by three continuation prompts", prompts)
+	}
+	for i := 1; i < len(prompts); i++ {
+		if prompts[i] != continuationPrompt {
+			t.Fatalf("retry prompt %d = %q, want continuation prompt carrying prior session context", i, prompts[i])
+		}
+	}
+	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+	if err != nil || len(records) != 1 || records[0].Status != "success" {
+		t.Fatalf("history err=%v records=%+v", err, records)
+	}
+}
+
+func TestL1CronRetriesExecutionStartFailureAsTaskAttempt(t *testing.T) {
+	store := openTestDB(t)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title: "Start retry", TaskType: TaskTypeGeneral, Expression: "0 8 * * *",
+		Instruction: "recover from start failure", TargetAgent: "L1", NextRunAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls, notifications int
+	temporary := &mockSession{askStreamFn: func(_ context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+		calls++
+		if calls == 1 {
+			return nil, errors.New("temporary provider unavailable")
+		}
+		if !strings.Contains(prompt, "[ORIGINAL TASK PROMPT]") || !strings.Contains(prompt, "recover from start failure") || !strings.Contains(prompt, continuationPrompt) {
+			t.Fatalf("retry prompt = %q, want original task plus continuation prompt", prompt)
+		}
+		return successfulCronEvents("recovered"), nil
+	}}
+	permanent := &mockSession{sendViaChannelFn: func(context.Context, string) error {
+		notifications++
+		return nil
+	}}
+	s := NewScheduler(store, &mockSessionManager{session: permanent, getSession: func(context.Context, string, string) (Session, bool, func(), error) {
+		return temporary, true, func() {}, nil
+	}}, nil)
+	s.SetWorkDir(t.TempDir())
+	s.retryDelay = 0
+	s.executeL1Task(*task)
+
+	if calls != 2 || notifications != 1 {
+		t.Fatalf("start-failure retry calls/notifications = %d/%d, want 2/1", calls, notifications)
+	}
+	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+	if err != nil || len(records) != 1 || records[0].Status != "success" {
+		t.Fatalf("history err=%v records=%+v", err, records)
+	}
+}
+
+func TestL1CronDoesNotRetryContextTerminalErrors(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			store := openTestDB(t)
+			task, err := store.CreateTask(context.Background(), CreateTaskInput{
+				Title: "Terminal context error", TaskType: TaskTypeGeneral, Expression: "0 8 * * *",
+				Instruction: "stop", TargetAgent: "L1", NextRunAt: time.Now().Add(time.Hour),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var calls, notifications int
+			session := &mockSession{askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+				calls++
+				ch := make(chan iface.AgentEvent, 1)
+				ch <- &testErrorEvent{err: cause}
+				close(ch)
+				return ch, nil
+			}, sendViaChannelFn: func(context.Context, string) error {
+				notifications++
+				return nil
+			}}
+			s := NewScheduler(store, &mockSessionManager{session: session}, nil)
+			s.SetWorkDir(t.TempDir())
+			s.retryDelay = 0
+			s.runL1Task(context.Background(), *task, session)
+			if calls != 1 || notifications != 1 {
+				t.Fatalf("calls/notifications = %d/%d, want 1/1", calls, notifications)
+			}
+		})
+	}
+}
+
+func TestL1CronRetryModelResolutionFailureKeepsLastResolvedModel(t *testing.T) {
+	store := openTestDB(t)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title: "Model retry failure", TaskType: TaskTypeGeneral, Expression: "0 8 * * *",
+		Instruction: "retry with model", TargetAgent: "L1", NextRunAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolveCalls, notifications int
+	session := &mockSession{askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+		ch := make(chan iface.AgentEvent, 3)
+		ch <- &testErrorEvent{err: errors.New("first attempt failed")}
+		close(ch)
+		return ch, nil
+	}, sendViaChannelFn: func(context.Context, string) error {
+		notifications++
+		return nil
+	}}
+	s := NewScheduler(store, &mockSessionManager{session: session}, nil)
+	s.SetWorkDir(t.TempDir())
+	s.retryDelay = 0
+	s.SetModelResolver(func(string) (ResolvedModel, error) {
+		resolveCalls++
+		if resolveCalls == 1 {
+			return ResolvedModel{Params: iface.ModelOverrideParams{ModelID: "first-model", ProviderID: "first-provider"}}, nil
+		}
+		return ResolvedModel{}, errors.New("retry model resolution failed")
+	})
+	s.runL1Task(context.Background(), *task, session)
+
+	if resolveCalls != 2 || notifications != 1 {
+		t.Fatalf("resolve calls/notifications = %d/%d, want 2/1", resolveCalls, notifications)
+	}
+	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("history err=%v records=%+v", err, records)
+	}
+	if records[0].ModelID != "first-model" || records[0].ProviderID != "first-provider" {
+		t.Fatalf("last resolved model was not retained: %+v", records[0])
+	}
+}
+
+func TestL1CronDropsOriginalPromptAfterRetryStarts(t *testing.T) {
+	store := openTestDB(t)
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		Title: "Start then stream retry", TaskType: TaskTypeGeneral, Expression: "0 8 * * *",
+		Instruction: "resume task", TargetAgent: "L1", NextRunAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls int
+	var prompts []string
+	temporary := &mockSession{askStreamFn: func(_ context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+		calls++
+		prompts = append(prompts, prompt)
+		if calls == 1 {
+			return nil, errors.New("temporary provider unavailable")
+		}
+		ch := make(chan iface.AgentEvent, 3)
+		if calls == 2 {
+			ch <- &testErrorEvent{err: errors.New("stream interrupted")}
+		} else {
+			ch <- &ToolExecStartEvent{CallID: "submit", Name: "SubmitCronResult", Args: `{"content":"done"}`}
+			ch <- &ToolExecDoneEvent{CallID: "submit", Name: "SubmitCronResult", Result: `{"content":"done"}`}
+			ch <- &testDoneEvent{content: "done"}
+		}
+		close(ch)
+		return ch, nil
+	}}
+	permanent := &mockSession{sendViaChannelFn: func(context.Context, string) error { return nil }}
+	s := NewScheduler(store, &mockSessionManager{session: permanent, getSession: func(context.Context, string, string) (Session, bool, func(), error) {
+		return temporary, true, func() {}, nil
+	}}, nil)
+	s.SetWorkDir(t.TempDir())
+	s.retryDelay = 0
+	s.executeL1Task(*task)
+
+	if calls != 3 || len(prompts) != 3 {
+		t.Fatalf("calls/prompts = %d/%d, want 3/3", calls, len(prompts))
+	}
+	if !strings.Contains(prompts[1], "[ORIGINAL TASK PROMPT]") || strings.Contains(prompts[2], "[ORIGINAL TASK PROMPT]") {
+		t.Fatalf("original prompt markers = %#v, want only first retry to include it", prompts)
 	}
 }
 
@@ -766,27 +989,6 @@ func TestDrainEvents(t *testing.T) {
 	}
 	if len(media) != 0 {
 		t.Errorf("drainEvents on empty channel got %d media", len(media))
-	}
-}
-
-func TestCronRetryRejectsObservableOutputAndToolSideEffects(t *testing.T) {
-	for _, result := range []drainEventsResult{
-		{replyText: "observable output"},
-		{toolCallCount: 1},
-		{mediaFiles: []SendFileMedia{{FileName: "artifact.txt"}}},
-	} {
-		if canAutomaticallyRetry(result) {
-			t.Fatalf("canAutomaticallyRetry(%+v) = true, want false", result)
-		}
-	}
-	if !canAutomaticallyRetry(drainEventsResult{}) {
-		t.Fatal("an execution with no observable output or tool side effects should remain retryable")
-	}
-	if canRetryL1(drainEventsResult{toolCallCount: 1}) {
-		t.Fatal("an incomplete tool call must not be retried because its side effect is uncertain")
-	}
-	if !canRetryL1(drainEventsResult{toolCallCount: 1, completedToolCallCount: 1}) {
-		t.Fatal("a completed tool-call interruption should continue in the same temporary session")
 	}
 }
 
@@ -1513,6 +1715,7 @@ func TestRunL1TaskDeliversCanonicalResults(t *testing.T) {
 			}
 			s := NewScheduler(store, &mockSessionManager{session: session}, nil)
 			s.SetWorkDir(t.TempDir())
+			s.retryDelay = 0
 			t.Cleanup(s.Stop)
 			callbackCalled := false
 			callbackOK := false
@@ -1729,8 +1932,8 @@ func TestFailedRetriesUseTerminalAttemptProvenance(t *testing.T) {
 				s.executeL2Task(*task)
 			}
 
-			if attempts != 2 {
-				t.Fatalf("attempts = %d, want 2", attempts)
+			if attempts != maxCronRetries+1 {
+				t.Fatalf("attempts = %d, want %d", attempts, maxCronRetries+1)
 			}
 			if len(messages) != 1 || strings.Contains(messages[0], "private") {
 				t.Fatalf("public failure must be canonical and private: %q", messages)
@@ -1739,11 +1942,8 @@ func TestFailedRetriesUseTerminalAttemptProvenance(t *testing.T) {
 			if err != nil || len(records) != 1 {
 				t.Fatalf("history err=%v records=%v", err, records)
 			}
-			if target == "L1" && strings.Contains(records[0].TimelineDir, "-retry") {
-				t.Fatalf("L1 retry split one logical execution across timelines: %q", records[0].TimelineDir)
-			}
-			if target != "L1" && !strings.Contains(records[0].TimelineDir, "-retry") {
-				t.Fatalf("L2 timeline provenance = %q, want terminal retry timeline", records[0].TimelineDir)
+			if strings.Contains(records[0].TimelineDir, "-retry") {
+				t.Fatalf("%s retry split one logical execution across timelines: %q", target, records[0].TimelineDir)
 			}
 			if !strings.Contains(records[0].ErrorMessage, "terminal private retry failure") || strings.Contains(records[0].ErrorMessage, "initial private failure") {
 				t.Fatalf("diagnostic provenance did not use terminal retry: %+v", records[0])
@@ -1795,11 +1995,22 @@ func TestRetryStartFailureKeepsRawErrorOutOfPublicResult(t *testing.T) {
 		t.Fatalf("retry start detail leaked publicly: %q", messages)
 	}
 	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
-	if err != nil || len(records) != 1 || !strings.Contains(records[0].ErrorMessage, "/secret/retry") {
-		t.Fatalf("retry start diagnostic not retained: err=%v records=%v", err, records)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("retry start history missing: err=%v records=%v", err, records)
 	}
 	if strings.Contains(records[0].TimelineDir, "-retry") {
 		t.Fatalf("L1 retry start split one logical execution across timelines: %q", records[0].TimelineDir)
+	}
+	files, err := filepath.Glob(filepath.Join(s.workDir, records[0].TimelineDir, "timeline-*.jsonl"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("retry start timeline missing: err=%v files=%v", err, files)
+	}
+	data, err := os.ReadFile(files[0])
+	if err != nil || !strings.Contains(string(data), "/secret/retry") {
+		t.Fatalf("retry start diagnostic not retained in timeline: err=%v data=%s", err, data)
+	}
+	if !strings.Contains(string(data), `"action":"retry"`) || !strings.Contains(string(data), "[SYSTEM NOTICE] The previous task attempt failed before completion") {
+		t.Fatalf("retry start boundary or continuation prompt missing from timeline: %s", data)
 	}
 }
 
@@ -1870,6 +2081,7 @@ func TestRunL1Task_PersistsTypedWatchdogTerminalCode(t *testing.T) {
 	}}
 	s := NewScheduler(store, &mockSessionManager{session: session}, nil)
 	s.SetWorkDir(t.TempDir())
+	s.retryDelay = 0
 	s.runL1Task(context.Background(), *task, session)
 
 	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
@@ -1903,6 +2115,7 @@ func TestExecuteL2Task_PersistsTypedWatchdogTerminalCode(t *testing.T) {
 	}}
 	s := NewScheduler(store, manager, nil)
 	s.SetWorkDir(t.TempDir())
+	s.retryDelay = 0
 	s.executeL2Task(*task)
 
 	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
