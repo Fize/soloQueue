@@ -94,6 +94,12 @@ var errTaskModelResolution = errors.New("scheduled task model resolution failed"
 
 const oneTimeClaimRetryDelay = 250 * time.Millisecond
 
+// maxCronRetries is the number of retries after the initial task attempt.
+// Retries reuse the same temporary session so the agent can see the successful
+// work from earlier attempts and verify any side effects whose outcome was
+// interrupted or otherwise unknown.
+const maxCronRetries = 3
+
 // CronStartCallback is called when a cron task execution begins.
 type CronStartCallback func(taskID, taskTitle string)
 
@@ -553,7 +559,11 @@ Rules:
 - Do not include intermediate reasoning, tool calls, or tool results in submitted content.
 </FINAL_OUTPUT_CONTRACT>`
 
-const continuationPrompt = "[SYSTEM NOTICE] The previous streaming response was interrupted due to a network error. System connection has been restored. Please resume and complete the unfinished task based on the above tool calls and intermediate results.\n\n" + cronFinalOutputContract
+const continuationPrompt = "[SYSTEM NOTICE] The previous task attempt failed before completion. Continue the same task using the conversation history and successful tool results above. Any tool call that was in flight when the failure occurred has an unknown outcome: verify its actual state before repeating it. Complete the unfinished work and submit the final result.\n\n" + cronFinalOutputContract
+
+func retryPromptWithOriginalTask(taskPrompt string) string {
+	return "[ORIGINAL TASK PROMPT]\n" + taskPrompt + "\n\n" + continuationPrompt
+}
 
 // runL1Task executes a single L1 task on the given session.
 func (s *Scheduler) runL1Task(ctx context.Context, t Task, l1Session Session) {
@@ -596,88 +606,79 @@ func (s *Scheduler) runL1TaskWithGenerationAndCleanup(ctx context.Context, t Tas
 	var ch <-chan iface.AgentEvent
 	var err error
 	resolved, ch, err = s.askStatefulWithTaskModelPrompt(cronCtx, t, l1Session, s.buildTaskPrompt(t))
+	var result drainEventsResult
+	var drainErr error
+	initialStartFailed := false
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
-		failureResult := drainEventsResult{}
-		applyCronResult(&failureResult, failedCronResult(t, execID, "execution_start_failed", time.Now()))
-		failureResult.diagnosticError = diagnosticCronError("execution_start_failed", err)
-		failureResult.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
-		taskStatus := taskStatusAfterExecution(t)
 		if errors.Is(err, errTaskModelResolution) {
-			taskStatus = "failed"
-		}
-		if persistErr := s.finishExecution(ctx, t, execID, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status, taskStatus); persistErr != nil {
-			s.logger.Warn(logger.CatApp, "cron: L1 start failure terminal persistence rejected", "task_id", t.ID, "run_id", execID, "err", persistErr)
+			failureResult := drainEventsResult{}
+			applyCronResult(&failureResult, failedCronResult(t, execID, "execution_start_failed", time.Now()))
+			failureResult.diagnosticError = diagnosticCronError("execution_start_failed", err)
+			failureResult.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
+			if persistErr := s.finishExecution(ctx, t, execID, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status, "failed"); persistErr != nil {
+				s.logger.Warn(logger.CatApp, "cron: L1 model resolution failure terminal persistence rejected", "task_id", t.ID, "run_id", execID, "err", persistErr)
+				return
+			}
+			s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
+			s.deliverL1ResultViaChannel(ctx, t, failureResult.replyText, nil)
 			return
 		}
-		s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
-		s.deliverL1ResultViaChannel(ctx, t, failureResult.replyText, nil)
-		return
+		applyCronResult(&result, failedCronResult(t, execID, "execution_start_failed", time.Now()))
+		result.diagnosticError = diagnosticCronError("execution_start_failed", err)
+		result.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
+		drainErr = err
+		initialStartFailed = true
+	} else {
+		s.notifyTaskStarted(t)
+		result, drainErr = s.drainEventsWithTimeline(ch, t, execID)
 	}
-	s.notifyTaskStarted(t)
 
-	result, drainErr := s.drainEventsWithTimeline(ch, t, execID)
-
-	// ── 1-time 10s Retry Logic ──
-	if drainErr != nil && runwatch.CodeOf(drainErr) == "" && canRetryL1(result) {
-		s.logger.Warn(logger.CatApp, "cron: L1 task drain error, preparing 10s retry",
-			"task_id", t.ID, "tool_calls", result.toolCallCount, "err", drainErr)
+	// A retry is for the whole task. Reuse the same temporary session for up to
+	// three retries so its context window contains successful work from every
+	// prior attempt. The continuation prompt also tells the agent to verify any
+	// side effect whose previous outcome was unknown.
+	for retryNumber := 1; retryNumber <= maxCronRetries && cronAttemptFailed(result, drainErr); retryNumber++ {
+		if !cronFailureRetryable(drainErr) {
+			break
+		}
+		s.logger.Warn(logger.CatApp, "cron: L1 task attempt failed, preparing task retry",
+			"task_id", t.ID, "retry", retryNumber, "max_retries", maxCronRetries, "err", drainErr)
 		if !waitContext(ctx, s.retryDelay) {
 			return
 		}
 
-		var retrySess Session
-		var retryPrompt string
-		var retryStartErr error
-
-		if result.toolCallCount > 0 {
-			retrySess = l1Session
-			retryPrompt = continuationPrompt
-		} else {
-			// iter == 0: replace the temporary session to avoid duplicate instructions.
-			if cleanup != nil {
-				cleanup()
-				cleanup = nil
-			}
-			freshSess, freshIsNew, freshCleanup, freshErr := s.sessionMgr.GetSession(ctx, "L1", t.ID)
-			if freshErr == nil && freshSess != nil {
-				retrySess = freshSess
-				l1Session = freshSess
-				if freshIsNew {
-					cleanup = freshCleanup
-				}
-			} else {
-				retryStartErr = freshErr
-				if retryStartErr == nil {
-					retryStartErr = errors.New("replacement temporary L1 session is nil")
-				}
-			}
-			retryPrompt = s.buildTaskPrompt(t)
+		retryPrompt := continuationPrompt
+		if initialStartFailed {
+			retryPrompt = retryPromptWithOriginalTask(s.buildTaskPrompt(t))
 		}
-
-		var retryCtx context.Context
-		var retryResolved ResolvedModel
-		var retryCh <-chan iface.AgentEvent
-		retryCtx = s.buildCronContext(ctx, t, execID)
-		if retrySess != nil {
-			retryResolved, retryCh, retryStartErr = s.askStatefulWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
-		}
+		retryCtx := s.buildCronContext(ctx, t, execID)
+		previousResolved := resolved
+		retryResolved, retryCh, retryStartErr := s.askStatefulWithTaskModelPrompt(retryCtx, t, l1Session, retryPrompt)
 		resolved = retryResolved
-		if retryStartErr == nil {
-			retryResult, retryDrainErr := s.drainEventsWithTimelinePrompt(retryCh, t, execID, retryPrompt)
-			result = retryResult
-			if retryDrainErr == nil {
-				drainErr = nil
-				s.logger.Info(logger.CatApp, "cron: L1 task retry succeeded", "task_id", t.ID)
-			} else {
-				s.logger.Error(logger.CatApp, "cron: L1 task retry failed", "task_id", t.ID, "err", retryDrainErr)
-				drainErr = retryDrainErr
+		if retryStartErr != nil {
+			// A failed retry start has no new model metadata. Keep the last
+			// resolved route in the terminal execution record, regardless of
+			// whether the failure was transient or a model-resolution error.
+			resolved = previousResolved
+			drainErr = fmt.Errorf("retry %d failed to start: %w", retryNumber, retryStartErr)
+			result = drainEventsResult{timelineDir: filepath.Join("logs", "cron", t.ID, execID)}
+			result.diagnosticError = diagnosticCronError("execution_start_failed", retryStartErr)
+			s.writeCronRetryBoundary(t, execID, retryPrompt)
+			_ = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", retryStartErr.Error())
+			s.logger.Error(logger.CatApp, "cron: L1 task retry failed to start", "task_id", t.ID, "retry", retryNumber, "err", retryStartErr)
+			if errors.Is(retryStartErr, errTaskModelResolution) {
+				break
 			}
+			continue
+		}
+
+		initialStartFailed = false
+		result, drainErr = s.drainEventsWithTimelinePromptMode(retryCh, t, execID, retryPrompt, true)
+		if drainErr == nil && result.canonical.Status == "success" {
+			s.logger.Info(logger.CatApp, "cron: L1 task retry succeeded", "task_id", t.ID, "retry", retryNumber)
 		} else {
-			s.logger.Error(logger.CatApp, "cron: L1 task retry failed to start", "task_id", t.ID, "err", retryStartErr)
-			result = drainEventsResult{}
-			drainErr = fmt.Errorf("retry failed to start: %w", retryStartErr)
-			result.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", drainErr.Error())
+			s.logger.Error(logger.CatApp, "cron: L1 task retry failed", "task_id", t.ID, "retry", retryNumber, "err", drainErr)
 		}
 	}
 
@@ -771,84 +772,74 @@ func (s *Scheduler) executeL2TaskGeneration(t Task, generation uint64) {
 
 	cronCtx := s.buildCronContext(ctx, t, execID)
 	var ch <-chan iface.AgentEvent
-	resolved, ch, err = s.askWithTaskModel(cronCtx, t, l2Session)
+	resolved, ch, err = s.askStatefulWithTaskModelPrompt(cronCtx, t, l2Session, s.buildTaskPrompt(t))
+	var result drainEventsResult
+	var drainErr error
+	initialStartFailed := false
 	if err != nil {
 		s.logger.Error(logger.CatApp, "cron: L2 task execution failed to start", "task_id", t.ID, "err", err)
-		failureResult := drainEventsResult{}
-		applyCronResult(&failureResult, failedCronResult(t, execID, "execution_start_failed", time.Now()))
-		failureResult.diagnosticError = diagnosticCronError("execution_start_failed", err)
-		failureResult.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
-		taskStatus := taskStatusAfterExecution(t)
 		if errors.Is(err, errTaskModelResolution) {
-			taskStatus = "failed"
-		}
-		if persistErr := s.finishExecution(ctx, t, execID, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status, taskStatus); persistErr != nil {
-			s.logger.Warn(logger.CatApp, "cron: L2 start failure terminal persistence rejected", "task_id", t.ID, "run_id", execID, "err", persistErr)
+			failureResult := drainEventsResult{}
+			applyCronResult(&failureResult, failedCronResult(t, execID, "execution_start_failed", time.Now()))
+			failureResult.diagnosticError = diagnosticCronError("execution_start_failed", err)
+			failureResult.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
+			if persistErr := s.finishExecution(ctx, t, execID, resolved, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status, "failed"); persistErr != nil {
+				s.logger.Warn(logger.CatApp, "cron: L2 model resolution failure terminal persistence rejected", "task_id", t.ID, "run_id", execID, "err", persistErr)
+				return
+			}
+			s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
+			s.deliverL2ResultViaChannel(ctx, t, l2Session, failureResult.replyText)
 			return
 		}
-		s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
-		s.deliverL2ResultViaChannel(ctx, t, l2Session, failureResult.replyText)
-		return
+		applyCronResult(&result, failedCronResult(t, execID, "execution_start_failed", time.Now()))
+		result.diagnosticError = diagnosticCronError("execution_start_failed", err)
+		result.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", err.Error())
+		drainErr = err
+		initialStartFailed = true
+	} else {
+		result, drainErr = s.drainEventsWithTimeline(ch, t, execID)
 	}
 
-	result, drainErr := s.drainEventsWithTimeline(ch, t, execID)
-
-	// ── 1-time 10s Retry Logic ──
-	if drainErr != nil && canAutomaticallyRetry(result) {
-		s.logger.Warn(logger.CatApp, "cron: L2 task drain error, preparing 10s retry",
-			"task_id", t.ID, "tool_calls", result.toolCallCount, "err", drainErr)
+	// Retry the whole L2 task up to three times while retaining the same
+	// temporary session context and execution timeline.
+	for retryNumber := 1; retryNumber <= maxCronRetries && cronAttemptFailed(result, drainErr); retryNumber++ {
+		if !cronFailureRetryable(drainErr) {
+			break
+		}
+		s.logger.Warn(logger.CatApp, "cron: L2 task attempt failed, preparing task retry",
+			"task_id", t.ID, "retry", retryNumber, "max_retries", maxCronRetries, "err", drainErr)
 		if !waitContext(ctx, s.retryDelay) {
 			return
 		}
 
-		var retrySess Session
-		var retryPrompt string
-
-		if result.toolCallCount > 0 {
-			// iter > 0: Reuse existing session with tool outputs preserved in context window.
-			retrySess = l2Session
-			retryPrompt = continuationPrompt
-		} else {
-			// iter == 0: Get a fresh session to avoid duplicate instructions in context.
-			if isNew && cleanup != nil {
-				cleanup()
+		retryPrompt := continuationPrompt
+		if initialStartFailed {
+			retryPrompt = retryPromptWithOriginalTask(s.buildTaskPrompt(t))
+		}
+		retryCtx := s.buildCronContext(ctx, t, execID)
+		previousResolved := resolved
+		retryResolved, retryCh, retryStartErr := s.askStatefulWithTaskModelPrompt(retryCtx, t, l2Session, retryPrompt)
+		resolved = retryResolved
+		if retryStartErr != nil {
+			resolved = previousResolved
+			drainErr = fmt.Errorf("retry %d failed to start: %w", retryNumber, retryStartErr)
+			result = drainEventsResult{timelineDir: filepath.Join("logs", "cron", t.ID, execID)}
+			result.diagnosticError = diagnosticCronError("execution_start_failed", retryStartErr)
+			s.writeCronRetryBoundary(t, execID, retryPrompt)
+			_ = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", retryStartErr.Error())
+			s.logger.Error(logger.CatApp, "cron: L2 task retry failed to start", "task_id", t.ID, "retry", retryNumber, "err", retryStartErr)
+			if errors.Is(retryStartErr, errTaskModelResolution) {
+				break
 			}
-			freshSess, freshIsNew, freshCleanup, freshErr := s.sessionMgr.GetSession(ctx, t.TargetAgent, t.ID)
-			if freshErr == nil && freshSess != nil {
-				retrySess = freshSess
-				if freshIsNew && freshCleanup != nil {
-					defer freshCleanup()
-				}
-			} else {
-				retrySess = l2Session
-			}
-			retryPrompt = s.buildTaskPrompt(t)
+			continue
 		}
 
-		retryExecID := uuid.New().String() + "-retry"
-		var retryCtx context.Context
-		var retryResolved ResolvedModel
-		var retryCh <-chan iface.AgentEvent
-		var retryStartErr error
-		execID = retryExecID
-		retryCtx = s.buildCronContext(ctx, t, retryExecID)
-		retryResolved, retryCh, retryStartErr = s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
-		resolved = retryResolved
-		if retryStartErr == nil {
-			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, retryExecID)
-			result = retryResult
-			if retryDrainErr == nil {
-				drainErr = nil
-				s.logger.Info(logger.CatApp, "cron: L2 task retry succeeded", "task_id", t.ID)
-			} else {
-				s.logger.Error(logger.CatApp, "cron: L2 task retry failed", "task_id", t.ID, "err", retryDrainErr)
-				drainErr = retryDrainErr
-			}
+		initialStartFailed = false
+		result, drainErr = s.drainEventsWithTimelinePromptMode(retryCh, t, execID, retryPrompt, true)
+		if drainErr == nil && result.canonical.Status == "success" {
+			s.logger.Info(logger.CatApp, "cron: L2 task retry succeeded", "task_id", t.ID, "retry", retryNumber)
 		} else {
-			s.logger.Error(logger.CatApp, "cron: L2 task retry failed to start", "task_id", t.ID, "err", retryStartErr)
-			result = drainEventsResult{}
-			drainErr = fmt.Errorf("retry failed to start: %w", retryStartErr)
-			result.timelineDir = s.writeCronDiagnosticTimeline(t, retryExecID, "execution_start_failed", drainErr.Error())
+			s.logger.Error(logger.CatApp, "cron: L2 task retry failed", "task_id", t.ID, "retry", retryNumber, "err", drainErr)
 		}
 	}
 
@@ -1023,17 +1014,15 @@ type drainEventsResult struct {
 	completedToolCallCount int
 }
 
-// canAutomaticallyRetry permits replay only before the run has produced any
-// externally observable output or tool side effect. Once either is visible,
-// replay could duplicate actions even if the transport later failed.
-func canAutomaticallyRetry(result drainEventsResult) bool {
-	return strings.TrimSpace(result.replyText) == "" &&
-		result.toolCallCount == 0 && len(result.mediaFiles) == 0
+func cronAttemptFailed(result drainEventsResult, err error) bool {
+	return err != nil || result.canonical.Status != "success"
 }
 
-func canRetryL1(result drainEventsResult) bool {
-	return strings.TrimSpace(result.replyText) == "" && len(result.mediaFiles) == 0 &&
-		result.toolCallCount == result.completedToolCallCount
+func cronFailureRetryable(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	return runwatch.CodeOf(err) == ""
 }
 
 func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (CronResultV1, error) {
@@ -1208,10 +1197,14 @@ func applyCronResult(result *drainEventsResult, canonical CronResultV1) {
 // execution can be replayed later. Returns accumulated reply text, media files,
 // and the timeline directory path.
 func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, execID string) (drainEventsResult, error) {
-	return s.drainEventsWithTimelinePrompt(ch, t, execID, s.buildTaskPrompt(t))
+	return s.drainEventsWithTimelinePromptMode(ch, t, execID, s.buildTaskPrompt(t), false)
 }
 
 func (s *Scheduler) drainEventsWithTimelinePrompt(ch <-chan iface.AgentEvent, t Task, execID, prompt string) (drainEventsResult, error) {
+	return s.drainEventsWithTimelinePromptMode(ch, t, execID, prompt, false)
+}
+
+func (s *Scheduler) drainEventsWithTimelinePromptMode(ch <-chan iface.AgentEvent, t Task, execID, prompt string, retry bool) (drainEventsResult, error) {
 	var result drainEventsResult
 
 	// Determine timeline directory.
@@ -1239,6 +1232,13 @@ func (s *Scheduler) drainEventsWithTimelinePrompt(ch <-chan iface.AgentEvent, t 
 		Content: prompt,
 		AgentID: agentID,
 	})
+	if retry {
+		_ = tl.AppendControl(&timeline.ControlPayload{
+			Action:  "retry",
+			Reason:  "task_attempt_failed",
+			Content: prompt,
+		})
+	}
 
 	// ── Event processing state ──
 	type submissionAttemptState struct {
@@ -1482,6 +1482,26 @@ func (s *Scheduler) drainEventsWithTimelinePrompt(ch <-chan iface.AgentEvent, t 
 	})
 
 	return result, nil
+}
+
+func (s *Scheduler) writeCronRetryBoundary(t Task, execID, prompt string) {
+	var tlDir string
+	if s.workDir == "" {
+		tlDir = filepath.Join(os.TempDir(), "soloqueue-cron", t.ID, execID)
+	} else {
+		tlDir = filepath.Join(s.workDir, "logs", "cron", t.ID, execID)
+	}
+	if err := os.MkdirAll(tlDir, 0o755); err != nil {
+		return
+	}
+	tl, err := timeline.NewWriter(tlDir, "timeline", 50*1024*1024, 15)
+	if err != nil {
+		return
+	}
+	defer tl.Close()
+	agentID := "cron-task-" + t.ID
+	_ = tl.AppendMessage(&timeline.MessagePayload{Role: "user", Content: prompt, AgentID: agentID})
+	_ = tl.AppendControl(&timeline.ControlPayload{Action: "retry", Reason: "task_attempt_failed", Content: prompt})
 }
 
 // recordExecution writes an execution history record to the database.
