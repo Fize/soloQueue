@@ -255,6 +255,70 @@ func TestLoadSkillsFromDir(t *testing.T) {
 	}
 }
 
+func TestLoadSkillsFromDir_NestedGroupsAndPrecedence(t *testing.T) {
+	root := t.TempDir()
+	writeSkillFile(t, filepath.Join(root, "@alice", "research", "SKILL.md"), "research", "nested")
+	writeSkillFile(t, filepath.Join(root, "@bob", "same", "SKILL.md"), "same", "bob")
+	writeSkillFile(t, filepath.Join(root, "@alice", "same", "SKILL.md"), "same", "alice")
+	writeSkillFile(t, filepath.Join(root, "research", "SKILL.md"), "research", "shallow")
+	writeSkillFile(t, filepath.Join(root, "team", "backend", "deploy", "SKILL.md"), "deploy", "deep")
+	writeSkillFile(t, filepath.Join(root, ".hidden", "secret", "SKILL.md"), "secret", "hidden")
+	writeSkillFile(t, filepath.Join(root, "node_modules", "ignored", "SKILL.md"), "ignored", "dependency")
+
+	skills, err := LoadSkillsFromDir(root)
+	if err != nil {
+		t.Fatalf("LoadSkillsFromDir: %v", err)
+	}
+	got := make(map[string]string, len(skills))
+	for _, s := range skills {
+		got[s.ID] = s.Description
+	}
+	if got["research"] != "shallow" {
+		t.Fatalf("research description = %q, want shallow", got["research"])
+	}
+	if got["deploy"] != "deep" {
+		t.Fatalf("deploy description = %q, want deep", got["deploy"])
+	}
+	if got["same"] != "alice" {
+		t.Fatalf("same-depth collision description = %q, want alice", got["same"])
+	}
+	if _, ok := got["secret"]; ok {
+		t.Fatal("loaded skill from hidden directory")
+	}
+	if _, ok := got["ignored"]; ok {
+		t.Fatal("loaded skill from node_modules")
+	}
+}
+
+func TestLoadSkillsFromDir_StopsAtEntrypointAndHonorsDepth(t *testing.T) {
+	root := t.TempDir()
+	writeSkillFile(t, filepath.Join(root, "group", "SKILL.md"), "group", "parent")
+	writeSkillFile(t, filepath.Join(root, "group", "child", "SKILL.md"), "child", "must not load")
+
+	deep := root
+	for i := 0; i < MaxSkillDiscoveryDepth-1; i++ {
+		deep = filepath.Join(deep, "level")
+	}
+	writeSkillFile(t, filepath.Join(deep, "at-limit", "SKILL.md"), "at-limit", "limit")
+	tooDeep := filepath.Join(deep, "at-limit", "next")
+	writeSkillFile(t, filepath.Join(tooDeep, "SKILL.md"), "too-deep", "beyond limit")
+
+	skills, err := LoadSkillsFromDir(root)
+	if err != nil {
+		t.Fatalf("LoadSkillsFromDir: %v", err)
+	}
+	got := make(map[string]bool, len(skills))
+	for _, s := range skills {
+		got[s.ID] = true
+	}
+	if !got["group"] || got["child"] {
+		t.Fatalf("entrypoint traversal result = %v", got)
+	}
+	if !got["at-limit"] || got["too-deep"] {
+		t.Fatalf("depth traversal result = %v", got)
+	}
+}
+
 func TestLoadSkillsFromDir_NotExist(t *testing.T) {
 	skills, err := LoadSkillsFromDir("/nonexistent/path")
 	if err != nil {
@@ -336,6 +400,9 @@ func TestSkillRegistry_RebuildKeepsSnapshotOnScanError(t *testing.T) {
 
 func writeSkillFile(t *testing.T, path, name, description string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
 	content := "---\nname: " + name + "\ndescription: " + description + "\n---\n\nInstructions.\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)

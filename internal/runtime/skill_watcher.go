@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,9 +16,9 @@ import (
 
 const skillHotReloadDebounce = 250 * time.Millisecond
 
-// skillWatcher watches both the installed-skills root and each immediate skill
-// directory. ClawHub creates the directory before extracting SKILL.md, so the
-// child watcher must be installed before the debounced rebuild runs.
+// skillWatcher watches each directory discovered under an installed-skills
+// root. ClawHub creates directories before extracting SKILL.md, so newly
+// discoverable directories are added before the debounced rebuild runs.
 type skillWatcher struct {
 	registry *skill.SkillRegistry
 	dirs     map[string]string
@@ -29,6 +30,7 @@ type skillWatcher struct {
 	done           chan struct{}
 	rebuildRequest chan struct{}
 	rebuildFn      func() error
+	watchedDirs    map[string]struct{}
 }
 
 // registerSkillHotReload starts watching installed Skill directories and
@@ -61,6 +63,7 @@ func newSkillWatcher(reg *skill.SkillRegistry, dirs map[string]string, log *logg
 		closed:         make(chan struct{}),
 		done:           make(chan struct{}),
 		rebuildRequest: make(chan struct{}, 1),
+		watchedDirs:    make(map[string]struct{}),
 	}
 	sw.rebuildFn = func() error { return sw.registry.Rebuild(sw.dirs) }
 
@@ -81,13 +84,10 @@ func newSkillWatcher(reg *skill.SkillRegistry, dirs map[string]string, log *logg
 			}
 			return nil, fmt.Errorf("invalid skills directory %s: %w", dir, err)
 		}
-		if err := watcher.Add(dir); err != nil {
+		if err := sw.refreshSkillWatches(dir); err != nil {
 			_ = watcher.Close()
-			log.Warn(logger.CatApp, "skills hot-reload: cannot watch skills dir", "path", dir, "err", err.Error())
-			return nil, err
-		}
-		if err := sw.watchExistingSkillDirs(dir); err != nil {
 			log.Warn(logger.CatApp, "skills hot-reload: cannot enumerate skills dirs", "path", dir, "err", err.Error())
+			return nil, err
 		}
 	}
 	return sw, nil
@@ -101,20 +101,34 @@ func cloneSkillDirs(dirs map[string]string) map[string]string {
 	return cloned
 }
 
-func (sw *skillWatcher) watchExistingSkillDirs(root string) error {
-	entries, err := os.ReadDir(root)
+func (sw *skillWatcher) refreshSkillWatches(root string) error {
+	discovered, err := skill.DiscoverSkillDirectories(root)
 	if err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		path := filepath.Join(root, entry.Name())
-		info, err := os.Lstat(path)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+	desired := make(map[string]struct{}, len(discovered))
+	for _, path := range discovered {
+		path = filepath.Clean(path)
+		desired[path] = struct{}{}
+		if _, watched := sw.watchedDirs[path]; watched {
 			continue
 		}
 		if err := sw.watcher.Add(path); err != nil {
-			sw.log.Warn(logger.CatApp, "skills hot-reload: cannot watch skill dir", "path", path, "err", err.Error())
+			return fmt.Errorf("watch skill dir %s: %w", path, err)
 		}
+		sw.watchedDirs[path] = struct{}{}
+	}
+	root = filepath.Clean(root)
+	for path := range sw.watchedDirs {
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if _, keep := desired[path]; keep {
+			continue
+		}
+		_ = sw.watcher.Remove(path)
+		delete(sw.watchedDirs, path)
 	}
 	return nil
 }
@@ -179,45 +193,44 @@ func (sw *skillWatcher) handleEvent(evt fsnotify.Event) {
 	}
 
 	if root, ok := sw.skillRootFor(evt.Name); ok {
-		if evt.Has(fsnotify.Create) {
-			if info, err := os.Lstat(evt.Name); err == nil && info.Mode()&os.ModeSymlink == 0 && info.IsDir() {
-				if err := sw.watcher.Add(evt.Name); err != nil {
-					sw.log.Warn(logger.CatApp, "skills hot-reload: cannot watch new skill dir", "path", evt.Name, "err", err.Error())
-				}
+		directoryChange := sw.isDirectoryChange(evt)
+		entrypointChange := isSkillEntrypoint(filepath.Base(evt.Name))
+		if directoryChange || entrypointChange {
+			if err := sw.refreshSkillWatches(root); err != nil {
+				sw.log.Warn(logger.CatApp, "skills hot-reload: refresh watches failed", "path", root, "err", err.Error())
 			}
 		}
-		if evt.Has(fsnotify.Remove) || evt.Has(fsnotify.Rename) {
-			_ = sw.watcher.Remove(evt.Name)
+		if entrypointChange || directoryChange {
+			sw.scheduleRebuild()
 		}
-		_ = root
-		sw.scheduleRebuild()
-		return
 	}
+}
 
-	if sw.isWatchedSkillDirEvent(evt.Name) && isSkillEntrypoint(filepath.Base(evt.Name)) {
-		sw.scheduleRebuild()
+func (sw *skillWatcher) isDirectoryChange(evt fsnotify.Event) bool {
+	if evt.Has(fsnotify.Create) {
+		info, err := os.Lstat(evt.Name)
+		return err == nil && info.Mode()&os.ModeSymlink == 0 && info.IsDir()
 	}
+	if evt.Has(fsnotify.Remove) || evt.Has(fsnotify.Rename) {
+		_, watched := sw.watchedDirs[filepath.Clean(evt.Name)]
+		return watched
+	}
+	return false
 }
 
 func (sw *skillWatcher) skillRootFor(path string) (string, bool) {
-	parent := filepath.Clean(filepath.Dir(path))
-	for _, root := range sw.dirs {
-		if filepath.Clean(root) == parent {
-			return root, true
-		}
-	}
-	return "", false
-}
-
-func (sw *skillWatcher) isWatchedSkillDirEvent(path string) bool {
-	parent := filepath.Clean(filepath.Dir(path))
+	path = filepath.Clean(path)
+	best := ""
 	for _, root := range sw.dirs {
 		root = filepath.Clean(root)
-		if filepath.Dir(parent) == root {
-			return true
+		rel, err := filepath.Rel(root, path)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if len(root) > len(best) {
+				best = root
+			}
 		}
 	}
-	return false
+	return best, best != ""
 }
 
 func isSkillEntrypoint(name string) bool {
