@@ -107,7 +107,12 @@ func (b *Builder) newTimelineWriter(dir string, sessLog *logger.Logger) (*timeli
 // Build creates a new session with its own agent, context window, and
 // timeline writer. Implements AgentFactory signature.
 func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+	return b.buildL1(ctx, teamID, "")
+}
+
+func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 	var a *agent.Agent
+	isCronBuild := cronLogDir != ""
 	// L1 orchestrator uses a fixed agent ID so timeline replays are deterministic
 	// across restarts and never mix with old sessions.
 	agentID := "l1-agent"
@@ -142,10 +147,22 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 	if effectiveTeam == "" {
 		effectiveTeam = "default"
 	}
-	sessLog, err := b.l1SessionLogger()
+	var sessLog *logger.Logger
+	var err error
+	if isCronBuild {
+		sessLog, err = b.newSessionLogger()
+	} else {
+		sessLog, err = b.l1SessionLogger()
+	}
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build session logger: %w", err)
 	}
+	ownsSessionLogger := isCronBuild
+	defer func() {
+		if ownsSessionLogger {
+			_ = sessLog.Close()
+		}
+	}()
 
 	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
 	sessionToolsCfg := toolsCfg
@@ -382,11 +399,18 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		agent.WithToolTimeout("WebFetch", 10*time.Minute),
 		agent.WithToolTimeout("WebSearch", 10*time.Minute),
 	)
-	if err := b.RT.AgentRegistry.Register(a); err != nil {
-		return nil, nil, nil, fmt.Errorf("register L1 agent: %w", err)
+	registeredInstanceID := ""
+	ownsRegistryEntry := false
+	// A per-run Cron L1 is owned and addressed directly by its temporary
+	// Session. Publishing it in the global registry would expose a duplicate
+	// l1-agent to ordinary locators and UI enumeration.
+	if !isCronBuild {
+		if err := b.RT.AgentRegistry.Register(a); err != nil {
+			return nil, nil, nil, fmt.Errorf("register L1 agent: %w", err)
+		}
+		registeredInstanceID = a.InstanceID
+		ownsRegistryEntry = true
 	}
-	registeredInstanceID := a.InstanceID
-	ownsRegistryEntry := true
 	defer func() {
 		if ownsRegistryEntry {
 			b.RT.AgentRegistry.Unregister(registeredInstanceID)
@@ -440,6 +464,36 @@ func (b *Builder) Build(ctx context.Context, teamID string) (*agent.Agent, *ctxw
 		if a.HasTool("delegate") {
 			return
 		}
+	}
+
+	if isCronBuild {
+		tl, timelineErr := b.newTimelineWriter(cronLogDir, sessLog)
+		if timelineErr != nil {
+			return nil, nil, nil, fmt.Errorf("build L1 cron timeline writer: %w", timelineErr)
+		}
+		effectiveCW := def.ContextWindow
+		if effectiveCW <= 0 {
+			effectiveCW = agent.DefaultContextWindow
+		}
+		cw := ctxwin.NewContextWindow(
+			effectiveCW,
+			effectiveCW/10,
+			0,
+			b.RT.Tokenizer,
+			ctxwin.WithCompactor(b.RT.Compactor),
+		)
+		cw.SetReplayMode(true)
+		if def.SystemPrompt != "" {
+			cw.Push(ctxwin.RoleSystem, def.SystemPrompt)
+		}
+		cw.SetReplayMode(false)
+		if err := a.Start(context.Background()); err != nil {
+			tl.Close()
+			return nil, nil, nil, err
+		}
+		ownsRegistryEntry = false
+		ownsSessionLogger = false
+		return a, cw, tl, nil
 	}
 
 	// Timeline writer + push hook
@@ -1050,6 +1104,21 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		"agent_id", agentID,
 	)
 
+	return s, nil
+}
+
+// BuildL1ForCron builds a fresh L1 session for one scheduled-task execution.
+// It reuses the normal L1 agent construction so tools, skills, MCP access,
+// delegation, durable memory access, and model defaults stay aligned, while
+// intentionally skipping permanent conversation replay and memory hooks.
+func (b *Builder) BuildL1ForCron(ctx context.Context, id, cronLogDir string) (*Session, error) {
+	a, cw, tl, err := b.buildL1(iface.ContextWithCronExecution(ctx), "L1", cronLogDir)
+	if err != nil {
+		return nil, fmt.Errorf("build L1 cron agent: %w", err)
+	}
+	s := NewSession("cron-l1-"+id+"-session", "L1", a, cw, tl, a.Log.Child())
+	s.SetRunWatch(b.RT.RunWatch)
+	s.SetAgentRegistry(b.RT.AgentRegistry)
 	return s, nil
 }
 

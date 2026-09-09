@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -441,23 +440,21 @@ func (w cronSessionManagerWrapper) Session() cron.Session {
 	return s
 }
 
-// GetSession returns a session for the given teamID.
-// For L1: returns the existing L1 session.
-// L2 Cron runs always use an isolated temporary session.
+// GetSession returns an isolated temporary session for each Cron run.
 func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskID string) (cron.Session, bool, func(), error) {
-	if teamID == "" || strings.EqualFold(teamID, "L1") {
-		s := w.mgr.Session()
-		if s == nil {
-			return nil, false, nil, fmt.Errorf("L1 session not initialized")
-		}
-		return s, false, nil, nil
-	}
-
 	cronLogDir := filepath.Join(w.workDir, "logs", "cron", taskID)
 
 	// Ensure the cron log directory exists.
 	if err := os.MkdirAll(cronLogDir, 0755); err != nil {
 		return nil, false, nil, fmt.Errorf("create cron log dir: %w", err)
+	}
+
+	if teamID == "" || strings.EqualFold(teamID, "L1") {
+		l1Session, err := w.builder.BuildL1ForCron(ctx, taskID, cronLogDir)
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("build L1 session for cron: %w", err)
+		}
+		return l1Session, true, w.newCronSessionCleanup(l1Session), nil
 	}
 
 	l2Session, err := w.builder.BuildL2ForCron(ctx, taskID, teamID, cronLogDir)
@@ -468,27 +465,20 @@ func (w cronSessionManagerWrapper) GetSession(ctx context.Context, teamID, taskI
 		w.l2Store.ApplyChannelSendersTo(teamID, l2Session)
 	}
 
-	cleanup := newCronSessionCleanup(l2Session, w.builder.RT.AgentRegistry)
+	cleanup := w.newCronSessionCleanup(l2Session)
 
 	return l2Session, true, cleanup, nil
 }
 
-func newCronSessionCleanup(l2Session *session.Session, registry *agent.Registry) func() {
-	var once sync.Once
+func (w cronSessionManagerWrapper) newCronSessionCleanup(cronSession *session.Session) func() {
+	return newCronSessionCleanup(cronSession, w.builder.RT.AgentRegistry)
+}
+
+func newCronSessionCleanup(cronSession *session.Session, registry *agent.Registry) func() {
+	if registry != nil {
+		cronSession.SetAgentRegistry(registry)
+	}
 	return func() {
-		once.Do(func() {
-			if a := l2Session.CurrentAgent(); a != nil {
-				_ = a.Stop(5 * time.Second)
-			}
-			if sv := l2Session.CurrentSupervisor(); sv != nil {
-				_ = sv.ReapAll(5 * time.Second)
-			}
-			if a := l2Session.CurrentAgent(); registry != nil && a != nil {
-				registry.Unregister(a.InstanceID)
-			}
-			// Close the session after all Agents have stopped so timeline and
-			// logger handles remain available to lifecycle logging.
-			l2Session.Close()
-		})
+		cronSession.DisposeGeneration(5 * time.Second)
 	}
 }

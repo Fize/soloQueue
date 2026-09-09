@@ -2237,13 +2237,19 @@ enqueued:
 					ev = agent.ErrorEvent{Err: terminalErrorForCause(cause)}
 					sourceTerminal = true
 				}
-				// ErrorEvent terminates AskStream. Roll back before publishing it so
-				// callers that return from the stream cannot observe a partial turn
-				// in history while the forwarder is still unwinding.
-				rollbackTurn()
-				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event, user prompt removed",
+				preserveCronHistory := iface.IsCronExecution(ctx) && !sourceTerminal &&
+					runwatch.CodeOf(e.Err) == "" &&
+					!errors.Is(e.Err, context.Canceled) && !errors.Is(e.Err, context.DeadlineExceeded)
+				// A Cron continuation can safely reuse completed tool pairs only for
+				// an ordinary upstream interruption. Terminal, watchdog, deadline, and
+				// foreground errors retain the existing whole-turn rollback policy.
+				if !preserveCronHistory {
+					rollbackTurn()
+				}
+				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event",
 					"target_id", s.TargetID,
 					"err", e.Err,
+					"history_preserved", preserveCronHistory,
 				)
 			}
 			s.applyWatchdogEvent(runHandle, ev)
