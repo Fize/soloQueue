@@ -226,6 +226,81 @@ func TestSession_AskStream_ErrorNoHistoryAppend(t *testing.T) {
 	}
 }
 
+func TestSession_AskStream_CronSourceErrorPreservesCompletedToolHistoryForContinuation(t *testing.T) {
+	upstreamErr := errors.New("temporary upstream interruption")
+	var llmCalls atomic.Int32
+	var fake *agenttest.FakeLLM
+	fake = &agenttest.FakeLLM{
+		Responses: []string{"continued"},
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+			Index: 0, ID: "call_1", Name: "echo", Arguments: `{}`,
+		}}},
+		FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
+		Hook: func(agent.LLMRequest) {
+			if llmCalls.Add(1) == 2 {
+				fake.Err = upstreamErr
+			}
+		},
+	}
+	a := agent.NewAgent(agent.Definition{ID: "cron-history-agent"}, fake, nil, agent.WithTools(syncEchoTool{}))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	s := NewSession("cron-history", "L1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+
+	first, err := s.AskStream(iface.ContextWithCronExecution(context.Background()), "initial task")
+	if err != nil {
+		t.Fatalf("first AskStream: %v", err)
+	}
+	var gotSourceError bool
+	for event := range first {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok && errors.Is(errorEvent.Err, upstreamErr) {
+			gotSourceError = true
+		}
+	}
+	if !gotSourceError {
+		t.Fatal("first AskStream did not expose the ordinary source error")
+	}
+
+	fake.Err = nil
+	requests := make(chan agent.LLMRequest, 1)
+	fake.Hook = func(req agent.LLMRequest) {
+		select {
+		case requests <- req:
+		default:
+		}
+	}
+	second, err := s.AskStream(iface.ContextWithCronExecution(context.Background()), "continue")
+	if err != nil {
+		t.Fatalf("continuation AskStream: %v", err)
+	}
+	for range second {
+	}
+
+	var request agent.LLMRequest
+	select {
+	case request = <-requests:
+	case <-time.After(time.Second):
+		t.Fatal("continuation request was not captured")
+	}
+	if len(request.Messages) != 4 {
+		t.Fatalf("continuation payload = %+v, want initial user, assistant tool call, tool result, and continuation user", request.Messages)
+	}
+	if request.Messages[0].Role != "user" || request.Messages[0].Content != "initial task" {
+		t.Fatalf("initial user message = %+v", request.Messages[0])
+	}
+	if request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 1 || request.Messages[1].ToolCalls[0].ID != "call_1" {
+		t.Fatalf("assistant tool call = %+v", request.Messages[1])
+	}
+	if request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call_1" || request.Messages[2].Content != "echoed" {
+		t.Fatalf("tool result = %+v", request.Messages[2])
+	}
+	if request.Messages[3].Role != "user" || request.Messages[3].Content != "continue" {
+		t.Fatalf("continuation user message = %+v", request.Messages[3])
+	}
+}
+
 func TestSession_AskStream_ResizesContextWindow_WithRouter(t *testing.T) {
 	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
 	a := startAgent(t, fake)

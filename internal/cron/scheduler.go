@@ -27,8 +27,6 @@ import (
 
 // Session defines the interface required by the Scheduler to trigger tasks.
 type Session interface {
-	Idle() bool
-	QueueMessage(prompt string)
 	AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error)
 	// AskIsolated executes a prompt in a clean context (no conversation history,
 	// no writes to the session's ContextWindow or timeline).
@@ -47,10 +45,8 @@ type SessionManager interface {
 	// Session returns the L1 session (may be nil if not initialized).
 	Session() Session
 
-	// GetSession returns a session for the given teamID.
-	// For "L1": returns the existing L1 session, isNew=false, no-op cleanup.
-	// For other teams (e.g. "engineering", "design"): creates a new L2 session,
-	// isNew=true, cleanup func must be called after execution.
+	// GetSession creates an isolated temporary session for the requested L1 or
+	// L2 target. isNew=true indicates cleanup must be called after execution.
 	// The caller MUST call cleanup() when done with a new session.
 	GetSession(ctx context.Context, teamID, taskID string) (sess Session, isNew bool, cleanup func(), err error)
 }
@@ -94,23 +90,7 @@ type modelRoutedSession interface {
 	AskStreamWithModel(ctx context.Context, prompt string, params *iface.ModelOverrideParams) (<-chan iface.AgentEvent, error)
 }
 
-type sessionBusyErrorClassifier interface {
-	IsSessionBusyError(error) bool
-}
-
-func isSessionBusyError(sess Session, err error) bool {
-	classifier, ok := sess.(sessionBusyErrorClassifier)
-	return ok && classifier.IsSessionBusyError(err)
-}
-
 var errTaskModelResolution = errors.New("scheduled task model resolution failed")
-
-// cronTask wraps a Task with its execution metadata.
-type cronTask struct {
-	task       Task
-	enqueued   time.Time
-	generation uint64
-}
 
 const oneTimeClaimRetryDelay = 250 * time.Millisecond
 
@@ -132,11 +112,6 @@ type Scheduler struct {
 	retryDelay time.Duration
 
 	modelResolver ModelResolver
-
-	// L1 task queue: serializes L1-targeted cron tasks
-	l1Queue []cronTask
-	l1Mu    sync.Mutex
-	l1Cond  *sync.Cond
 
 	mu                    sync.Mutex
 	entries               map[string]robfig.EntryID
@@ -190,7 +165,6 @@ func NewScheduler(db *DBStore, sm SessionManager, l *logger.Logger) *Scheduler {
 		oneTimeGenerations: make(map[string]uint64),
 		retryDelay:         10 * time.Second,
 	}
-	s.l1Cond = sync.NewCond(&s.l1Mu)
 	return s
 }
 
@@ -216,9 +190,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		s.Schedule(task)
 	}
 
-	// Start background goroutines for L1 task queue and L2 result delivery.
-	go s.l1QueueLoop()
-
 	s.cron.Start()
 	s.logger.InfoContext(ctx, logger.CatApp, "cron: scheduler daemon started successfully")
 	return nil
@@ -239,9 +210,6 @@ func (s *Scheduler) Stop() {
 	s.entries = make(map[string]robfig.EntryID)
 	s.timers = make(map[string]*time.Timer)
 	s.mu.Unlock()
-
-	// Wake up background loops so they can exit.
-	s.l1Cond.Broadcast()
 
 	s.logger.Info(logger.CatApp, "cron: scheduler daemon stopped")
 }
@@ -425,8 +393,7 @@ func (s *Scheduler) retryOneTimeClaim(t Task, generation uint64) {
 	s.armOneTimeTimerLocked(t, oneTimeClaimRetryDelay, generation)
 }
 
-// executeL1Task handles tasks targeting L1. If L1 is busy, the task is queued
-// and executed later by l1QueueLoop.
+// executeL1Task handles tasks targeting L1 using a temporary cron session.
 func (s *Scheduler) executeL1Task(t Task) {
 	s.executeL1TaskGeneration(t, s.oneTimeGeneration(t))
 }
@@ -463,29 +430,26 @@ func (s *Scheduler) executeL1TaskGeneration(t Task, generation uint64) {
 		}
 	}()
 
-	l1Session = s.sessionMgr.Session()
-	if l1Session == nil {
-		s.logger.Warn(logger.CatApp, "cron: L1 task skipped, no active session", "task_id", t.ID)
-		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active")
+	var cleanup func()
+	l1Session, _, cleanup, err = s.sessionMgr.GetSession(ctx, "L1", t.ID)
+	if err != nil || l1Session == nil {
+		if err == nil {
+			err = errors.New("temporary L1 session is nil")
+		}
+		s.logger.Error(logger.CatApp, "cron: failed to get temporary L1 session", "task_id", t.ID, "err", err)
+		failureResult := drainEventsResult{}
+		applyCronResult(&failureResult, failedCronResult(t, panicRunID, "execution_start_failed", time.Now()))
+		failureResult.diagnosticError = diagnosticCronError("execution_start_failed", err)
+		failureResult.timelineDir = s.writeCronDiagnosticTimeline(t, panicRunID, "execution_start_failed", err.Error())
+		if persistErr := s.finishExecution(ctx, t, panicRunID, ResolvedModel{}, start, failureResult, failureResult.diagnosticError, failureResult.canonical.Status, taskStatusAfterExecution(t)); persistErr != nil {
+			s.logger.Warn(logger.CatApp, "cron: L1 session build failure terminal persistence rejected", "task_id", t.ID, "run_id", panicRunID, "err", persistErr)
+			return
+		}
+		s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
+		s.deliverL1ResultViaChannel(ctx, t, failureResult.replyText, nil)
 		return
 	}
-
-	if !l1Session.Idle() {
-		// L1 is busy with user conversation — queue the task for later.
-		s.logger.Info(logger.CatApp, "cron: L1 busy, queuing L1 task", "task_id", t.ID)
-		_ = s.dbStore.UpdateTaskStatus(ctx, t.ID, "active") // return claim
-		s.enqueueL1Task(t, generation)
-		return
-	}
-
-	s.runL1TaskWithGeneration(ctx, t, l1Session, panicRunID, generation)
-}
-
-func (s *Scheduler) enqueueL1Task(t Task, generation uint64) {
-	s.l1Mu.Lock()
-	s.l1Queue = append(s.l1Queue, cronTask{task: t, enqueued: time.Now(), generation: generation})
-	s.l1Mu.Unlock()
-	s.l1Cond.Signal()
+	s.runL1TaskWithGenerationAndCleanup(ctx, t, l1Session, panicRunID, generation, cleanup)
 }
 
 // notifyTaskStarted is a helper that calls OnTaskStart if set.
@@ -526,16 +490,14 @@ func (s *Scheduler) handleCronPanic(ctx context.Context, t Task, start time.Time
 		return
 	}
 	s.notifyTaskComplete(t, false, firstLineSummary(result.replyText))
-	if sess == nil {
-		return
-	}
 	if l2 {
+		if sess == nil {
+			return
+		}
 		s.deliverL2ResultViaChannel(ctx, t, sess, result.replyText)
 		return
 	}
-	if err := sess.SendViaChannel(ctx, result.replyText); err != nil {
-		s.logger.Warn(logger.CatApp, "cron: panic notification failed", "task_id", t.ID, "err", err)
-	}
+	s.deliverL1ResultViaChannel(ctx, t, result.replyText, nil)
 }
 
 func (s *Scheduler) writeCronDiagnosticTimeline(t Task, runID, reason, diagnostic string) string {
@@ -612,8 +574,17 @@ func (s *Scheduler) runL1TaskWithID(ctx context.Context, t Task, l1Session Sessi
 }
 
 func (s *Scheduler) runL1TaskWithGeneration(ctx context.Context, t Task, l1Session Session, execID string, generation uint64) {
+	s.runL1TaskWithGenerationAndCleanup(ctx, t, l1Session, execID, generation, nil)
+}
+
+func (s *Scheduler) runL1TaskWithGenerationAndCleanup(ctx context.Context, t Task, l1Session Session, execID string, generation uint64, cleanup func()) {
 	start := time.Now()
 	var resolved ResolvedModel
+	defer func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
 	defer func() {
 		if panicValue := recover(); panicValue != nil {
 			s.handleCronPanic(ctx, t, start, execID, resolved, l1Session, false, panicValue)
@@ -624,19 +595,8 @@ func (s *Scheduler) runL1TaskWithGeneration(ctx context.Context, t Task, l1Sessi
 
 	var ch <-chan iface.AgentEvent
 	var err error
-	resolved, ch, err = s.askWithTaskModel(cronCtx, t, l1Session)
+	resolved, ch, err = s.askStatefulWithTaskModelPrompt(cronCtx, t, l1Session, s.buildTaskPrompt(t))
 	if err != nil {
-		if isSessionBusyError(l1Session, err) {
-			// Idle() is advisory. A foreground request may win the Session CAS
-			// before AskIsolated. This is contention, not an execution attempt:
-			// Return the claim and requeue unchanged; contention is not an execution failure.
-			if releaseErr := s.dbStore.UpdateTaskStatus(context.Background(), t.ID, "active"); releaseErr != nil {
-				s.logger.Warn(logger.CatApp, "cron: failed to return contended L1 claim", "task_id", t.ID, "run_id", execID, "err", releaseErr)
-				return
-			}
-			s.enqueueL1Task(t, generation)
-			return
-		}
 		s.logger.Error(logger.CatApp, "cron: L1 task execution failed to start", "task_id", t.ID, "err", err)
 		failureResult := drainEventsResult{}
 		applyCronResult(&failureResult, failedCronResult(t, execID, "execution_start_failed", time.Now()))
@@ -651,9 +611,7 @@ func (s *Scheduler) runL1TaskWithGeneration(ctx context.Context, t Task, l1Sessi
 			return
 		}
 		s.notifyTaskComplete(t, false, firstLineSummary(failureResult.replyText))
-		if sendErr := l1Session.SendViaChannel(ctx, failureResult.replyText); sendErr != nil {
-			s.logger.Warn(logger.CatApp, "cron: L1 failure notification failed", "task_id", t.ID, "err", sendErr)
-		}
+		s.deliverL1ResultViaChannel(ctx, t, failureResult.replyText, nil)
 		return
 	}
 	s.notifyTaskStarted(t)
@@ -661,7 +619,7 @@ func (s *Scheduler) runL1TaskWithGeneration(ctx context.Context, t Task, l1Sessi
 	result, drainErr := s.drainEventsWithTimeline(ch, t, execID)
 
 	// ── 1-time 10s Retry Logic ──
-	if drainErr != nil && canAutomaticallyRetry(result) {
+	if drainErr != nil && runwatch.CodeOf(drainErr) == "" && canRetryL1(result) {
 		s.logger.Warn(logger.CatApp, "cron: L1 task drain error, preparing 10s retry",
 			"task_id", t.ID, "tool_calls", result.toolCallCount, "err", drainErr)
 		if !waitContext(ctx, s.retryDelay) {
@@ -670,33 +628,43 @@ func (s *Scheduler) runL1TaskWithGeneration(ctx context.Context, t Task, l1Sessi
 
 		var retrySess Session
 		var retryPrompt string
+		var retryStartErr error
 
 		if result.toolCallCount > 0 {
-			// iter > 0: Reuse existing session with tool outputs preserved in context window.
 			retrySess = l1Session
 			retryPrompt = continuationPrompt
 		} else {
-			// iter == 0: Get a fresh session to avoid duplicate instructions in context.
-			freshSess := s.sessionMgr.Session()
-			if freshSess != nil {
+			// iter == 0: replace the temporary session to avoid duplicate instructions.
+			if cleanup != nil {
+				cleanup()
+				cleanup = nil
+			}
+			freshSess, freshIsNew, freshCleanup, freshErr := s.sessionMgr.GetSession(ctx, "L1", t.ID)
+			if freshErr == nil && freshSess != nil {
 				retrySess = freshSess
+				l1Session = freshSess
+				if freshIsNew {
+					cleanup = freshCleanup
+				}
 			} else {
-				retrySess = l1Session
+				retryStartErr = freshErr
+				if retryStartErr == nil {
+					retryStartErr = errors.New("replacement temporary L1 session is nil")
+				}
 			}
 			retryPrompt = s.buildTaskPrompt(t)
 		}
 
-		retryExecID := uuid.New().String() + "-retry"
 		var retryCtx context.Context
 		var retryResolved ResolvedModel
 		var retryCh <-chan iface.AgentEvent
-		var retryStartErr error
-		execID = retryExecID
-		retryCtx = s.buildCronContext(ctx, t, retryExecID)
-		retryResolved, retryCh, retryStartErr = s.askWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		retryCtx = s.buildCronContext(ctx, t, execID)
+		if retrySess != nil {
+			retryResolved, retryCh, retryStartErr = s.askStatefulWithTaskModelPrompt(retryCtx, t, retrySess, retryPrompt)
+		}
 		resolved = retryResolved
 		if retryStartErr == nil {
-			retryResult, retryDrainErr := s.drainEventsWithTimeline(retryCh, t, retryExecID)
+			retryResult, retryDrainErr := s.drainEventsWithTimelinePrompt(retryCh, t, execID, retryPrompt)
 			result = retryResult
 			if retryDrainErr == nil {
 				drainErr = nil
@@ -709,7 +677,7 @@ func (s *Scheduler) runL1TaskWithGeneration(ctx context.Context, t Task, l1Sessi
 			s.logger.Error(logger.CatApp, "cron: L1 task retry failed to start", "task_id", t.ID, "err", retryStartErr)
 			result = drainEventsResult{}
 			drainErr = fmt.Errorf("retry failed to start: %w", retryStartErr)
-			result.timelineDir = s.writeCronDiagnosticTimeline(t, retryExecID, "execution_start_failed", drainErr.Error())
+			result.timelineDir = s.writeCronDiagnosticTimeline(t, execID, "execution_start_failed", drainErr.Error())
 		}
 	}
 
@@ -730,17 +698,11 @@ func (s *Scheduler) runL1TaskWithGeneration(ctx context.Context, t Task, l1Sessi
 	}
 	s.notifyTaskComplete(t, status == "success", firstLineSummary(result.replyText))
 
-	// Deliver result through the session's bound channel (QQ/WeChat).
-	if result.replyText != "" {
-		if err := l1Session.SendViaChannel(ctx, result.replyText); err != nil {
-			s.logger.Warn(logger.CatApp, "cron: L1 notification failed", "task_id", t.ID, "err", err)
-		}
+	var media []channel.OutboundMedia
+	if drainErr == nil {
+		media = result.mediaFiles
 	}
-	if drainErr == nil && len(result.mediaFiles) > 0 {
-		if err := l1Session.SendMediaViaChannel(ctx, result.mediaFiles); err != nil {
-			s.logger.Warn(logger.CatApp, "cron: L1 media notification failed", "task_id", t.ID, "err", err)
-		}
-	}
+	s.deliverL1ResultViaChannel(ctx, t, result.replyText, media)
 
 	if drainErr != nil {
 		s.logger.Error(logger.CatApp, "cron: L1 task drain error", "task_id", t.ID, "err", drainErr)
@@ -944,6 +906,24 @@ func (s *Scheduler) deliverL2ResultViaChannel(ctx context.Context, t Task, l2Ses
 	}
 }
 
+func (s *Scheduler) deliverL1ResultViaChannel(ctx context.Context, t Task, replyText string, media []channel.OutboundMedia) {
+	l1Session := s.sessionMgr.Session()
+	if l1Session == nil {
+		s.logger.Warn(logger.CatApp, "cron: L1 notification skipped, no permanent L1 session", "task_id", t.ID)
+		return
+	}
+	if replyText != "" {
+		if err := l1Session.SendViaChannel(ctx, replyText); err != nil {
+			s.logger.Warn(logger.CatApp, "cron: L1 notification failed", "task_id", t.ID, "err", err)
+		}
+	}
+	if len(media) > 0 {
+		if err := l1Session.SendMediaViaChannel(ctx, media); err != nil {
+			s.logger.Warn(logger.CatApp, "cron: L1 media notification failed", "task_id", t.ID, "err", err)
+		}
+	}
+}
+
 func (s *Scheduler) askWithTaskModelPrompt(ctx context.Context, t Task, sess Session, prompt string) (ResolvedModel, <-chan iface.AgentEvent, error) {
 	if s.modelResolver == nil {
 		ch, err := sess.AskIsolated(ctx, prompt)
@@ -971,6 +951,23 @@ func (s *Scheduler) askWithTaskModelPrompt(ctx context.Context, t Task, sess Ses
 	return resolved, ch, err
 }
 
+func (s *Scheduler) askStatefulWithTaskModelPrompt(ctx context.Context, t Task, sess Session, prompt string) (ResolvedModel, <-chan iface.AgentEvent, error) {
+	if s.modelResolver == nil {
+		ch, err := sess.AskStream(ctx, prompt)
+		return ResolvedModel{}, ch, err
+	}
+	resolved, err := s.modelResolver(t.TaskType)
+	if err != nil {
+		return ResolvedModel{}, nil, fmt.Errorf("%w: resolve task type %s: %v", errTaskModelResolution, t.TaskType, err)
+	}
+	routed, ok := sess.(modelRoutedSession)
+	if !ok {
+		return resolved, nil, fmt.Errorf("%w: session does not support model routing", errTaskModelResolution)
+	}
+	ch, err := routed.AskStreamWithModel(ctx, prompt, &resolved.Params)
+	return resolved, ch, err
+}
+
 func (s *Scheduler) askWithTaskModel(ctx context.Context, t Task, sess Session) (ResolvedModel, <-chan iface.AgentEvent, error) {
 	return s.askWithTaskModelPrompt(ctx, t, sess, s.buildTaskPrompt(t))
 }
@@ -980,8 +977,9 @@ func (s *Scheduler) buildTaskPrompt(t Task) string {
 	return buildCronPrompt(t)
 }
 
-// buildCronContext adds telemetry metadata for a cron execution.
+// buildCronContext marks a cron execution and adds its telemetry metadata.
 func (s *Scheduler) buildCronContext(parent context.Context, t Task, runID string) context.Context {
+	parent = iface.ContextWithCronExecution(parent)
 	return telemetryctx.WithMetadata(parent, telemetryctx.Metadata{
 		RunID:    runID,
 		Origin:   telemetryctx.OriginCron,
@@ -1016,12 +1014,13 @@ func drainEvents(ch <-chan iface.AgentEvent) (string, []SendFileMedia) {
 
 // drainEventsResult holds the output of draining an agent event channel into a timeline.
 type drainEventsResult struct {
-	replyText       string
-	canonical       CronResultV1
-	diagnosticError string
-	mediaFiles      []SendFileMedia
-	timelineDir     string // relative path from workDir: logs/cron/<taskID>/<execID>
-	toolCallCount   int
+	replyText              string
+	canonical              CronResultV1
+	diagnosticError        string
+	mediaFiles             []SendFileMedia
+	timelineDir            string // relative path from workDir: logs/cron/<taskID>/<execID>
+	toolCallCount          int
+	completedToolCallCount int
 }
 
 // canAutomaticallyRetry permits replay only before the run has produced any
@@ -1030,6 +1029,11 @@ type drainEventsResult struct {
 func canAutomaticallyRetry(result drainEventsResult) bool {
 	return strings.TrimSpace(result.replyText) == "" &&
 		result.toolCallCount == 0 && len(result.mediaFiles) == 0
+}
+
+func canRetryL1(result drainEventsResult) bool {
+	return strings.TrimSpace(result.replyText) == "" && len(result.mediaFiles) == 0 &&
+		result.toolCallCount == result.completedToolCallCount
 }
 
 func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (CronResultV1, error) {
@@ -1204,6 +1208,10 @@ func applyCronResult(result *drainEventsResult, canonical CronResultV1) {
 // execution can be replayed later. Returns accumulated reply text, media files,
 // and the timeline directory path.
 func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, execID string) (drainEventsResult, error) {
+	return s.drainEventsWithTimelinePrompt(ch, t, execID, s.buildTaskPrompt(t))
+}
+
+func (s *Scheduler) drainEventsWithTimelinePrompt(ch <-chan iface.AgentEvent, t Task, execID, prompt string) (drainEventsResult, error) {
 	var result drainEventsResult
 
 	// Determine timeline directory.
@@ -1226,7 +1234,6 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 	defer tl.Close()
 
 	// Write the user prompt (task instruction).
-	prompt := s.buildTaskPrompt(t)
 	_ = tl.AppendMessage(&timeline.MessagePayload{
 		Role:    "user",
 		Content: prompt,
@@ -1246,6 +1253,7 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		submissionProtocolErrors    []string
 		submissionAttemptErrors     []string
 		successfulSubmissionResults []CronResultV1
+		pendingToolCalls            = make(map[string]int)
 	)
 
 	flushAssistant := func(content, reasoning string, toolCalls []timeline.ToolCallRec) {
@@ -1258,6 +1266,12 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 		})
 		contentBuf.Reset()
 		reasoningBuf.Reset()
+	}
+	flushPendingAssistant := func() {
+		if contentBuf.Len() == 0 && reasoningBuf.Len() == 0 {
+			return
+		}
+		flushAssistant(contentBuf.String(), reasoningBuf.String(), nil)
 	}
 
 	appendDoneContent := func(content string) {
@@ -1301,6 +1315,7 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 			callID := rv.FieldByName("CallID").String()
 			name := rv.FieldByName("Name").String()
 			args := rv.FieldByName("Args").String()
+			pendingToolCalls[callID]++
 			if name == "SubmitCronResult" {
 				submissionEvents++
 				switch {
@@ -1323,6 +1338,10 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 			callID := rv.FieldByName("CallID").String()
 			name := rv.FieldByName("Name").String()
 			toolResult := rv.FieldByName("Result").String()
+			if pendingToolCalls[callID] > 0 {
+				pendingToolCalls[callID]--
+				result.completedToolCallCount++
+			}
 			errField := rv.FieldByName("Err")
 			var toolErr error
 			if errField.IsValid() && !errField.IsNil() {
@@ -1393,10 +1412,12 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 			errField := rv.FieldByName("Err")
 			if errField.IsValid() && !errField.IsNil() {
 				agentErr := fmt.Errorf("agent error: %w", errField.Elem().Interface().(error))
+				flushPendingAssistant()
 				_ = tl.AppendControl(&timeline.ControlPayload{Action: "error", Reason: "cron_execution_error", Content: agentErr.Error()})
 				return result, agentErr
 			}
 			agentErr := errors.New("agent error: unknown")
+			flushPendingAssistant()
 			_ = tl.AppendControl(&timeline.ControlPayload{Action: "error", Reason: "cron_execution_error", Content: agentErr.Error()})
 			return result, agentErr
 		}
@@ -1409,6 +1430,7 @@ func (s *Scheduler) drainEventsWithTimeline(ch <-chan iface.AgentEvent, t Task, 
 			}
 			if errVal, ok := consumer.Error(); ok {
 				agentErr := fmt.Errorf("agent error: %w", errVal)
+				flushPendingAssistant()
 				_ = tl.AppendControl(&timeline.ControlPayload{Action: "error", Reason: "cron_execution_error", Content: agentErr.Error()})
 				return result, agentErr
 			}
@@ -1519,75 +1541,6 @@ func (s *Scheduler) finishExecution(ctx context.Context, t Task, runID string, r
 	}
 	s.updateTaskAfterExecution(ctx, t)
 	return nil
-}
-
-// l1QueueLoop runs in a background goroutine. It processes queued L1 tasks
-// one at a time when L1 becomes idle.
-func (s *Scheduler) l1QueueLoop() {
-	s.l1Mu.Lock()
-	defer s.l1Mu.Unlock()
-
-	for {
-		// Check if stopped.
-		s.mu.Lock()
-		stopped := s.stopped
-		s.mu.Unlock()
-		if stopped {
-			return
-		}
-
-		for len(s.l1Queue) == 0 && !stopped {
-			s.l1Cond.Wait()
-			s.mu.Lock()
-			stopped = s.stopped
-			s.mu.Unlock()
-		}
-		if stopped {
-			return
-		}
-
-		ct := s.l1Queue[0]
-		s.l1Queue = s.l1Queue[1:]
-		s.l1Mu.Unlock()
-
-		// Wait for L1 to be idle.
-		l1Session := s.sessionMgr.Session()
-		if l1Session != nil {
-			for !l1Session.Idle() {
-				time.Sleep(100 * time.Millisecond)
-				s.mu.Lock()
-				stopped = s.stopped
-				s.mu.Unlock()
-				if stopped {
-					s.l1Mu.Lock()
-					return
-				}
-			}
-			s.executeQueuedL1Generation(ct.task, l1Session, ct.generation)
-		}
-
-		s.l1Mu.Lock()
-	}
-}
-
-func (s *Scheduler) executeQueuedL1(task Task, l1Session Session) {
-	s.executeQueuedL1Generation(task, l1Session, s.oneTimeGeneration(task))
-}
-
-func (s *Scheduler) executeQueuedL1Generation(task Task, l1Session Session, generation uint64) {
-	if !s.isCurrentOneTimeGeneration(task, generation) {
-		return
-	}
-	runID := uuid.New().String()
-	claimed, err := s.dbStore.ClaimTask(context.Background(), task.ID)
-	if err != nil {
-		s.logger.Error(logger.CatApp, "cron: failed to claim queued L1 task", "task_id", task.ID, "err", err)
-		s.retryOneTimeClaim(task, generation)
-	} else if claimed && !s.isCurrentOneTimeGeneration(task, generation) {
-		_ = s.dbStore.UpdateTaskStatus(context.Background(), task.ID, "active")
-	} else if claimed {
-		s.runL1TaskWithGeneration(context.Background(), task, l1Session, runID, generation)
-	}
 }
 
 func taskStatusAfterExecution(t Task) string {
