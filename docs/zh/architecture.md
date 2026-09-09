@@ -4,6 +4,8 @@
 
 本文档提供 SoloQueue 内部架构、进程边界、记忆引擎、任务路由及平台集成的技术概览。
 
+本文描述的 `main` 不包含模拟功能，正在为稳定版本做准备。剥离前的完整实现保留在 `experimental/simulation` 分支；参见[分支边界与工作目录说明](../../README.zh-CN.md#分支边界)。这项准备不代表已发布稳定版本。
+
 ---
 
 ## 1. 进程边界与分层架构
@@ -23,7 +25,7 @@ Session Manager (internal/session)
        │       ├── 任务路由与 Model Client (internal/router, internal/llm)
        │       ├── 原生工具、Skills、MCP/LSP (internal/agenttools)
        │       └── 确定性工具安全检查
-       ├── Cron 与 Simulation 运行时 (internal/cron, internal/simulation)
+       ├── Cron 运行时 (internal/cron)
        ├── 渠道桥接 (internal/channel/qq, internal/channel/wechat)
        └── 记忆、时间线、SQLite 数据库与日志 (internal/infra, internal/memory)
 ```

@@ -4,6 +4,8 @@ English | [简体中文](zh/architecture.md)
 
 This document provides a technical overview of SoloQueue's internal architecture, process boundaries, memory engine, task routing, and platform integrations.
 
+It describes `main`, which excludes simulation as part of preparation for a stable release. The full pre-extraction implementation is preserved on `experimental/simulation`; see the [branch boundary and work-directory guidance](../README.md#branch-boundary). This preparation does not indicate that a stable release has been published.
+
 ---
 
 ## 1. Process Boundary & Layering
@@ -23,7 +25,7 @@ Session Manager (internal/session)
        │       ├── Task Router & Model Clients (internal/router, internal/llm)
        │       ├── Native Tools, Skills, MCP/LSP (internal/agenttools)
        │       └── Deterministic tool safety checks
-       ├── Cron & Simulation Runtimes (internal/cron, internal/simulation)
+       ├── Cron Runtime (internal/cron)
        ├── Channel Bridges (internal/channel/qq, internal/channel/wechat)
        └── Memory, Timeline, SQLite DB & Logger (internal/infra, internal/memory)
 ```
