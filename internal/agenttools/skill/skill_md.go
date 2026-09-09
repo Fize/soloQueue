@@ -5,12 +5,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"gopkg.in/yaml.v3"
 )
+
+// MaxSkillDiscoveryDepth is the maximum number of directory levels below a
+// configured skills root that discovery traverses.
+const MaxSkillDiscoveryDepth = 6
 
 // --- Package-level Logger ---------------------------------------------------
 
@@ -125,7 +130,9 @@ func ParseSkillMD(path string) (*Skill, error) {
 //	  <another-skill>/
 //	    SKILL.md
 //
-// Only scans supported skill entrypoint files in immediate subdirectories.
+// Skill roots may contain grouping directories (for example @user/skill).
+// Discovery traverses at most MaxSkillDiscoveryDepth levels and stops below a
+// directory as soon as it finds a supported entrypoint.
 // Returns nil, nil if the directory does not exist.
 func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	rootInfo, err := os.Lstat(dir)
@@ -143,40 +150,33 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 		return nil, fmt.Errorf("skills path %s is not a regular directory", dir)
 	}
 
-	entries, err := os.ReadDir(dir)
+	files, err := discoverSkillFiles(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			if pkgLogger != nil {
-				pkgLogger.Debug(logger.CatApp, "skill: directory not found, skipping",
-					"dir", dir)
-			}
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read skills dir %s: %w", dir, err)
+		return nil, err
 	}
-
 	loaded := 0
+	seen := make(map[string]struct{})
+	selectedPath := make(map[string]string)
 	var skills []*Skill
-	for _, e := range entries {
-		path := filepath.Join(dir, e.Name())
-		info, err := os.Lstat(path)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			continue
-		}
-		skillFile, err := findSkillMarkdownFile(path)
-		if err != nil {
-			continue
-		}
-
-		md, err := ParseSkillMD(skillFile)
+	for _, skillFile := range files {
+		md, err := ParseSkillMD(skillFile.path)
 		if err != nil {
 			// Failure to load a single skill does not block others.
 			if pkgLogger != nil {
 				pkgLogger.Warn(logger.CatApp, "skill: load failed",
-					"path", skillFile, "err", err.Error())
+					"path", skillFile.path, "err", err.Error())
 			}
 			continue
 		}
+		if _, exists := seen[md.ID]; exists {
+			if pkgLogger != nil {
+				pkgLogger.Warn(logger.CatApp, "skill: duplicate id in directory",
+					"id", md.ID, "selected", selectedPath[md.ID], "ignored", skillFile.path)
+			}
+			continue
+		}
+		seen[md.ID] = struct{}{}
+		selectedPath[md.ID] = skillFile.path
 		skills = append(skills, md)
 		loaded++
 	}
@@ -186,6 +186,98 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 			"dir", dir, "count", loaded)
 	}
 	return skills, nil
+}
+
+type discoveredSkillFile struct {
+	path  string
+	depth int
+}
+
+// discoverSkillFiles returns candidates in deterministic precedence order:
+// shallower paths win, then lexical relative path order.
+func discoverSkillFiles(root string) ([]discoveredSkillFile, error) {
+	var found []discoveredSkillFile
+	if err := walkSkillTree(root, 0, func(path string, depth int) error {
+		found = append(found, discoveredSkillFile{path: path, depth: depth})
+		return nil
+	}, nil); err != nil {
+		return nil, err
+	}
+	sort.Slice(found, func(i, j int) bool {
+		if found[i].depth != found[j].depth {
+			return found[i].depth < found[j].depth
+		}
+		return found[i].path < found[j].path
+	})
+	return found, nil
+}
+
+// DiscoverSkillDirectories returns the root and every directory that must be
+// watched for changes under it, using the same traversal and stop rules as the
+// loader. It is exported for the runtime watcher so loading and hot reload do
+// not drift apart.
+func DiscoverSkillDirectories(root string) ([]string, error) {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, fmt.Errorf("skills path %s is not a regular directory", root)
+	}
+	result := []string{filepath.Clean(root)}
+	err = walkSkillTree(filepath.Clean(root), 0, nil, func(path string, depth int) error {
+		result = append(result, path)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func walkSkillTree(parent string, parentDepth int, onSkill func(string, int) error, onDir func(string, int) error) error {
+	if parentDepth >= MaxSkillDiscoveryDepth {
+		return nil
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read skills dir %s: %w", parent, err)
+	}
+	for _, entry := range entries {
+		if shouldSkipSkillDirectory(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(parent, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			continue
+		}
+		depth := parentDepth + 1
+		if onDir != nil {
+			if err := onDir(path, depth); err != nil {
+				return err
+			}
+		}
+		if file, err := findSkillMarkdownFile(path); err == nil {
+			if onSkill != nil {
+				if err := onSkill(file, depth); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if err := walkSkillTree(path, depth, onSkill, onDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func shouldSkipSkillDirectory(name string) bool {
+	return name == "node_modules" || strings.HasPrefix(name, ".")
 }
 
 // findSkillMarkdownFile accepts the filenames used by ClawHub and older

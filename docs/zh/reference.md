@@ -96,7 +96,7 @@ clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
 clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
 ```
 
-SoloQueue 从 `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` 发现全局 `SKILL.md` 包，也会从 `<project>/.claude/skills/` 发现兼容的项目级技能。全局 `SKILL.md` 定义会在技能目录或受支持的入口文件变化时热加载，项目级技能在 Agent 创建时加载；其他辅助文件的变化不会触发全局 Skill 注册表重建。Web Console 只提供只读查看。不要使用 `openclaw` 或 SoloQueue 的管理接口处理生命周期，应使用独立的 `clawhub` 命令。
+SoloQueue 从 `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` 发现全局 `SKILL.md` 包，也会从 `<project>/.claude/skills/` 发现兼容的项目级技能。发现支持 `skills/@user/skill/SKILL.md` 这样的分组目录，最多递归六层；目录中找到受支持的入口文件后不再向下扫描。`@user` 只用于组织文件，Skill ID 来自 frontmatter 的 `name`，未填写时使用技能目录名。同一根目录出现相同 ID 时，浅层路径优先，再按路径字典序选择。全局 `SKILL.md` 定义会在技能目录或受支持的入口文件变化时热加载，项目级技能在 Agent 创建时加载；其他辅助文件的变化不会触发全局 Skill 注册表重建。Web Console 只提供只读查看。不要使用 `openclaw` 或 SoloQueue 的管理接口处理生命周期，应使用独立的 `clawhub` 命令。
 
 ### `soloqueue memory`
 检查或清理长期记忆：

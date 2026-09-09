@@ -47,6 +47,74 @@ func TestRegisterSkillHotReload_DelayedEntrypointWrite(t *testing.T) {
 	t.Fatal("delayed SKILL.md write was not hot-reloaded")
 }
 
+func TestRegisterSkillHotReload_NestedGroupLifecycle(t *testing.T) {
+	root := t.TempDir()
+	log, err := logger.System(root, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+
+	reg := skill.NewSkillRegistry()
+	closeWatcher := registerSkillHotReload(reg, map[string]string{"user": root}, log)
+	defer closeWatcher()
+
+	nestedDir := filepath.Join(root, "@alice", "nested")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatalf("mkdir nested skill: %v", err)
+	}
+	path := filepath.Join(nestedDir, "SKILL.md")
+	writeSkillMD(t, path, "nested", "first")
+	waitForSkill(t, reg, "nested", "first")
+
+	writeSkillMD(t, path, "nested", "second")
+	waitForSkill(t, reg, "nested", "second")
+
+	if err := os.RemoveAll(filepath.Join(root, "@alice")); err != nil {
+		t.Fatalf("remove nested group: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := reg.GetSkill("nested"); !ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("deleted nested skill remained in registry")
+}
+
+func TestRegisterSkillHotReload_EntrypointRemovalRevealsNestedSkill(t *testing.T) {
+	root := t.TempDir()
+	group := filepath.Join(root, "group")
+	if err := os.MkdirAll(filepath.Join(group, "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir nested group: %v", err)
+	}
+	parentPath := filepath.Join(group, "SKILL.md")
+	childPath := filepath.Join(group, "nested", "SKILL.md")
+	writeSkillMD(t, parentPath, "parent", "parent")
+	writeSkillMD(t, childPath, "nested", "first")
+
+	log, err := logger.System(root, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("logger.System: %v", err)
+	}
+	defer log.Close()
+	reg := skill.NewSkillRegistry()
+	if err := reg.Rebuild(map[string]string{"user": root}); err != nil {
+		t.Fatalf("initial rebuild: %v", err)
+	}
+	closeWatcher := registerSkillHotReload(reg, map[string]string{"user": root}, log)
+	defer closeWatcher()
+
+	if err := os.Remove(parentPath); err != nil {
+		t.Fatalf("remove parent entrypoint: %v", err)
+	}
+	waitForSkill(t, reg, "nested", "first")
+
+	writeSkillMD(t, childPath, "nested", "second")
+	waitForSkill(t, reg, "nested", "second")
+}
+
 func TestRegisterSkillHotReload_UpdatesExistingSkill(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "versioned")
