@@ -14,6 +14,16 @@ I use SoloQueue every day. I share it for developers who want to study or
 operate a self-hosted agent harness, while I still treat it as an evolving
 personal project rather than a production-ready enterprise platform.
 
+## Branch boundary
+
+`main` excludes simulation and is being prepared for a stable release; this does not mean a stable release has been published. `experimental/simulation` preserves the full implementation from `6efd796`, before simulation was extracted.
+
+Existing simulation database files (`simulation.db` and any `-wal` / `-shm` sidecars) are retained, but `main` does not open or initialize them. Use a separate work directory when experimenting on `experimental/simulation` to prevent settings rewrites from affecting the directory used by `main`. After building that branch, for example:
+
+```bash
+SOLOQUEUE_WORK_DIR="$HOME/.soloqueue-simulation" ./soloqueue start
+```
+
 ## Features
 
 - SoloQueue runs a local-first runtime for persistent agent sessions.

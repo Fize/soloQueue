@@ -146,7 +146,6 @@ internal/router/        task classification & model routing (TaskType: general/e
 internal/runtime/       shared dependency container (Stack, built once)
 internal/server/        REST + WebSocket HTTP router (chi/v5)
 internal/session/       session manager (single active, inFlight atomic CAS)
-internal/simulation/    Generative Agents simulation engine
 internal/team/          auto-reload for LLM-written agent/group files
 internal/team/store/    filesystem-backed team & agent persistence
 web/                    Full browser Web Console (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
@@ -154,18 +153,9 @@ status-ui/              Independent read-only backend status page
 skills/                 Skill source packages maintained independently from this runtime
 ```
 
-### Simulation engine (`internal/simulation/`)
+### Branch boundary
 
-Seed text → LLM extraction → persona generation → GA agent loop (Perceive→Retrieve→Decide→Execute→Reflect per tick).
-
-> **See also**: [docs/architecture.md](docs/architecture.md) for subsystem details.
-
-Key gotchas:
-- **`SuggestedAgent.Goals`** extracted by Phase 2 are character-specific objectives, NOT abstract positions. In `buildPersonas`, seed-extracted `Goals` **override** the persona-gen LLM's goals.
-- **Goal transitions**: `SeedLifecycleEvent` with `type: "goal_transition"` carries `NewGoals []string`. `handleGoalTransition` updates the SimAgent's pointer AND `lm.allPersonas` (for mid-simulation spawns).
-- `allPersonas` is passed by **value** to each `GAAgentLoop`; other agents don't see each other's goals — only name/role/bio.
-- Lifecycle event types: `agent_spawn`, `agent_death`, `goal_transition`, `simulation_end`. Scheduler runs every 2 seconds.
-- `FakeLLM` (from `internal/agent/llm.go`) is used in simulation tests to avoid real API calls. No `TestMain` or shared fixtures.
+`main` excludes simulation and is being prepared for a stable release; no stable release is implied by this extraction. `experimental/simulation` preserves the full pre-extraction implementation from `6efd796`. Historical simulation database files are retained but are not opened or initialized by `main`; do not delete them as part of extraction. Use a separate `SOLOQUEUE_WORK_DIR` when experimenting on the preserved branch so settings rewrites do not affect the work directory used by `main`. See [README.md](README.md#branch-boundary).
 
 ### Memory engine (`internal/memoryengine/`)
 

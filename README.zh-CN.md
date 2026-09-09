@@ -13,6 +13,16 @@
 我仍然把它作为持续演进的个人项目，不把它定位为企业级生产平台、多租户 SaaS
 或 OpenClaw 的兼容实现。
 
+## 分支边界
+
+`main` 不包含模拟功能，正在为稳定版本做准备，这不代表已发布稳定版本。`experimental/simulation` 保留了剥离模拟功能前 `6efd796` 的完整实现。
+
+已有的模拟数据库文件（`simulation.db` 及其可能存在的 `-wal` / `-shm` 附属文件）会保留，`main` 不会打开或初始化它们。在 `experimental/simulation` 上实验时，请使用独立工作目录，避免配置保存时重写 `main` 所用目录中的设置。例如，构建该分支后运行：
+
+~~~bash
+SOLOQUEUE_WORK_DIR="$HOME/.soloqueue-simulation" ./soloqueue start
+~~~
+
 ## 核心功能
 
 - 使用本地优先的运行时维护长期 Agent 会话。
