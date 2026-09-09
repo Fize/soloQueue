@@ -15,7 +15,6 @@ const (
 	CatTool       Category = "tool"
 	CatMessages   Category = "messages"
 	CatMCP        Category = "mcp"
-	CatSimulation Category = "simulation"
 	CatClassifier Category = "classifier"
 )
 
@@ -23,7 +22,7 @@ const (
 var systemCategories = []Category{
 	CatApp, CatConfig, CatHTTP, CatWS, CatLLM,
 	CatTeam, CatAgent,
-	CatActor, CatTool, CatMessages, CatMCP, CatSimulation, CatClassifier,
+	CatActor, CatTool, CatMessages, CatMCP, CatClassifier,
 }
 
 // ValidCategory checks if the category is valid

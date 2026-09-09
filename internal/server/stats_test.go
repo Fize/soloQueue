@@ -254,6 +254,60 @@ func TestStatsRejectsRemovedWorkflowOrigin(t *testing.T) {
 	}
 }
 
+func TestStatsPreservesHistoricalSimulationUsage(t *testing.T) {
+	database := openStatsTestDB(t)
+	now := time.Now().UTC().Add(-time.Hour)
+	insertStatsMetric(t, database, db.LLMCallMetric{
+		CallID: "historical-simulation", Origin: "simulation", UsageType: "simulation",
+		StartedAt: now, FinishedAt: now.Add(time.Second), Status: "success", TotalTokens: 25,
+	})
+	insertStatsMetric(t, database, db.LLMCallMetric{
+		CallID: "ordinary-chat", Origin: "api", UsageType: "chat",
+		StartedAt: now, FinishedAt: now.Add(time.Second), Status: "success", TotalTokens: 10,
+	})
+	mux := NewMux(t.TempDir(), nil, WithSharedDB(database))
+	defer mux.Close()
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, newStatsRequest("/api/stats/events?origin=simulation&usage_type=simulation"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var events struct {
+		Data statsEvents `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &events); err != nil {
+		t.Fatal(err)
+	}
+	if len(events.Data.Items) != 1 {
+		t.Fatalf("filtered events = %+v", events.Data.Items)
+	}
+	event := events.Data.Items[0]
+	if event.CallID != "historical-simulation" || event.TotalTokens != 25 ||
+		event.Origin == nil || *event.Origin != "simulation" ||
+		event.UsageType == nil || *event.UsageType != "simulation" {
+		t.Fatalf("historical usage lost its identity: %+v", event)
+	}
+	for _, dimension := range []string{"origin", "usage_type"} {
+		t.Run(dimension, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, newStatsRequest("/api/stats/breakdowns?dimension="+dimension+"&origin=simulation"))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+			var breakdown struct {
+				Data statsBreakdown `json:"data"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &breakdown); err != nil {
+				t.Fatal(err)
+			}
+			if len(breakdown.Data.Items) != 1 || breakdown.Data.Items[0].Key != "simulation" {
+				t.Fatalf("historical breakdown = %+v", breakdown.Data.Items)
+			}
+		})
+	}
+}
+
 func openStatsTestDB(t *testing.T) *db.DB {
 	t.Helper()
 	database, err := db.Open(filepath.Join(t.TempDir(), "stats.db"))

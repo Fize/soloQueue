@@ -12,7 +12,6 @@ import {
   Sun,
   Moon,
   MessageSquare,
-  Play,
   ArrowLeft,
   Bot,
   Plus,
@@ -31,7 +30,6 @@ import { useChatStore } from '@/stores/chatStore'
 import { useTranslation } from '@/lib/i18n'
 
 const mainNav = [
-  { to: '/simulations', icon: Play, key: 'sidebar.simulations' as const },
   { to: '/cron', icon: Clock, key: 'sidebar.scheduledTasks' as const },
   { to: '/stats', icon: BarChart2, key: 'sidebar.usageStats' as const },
 ]
@@ -305,7 +303,6 @@ function NavView({
           </div>
         )}
 
-        {/* All nav items: Simulations, Scheduled Tasks, Assistant */}
         {mainNav.map((item) => {
           const active = location.pathname.startsWith(item.to)
           return (

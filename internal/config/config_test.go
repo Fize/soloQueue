@@ -27,6 +27,80 @@ func writeYAML(t *testing.T, path string, v any) {
 	}
 }
 
+func TestSettingsSerializationOmitsSimulation(t *testing.T) {
+	settings := DefaultSettings()
+	jsonData, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var jsonFields map[string]any
+	if err := json.Unmarshal(jsonData, &jsonFields); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := jsonFields["simulation"]; exists {
+		t.Error("JSON settings still expose simulation")
+	}
+	if _, exists := jsonFields["session"]; !exists {
+		t.Error("JSON settings lost session configuration")
+	}
+	yamlData, err := settings.MarshalYAMLWithComments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var yamlFields map[string]any
+	if err := yaml.Unmarshal(yamlData, &yamlFields); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := yamlFields["simulation"]; exists {
+		t.Error("YAML settings still expose simulation")
+	}
+	if _, exists := yamlFields["session"]; !exists {
+		t.Error("YAML settings lost session configuration")
+	}
+}
+
+func TestInit_IgnoresLegacySimulationSettings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	writeYAML(t, path, map[string]any{
+		"log": map[string]any{"level": "debug"},
+		"simulation": map[string]any{
+			"db_path":           filepath.Join(dir, "simulation.db"),
+			"enable_reflection": true,
+			"simulated_hours":   168,
+		},
+	})
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Init(dir)
+	if err != nil {
+		t.Fatalf("init with legacy simulation settings: %v", err)
+	}
+	if cfg.Get().Log.Level != "debug" {
+		t.Fatal("legacy section prevented loading ordinary settings")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("init rewrote the user's existing settings file")
+	}
+	data, err := json.Marshal(cfg.Get())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := fields["simulation"]; exists {
+		t.Fatal("legacy simulation settings leaked into current configuration")
+	}
+}
+
 func TestLoader_Load_NoFile_UsesDefaults(t *testing.T) {
 	dir := t.TempDir()
 	loader, err := NewLoader(DefaultSettings(), filepath.Join(dir, "settings.yaml"))

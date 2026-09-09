@@ -137,6 +137,70 @@ func TestHTTP_WorkflowRoutesRemoved(t *testing.T) {
 	}
 }
 
+func TestHTTP_SimulationRemovedAndCoreConfigAvailable(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := config.Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := NewMux(dir, nil, WithConfigService(cfg))
+	defer mux.Close()
+
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/config/simulation"},
+		{http.MethodPut, "/api/config/simulation"},
+		{http.MethodGet, "/api/simulations"},
+		{http.MethodPost, "/api/simulations"},
+		{http.MethodPost, "/api/simulations/from-seed"},
+		{http.MethodGet, "/api/simulations/example"},
+		{http.MethodPut, "/api/simulations/example"},
+		{http.MethodDelete, "/api/simulations/example"},
+		{http.MethodPost, "/api/simulations/example/start"},
+		{http.MethodPost, "/api/simulations/example/stop"},
+		{http.MethodPost, "/api/simulations/example/pause"},
+		{http.MethodPost, "/api/simulations/example/resume"},
+		{http.MethodPost, "/api/simulations/example/step"},
+		{http.MethodPost, "/api/simulations/example/fork"},
+		{http.MethodPost, "/api/simulations/example/agents/person/ask"},
+		{http.MethodGet, "/api/simulations/example/environment"},
+		{http.MethodGet, "/api/simulations/example/agents/person/plan"},
+		{http.MethodGet, "/api/simulations/example/agents/person/memory"},
+		{http.MethodGet, "/api/simulations/example/agents/person/reflections"},
+	} {
+		t.Run(test.method+" "+test.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, newLocalhostRequest(test.method, test.path, strings.NewReader("{}")))
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404; body = %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+	for _, path := range []string{"/healthz", "/api/config", "/api/config/session", "/api/config/speech", "/api/config/models"} {
+		t.Run(path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, newLocalhostRequest(http.MethodGet, path, nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+			}
+			if path == "/api/config" {
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(rec.Body.Bytes(), &fields); err != nil {
+					t.Fatal(err)
+				}
+				if _, exists := fields["simulation"]; exists {
+					t.Fatal("HTTP configuration still exposes simulation")
+				}
+				if _, exists := fields["session"]; !exists {
+					t.Fatal("HTTP configuration lost session settings")
+				}
+			}
+		})
+	}
+}
+
 func TestHTTP_TeamAgents(t *testing.T) {
 	tempDir := t.TempDir()
 	groupsDir := filepath.Join(tempDir, "groups")

@@ -110,16 +110,14 @@ const (
 	MemoryTypeReusableSolution = "reusable_solution"
 	MemoryTypeLegacy           = "legacy"
 
-	ScopeGlobal     = "global"
-	ScopeProject    = "project"
-	ScopeTeam       = "team"
-	ScopeSimulation = "simulation"
+	ScopeGlobal  = "global"
+	ScopeProject = "project"
+	ScopeTeam    = "team"
 
 	SourceExplicit   = "explicit"
 	SourceAgent      = "agent"
 	SourceCompaction = "compaction"
 	SourceMigration  = "migration"
-	SourceSimulation = "simulation"
 
 	StatusActive      = "active"
 	StatusArchived    = "archived"

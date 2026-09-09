@@ -2371,7 +2371,7 @@ func TestBuildL3SystemPrompt_EnvironmentNoWorkDir(t *testing.T) {
 	}
 }
 
-func TestDefaultFactory_Create_SimulationAgentNoTools(t *testing.T) {
+func TestDefaultFactory_Create_IDPrefixDoesNotDisableTools(t *testing.T) {
 	globalWorkDir := t.TempDir()
 
 	log, err := logger.System(globalWorkDir, logger.WithConsole(false))
@@ -2387,22 +2387,30 @@ func TestDefaultFactory_Create_SimulationAgentNoTools(t *testing.T) {
 		WithWorkDir(globalWorkDir),
 	)
 
-	// Simulation agent ID prefixed with "sim-"
-	simTmpl := AgentTemplate{
+	// Previously reserved prefixes must behave like ordinary worker IDs.
+	tmpl := AgentTemplate{
 		ID:           "sim-alice",
 		Name:         "Alice",
-		SystemPrompt: "You are simulated Alice.",
+		SystemPrompt: "You are a worker.",
 	}
 
-	simAgent, _, err := factory.Create(context.Background(), simTmpl, "")
+	worker, _, err := factory.Create(context.Background(), tmpl, "")
 	if err != nil {
-		t.Fatalf("failed to create simulation agent: %v", err)
+		t.Fatalf("failed to create worker: %v", err)
 	}
-	defer simAgent.Stop(time.Second)
+	defer worker.Stop(time.Second)
 
-	// Verify that the simulation agent has NO tools
-	if specs := simAgent.ToolSpecs(); len(specs) > 0 {
-		t.Errorf("expected simulation agent to have no tools, but got %d tools: %v", len(specs), specs)
+	names := make(map[string]bool)
+	for _, spec := range worker.ToolSpecs() {
+		names[spec.Function.Name] = true
+	}
+	for _, name := range []string{"Read", "inspect_delegation"} {
+		if !names[name] {
+			t.Errorf("worker is missing tool %s", name)
+		}
+	}
+	if names["SendFile"] {
+		t.Error("L3 worker must still exclude SendFile")
 	}
 }
 

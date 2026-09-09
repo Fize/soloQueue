@@ -24,12 +24,6 @@ const AgentDetailPage = lazy(() =>
   import('@/components/AgentDetailPage').then((m) => ({ default: m.AgentDetailPage }))
 )
 const CronPage = lazy(() => import('@/components/CronPage').then((m) => ({ default: m.CronPage })))
-const SimulationListPage = lazy(() =>
-  import('@/components/SimulationListPage').then((m) => ({ default: m.SimulationListPage }))
-)
-const SimulationDetailPage = lazy(() =>
-  import('@/components/SimulationDetailPage').then((m) => ({ default: m.SimulationDetailPage }))
-)
 const SettingsLayout = lazy(() =>
   import('@/components/SettingsLayout').then((m) => ({ default: m.SettingsLayout }))
 )
@@ -86,7 +80,6 @@ function getLastRoute() {
       '/assistant',
       '/agents/',
       '/cron',
-      '/simulations',
       '/stats',
       '/settings',
     ]
@@ -277,8 +270,6 @@ function App() {
                   <Route path="/chat/:sessionId?" element={<ChatPage />} />
                   <Route path="/agents/:id" element={<AgentDetailPage />} />
                   <Route path="/cron" element={<CronPage />} />
-                  <Route path="/simulations" element={<SimulationListPage />} />
-                  <Route path="/simulations/:id" element={<SimulationDetailPage />} />
                   <Route
                     path="/stats"
                     element={

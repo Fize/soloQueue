@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/xiaobaitu/soloqueue/internal/simulation"
 )
 
 // ─── WebSocket Message Types ────────────────────────────────────────────────
@@ -41,10 +40,8 @@ type WSMessage struct {
 	Type string `json:"type"`
 
 	// State broadcast fields.
-	Runtime  *RuntimeStatusResponse         `json:"runtime,omitempty"`
-	Agents   *AgentListResponse             `json:"agents,omitempty"`
-	Event    *simulation.SimulationEvent    `json:"event,omitempty"`
-	Progress *simulation.SimulationProgress `json:"progress,omitempty"`
+	Runtime *RuntimeStatusResponse `json:"runtime,omitempty"`
+	Agents  *AgentListResponse     `json:"agents,omitempty"`
 
 	// Chat streaming fields.
 	RequestID        string               `json:"request_id,omitempty"`
@@ -142,13 +139,6 @@ func NewHub(m *Mux) *Hub {
 
 // Run starts the Hub's main loop. It should be called in a dedicated goroutine.
 func (h *Hub) Run() {
-	var simEvents chan simulation.SimulationEvent
-	if h.mux != nil && h.mux.simEngine != nil {
-		simEvents = make(chan simulation.SimulationEvent, 128)
-		h.mux.simEngine.Subscribe(simEvents)
-		defer h.mux.simEngine.Unsubscribe(simEvents)
-	}
-
 	// Debounce timer: collects rapid-fire notifications and sends one update.
 	var debounce *time.Timer
 	debounceC := make(<-chan time.Time)
@@ -204,33 +194,6 @@ func (h *Hub) Run() {
 
 		case msg := <-h.broadcast:
 			deliver(msg)
-
-		case ev, ok := <-simEvents:
-			if !ok {
-				simEvents = nil
-				continue
-			}
-			if ev.Type == "progress" {
-				if p, ok := ev.Data.(*simulation.SimulationProgress); ok {
-					msg := &WSMessage{
-						Type:     "simulation_progress",
-						Progress: p,
-					}
-					select {
-					case h.broadcast <- msg:
-					case <-h.done:
-					}
-				}
-			} else {
-				msg := &WSMessage{
-					Type:  "simulation_event",
-					Event: &ev,
-				}
-				select {
-				case h.broadcast <- msg:
-				case <-h.done:
-				}
-			}
 
 		case <-debounceC:
 			debounce = nil

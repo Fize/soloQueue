@@ -1,22 +1,11 @@
 // ─── WebSocket Message Types ────────────────────────────────────────────────
 
 import type { RuntimeStatus, AgentListResponse } from './agent'
-import type { SimulationEvent, SimulationProgress } from './simulation'
 
 export interface WSStateMessage {
   type: "state";
   runtime: RuntimeStatus;
   agents: AgentListResponse;
-}
-
-export interface WSSimulationEventMessage {
-  type: "simulation_event";
-  event: SimulationEvent;
-}
-
-export interface WSSimulationProgressMessage {
-  type: "simulation_progress";
-  progress: SimulationProgress;
 }
 
 // Chat streaming messages (server → client)
@@ -139,8 +128,6 @@ export interface WSNotificationMessage {
 
 export type WSMessage =
   | WSStateMessage
-  | WSSimulationEventMessage
-  | WSSimulationProgressMessage
   | WSChatRoute
   | WSChatAccepted
   | WSChatChunk

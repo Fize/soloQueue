@@ -78,7 +78,7 @@ func normalizeCandidate(candidate MemoryCandidate) (MemoryCandidate, string) {
 		(len([]rune(candidate.SubjectKey)) > 200 || !subjectKeyPattern.MatchString(candidate.SubjectKey)) {
 		return candidate, "invalid subject key"
 	}
-	if !candidate.ExplicitUserRequest && candidate.SourceType != SourceSimulation &&
+	if !candidate.ExplicitUserRequest &&
 		len([]rune(candidate.Content)) > maxAutomaticMemoryChars {
 		return candidate, "automatic memory exceeds size limit"
 	}
@@ -91,7 +91,7 @@ func normalizeCandidate(candidate MemoryCandidate) (MemoryCandidate, string) {
 	switch candidate.ScopeType {
 	case ScopeGlobal:
 		candidate.ScopeID = ""
-	case ScopeProject, ScopeTeam, ScopeSimulation:
+	case ScopeProject, ScopeTeam:
 		candidate.ScopeID = strings.TrimSpace(candidate.ScopeID)
 		if candidate.ScopeID == "" {
 			return candidate, "non-global memory requires scope id"
@@ -100,7 +100,7 @@ func normalizeCandidate(candidate MemoryCandidate) (MemoryCandidate, string) {
 		return candidate, "unsupported scope type"
 	}
 	switch candidate.SourceType {
-	case SourceExplicit, SourceAgent, SourceCompaction, SourceMigration, SourceSimulation:
+	case SourceExplicit, SourceAgent, SourceCompaction, SourceMigration:
 	default:
 		return candidate, "unsupported source type"
 	}

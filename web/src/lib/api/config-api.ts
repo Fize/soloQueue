@@ -11,7 +11,6 @@ import type {
   WeChatLoginSnapshot,
   StartWeChatLoginRequest,
   LSPMCPConfig,
-  SimulationConfig,
   SpeechConfig,
   SpeechStatus,
   SpeechInstallResponse,
@@ -196,17 +195,6 @@ export async function getSessionConfig(): Promise<SessionConfig> {
 
 export async function updateSessionConfig(data: SessionConfig): Promise<SessionConfig> {
   return request<SessionConfig>('/config/session', {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  })
-}
-
-export async function getSimulationConfig(): Promise<SimulationConfig> {
-  return request<SimulationConfig>('/config/simulation')
-}
-
-export async function updateSimulationConfig(data: SimulationConfig): Promise<SimulationConfig> {
-  return request<SimulationConfig>('/config/simulation', {
     method: 'PUT',
     body: JSON.stringify(data),
   })

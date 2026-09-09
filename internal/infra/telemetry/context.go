@@ -11,19 +11,17 @@ import (
 type Metadata = telemetryctx.Metadata
 
 const (
-	UsageChat       = telemetryctx.UsageChat
-	UsageRouter     = telemetryctx.UsageRouter
-	UsageCompactor  = telemetryctx.UsageCompactor
-	UsageMemory     = telemetryctx.UsageMemory
-	UsageSimulation = telemetryctx.UsageSimulation
+	UsageChat      = telemetryctx.UsageChat
+	UsageRouter    = telemetryctx.UsageRouter
+	UsageCompactor = telemetryctx.UsageCompactor
+	UsageMemory    = telemetryctx.UsageMemory
 
-	OriginDesktop    = telemetryctx.OriginDesktop
-	OriginAPI        = telemetryctx.OriginAPI
-	OriginQQ         = telemetryctx.OriginQQ
-	OriginWechat     = telemetryctx.OriginWechat
-	OriginCron       = telemetryctx.OriginCron
-	OriginSimulation = telemetryctx.OriginSimulation
-	OriginSystem     = telemetryctx.OriginSystem
+	OriginDesktop = telemetryctx.OriginDesktop
+	OriginAPI     = telemetryctx.OriginAPI
+	OriginQQ      = telemetryctx.OriginQQ
+	OriginWechat  = telemetryctx.OriginWechat
+	OriginCron    = telemetryctx.OriginCron
+	OriginSystem  = telemetryctx.OriginSystem
 
 	StatusSuccess   = "success"
 	StatusError     = "error"

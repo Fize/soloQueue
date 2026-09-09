@@ -32,7 +32,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
-	"github.com/xiaobaitu/soloqueue/internal/simulation"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
@@ -96,10 +95,6 @@ func Build(
 
 	// Phase 4: Build agent infra (depends on Phase 2+3)
 	bc.buildAgentInfra()
-	// Phase 4.5: Simulation engine
-	if err := bc.buildSimulationEngine(); err != nil {
-		return nil, fmt.Errorf("build simulation engine: %w", err)
-	}
 
 	// Phase 5: Assemble Stack
 	rt := bc.assembleStack()
@@ -240,7 +235,6 @@ type buildContext struct {
 	tokenizer         *ctxwin.Tokenizer
 	compactorInstance *LLMCompactor
 	taskRouter        *router.Router
-	simEngine         *simulation.SimulationEngine
 	runWatch          *runwatch.Manager
 
 	// L1 channel bindings loaded from agents/main.md
@@ -351,7 +345,6 @@ func (bc *buildContext) assembleStack() *Stack {
 		TeamStore:           bc.teamstore,
 		L1Channels:          bc.l1Channels,
 		L1NotifyChannel:     bc.l1NotifyChannel,
-		SimulationEngine:    bc.simEngine,
 		RunWatch:            bc.runWatch,
 		compactorInstance:   bc.compactorInstance,
 	}

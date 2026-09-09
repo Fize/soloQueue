@@ -190,18 +190,6 @@ export interface L1AgentSettings {
   externalMcpServers?: string[];
 }
 
-export interface SimulationConfig {
-  defaultModelId?: string;
-  defaultProviderId?: string;
-  dbPath?: string;
-  defaultMaxWallClockMs?: number;
-  enableReflection?: boolean;
-  simulatedHours?: number;
-  tickIntervalMs?: number;
-  timeScale?: number;
-  language?: string;
-}
-
 export interface SpeechConfig {
   enabled: boolean;
   model: string;     // tiny | base | small | medium
@@ -245,7 +233,6 @@ export interface AppConfig {
   wechatBots?: WeChatAccountView[];
   agent: L1AgentSettings;
   lspmcp: LSPMCPConfig;
-  simulation: SimulationConfig;
   speech: SpeechConfig;
 }
 
