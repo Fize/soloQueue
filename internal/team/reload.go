@@ -187,7 +187,6 @@ func (w *reloadWrapper) reloadAgent(ctx context.Context, path string) string {
 			Model:        fm.Model,
 			SystemPrompt: af.Body,
 			MCPServers:   fm.MCPServers,
-			SkillIDs:     fm.Skills,
 		}
 		existing, err := w.cfg.TeamStore.GetAgentByName(ctx, fm.Name)
 		if err == nil && existing != nil {
@@ -240,8 +239,10 @@ func (w *reloadWrapper) reloadGroup(ctx context.Context, path string) string {
 	// Sync to teamstore DB if configured (non-fatal).
 	if w.cfg.TeamStore != nil {
 		storeTeam := &store.Team{
-			Name:        gf.Frontmatter.Name,
-			Description: gf.Body,
+			Name:             gf.Frontmatter.Name,
+			Description:      gf.Body,
+			SkillIDs:         gf.Frontmatter.Skills,
+			SkillsConfigured: gf.Frontmatter.SkillsConfigured,
 		}
 		existing, err := w.cfg.TeamStore.GetTeamByName(ctx, gf.Frontmatter.Name)
 		if err == nil && existing != nil {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,12 +34,14 @@ type BuiltinTeamResponse struct {
 
 // TeamResponse is the response for GET/POST/PUT /api/teams/{name}.
 type TeamResponse struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Agents      []AgentResponse `json:"agents,omitempty"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Description      string          `json:"description"`
+	SkillIDs         []string        `json:"skill_ids"`
+	SkillsConfigured bool            `json:"skills_configured"`
+	Agents           []AgentResponse `json:"agents,omitempty"`
+	CreatedAt        string          `json:"created_at"`
+	UpdatedAt        string          `json:"updated_at"`
 }
 
 // AgentResponse is the response for agent CRUD endpoints.
@@ -63,24 +66,25 @@ type AgentResponse struct {
 // teamToResponse converts a store.Team to a TeamResponse.
 func teamToResponse(t *store.Team, agents []AgentResponse) TeamResponse {
 	return TeamResponse{
-		ID:          t.ID,
-		Name:        t.Name,
-		Description: t.Description,
-		Agents:      agents,
-		CreatedAt:   t.CreatedAt,
-		UpdatedAt:   t.UpdatedAt,
+		ID:               t.ID,
+		Name:             t.Name,
+		Description:      t.Description,
+		SkillIDs:         normalizedSkillIDs(t.SkillIDs),
+		SkillsConfigured: t.SkillsConfigured,
+		Agents:           agents,
+		CreatedAt:        t.CreatedAt,
+		UpdatedAt:        t.UpdatedAt,
 	}
 }
 
 // agentToResponse converts a store.Agent to an AgentResponse.
-func agentToResponse(a *store.Agent) AgentResponse {
+func agentToResponse(a *store.Agent, skillIDs []string) AgentResponse {
 	mcp := a.MCPServers
 	if mcp == nil {
 		mcp = []string{}
 	}
-	skills := a.SkillIDs
-	if skills == nil {
-		skills = []string{}
+	if skillIDs == nil {
+		skillIDs = []string{}
 	}
 	return AgentResponse{
 		ID:            a.ID,
@@ -91,12 +95,21 @@ func agentToResponse(a *store.Agent) AgentResponse {
 		Model:         a.Model,
 		SystemPrompt:  a.SystemPrompt,
 		MCPServers:    mcp,
-		SkillIDs:      skills,
+		SkillIDs:      skillIDs,
 		Channels:      a.Channels,
 		NotifyChannel: a.NotifyChannel,
 		CreatedAt:     a.CreatedAt,
 		UpdatedAt:     a.UpdatedAt,
 	}
+}
+
+func (m *Mux) teamSkillIDs(ctx context.Context, a *store.Agent) []string {
+	if m.teamstore != nil && a.TeamName != "" {
+		if team, err := m.teamstore.GetTeamByName(ctx, a.TeamName); err == nil && team.SkillsConfigured {
+			return team.SkillIDs
+		}
+	}
+	return []string{}
 }
 
 // ─── Team Handlers ──────────────────────────────────────────────────────────
@@ -214,22 +227,32 @@ func (m *Mux) handleListTeams(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		result = append(result, TeamInfoResponse{
-			ID:          t.ID,
-			Name:        t.Name,
-			Description: t.Description,
-			Agents:      agtResp,
-			CreatedAt:   t.CreatedAt,
-			UpdatedAt:   t.UpdatedAt,
+			ID:               t.ID,
+			Name:             t.Name,
+			Description:      t.Description,
+			SkillIDs:         normalizedSkillIDs(t.SkillIDs),
+			SkillsConfigured: t.SkillsConfigured,
+			Agents:           agtResp,
+			CreatedAt:        t.CreatedAt,
+			UpdatedAt:        t.UpdatedAt,
 		})
 	}
 
 	m.writeJSON(w, http.StatusOK, TeamListResponse{Teams: result})
 }
 
+func normalizedSkillIDs(ids []string) []string {
+	if ids == nil {
+		return []string{}
+	}
+	return ids
+}
+
 // createTeamRequest is the JSON body for POST /api/teams.
 type createTeamRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	SkillIDs    *[]string `json:"skill_ids,omitempty"`
 }
 
 // handleCreateTeam creates a new team.
@@ -248,6 +271,10 @@ func (m *Mux) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 	t := &store.Team{
 		Name:        req.Name,
 		Description: req.Description,
+	}
+	if req.SkillIDs != nil {
+		t.SkillIDs = append([]string(nil), (*req.SkillIDs)...)
+		t.SkillsConfigured = true
 	}
 	if err := m.teamstore.CreateTeam(r.Context(), t); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -274,14 +301,15 @@ func (m *Mux) handleGetTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	agtResp := make([]AgentResponse, 0, len(agents))
 	for i := range agents {
-		agtResp = append(agtResp, agentToResponse(&agents[i]))
+		agtResp = append(agtResp, agentToResponse(&agents[i], m.teamSkillIDs(r.Context(), &agents[i])))
 	}
 	m.writeJSON(w, http.StatusOK, teamToResponse(t, agtResp))
 }
 
 // updateTeamRequest is the JSON body for PUT /api/teams/{name}.
 type updateTeamRequest struct {
-	Description *string `json:"description,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	SkillIDs    *[]string `json:"skill_ids,omitempty"`
 }
 
 // handleUpdateTeam updates an existing team.
@@ -305,6 +333,10 @@ func (m *Mux) handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
 
 	if req.Description != nil {
 		existing.Description = *req.Description
+	}
+	if req.SkillIDs != nil {
+		existing.SkillIDs = append([]string(nil), (*req.SkillIDs)...)
+		existing.SkillsConfigured = true
 	}
 
 	if err := m.teamstore.UpdateTeam(r.Context(), name, existing); err != nil {
@@ -360,7 +392,7 @@ func (m *Mux) handleListAgents(w http.ResponseWriter, r *http.Request) {
 
 	result := make([]AgentResponse, 0, len(agents))
 	for i := range agents {
-		result = append(result, agentToResponse(&agents[i]))
+		result = append(result, agentToResponse(&agents[i], m.teamSkillIDs(r.Context(), &agents[i])))
 	}
 	m.writeJSON(w, http.StatusOK, map[string]any{"agents": result})
 }
@@ -374,7 +406,6 @@ type createAgentRequest struct {
 	Model         string            `json:"model"`
 	SystemPrompt  string            `json:"system_prompt"`
 	MCPServers    []string          `json:"mcp_servers"`
-	SkillIDs      []string          `json:"skill_ids"`
 	Channels      map[string]string `json:"channels,omitempty"`
 	NotifyChannel string            `json:"notify_channel,omitempty"`
 }
@@ -409,7 +440,6 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		Model:         req.Model,
 		SystemPrompt:  req.SystemPrompt,
 		MCPServers:    req.MCPServers,
-		SkillIDs:      req.SkillIDs,
 		Channels:      req.Channels,
 		NotifyChannel: req.NotifyChannel,
 	}
@@ -424,7 +454,7 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 
 	m.maybeRebuildPrompt(w)
 
-	m.writeJSON(w, http.StatusCreated, agentToResponse(a))
+	m.writeJSON(w, http.StatusCreated, agentToResponse(a, m.teamSkillIDs(r.Context(), a)))
 }
 
 // handleGetAgent returns a single agent by name.
@@ -437,7 +467,7 @@ func (m *Mux) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-	m.writeJSON(w, http.StatusOK, agentToResponse(a))
+	m.writeJSON(w, http.StatusOK, agentToResponse(a, m.teamSkillIDs(r.Context(), a)))
 }
 
 // updateAgentRequest is the JSON body for PUT /api/agents/{name}.
@@ -448,7 +478,6 @@ type updateAgentRequest struct {
 	Model         *string            `json:"model,omitempty"`
 	SystemPrompt  *string            `json:"system_prompt,omitempty"`
 	MCPServers    *[]string          `json:"mcp_servers,omitempty"`
-	SkillIDs      *[]string          `json:"skill_ids,omitempty"`
 	Channels      *map[string]string `json:"channels,omitempty"`
 	NotifyChannel *string            `json:"notify_channel,omitempty"`
 }
@@ -491,9 +520,6 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	if req.MCPServers != nil {
 		existing.MCPServers = *req.MCPServers
 	}
-	if req.SkillIDs != nil {
-		existing.SkillIDs = *req.SkillIDs
-	}
 	if req.Channels != nil {
 		existing.Channels = *req.Channels
 	}
@@ -529,7 +555,7 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 	m.maybeRebuildPrompt(w)
 
-	m.writeJSON(w, http.StatusOK, agentToResponse(updated))
+	m.writeJSON(w, http.StatusOK, agentToResponse(updated, m.teamSkillIDs(r.Context(), updated)))
 }
 
 // handleDeleteAgent removes an agent by name.

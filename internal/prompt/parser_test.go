@@ -197,6 +197,39 @@ func TestLoadGroups_NonexistentDir(t *testing.T) {
 	}
 }
 
+func TestLoadGroups_TeamSkillsPreserveConfigurationState(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "configured.md"), []byte(`---
+name: configured
+skills: []
+---
+configured
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "legacy.md"), []byte(`---
+name: legacy
+---
+legacy
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	groups, err := LoadGroups(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !groups["configured"].Frontmatter.SkillsConfigured {
+		t.Fatal("configured team should record skills field presence")
+	}
+	if len(groups["configured"].Frontmatter.Skills) != 0 {
+		t.Fatalf("configured skills = %#v, want empty", groups["configured"].Frontmatter.Skills)
+	}
+	if groups["legacy"].Frontmatter.SkillsConfigured {
+		t.Fatal("legacy team should not be marked as skill-configured")
+	}
+}
+
 // ============== channels / notify_channel YAML parsing ==============
 
 func TestParseAgentFile_WithChannels(t *testing.T) {

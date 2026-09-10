@@ -18,7 +18,6 @@ type AgentFrontmatter struct {
 	Group         string            `yaml:"group"`
 	IsLeader      bool              `yaml:"is_leader"`
 	MCPServers    []string          `yaml:"mcp_servers,omitempty"`
-	Skills        []string          `yaml:"skills,omitempty"`
 	Channels      map[string]string `yaml:"channels,omitempty"`       // channel_type → instance_id (e.g. {"qq": "my-qq-bot"})
 	NotifyChannel string            `yaml:"notify_channel,omitempty"` // channel_type to use for cron notifications
 	CreatedAt     string            `yaml:"created_at,omitempty"`
@@ -27,11 +26,13 @@ type AgentFrontmatter struct {
 
 // GroupFrontmatter corresponds to the YAML frontmatter of ~/.soloqueue/groups/*.md.
 type GroupFrontmatter struct {
-	ID            string `yaml:"id,omitempty"`
-	Name          string `yaml:"name"`
-	MemoryOwnerID string `yaml:"memory_owner_id,omitempty"`
-	CreatedAt     string `yaml:"created_at,omitempty"`
-	UpdatedAt     string `yaml:"updated_at,omitempty"`
+	ID               string   `yaml:"id,omitempty"`
+	Name             string   `yaml:"name"`
+	MemoryOwnerID    string   `yaml:"memory_owner_id,omitempty"`
+	Skills           []string `yaml:"skills,omitempty"`
+	SkillsConfigured bool     `yaml:"-"`
+	CreatedAt        string   `yaml:"created_at,omitempty"`
+	UpdatedAt        string   `yaml:"updated_at,omitempty"`
 }
 
 // GroupFile parse result: frontmatter + markdown body (group description).
@@ -167,6 +168,10 @@ func ParseGroupFile(path string) (*GroupFile, error) {
 	var fm GroupFrontmatter
 	if err := yaml.Unmarshal([]byte(fmContent), &fm); err != nil {
 		return nil, fmt.Errorf("parse group frontmatter %s: %w", path, err)
+	}
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(fmContent), &raw); err == nil {
+		_, fm.SkillsConfigured = raw["skills"]
 	}
 
 	return &GroupFile{Frontmatter: fm, Body: body}, nil

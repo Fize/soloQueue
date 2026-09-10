@@ -118,8 +118,10 @@ func loadFromTeamStore(store *store.Store) (map[string]prompt.GroupFile, []promp
 	for _, t := range teams {
 		groups[t.Name] = prompt.GroupFile{
 			Frontmatter: prompt.GroupFrontmatter{
-				Name:          t.Name,
-				MemoryOwnerID: t.MemoryOwnerID,
+				Name:             t.Name,
+				MemoryOwnerID:    t.MemoryOwnerID,
+				Skills:           t.SkillIDs,
+				SkillsConfigured: t.SkillsConfigured,
 			},
 			Body: t.Description,
 		}
@@ -145,7 +147,6 @@ func loadFromTeamStore(store *store.Store) (map[string]prompt.GroupFile, []promp
 			IsLeader:      dbTmpl.IsLeader,
 			Group:         dbTmpl.Group,
 			MCPServers:    dbTmpl.MCPServers,
-			SkillIDs:      dbTmpl.SkillIDs,
 			Channels:      dbTmpl.Channels,
 			NotifyChannel: dbTmpl.NotifyChannel,
 		}

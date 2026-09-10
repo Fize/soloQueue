@@ -90,6 +90,8 @@ export interface AgentTemplate {
 export interface TeamInfo {
   name: string;
   description: string;
+  skill_ids?: string[];
+  skills_configured?: boolean;
   agents: AgentTemplate[];
 }
 
@@ -170,6 +172,8 @@ export interface TeamResponse {
   id: string;
   name: string;
   description: string;
+  skill_ids: string[];
+  skills_configured?: boolean;
   agents?: AgentResponse[];
   created_at: string;
   updated_at: string;
@@ -194,10 +198,12 @@ export interface AgentResponse {
 export interface CreateTeamRequest {
   name: string;
   description?: string;
+  skill_ids?: string[];
 }
 
 export interface UpdateTeamRequest {
   description?: string;
+  skill_ids?: string[];
 }
 
 export type BuiltinTeamInstallStatus =
@@ -253,7 +259,6 @@ export interface CreateAgentRequest {
   model?: string;
   system_prompt?: string;
   mcp_servers?: string[];
-  skill_ids?: string[];
   channels?: Record<string, string>;
   notify_channel?: string;
 }
@@ -265,7 +270,6 @@ export interface UpdateAgentRequest {
   model?: string;
   system_prompt?: string;
   mcp_servers?: string[];
-  skill_ids?: string[];
   channels?: Record<string, string> | null;
   notify_channel?: string | null;
 }

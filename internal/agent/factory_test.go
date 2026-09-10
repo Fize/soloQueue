@@ -463,13 +463,16 @@ This is a test skill.
 		tools.Config{},
 		log,
 		WithSkillRegistry(skillReg),
+		WithGroups(map[string]prompt.GroupFile{
+			"skill-team": {Frontmatter: prompt.GroupFrontmatter{Name: "skill-team", Skills: []string{"test-skill"}, SkillsConfigured: true}},
+		}),
 	)
 
 	tmpl := AgentTemplate{
 		ID:           "skill-agent",
 		Name:         "Skill Agent",
 		SystemPrompt: "You are a skill agent.",
-		SkillIDs:     []string{"test-skill"},
+		Group:        "skill-team",
 	}
 
 	agent, _, err := factory.Create(context.Background(), tmpl, "")
@@ -1695,13 +1698,16 @@ description: Project deploy skill
 	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
 		WithSkillRegistry(globalReg),
 		WithWorkDir(workDir),
+		WithGroups(map[string]prompt.GroupFile{
+			"skill-team": {Frontmatter: prompt.GroupFrontmatter{Name: "skill-team", Skills: []string{"deploy"}, SkillsConfigured: true}},
+		}),
 	)
 
 	tmpl := AgentTemplate{
 		ID:           "skill-agent",
 		Name:         "Skill Agent",
 		SystemPrompt: "You are a skill agent.",
-		SkillIDs:     []string{"deploy"},
+		Group:        "skill-team",
 	}
 
 	agent, _, err := factory.Create(context.Background(), tmpl, projectDir)
@@ -1919,12 +1925,15 @@ func TestCreateSkillForkAgent_BashUsesEffectiveWorkDir(t *testing.T) {
 				log,
 				WithWorkDir(globalWorkDir),
 				WithSkillRegistry(skillReg),
+				WithGroups(map[string]prompt.GroupFile{
+					"skill-team": {Frontmatter: prompt.GroupFrontmatter{Name: "skill-team", Skills: []string{skillID}, SkillsConfigured: true}},
+				}),
 			)
 			parent, _, err := factory.Create(context.Background(), AgentTemplate{
 				ID:       tc.name + "-agent",
 				Name:     tc.name + " agent",
 				IsLeader: tc.isLeader,
-				SkillIDs: []string{skillID},
+				Group:    "skill-team",
 			}, workDir)
 			if err != nil {
 				t.Fatalf("factory.Create: %v", err)
@@ -1978,9 +1987,8 @@ func TestDefaultFactory_ExistingAgentSeesGlobalSkillReload(t *testing.T) {
 	factory := NewDefaultFactory(NewRegistry(log), &agenttest.FakeLLM{}, tools.Config{}, log,
 		WithWorkDir(workDir), WithSkillRegistry(globalReg))
 	ag, _, err := factory.Create(context.Background(), AgentTemplate{
-		ID:       "dynamic-skill-agent",
-		Name:     "Dynamic Skill Agent",
-		SkillIDs: []string{"dynamic"},
+		ID:   "dynamic-skill-agent",
+		Name: "Dynamic Skill Agent",
 	}, workDir)
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
@@ -2032,11 +2040,14 @@ func TestDefaultFactory_RegistersSkillToolWhenConfiguredSkillIsMissing(t *testin
 		log,
 		WithWorkDir(workDir),
 		WithSkillRegistry(skill.NewSkillRegistry()),
+		WithGroups(map[string]prompt.GroupFile{
+			"skill-team": {Frontmatter: prompt.GroupFrontmatter{Name: "skill-team", Skills: []string{"not-installed"}, SkillsConfigured: true}},
+		}),
 	)
 	ag, _, err := factory.Create(context.Background(), AgentTemplate{
-		ID:       "missing-skill-agent",
-		Name:     "Missing Skill Agent",
-		SkillIDs: []string{"not-installed"},
+		ID:    "missing-skill-agent",
+		Name:  "Missing Skill Agent",
+		Group: "skill-team",
 	}, workDir)
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
@@ -2065,11 +2076,14 @@ func TestDefaultFactory_MissingConfiguredSkillBecomesUsableAfterRegistryReload(t
 		log,
 		WithWorkDir(workDir),
 		WithSkillRegistry(globalReg),
+		WithGroups(map[string]prompt.GroupFile{
+			"skill-team": {Frontmatter: prompt.GroupFrontmatter{Name: "skill-team", Skills: []string{"late-skill"}, SkillsConfigured: true}},
+		}),
 	)
 	ag, _, err := factory.Create(context.Background(), AgentTemplate{
-		ID:       "late-skill-agent",
-		Name:     "Late Skill Agent",
-		SkillIDs: []string{"late-skill"},
+		ID:    "late-skill-agent",
+		Name:  "Late Skill Agent",
+		Group: "skill-team",
 	}, workDir)
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
@@ -2100,6 +2114,32 @@ func TestDefaultFactory_MissingConfiguredSkillBecomesUsableAfterRegistryReload(t
 	}
 }
 
+func TestDefaultFactory_EffectiveSkillIDsInheritFromTeam(t *testing.T) {
+	f := &DefaultFactory{}
+	tmpl := AgentTemplate{Group: "engineering"}
+
+	got := f.effectiveSkillIDs(tmpl, map[string]prompt.GroupFile{
+		"engineering": {Frontmatter: prompt.GroupFrontmatter{Name: "engineering", Skills: []string{"shared"}, SkillsConfigured: true}},
+	})
+	if len(got) != 1 || got[0] != "shared" {
+		t.Fatalf("team skills = %#v", got)
+	}
+
+	got = f.effectiveSkillIDs(tmpl, map[string]prompt.GroupFile{
+		"engineering": {Frontmatter: prompt.GroupFrontmatter{Name: "engineering", Skills: []string{}, SkillsConfigured: true}},
+	})
+	if got == nil || len(got) != 0 {
+		t.Fatalf("explicit empty team skills = %#v", got)
+	}
+
+	got = f.effectiveSkillIDs(tmpl, map[string]prompt.GroupFile{
+		"engineering": {Frontmatter: prompt.GroupFrontmatter{Name: "engineering"}},
+	})
+	if got == nil || len(got) != 0 {
+		t.Fatalf("unconfigured team skills = %#v", got)
+	}
+}
+
 func TestDefaultFactory_ConfiguredSkillIDsFilterLiveResolver(t *testing.T) {
 	workDir := t.TempDir()
 	log, err := logger.System(workDir, logger.WithConsole(false))
@@ -2125,11 +2165,14 @@ func TestDefaultFactory_ConfiguredSkillIDsFilterLiveResolver(t *testing.T) {
 		log,
 		WithWorkDir(workDir),
 		WithSkillRegistry(globalReg),
+		WithGroups(map[string]prompt.GroupFile{
+			"skill-team": {Frontmatter: prompt.GroupFrontmatter{Name: "skill-team", Skills: []string{"allowed"}, SkillsConfigured: true}},
+		}),
 	)
 	ag, _, err := factory.Create(context.Background(), AgentTemplate{
-		ID:       "filtered-skill-agent",
-		Name:     "Filtered Skill Agent",
-		SkillIDs: []string{"allowed"},
+		ID:    "filtered-skill-agent",
+		Name:  "Filtered Skill Agent",
+		Group: "skill-team",
 	}, workDir)
 	if err != nil {
 		t.Fatalf("factory.Create: %v", err)
