@@ -184,6 +184,12 @@ func (s *GlobalService) UpdateWechatBots(bots []WechatBotConfig) error {
 	return err
 }
 
+// UpdateTelegramBots replaces Telegram bot configuration.
+func (s *GlobalService) UpdateTelegramBots(bots []TelegramBotConfig) error {
+	_, err := s.Set(func(st *Settings) { st.TelegramBots = bots })
+	return err
+}
+
 // UpdateLSPMCP replaces the LSP MCP configuration.
 func (s *GlobalService) UpdateLSPMCP(lspmcp LSPMCPConfig) error {
 	_, err := s.Set(func(st *Settings) {

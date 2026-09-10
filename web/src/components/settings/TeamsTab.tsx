@@ -14,6 +14,7 @@ import {
   getSkills,
   getQQBotsConfig,
   getWeChatBotsConfig,
+  getTelegramBotsConfig,
 } from '@/lib/api'
 import type { TeamResponse, AgentResponse, LLMModel } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -401,9 +402,11 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [skillIds, setSkillIds] = useState<string[]>([])
   const [qqChannel, setQqChannel] = useState('')
   const [wechatChannel, setWechatChannel] = useState('')
+  const [telegramChannel, setTelegramChannel] = useState('')
   const [notifyChannel, setNotifyChannel] = useState('')
   const [qqBotOptions, setQqBotOptions] = useState<{ id: string; name: string; bind_agent?: string }[]>([])
   const [wechatBotOptions, setWechatBotOptions] = useState<{ id: string; name: string; bind_agent?: string }[]>([])
+  const [telegramBotOptions, setTelegramBotOptions] = useState<{ id: string; name: string; bind_agent?: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { t } = useTranslation()
@@ -436,6 +439,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         const channels = editAgent.channels || {}
         setQqChannel(channels.qq || '')
         setWechatChannel(channels.wechat || '')
+        setTelegramChannel(channels.telegram || '')
         setNotifyChannel(editAgent.notify_channel || '')
       } else {
         setName('')
@@ -448,6 +452,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setSkillIds([])
         setQqChannel('')
         setWechatChannel('')
+        setTelegramChannel('')
         setNotifyChannel('')
       }
       setError(null)
@@ -474,6 +479,9 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
 
       getWeChatBotsConfig()
         .then((bots) => setWechatBotOptions(bots.map(b => ({ id: b.id, name: b.name, bind_agent: b.bind_agent }))))
+        .catch(console.error)
+      getTelegramBotsConfig()
+        .then((bots) => setTelegramBotOptions(bots.map(b => ({ id: b.id, name: b.name, bind_agent: b.bind_agent }))))
         .catch(console.error)
     }
   }, [open, editAgent, teams])
@@ -523,6 +531,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
       const channels: Record<string, string> = {}
       if (qqChannel) channels.qq = qqChannel
       if (wechatChannel) channels.wechat = wechatChannel
+      if (telegramChannel) channels.telegram = telegramChannel
       const channelsPayload = Object.keys(channels).length > 0 ? channels : undefined
 
       if (isEdit) {
@@ -558,7 +567,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
     } finally {
       setSaving(false)
     }
-  }, [name, description, teamName, isLeader, model, systemPrompt, mcpServers, skillIds, qqChannel, wechatChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
+  }, [name, description, teamName, isLeader, model, systemPrompt, mcpServers, skillIds, qqChannel, wechatChannel, telegramChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -720,7 +729,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           </div>
 
           {/* Channel Binding */}
-          {(qqBotOptions.length > 0 || wechatBotOptions.length > 0) && (
+          {(qqBotOptions.length > 0 || wechatBotOptions.length > 0 || telegramBotOptions.length > 0) && (
             <div className="flex flex-col gap-3 rounded-lg border border-border p-4 bg-muted/5">
               <Label className="text-xs font-semibold text-foreground">Channel Binding</Label>
               <p className="text-[10px] text-muted-foreground -mt-1">
@@ -768,8 +777,11 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                   </select>
                 </div>
               )}
+              {telegramBotOptions.length > 0 && (
+                <div className="flex flex-col gap-1"><Label className="text-xs text-muted-foreground">Telegram</Label><select value={telegramChannel} onChange={(e) => { setTelegramChannel(e.target.value); if (notifyChannel === 'telegram' && !e.target.value) setNotifyChannel('') }} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"><option value="">无</option>{telegramBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} ({bot.id}){bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}</option>)}</select></div>
+              )}
 
-              {(qqChannel || wechatChannel) && (
+              {(qqChannel || wechatChannel || telegramChannel) && (
                 <div className="flex flex-col gap-1.5 pt-1 border-t border-border/50">
                   <Label className="text-xs text-muted-foreground">Notification Channel (for cron task results)</Label>
                   <div className="flex gap-4">
@@ -798,6 +810,9 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                         />
                         WeChat
                       </label>
+                    )}
+                    {telegramChannel && (
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="radio" name="notifyChannel" value="telegram" checked={notifyChannel === 'telegram'} onChange={() => setNotifyChannel('telegram')} className="h-3 w-3" />Telegram</label>
                     )}
                     <label className="flex items-center gap-1.5 text-xs cursor-pointer text-muted-foreground">
                       <input

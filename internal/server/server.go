@@ -407,6 +407,12 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Delete("/{accountID}", m.handleDeleteWechatBotConfig)
 		})
 
+		r.Route("/telegram-bots", func(r chi.Router) {
+			r.Get("/", m.handleGetTelegramBotsConfig)
+			r.Put("/", m.handleUpdateTelegramBotsConfig)
+			r.Delete("/{accountID}", m.handleDeleteTelegramBotConfig)
+		})
+
 		r.Route("/lspmcp", func(r chi.Router) {
 			r.Get("/", m.handleGetLSPMCPConfig)
 			r.Put("/", m.handleUpdateLSPMCPConfig)

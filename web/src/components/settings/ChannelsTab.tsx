@@ -10,6 +10,7 @@ import {
   getSpeechConfig,
   getSpeechStatus,
   getWeChatBotsConfig,
+  getTelegramBotsConfig,
   getWeChatLogin,
   installSpeech,
   startWeChatLogin,
@@ -17,8 +18,10 @@ import {
   updateQQBotsConfig,
   updateSpeechConfig,
   updateWeChatBotsConfig,
+  updateTelegramBotsConfig,
+  deleteTelegramBotConfig,
 } from '@/lib/api'
-import type { QQBotConfig, SpeechConfig, SpeechStatus, WeChatAccountView, WeChatLoginSnapshot } from '@/types'
+import type { QQBotConfig, SpeechConfig, SpeechStatus, WeChatAccountView, WeChatLoginSnapshot, TelegramBotConfig } from '@/types'
 import { useTranslation } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -248,6 +251,8 @@ export function ChannelsTab() {
   const [loading, setLoading] = useState(true)
   const [qqbots, setQQBots] = useState<QQBotConfig[]>([])
   const [wechatAccounts, setWechatAccounts] = useState<WeChatAccountView[]>([])
+  const [telegramAccounts, setTelegramAccounts] = useState<TelegramBotConfig[]>([])
+  const [telegramToken, setTelegramToken] = useState('')
   const [loginOpen, setLoginOpen] = useState(false)
   const [loginAccount, setLoginAccount] = useState<WeChatAccountView | undefined>()
   const [removeAccount, setRemoveAccount] = useState<WeChatAccountView | null>(null)
@@ -297,14 +302,16 @@ export function ChannelsTab() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [qq, wechat, speechCfg, speechSt] = await Promise.all([
+      const [qq, wechat, telegram, speechCfg, speechSt] = await Promise.all([
         getQQBotsConfig(),
         getWeChatBotsConfig(),
+        getTelegramBotsConfig(),
         getSpeechConfig(),
         getSpeechStatus().catch(() => null),
       ])
       setQQBots(qq || [])
       setWechatAccounts(wechat || [])
+      setTelegramAccounts(telegram || [])
       setSpeech(speechCfg || { enabled: false, model: 'small', modelDir: '' })
       setSpeechStatus(speechSt)
     } catch (error) {
@@ -336,6 +343,21 @@ export function ChannelsTab() {
     } catch (error) {
       toast.error((error as Error).message)
     }
+  }
+
+  const saveTelegram = async () => {
+    try {
+      const existing = telegramAccounts[0]
+      const account = existing || { id: '', name: 'Telegram', enabled: true, credentialConfigured: false, connected: false, bind_type: 'l1' as const }
+      const saved = await updateTelegramBotsConfig([{ ...account, botToken: telegramToken.trim() }])
+      setTelegramAccounts(saved)
+      setTelegramToken('')
+      toast.success('Telegram settings saved')
+    } catch (error) { toast.error((error as Error).message) }
+  }
+
+  const removeTelegram = async (id: string) => {
+    try { await deleteTelegramBotConfig(id); setTelegramAccounts((items) => items.filter((item) => item.id !== id)) } catch (error) { toast.error((error as Error).message) }
   }
 
   const saveSpeech = async () => {
@@ -434,6 +456,17 @@ export function ChannelsTab() {
             <div className="flex justify-end"><Button size="sm" onClick={saveWeChat}>{t('channels.saveSettings')}</Button></div>
           </div>
         )}
+      </section>
+
+      <section className="space-y-4 rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="flex items-center gap-2 border-b border-border pb-3"><MessageCircle className="size-4 text-primary" /><h2 className="font-semibold text-foreground">Telegram</h2></div>
+        <p className="text-xs text-muted-foreground">Paste a BotFather token. The bot uses the main SoloQueue session.</p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input type="password" placeholder={telegramAccounts[0]?.credentialConfigured ? 'Token configured (paste to replace)' : 'Bot token'} value={telegramToken} onChange={(event) => setTelegramToken(event.target.value)} />
+          <Button size="sm" onClick={() => { void saveTelegram() }} disabled={!telegramToken.trim() && !telegramAccounts[0]}>{telegramAccounts[0] ? 'Update' : 'Connect'}</Button>
+        </div>
+        {telegramAccounts.map((account) => <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-muted/20 p-3 text-sm"><span>{account.username ? `@${account.username}` : account.name || account.id} · {account.connected ? 'connected' : account.credentialConfigured ? 'starting' : 'not configured'}</span><div className="flex items-center gap-2"><Switch checked={account.enabled} onCheckedChange={(checked) => setTelegramAccounts((items) => items.map((item) => item.id === account.id ? { ...item, enabled: checked } : item))} /><Button size="xs" variant="ghost" onClick={() => { void removeTelegram(account.id) }}><Trash2 /></Button></div></div>)}
+        {telegramAccounts.length > 0 && <div className="flex justify-end"><Button size="sm" onClick={() => { void updateTelegramBotsConfig(telegramAccounts) }}>Save settings</Button></div>}
       </section>
 
       {loginOpen && <WeChatLoginDialog open account={loginAccount} onOpenChange={setLoginOpen} onConnected={loadData} />}

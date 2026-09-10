@@ -406,6 +406,127 @@ func (m *Mux) handleUpdateQQBotsConfig(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, http.StatusOK, cfg)
 }
 
+type telegramBotView struct {
+	ID                   string   `json:"id"`
+	Name                 string   `json:"name"`
+	Enabled              bool     `json:"enabled"`
+	Connected            bool     `json:"connected"`
+	CredentialConfigured bool     `json:"credentialConfigured"`
+	BotIDMasked          string   `json:"botIdMasked,omitempty"`
+	Username             string   `json:"username,omitempty"`
+	BindType             string   `json:"bind_type"`
+	BindAgent            string   `json:"bind_agent,omitempty"`
+	WhitelistEnabled     bool     `json:"whitelist_enabled"`
+	Whitelist            []string `json:"whitelist,omitempty"`
+}
+
+type telegramBotInput struct {
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Enabled          bool     `json:"enabled"`
+	BotToken         string   `json:"botToken,omitempty"`
+	BindType         string   `json:"bind_type"`
+	BindAgent        string   `json:"bind_agent,omitempty"`
+	WhitelistEnabled bool     `json:"whitelist_enabled"`
+	Whitelist        []string `json:"whitelist,omitempty"`
+}
+
+func toTelegramBotView(cfg config.TelegramBotConfig) telegramBotView {
+	view := telegramBotView{ID: cfg.ID, Name: cfg.Name, Enabled: cfg.Enabled, Connected: cfg.BotID != 0, CredentialConfigured: cfg.BotToken != "", Username: cfg.Username, BindType: cfg.BindType, BindAgent: cfg.BindAgent, WhitelistEnabled: cfg.WhitelistEnabled, Whitelist: cfg.Whitelist}
+	if cfg.BotID != 0 {
+		view.BotIDMasked = maskChannelID(fmt.Sprint(cfg.BotID))
+	}
+	return view
+}
+
+func (m *Mux) handleGetTelegramBotsConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
+		return
+	}
+	bots := m.configSvc.Get().TelegramBots
+	views := make([]telegramBotView, 0, len(bots))
+	for _, bot := range bots {
+		views = append(views, toTelegramBotView(bot))
+	}
+	m.writeJSON(w, http.StatusOK, views)
+}
+
+// handleUpdateTelegramBotsConfig updates non-secret settings. A missing token preserves the old one.
+func (m *Mux) handleUpdateTelegramBotsConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
+		return
+	}
+	var input []telegramBotInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	existing := map[string]config.TelegramBotConfig{}
+	for _, bot := range m.configSvc.Get().TelegramBots {
+		existing[bot.ID] = bot
+	}
+	cfg := make([]config.TelegramBotConfig, 0, len(input))
+	for i, in := range input {
+		if in.ID == "" {
+			in.ID = fmt.Sprintf("telegram-%d", i+1)
+		}
+		bot := config.TelegramBotConfig{ID: in.ID, Name: in.Name, Enabled: in.Enabled, BotToken: in.BotToken, BindType: in.BindType, BindAgent: in.BindAgent, WhitelistEnabled: in.WhitelistEnabled, Whitelist: in.Whitelist}
+		if old, ok := existing[in.ID]; ok {
+			bot.BotID, bot.BotToken, bot.Username = old.BotID, old.BotToken, old.Username
+			if in.BotToken != "" {
+				bot.BotToken = in.BotToken
+			}
+		}
+		if bot.Name == "" {
+			bot.Name = "Telegram"
+		}
+		if bot.BindType == "" {
+			bot.BindType = "l1"
+		}
+		cfg = append(cfg, bot)
+	}
+	if err := m.configSvc.UpdateTelegramBots(cfg); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	views := make([]telegramBotView, 0, len(cfg))
+	for _, bot := range cfg {
+		views = append(views, toTelegramBotView(bot))
+	}
+	m.writeJSON(w, http.StatusOK, views)
+}
+
+func (m *Mux) handleDeleteTelegramBotConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
+		return
+	}
+	id := chi.URLParam(r, "accountID")
+	bots := m.configSvc.Get().TelegramBots
+	filtered := bots[:0]
+	found := false
+	for _, bot := range bots {
+		if bot.ID == id {
+			found = true
+		} else {
+			filtered = append(filtered, bot)
+		}
+	}
+	if !found {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "telegram account not found"})
+		return
+	}
+	if err := m.configSvc.UpdateTelegramBots(filtered); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.triggerOnConfigChange()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type wechatAccountView struct {
 	ID                   string   `json:"id"`
 	Name                 string   `json:"name"`

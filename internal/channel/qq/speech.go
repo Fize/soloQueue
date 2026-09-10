@@ -130,6 +130,48 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	return strings.TrimSpace(string(out)), nil
 }
 
+func (t *Transcriber) AudioAvailable() bool {
+	if t.binary == "" {
+		return false
+	}
+	if _, err := os.Stat(t.ModelPath()); err != nil {
+		return false
+	}
+	_, err := exec.LookPath("ffmpeg")
+	return err == nil
+}
+
+func (t *Transcriber) TranscribeAudio(ctx context.Context, audioData []byte) (string, error) {
+	in, err := os.CreateTemp(os.TempDir(), "soloqueue_audio_*.input")
+	if err != nil {
+		return "", err
+	}
+	inPath := in.Name()
+	defer os.Remove(inPath)
+	if _, err := in.Write(audioData); err != nil {
+		in.Close()
+		return "", err
+	}
+	in.Close()
+	out, err := os.CreateTemp(os.TempDir(), "soloqueue_audio_*.wav")
+	if err != nil {
+		return "", err
+	}
+	outPath := out.Name()
+	out.Close()
+	defer os.Remove(outPath)
+	convert := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", inPath, "-ar", "16000", "-ac", "1", "-f", "wav", outPath)
+	if output, err := convert.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("audio convert: %w\n%s", err, output)
+	}
+	cmd := exec.CommandContext(ctx, t.binary, "-m", t.ModelPath(), "-f", outPath, "-l", "zh", "--no-timestamps", "-otxt")
+	data, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("whisper transcribe: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
 // Binary returns the detected whisper-cli path (may be empty).
 func (t *Transcriber) Binary() string { return t.binary }
 
