@@ -34,6 +34,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
+	"gopkg.in/yaml.v3"
 )
 
 // ─── Errors ────────────────────────────────────────────────────────────────
@@ -167,18 +168,19 @@ type Session struct {
 	Router   TaskRouterFunc // Optional: task routing classifier (nil = no routing, use default model)
 	Created  time.Time
 
-	mu              sync.Mutex
-	agentMu         sync.RWMutex // serializes generation snapshots and swaps
-	rebuildMu       sync.Mutex   // single-flight generation construction/swap
-	generation      agentGeneration
-	cw              *ctxwin.ContextWindow // Replaces original history, manages full conversation context
-	tl              *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
-	dispatchManager *dispatch.Manager
-	dispatchInitErr error
-	runWatch        *runwatch.Manager
-	logger          *logger.Logger       // Session-level logger
-	resourceCloser  func() error         // closes the logger handler owned by this Session
-	metaStore       ChannelMetadataStore // Optional: for persisting channel sender metadata
+	mu                  sync.Mutex
+	agentMu             sync.RWMutex // serializes generation snapshots and swaps
+	rebuildMu           sync.Mutex   // single-flight generation construction/swap
+	generation          agentGeneration
+	cw                  *ctxwin.ContextWindow // Replaces original history, manages full conversation context
+	tl                  *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
+	dispatchManager     *dispatch.Manager
+	dispatchInitErr     error
+	runWatch            *runwatch.Manager
+	logger              *logger.Logger       // Session-level logger
+	resourceCloser      func() error         // closes the logger handler owned by this Session
+	metaStore           ChannelMetadataStore // Optional: for persisting channel sender metadata
+	l1NotifyChannelPath string               // Optional: latest L1 notification config file
 
 	// pending queue: new messages enqueue when session is busy, popped and injected
 	// into ContextWindow before the agent's next LLM API call in the tool loop, merging consecutive messages
@@ -213,7 +215,7 @@ type Session struct {
 	cancelMu      sync.Mutex
 	activeCancels map[string]activeTurnCancel
 
-	// channelSenders maps channel type ("qq"/"wechat") to send functions.
+	// channelSenders maps channel type ("qq"/"wechat"/"telegram") to send functions.
 	// Registered by bridges when OnMessage fires. Protected by channelSendersMu.
 	channelSenders      map[string]func(context.Context, string) error
 	channelMediaSenders map[string]func(context.Context, []channel.OutboundMedia) error
@@ -260,6 +262,35 @@ type Session struct {
 	agentRegistry     *agent.Registry
 	lastJob           *agent.JobHandle
 	isQBot            atomic.Bool
+}
+
+// SetL1NotifyChannelPath configures the file read immediately before an L1
+// notification is sent. It is intentionally a path, not a cached channel,
+// so a saved notification setting applies to the next delivery.
+func (s *Session) SetL1NotifyChannelPath(path string) {
+	if s != nil {
+		s.l1NotifyChannelPath = path
+	}
+}
+
+func (s *Session) notifyChannel() (string, error) {
+	if s.l1NotifyChannelPath != "" {
+		data, err := os.ReadFile(s.l1NotifyChannelPath)
+		if err != nil {
+			return "", fmt.Errorf("read notification channel config: %w", err)
+		}
+		var cfg struct {
+			NotifyChannel string `yaml:"notify_channel"`
+		}
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return "", fmt.Errorf("parse notification channel config: %w", err)
+		}
+		return strings.TrimSpace(cfg.NotifyChannel), nil
+	}
+	if a := s.CurrentAgent(); a != nil {
+		return a.Def.NotifyChannel, nil
+	}
+	return "", nil
 }
 
 type agentGeneration struct {
@@ -844,9 +875,9 @@ func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.Outbo
 	if len(media) == 0 {
 		return nil
 	}
-	notifyChannel := ""
-	if a := s.CurrentAgent(); a != nil {
-		notifyChannel = a.Def.NotifyChannel
+	notifyChannel, err := s.notifyChannel()
+	if err != nil {
+		return err
 	}
 	if notifyChannel == "" {
 		return nil
@@ -874,17 +905,21 @@ func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.Outbo
 // HasNotifyChannel reports whether this session's agent has configured a
 // notification channel. It does not claim that a live sender is available.
 func (s *Session) HasNotifyChannel() bool {
-	a := s.CurrentAgent()
-	return a != nil && a.Def.NotifyChannel != ""
+	notifyChannel, err := s.notifyChannel()
+	return err == nil && notifyChannel != ""
 }
 
 // SendViaChannel sends text through the configured notify channel.
-// The channel is determined by the agent's NotifyChannel config (e.g. "qq" or "wechat").
+// The channel is determined by the agent's NotifyChannel config (e.g. "qq", "wechat", or "telegram").
 // If notify_channel or its active sender is absent, no notification is sent.
 func (s *Session) SendViaChannel(ctx context.Context, text string) error {
-	notifyChannel := ""
-	if a := s.CurrentAgent(); a != nil {
-		notifyChannel = a.Def.NotifyChannel
+	notifyChannel, err := s.notifyChannel()
+	if err != nil {
+		s.logger.WarnContext(ctx, logger.CatApp, "session: failed to read notification channel config",
+			"target_id", s.TargetID,
+			"err", err.Error(),
+		)
+		return err
 	}
 	if notifyChannel == "" {
 		s.logger.WarnContext(ctx, logger.CatApp, "session: SendViaChannel skipped, no notify_channel configured",
