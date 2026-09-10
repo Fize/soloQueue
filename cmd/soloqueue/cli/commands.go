@@ -185,10 +185,11 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			rt.SetToolsCfg(toolsCfg)
 			rt.AgentFactory.SetToolsConfig(toolsCfg)
 
-			_, err = mgr.Init(context.Background(), "")
+			l1Session, err := mgr.Init(context.Background(), "")
 			if err != nil {
 				return fmt.Errorf("init session: %w", err)
 			}
+			l1Session.SetL1NotifyChannelPath(filepath.Join(workDir, "persona", "roles", "channels.yaml"))
 
 			// ── Daily memory flush (midnight) ──
 			if rt.MemoryManager != nil {

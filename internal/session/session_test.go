@@ -139,6 +139,30 @@ func TestSendMediaViaChannelUsesOnlyConfiguredChannel(t *testing.T) {
 	}
 }
 
+func TestSessionReadsL1NotifyChannelAtSendTime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "channels.yaml")
+	if err := os.WriteFile(path, []byte("notify_channel: qq\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calledQQ, calledTelegram := 0, 0
+	sess := NewSession("l1-session", "", &agent.Agent{Def: agent.Definition{NotifyChannel: "qq"}}, nil, nil, nil)
+	sess.SetL1NotifyChannelPath(path)
+	sess.SetChannelSender("qq", func(context.Context, string) error { calledQQ++; return nil })
+	sess.SetChannelSender("telegram", func(context.Context, string) error { calledTelegram++; return nil })
+	if err := sess.SendViaChannel(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("notify_channel: telegram\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.SendViaChannel(context.Background(), "second"); err != nil {
+		t.Fatal(err)
+	}
+	if calledQQ != 1 || calledTelegram != 1 {
+		t.Fatalf("qq=%d telegram=%d, want one delivery through each configured route", calledQQ, calledTelegram)
+	}
+}
+
 // factoryFromFake returns a factory that produces fresh started agents each
 // time from the given FakeLLM (sharing the same LLM across sessions).
 func factoryFromFake(t *testing.T, fake *agenttest.FakeLLM) AgentFactory {
