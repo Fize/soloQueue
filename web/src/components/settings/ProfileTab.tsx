@@ -324,7 +324,7 @@ export function ProfileTab() {
   const [savingChannels, setSavingChannels] = useState(false)
   const [qqBotOptions, setQqBotOptions] = useState<{ id: string; name: string }[]>([])
   const [wechatBotOptions, setWechatBotOptions] = useState<{ id: string; name: string }[]>([])
-  const [telegramBotOptions, setTelegramBotOptions] = useState<{ id: string; name: string }[]>([])
+  const [telegramBotOptions, setTelegramBotOptions] = useState<{ id: string; name: string; username?: string }[]>([])
   const { t } = useTranslation()
 
   const fetchProfile = useCallback(async () => {
@@ -354,7 +354,7 @@ export function ProfileTab() {
       .then((bots) => setWechatBotOptions(bots.map(b => ({ id: b.id, name: b.name }))))
       .catch(() => {})
     getTelegramBotsConfig()
-      .then((bots) => setTelegramBotOptions(bots.map(b => ({ id: b.id, name: b.name }))))
+      .then((bots) => setTelegramBotOptions(bots.map(b => ({ id: b.id, name: b.name, username: b.username }))))
       .catch(() => {})
   }, [fetchProfile])
 
@@ -453,7 +453,7 @@ export function ProfileTab() {
                 <label className="text-xs text-muted-foreground">Telegram</label>
                 <select value={telegramChannel} onChange={(e) => setTelegramChannel(e.target.value)} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs">
                   <option value="">无</option>
-                  {telegramBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} ({bot.id})</option>)}
+                  {telegramBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.username ? `@${bot.username}` : bot.id}</option>)}
                 </select>
               </div>
             )}

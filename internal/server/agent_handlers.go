@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
+	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 )
 
@@ -488,19 +489,40 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 		if l1ch.Channels == nil {
 			l1ch.Channels = make(map[string]string)
 		}
+		oldTelegramID := l1ch.Channels["telegram"]
 		if req.Channels != nil {
 			l1ch.Channels = *req.Channels
 		}
 		if req.NotifyChannel != nil {
 			l1ch.NotifyChannel = *req.NotifyChannel
 		}
+		if req.Channels != nil && l1ch.Channels["telegram"] == "" && l1ch.NotifyChannel == "telegram" {
+			l1ch.NotifyChannel = ""
+		}
+		var telegramBots []config.TelegramBotConfig
+		if req.Channels != nil {
+			var err error
+			telegramBots, err = m.prepareTelegramBinding(r.Context(), "", oldTelegramID, l1ch.Channels["telegram"], "")
+			if err != nil {
+				m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+		}
 		out, err := yaml.Marshal(l1ch)
 		if err != nil {
 			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to marshal channels: " + err.Error()})
 			return
 		}
+		if err := os.MkdirAll(filepath.Dir(chPath), 0755); err != nil {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
 		if err := os.WriteFile(chPath, out, 0644); err != nil {
 			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write channels.yaml: " + err.Error()})
+			return
+		}
+		if err := m.saveTelegramBinding(telegramBots); err != nil {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 	}

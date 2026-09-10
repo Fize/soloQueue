@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
@@ -463,29 +464,10 @@ func (m *Mux) handleUpdateTelegramBotsConfig(w http.ResponseWriter, r *http.Requ
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	existing := map[string]config.TelegramBotConfig{}
-	for _, bot := range m.configSvc.Get().TelegramBots {
-		existing[bot.ID] = bot
-	}
-	cfg := make([]config.TelegramBotConfig, 0, len(input))
-	for i, in := range input {
-		if in.ID == "" {
-			in.ID = fmt.Sprintf("telegram-%d", i+1)
-		}
-		bot := config.TelegramBotConfig{ID: in.ID, Name: in.Name, Enabled: in.Enabled, BotToken: in.BotToken, BindType: in.BindType, BindAgent: in.BindAgent, WhitelistEnabled: in.WhitelistEnabled, Whitelist: in.Whitelist}
-		if old, ok := existing[in.ID]; ok {
-			bot.BotID, bot.BotToken, bot.Username = old.BotID, old.BotToken, old.Username
-			if in.BotToken != "" {
-				bot.BotToken = in.BotToken
-			}
-		}
-		if bot.Name == "" {
-			bot.Name = "Telegram"
-		}
-		if bot.BindType == "" {
-			bot.BindType = "l1"
-		}
-		cfg = append(cfg, bot)
+	cfg, err := normalizeTelegramBots(input, m.configSvc.Get().TelegramBots)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
 	if err := m.configSvc.UpdateTelegramBots(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -499,6 +481,89 @@ func (m *Mux) handleUpdateTelegramBotsConfig(w http.ResponseWriter, r *http.Requ
 	m.writeJSON(w, http.StatusOK, views)
 }
 
+// normalizeTelegramBots merges redacted API input with the current settings.
+// The UI sends the complete list, so this is also the single place that keeps
+// IDs stable, preserves omitted tokens, and rejects ambiguous credentials.
+func normalizeTelegramBots(input []telegramBotInput, current []config.TelegramBotConfig) ([]config.TelegramBotConfig, error) {
+	existing := make(map[string]config.TelegramBotConfig, len(current))
+	for _, bot := range current {
+		existing[bot.ID] = bot
+	}
+
+	usedIDs := make(map[string]struct{}, len(input))
+	usedTokens := make(map[string]string, len(input))
+
+	result := make([]config.TelegramBotConfig, 0, len(input))
+	for _, in := range input {
+		id := strings.TrimSpace(in.ID)
+		if id == "" {
+			id = "telegram-" + uuid.NewString()
+		}
+		if strings.ContainsAny(id, `/\\`) {
+			return nil, fmt.Errorf("telegram bot id %q contains an invalid path separator", id)
+		}
+		if _, duplicate := usedIDs[id]; duplicate {
+			return nil, fmt.Errorf("telegram bot id %q is duplicated", id)
+		}
+		usedIDs[id] = struct{}{}
+
+		old, hasOld := existing[id]
+		name := strings.TrimSpace(in.Name)
+		if name == "" && hasOld {
+			name = old.Name
+		}
+		if name == "" {
+			name = "Telegram"
+		}
+		bindType := strings.TrimSpace(in.BindType)
+		if bindType == "" && hasOld {
+			bindType = old.BindType
+		}
+		if bindType == "" {
+			bindType = "l1"
+		}
+		if bindType != "l1" && bindType != "l2" {
+			return nil, fmt.Errorf("telegram bot %q has invalid bind_type %q", id, bindType)
+		}
+
+		bot := config.TelegramBotConfig{
+			ID:               id,
+			Name:             name,
+			Enabled:          in.Enabled,
+			BindType:         bindType,
+			BindAgent:        strings.TrimSpace(in.BindAgent),
+			WhitelistEnabled: in.WhitelistEnabled,
+			Whitelist:        append([]string(nil), in.Whitelist...),
+		}
+		if hasOld {
+			bot.BotID, bot.BotToken, bot.Username = old.BotID, old.BotToken, old.Username
+		}
+		if bot.BindType == "l1" {
+			bot.BindAgent = ""
+		}
+		if suppliedToken := strings.TrimSpace(in.BotToken); suppliedToken != "" {
+			if !hasOld || suppliedToken != old.BotToken {
+				// A changed token belongs to a different bot identity. The
+				// gateway will discover the new BotID on its next start.
+				bot.BotID = 0
+				bot.Username = ""
+			}
+			bot.BotToken = suppliedToken
+		} else if !hasOld {
+			return nil, fmt.Errorf("telegram bot %q requires a bot token", id)
+		}
+
+		if bot.BotToken != "" {
+			if previousID, duplicate := usedTokens[bot.BotToken]; duplicate && previousID != id {
+				return nil, fmt.Errorf("telegram bot token is already used by account %q", previousID)
+			}
+			usedTokens[bot.BotToken] = id
+		}
+		result = append(result, bot)
+	}
+	return result, nil
+}
+
 func (m *Mux) handleDeleteTelegramBotConfig(w http.ResponseWriter, r *http.Request) {
 	if m.configSvc == nil {
 		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config service not available"})
@@ -506,7 +571,7 @@ func (m *Mux) handleDeleteTelegramBotConfig(w http.ResponseWriter, r *http.Reque
 	}
 	id := chi.URLParam(r, "accountID")
 	bots := m.configSvc.Get().TelegramBots
-	filtered := bots[:0]
+	filtered := make([]config.TelegramBotConfig, 0, len(bots))
 	found := false
 	for _, bot := range bots {
 		if bot.ID == id {

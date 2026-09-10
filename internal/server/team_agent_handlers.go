@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
@@ -395,6 +396,11 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	telegramBots, err := m.prepareTelegramBinding(r.Context(), req.Name, "", req.Channels["telegram"], req.TeamName)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	a := &store.Agent{
 		Name:          req.Name,
 		Description:   req.Description,
@@ -409,6 +415,10 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := m.teamstore.CreateAgent(r.Context(), a); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := m.saveTelegramBinding(telegramBots); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -462,6 +472,7 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	oldTelegramID := existing.Channels["telegram"]
 	if req.Description != nil {
 		existing.Description = *req.Description
 	}
@@ -489,9 +500,24 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	if req.NotifyChannel != nil {
 		existing.NotifyChannel = *req.NotifyChannel
 	}
+	if req.Channels != nil && existing.Channels["telegram"] == "" && existing.NotifyChannel == "telegram" {
+		existing.NotifyChannel = ""
+	}
+	var telegramBots []config.TelegramBotConfig
+	if req.Channels != nil || req.TeamName != nil {
+		telegramBots, err = m.prepareTelegramBinding(r.Context(), existing.Name, oldTelegramID, existing.Channels["telegram"], existing.TeamName)
+		if err != nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
 
 	if err := m.teamstore.UpdateAgent(r.Context(), name, existing); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := m.saveTelegramBinding(telegramBots); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
