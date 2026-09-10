@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CircleCheck, Clock3, Loader2, MessageCircle, Plus, RefreshCw, ScanLine, Trash2 } from 'lucide-react'
+import { CircleCheck, Clock3, Loader2, MessageCircle, Pencil, Plus, RefreshCw, ScanLine, Trash2 } from 'lucide-react'
 import QRCode from 'qrcode'
 import { toast } from 'sonner'
 
@@ -246,13 +246,113 @@ function WeChatLoginDialog({ open, account, onOpenChange, onConnected }: WeChatL
   )
 }
 
+interface TelegramBotDialogProps {
+  open: boolean
+  account?: TelegramBotConfig
+  accounts: TelegramBotConfig[]
+  onOpenChange: (open: boolean) => void
+  onSaved: (accounts: TelegramBotConfig[]) => void
+}
+
+function TelegramBotDialog({ open, account, accounts, onOpenChange, onSaved }: TelegramBotDialogProps) {
+  const [name, setName] = useState(account?.name || '')
+  const [token, setToken] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const savingRef = useRef(false)
+
+  const handleSave = async () => {
+    if (savingRef.current) return
+    const trimmedName = name.trim()
+    const trimmedToken = token.trim()
+    if (!trimmedName) {
+      setError('Bot name is required')
+      return
+    }
+    if (!account && !trimmedToken) {
+      setError('Bot token is required')
+      return
+    }
+
+    savingRef.current = true
+    setSaving(true)
+    setError(null)
+    try {
+      const payload: TelegramBotConfig & { botToken?: string } = {
+        ...(account || {
+          id: '',
+          enabled: true,
+          credentialConfigured: false,
+          connected: false,
+          bind_type: 'l1' as const,
+          whitelist_enabled: false,
+          whitelist: [],
+        }),
+        name: trimmedName,
+        ...(trimmedToken ? { botToken: trimmedToken } : {}),
+      }
+      const next: Array<TelegramBotConfig & { botToken?: string }> = account
+        ? accounts.map((item) => item.id === account.id ? payload : item)
+        : [...accounts, payload]
+      const saved = await updateTelegramBotsConfig(next)
+      onSaved(saved)
+      onOpenChange(false)
+      toast.success(account ? 'Telegram bot updated' : 'Telegram bot added')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to save Telegram bot')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(value) => { if (!savingRef.current) onOpenChange(value) }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{account ? 'Edit Telegram bot' : 'Add Telegram bot'}</DialogTitle>
+          <DialogDescription>
+            {account ? 'Update the display name or paste a new BotFather token.' : 'Create a Telegram bot in BotFather, then paste its token here.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="telegram-bot-name">Name</Label>
+            <Input id="telegram-bot-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Research bot" autoFocus />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="telegram-bot-token">Bot token</Label>
+            <Input id="telegram-bot-token" type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder={account?.credentialConfigured ? 'Leave empty to keep the current token' : '123456789:AA...'} />
+          </div>
+          {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={() => { void handleSave() }} disabled={saving}>
+            {saving && <Loader2 className="animate-spin" />}
+            {account ? 'Save changes' : 'Add bot'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function ChannelsTab() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
   const [qqbots, setQQBots] = useState<QQBotConfig[]>([])
   const [wechatAccounts, setWechatAccounts] = useState<WeChatAccountView[]>([])
   const [telegramAccounts, setTelegramAccounts] = useState<TelegramBotConfig[]>([])
-  const [telegramToken, setTelegramToken] = useState('')
+  const [telegramDialogOpen, setTelegramDialogOpen] = useState(false)
+  const [telegramEditingAccount, setTelegramEditingAccount] = useState<TelegramBotConfig | undefined>()
+  const [telegramRemovingAccount, setTelegramRemovingAccount] = useState<TelegramBotConfig | null>(null)
+  const [telegramRemoving, setTelegramRemoving] = useState(false)
+  const [telegramSaving, setTelegramSaving] = useState(false)
+  const telegramSavingRef = useRef(false)
   const [loginOpen, setLoginOpen] = useState(false)
   const [loginAccount, setLoginAccount] = useState<WeChatAccountView | undefined>()
   const [removeAccount, setRemoveAccount] = useState<WeChatAccountView | null>(null)
@@ -345,19 +445,41 @@ export function ChannelsTab() {
     }
   }
 
-  const saveTelegram = async () => {
+  const toggleTelegram = async (id: string, enabled: boolean) => {
+    if (telegramSavingRef.current) return
+    telegramSavingRef.current = true
+    setTelegramSaving(true)
+    const previous = telegramAccounts
+    const next = previous.map((item) => item.id === id ? { ...item, enabled } : item)
+    setTelegramAccounts(next)
     try {
-      const existing = telegramAccounts[0]
-      const account = existing || { id: '', name: 'Telegram', enabled: true, credentialConfigured: false, connected: false, bind_type: 'l1' as const }
-      const saved = await updateTelegramBotsConfig([{ ...account, botToken: telegramToken.trim() }])
+      const saved = await updateTelegramBotsConfig(next)
       setTelegramAccounts(saved)
-      setTelegramToken('')
-      toast.success('Telegram settings saved')
-    } catch (error) { toast.error((error as Error).message) }
+    } catch (error) {
+      setTelegramAccounts(previous)
+      toast.error((error as Error).message)
+    } finally {
+      telegramSavingRef.current = false
+      setTelegramSaving(false)
+    }
   }
 
-  const removeTelegram = async (id: string) => {
-    try { await deleteTelegramBotConfig(id); setTelegramAccounts((items) => items.filter((item) => item.id !== id)) } catch (error) { toast.error((error as Error).message) }
+  const removeTelegram = async () => {
+    if (!telegramRemovingAccount || telegramSavingRef.current) return
+    telegramSavingRef.current = true
+    setTelegramSaving(true)
+    setTelegramRemoving(true)
+    try {
+      await deleteTelegramBotConfig(telegramRemovingAccount.id)
+      setTelegramAccounts((items) => items.filter((item) => item.id !== telegramRemovingAccount.id))
+      setTelegramRemovingAccount(null)
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      telegramSavingRef.current = false
+      setTelegramSaving(false)
+      setTelegramRemoving(false)
+    }
   }
 
   const saveSpeech = async () => {
@@ -459,17 +581,48 @@ export function ChannelsTab() {
       </section>
 
       <section className="space-y-4 rounded-xl border border-border bg-card p-6 shadow-sm">
-        <div className="flex items-center gap-2 border-b border-border pb-3"><MessageCircle className="size-4 text-primary" /><h2 className="font-semibold text-foreground">Telegram</h2></div>
-        <p className="text-xs text-muted-foreground">Paste a BotFather token. The bot uses the main SoloQueue session.</p>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input type="password" placeholder={telegramAccounts[0]?.credentialConfigured ? 'Token configured (paste to replace)' : 'Bot token'} value={telegramToken} onChange={(event) => setTelegramToken(event.target.value)} />
-          <Button size="sm" onClick={() => { void saveTelegram() }} disabled={!telegramToken.trim() && !telegramAccounts[0]}>{telegramAccounts[0] ? 'Update' : 'Connect'}</Button>
+        <div className="flex items-center justify-between gap-4 border-b border-border pb-3">
+          <div>
+            <div className="flex items-center gap-2"><MessageCircle className="size-4 text-primary" /><h2 className="font-semibold text-foreground">Telegram</h2></div>
+            <p className="mt-1 text-xs text-muted-foreground">Manage multiple Telegram bots. Choose their bindings in the L1 or team agent settings.</p>
+          </div>
+          <Button size="sm" disabled={telegramSaving} onClick={() => { setTelegramEditingAccount(undefined); setTelegramDialogOpen(true) }}><Plus />Add bot</Button>
         </div>
-        {telegramAccounts.map((account) => <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-muted/20 p-3 text-sm"><span>{account.username ? `@${account.username}` : account.name || account.id} · {account.connected ? 'connected' : account.credentialConfigured ? 'starting' : 'not configured'}</span><div className="flex items-center gap-2"><Switch checked={account.enabled} onCheckedChange={(checked) => setTelegramAccounts((items) => items.map((item) => item.id === account.id ? { ...item, enabled: checked } : item))} /><Button size="xs" variant="ghost" onClick={() => { void removeTelegram(account.id) }}><Trash2 /></Button></div></div>)}
-        {telegramAccounts.length > 0 && <div className="flex justify-end"><Button size="sm" onClick={() => { void updateTelegramBotsConfig(telegramAccounts) }}>Save settings</Button></div>}
+        {telegramAccounts.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border bg-muted/20 py-6 text-center text-sm text-muted-foreground">No Telegram bots configured</div>
+        ) : (
+          <div className="space-y-3">
+            {telegramAccounts.map((account) => (
+              <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-muted/20 p-4">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{account.name || account.id}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {account.username ? `@${account.username}` : account.id} · {account.credentialConfigured ? 'Token configured' : 'Token not configured'} · {account.bind_type === 'l2' ? `L2${account.bind_agent ? ` · ${account.bind_agent}` : ''}` : 'L1'}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="sr-only" htmlFor={`telegram-enabled-${account.id}`}>Enable {account.name || account.id}</label>
+                  <Switch id={`telegram-enabled-${account.id}`} disabled={telegramSaving} checked={account.enabled} onCheckedChange={(checked) => { void toggleTelegram(account.id, checked) }} />
+                  <Button disabled={telegramSaving} size="xs" variant="outline" onClick={() => { setTelegramEditingAccount(account); setTelegramDialogOpen(true) }}><Pencil />Edit</Button>
+                  <Button disabled={telegramSaving} size="icon-xs" variant="ghost" aria-label={`Remove ${account.name || account.id}`} onClick={() => setTelegramRemovingAccount(account)}><Trash2 /></Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
+      {telegramDialogOpen && <TelegramBotDialog open account={telegramEditingAccount} accounts={telegramAccounts} onOpenChange={setTelegramDialogOpen} onSaved={setTelegramAccounts} />}
       {loginOpen && <WeChatLoginDialog open account={loginAccount} onOpenChange={setLoginOpen} onConnected={loadData} />}
+      <ConfirmDialog
+        open={!!telegramRemovingAccount}
+        onOpenChange={(open) => { if (!open && !telegramRemoving) setTelegramRemovingAccount(null) }}
+        title="Remove Telegram bot?"
+        message={`Remove ${telegramRemovingAccount?.name || telegramRemovingAccount?.id || 'this bot'}? Existing session bindings will no longer be able to send through it.`}
+        confirmLabel="Remove"
+        loading={telegramRemoving}
+        onConfirm={() => { void removeTelegram() }}
+      />
       <ConfirmDialog
         open={!!removeAccount}
         onOpenChange={(open) => { if (!open) setRemoveAccount(null) }}
