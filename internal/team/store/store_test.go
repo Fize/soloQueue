@@ -74,7 +74,6 @@ func TestStoreCRUD(t *testing.T) {
 		Model:        "gpt-4o",
 		SystemPrompt: "You are Alice.",
 		MCPServers:   []string{"git-mcp"},
-		SkillIDs:     []string{"bash"},
 	}
 	err = store.CreateAgent(ctx, agent)
 	if err != nil {
@@ -158,6 +157,40 @@ func TestStoreCRUD(t *testing.T) {
 	}
 	if _, err := os.Stat(teamPath); !os.IsNotExist(err) {
 		t.Error("team file still exists after deletion")
+	}
+}
+
+func TestTeamSkillsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(filepath.Join(dir, "groups"), filepath.Join(dir, "agents"), nil)
+	ctx := context.Background()
+
+	team := &Team{Name: "configured", SkillIDs: []string{}}
+	if err := s.CreateTeam(ctx, team); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTeamByName(ctx, "configured")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.SkillsConfigured || got.SkillIDs == nil {
+		t.Fatalf("configured team lost explicit empty skills: %+v", got)
+	}
+
+	legacy := &Team{Name: "legacy"}
+	if err := s.CreateTeam(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Description = "updated"
+	if err := s.UpdateTeam(ctx, "legacy", legacy); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetTeamByName(ctx, "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SkillsConfigured || got.SkillIDs != nil {
+		t.Fatalf("legacy team unexpectedly gained skills: %+v", got)
 	}
 }
 

@@ -32,7 +32,6 @@ type AgentTemplate struct {
 	IsLeader     bool
 	Group        string
 	MCPServers   []string
-	SkillIDs     []string
 	// Channels maps channel_type → instance_id.
 	Channels map[string]string
 	// NotifyChannel is the channel_type for cron notifications. Defaults to first channel.
@@ -273,7 +272,7 @@ func WithMCPManager(mgr *mcp.Manager) FactoryOption {
 }
 
 // WithSkillRegistry sets the global skill registry for skill resolution during agent creation.
-// When set, Create() resolves template SkillIDs against this registry.
+// When set, Create() resolves the team-configured skills against this registry.
 func WithSkillRegistry(reg *skill.SkillRegistry) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.skillRegistry = reg
@@ -300,6 +299,28 @@ func WithTeamStore(store *store.Store) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.teamstore = store
 	}
+}
+
+// effectiveSkillIDs returns the skills available to an agent. Team members
+// always use their team's configured list; an absent or unconfigured team has
+// no skills. The top-level agent remains unrestricted.
+func (f *DefaultFactory) effectiveSkillIDs(tmpl AgentTemplate, groups map[string]prompt.GroupFile) []string {
+	if tmpl.Group == "" {
+		return nil
+	}
+	group, ok := groups[tmpl.Group]
+	if !ok {
+		for name, candidate := range groups {
+			if strings.EqualFold(name, tmpl.Group) {
+				group, ok = candidate, true
+				break
+			}
+		}
+	}
+	if !ok || !group.Frontmatter.SkillsConfigured {
+		return []string{}
+	}
+	return group.Frontmatter.Skills
 }
 
 func WithMemoryEngine(memoryEngine *engine.Engine) FactoryOption {
@@ -362,7 +383,6 @@ func (f *DefaultFactory) ResolveTemplate(ctx context.Context, id string) (AgentT
 					IsLeader:      t.IsLeader,
 					Group:         t.Group,
 					MCPServers:    t.MCPServers,
-					SkillIDs:      t.SkillIDs,
 					Channels:      t.Channels,
 					NotifyChannel: t.NotifyChannel,
 				}, true
@@ -628,6 +648,16 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		_ = projectSkillReg.Register(s)
 	}
 	mergedSkillResolver := skill.NewMergedSkillResolver(f.skillRegistry, projectSkillReg)
+	effectiveSkillIDs := f.effectiveSkillIDs(tmpl, groups)
+	if tmpl.Group == "" {
+		for _, s := range mergedSkillResolver.Skills() {
+			effectiveSkillIDs = append(effectiveSkillIDs, s.ID)
+		}
+	}
+	allowedSkillResolver := mergedSkillResolver
+	if tmpl.Group != "" {
+		allowedSkillResolver = skill.NewFilteredSkillResolver(mergedSkillResolver, effectiveSkillIDs)
+	}
 
 	// 2b. L2 leader / Top-level agent: inject single unified delegate tool
 	if tmpl.IsLeader {
@@ -671,8 +701,8 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			var baseAgentName string
 			var skillDir string
 
-			if skillID != "" && mergedSkillResolver != nil {
-				if s, okSkill := mergedSkillResolver.GetSkill(skillID); okSkill {
+			if skillID != "" && allowedSkillResolver != nil {
+				if s, okSkill := allowedSkillResolver.GetSkill(skillID); okSkill {
 					baseAgentName = s.Agent
 					skillDir = s.Dir
 					if s.Instructions != "" {
@@ -744,7 +774,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		dt := tools.NewDelegateTool(tmpl.ID, 25*time.Minute, delegateResolver, f.registry, f.log, workDirPolicy, delegateOpts...)
 		dt.PeerLocateOrSpawn = delegateResolver
 		dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
-			if s, ok := mergedSkillResolver.GetSkill(skillID); ok {
+			if s, ok := allowedSkillResolver.GetSkill(skillID); ok {
 				return s.Instructions, s.Agent, s.Dir, true
 			}
 			return "", "", "", false
@@ -753,9 +783,9 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	}
 
 	var skillList []*skill.Skill
-	if len(tmpl.SkillIDs) > 0 {
-		resolver := skill.NewFilteredSkillResolver(mergedSkillResolver, tmpl.SkillIDs)
-		for _, id := range tmpl.SkillIDs {
+	if len(effectiveSkillIDs) > 0 {
+		resolver := skill.NewFilteredSkillResolver(mergedSkillResolver, effectiveSkillIDs)
+		for _, id := range effectiveSkillIDs {
 			if s, ok := resolver.GetSkill(id); ok {
 				skillList = append(skillList, s)
 			}
@@ -955,7 +985,6 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 			IsLeader:      fm.IsLeader,
 			Group:         fm.Group,
 			MCPServers:    fm.MCPServers,
-			SkillIDs:      fm.Skills,
 			Channels:      fm.Channels,
 			NotifyChannel: fm.NotifyChannel,
 		}

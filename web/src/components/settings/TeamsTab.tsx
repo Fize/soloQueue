@@ -213,6 +213,9 @@ interface TeamDialogProps {
 function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [skillIds, setSkillIds] = useState<string[]>([])
+  const [skillOptions, setSkillOptions] = useState<string[]>([])
+  const [skillsConfigured, setSkillsConfigured] = useState(false)
   const [descTab, setDescTab] = useState<'edit' | 'preview'>('edit')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -225,13 +228,20 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
       if (editTeam) {
         setName(editTeam.name)
         setDescription(editTeam.description || '')
+        setSkillIds(editTeam.skill_ids || [])
+        setSkillsConfigured(editTeam.skills_configured ?? false)
         setDescTab('preview')
       } else {
         setName('')
         setDescription('')
+        setSkillIds([])
+        setSkillsConfigured(true)
         setDescTab('edit')
       }
       setError(null)
+      getSkills()
+        .then((res) => setSkillOptions(res.skills.map((s) => s.id)))
+        .catch(console.error)
     }
   }, [open, editTeam])
 
@@ -247,11 +257,13 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
       if (isEdit) {
         await updateTeam(editTeam!.name, {
           description: description || undefined,
+          skill_ids: skillsConfigured ? skillIds : undefined,
         })
       } else {
         await createTeam({
           name: name.trim(),
           description: description || undefined,
+          skill_ids: skillsConfigured ? skillIds : undefined,
         })
       }
       onSave()
@@ -261,7 +273,7 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
     } finally {
       setSaving(false)
     }
-  }, [name, description, isEdit, editTeam, t, onSave, onOpenChange])
+  }, [name, description, skillIds, skillsConfigured, isEdit, editTeam, t, onSave, onOpenChange])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -305,6 +317,17 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
               className="text-xs"
             />
           )}
+
+          <MultiSelect
+            label={t('teams.selectSkills')}
+            placeholder={t('teams.skillIdsPlaceholder')}
+            options={skillOptions}
+            selected={skillIds}
+            onChange={(ids) => {
+              setSkillIds(ids)
+              setSkillsConfigured(true)
+            }}
+          />
 
           <div className="flex flex-col gap-2 min-h-[220px]">
             <Tabs
@@ -399,7 +422,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [model, setModel] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
   const [mcpServers, setMcpServers] = useState<string[]>([])
-  const [skillIds, setSkillIds] = useState<string[]>([])
   const [qqChannel, setQqChannel] = useState('')
   const [wechatChannel, setWechatChannel] = useState('')
   const [telegramChannel, setTelegramChannel] = useState('')
@@ -414,7 +436,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [promptTab, setPromptTab] = useState<'edit' | 'preview'>('preview')
   const [mcpOptions, setMcpOptions] = useState<{ name: string; source: string; command?: string }[]>([])
   const [builtinMCPNames, setBuiltinMCPNames] = useState<Set<string>>(new Set())
-  const [skillOptions, setSkillOptions] = useState<string[]>([])
   const [modelOptions, setModelOptions] = useState<LLMModel[]>([])
   const [selectedProviderFilter, setSelectedProviderFilter] = useState('all')
   const [showModelDropdown, setShowModelDropdown] = useState(false)
@@ -435,7 +456,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setModel(editAgent.model || '')
         setSystemPrompt(editAgent.system_prompt || '')
         setMcpServers(editAgent.mcp_servers || [])
-        setSkillIds(editAgent.skill_ids || [])
         const channels = editAgent.channels || {}
         setQqChannel(channels.qq || '')
         setWechatChannel(channels.wechat || '')
@@ -449,7 +469,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setModel('')
         setSystemPrompt('')
         setMcpServers([])
-        setSkillIds([])
         setQqChannel('')
         setWechatChannel('')
         setTelegramChannel('')
@@ -458,10 +477,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
       setError(null)
 
       // Fetch autocomplete options
-      getSkills()
-        .then((res) => setSkillOptions(res.skills.map((s) => s.id)))
-        .catch(console.error)
-      
       getAvailableMCPServers()
         .then((res) => {
           setMcpOptions(res.servers.map(s => ({ name: s.name, source: s.source, command: s.command })))
@@ -542,7 +557,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           model: model || undefined,
           system_prompt: systemPrompt || undefined,
           mcp_servers: mcpServers.length > 0 ? mcpServers : undefined,
-          skill_ids: skillIds.length > 0 ? skillIds : undefined,
           channels: channelsPayload,
           notify_channel: notifyChannel || null,
         })
@@ -555,7 +569,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           model: model || undefined,
           system_prompt: systemPrompt || undefined,
           mcp_servers: mcpServers.length > 0 ? mcpServers : undefined,
-          skill_ids: skillIds.length > 0 ? skillIds : undefined,
           channels: channelsPayload,
           notify_channel: notifyChannel || undefined,
         })
@@ -567,7 +580,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
     } finally {
       setSaving(false)
     }
-  }, [name, description, teamName, isLeader, model, systemPrompt, mcpServers, skillIds, qqChannel, wechatChannel, telegramChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
+  }, [name, description, teamName, isLeader, model, systemPrompt, mcpServers, qqChannel, wechatChannel, telegramChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -840,13 +853,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
               selected={mcpServers}
               onChange={setMcpServers}
               builtinNames={builtinMCPNames}
-            />
-            <MultiSelect
-              label={t('teams.selectSkills')}
-              placeholder={t('teams.skillIdsPlaceholder')}
-              options={skillOptions}
-              selected={skillIds}
-              onChange={setSkillIds}
             />
           </div>
 

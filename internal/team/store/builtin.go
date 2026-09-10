@@ -151,7 +151,6 @@ type BuiltinAgentSpec struct {
 	IsLeader     bool
 	SystemPrompt string
 	MCPServers   []string
-	SkillIDs     []string
 }
 
 type BuiltinTeamSpec struct {
@@ -326,7 +325,6 @@ func (s *Store) InstallBuiltinTeams(ctx context.Context, ids []string) ([]Builti
 				IsLeader:     agentSpec.IsLeader,
 				SystemPrompt: agentSpec.SystemPrompt,
 				MCPServers:   append([]string(nil), agentSpec.MCPServers...),
-				SkillIDs:     append([]string(nil), agentSpec.SkillIDs...),
 				CreatedAt:    now,
 				UpdatedAt:    now,
 			}

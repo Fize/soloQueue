@@ -558,7 +558,9 @@ export function ChatPage() {
       return skills.map((s) => s.name);
     }
     if (matchedRegAgent) {
-      const allowedIds = new Set(matchedRegAgent.skill_ids || []);
+      const allowedIds = new Set(
+        matchedRegAgent.skill_ids ?? [],
+      );
       return skills
         .filter((s) => allowedIds.has(s.id))
         .map((s) => s.name);

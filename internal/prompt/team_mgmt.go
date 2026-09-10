@@ -52,14 +52,14 @@ a markdown body:
 
 ---
 name: "Team Name"
-workspaces:
-  - name: "main"
-    path: "/path/to/project"
+skills:
+  - "skill-id"
 ---
 Brief description of the team's responsibilities and expertise domain.
 
 Rules:
 - "name": canonical team identifier, used by members to join
+- "skills": list of skill IDs shared by every member of this team; use [] to disable team skills
 - "workspaces": working directories for the team
 - The body is shown to the team leader as context
 
@@ -75,7 +75,6 @@ group: "Team Name"
 is_leader: false
 model: ""
 mcp_servers: []
-skills: []
 ---
 Detailed system prompt for this agent. Include role, capabilities, constraints,
 communication style, and any specific rules to follow.
@@ -87,7 +86,7 @@ Rules:
 - "is_leader": true for the team leader, false for workers
 - "model": leave empty for default
 - "mcp_servers": list of MCP server names this agent can use (e.g. ["builtin-lsp"])
-- "skills": list of skill IDs this agent can use (e.g. ["code-review"])
+- Skills are inherited from the team file; configure them on the team instead of this member file
 - The body is the agent's permanent system prompt — be thorough
 
 ## Mandatory Creation Workflow

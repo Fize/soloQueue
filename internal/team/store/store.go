@@ -1,6 +1,5 @@
 // Package teamstore manages teams and agents using the filesystem.
-// It keeps them as markdown files under groups/ and agents/ directories,
-// providing full compatibility with the prompt and supervisor reloading systems.
+// It keeps them as markdown files under groups/ and agents/ directories.
 package store
 
 import (
@@ -23,12 +22,14 @@ import (
 
 // Team represents a team (group) stored in groups/ directory.
 type Team struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	MemoryOwnerID string `json:"-"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Description      string   `json:"description"`
+	SkillIDs         []string `json:"skill_ids"`
+	SkillsConfigured bool     `json:"-"`
+	MemoryOwnerID    string   `json:"-"`
+	CreatedAt        string   `json:"created_at"`
+	UpdatedAt        string   `json:"updated_at"`
 }
 
 // Agent represents an agent (team member) stored in agents/ directory.
@@ -41,15 +42,13 @@ type Agent struct {
 	Model         string            `json:"model"`
 	SystemPrompt  string            `json:"system_prompt"`
 	MCPServers    []string          `json:"mcp_servers"`
-	SkillIDs      []string          `json:"skill_ids"`
 	Channels      map[string]string `json:"channels,omitempty"`
 	NotifyChannel string            `json:"notify_channel,omitempty"`
 	CreatedAt     string            `json:"created_at"`
 	UpdatedAt     string            `json:"updated_at"`
 }
 
-// AgentTemplate is a flat representation used by the agent factory for
-// compatibility with the existing agent template loading system.
+// AgentTemplate is a flat representation used by the agent factory.
 type AgentTemplate struct {
 	ID            string
 	Name          string
@@ -59,7 +58,6 @@ type AgentTemplate struct {
 	IsLeader      bool
 	Group         string // maps to TeamName
 	MCPServers    []string
-	SkillIDs      []string
 	Channels      map[string]string
 	NotifyChannel string
 }
@@ -94,6 +92,9 @@ func (s *Store) CreateTeam(ctx context.Context, t *Team) error {
 
 	if t.ID == "" {
 		t.ID = strings.ToLower(t.Name)
+	}
+	if t.SkillIDs != nil {
+		t.SkillsConfigured = true
 	}
 	now := time.Now().Format(time.RFC3339)
 	t.CreatedAt = now
@@ -200,6 +201,13 @@ func (s *Store) UpdateTeam(ctx context.Context, name string, t *Team) error {
 		return err
 	}
 	existing.Description = t.Description
+	if t.SkillsConfigured {
+		existing.SkillIDs = append([]string(nil), t.SkillIDs...)
+		existing.SkillsConfigured = true
+		if t.SkillIDs != nil && len(t.SkillIDs) == 0 {
+			existing.SkillIDs = []string{}
+		}
+	}
 	existing.MemoryOwnerID = ownerID
 	existing.UpdatedAt = time.Now().Format(time.RFC3339)
 
@@ -546,7 +554,6 @@ func (s *Store) UpdateAgent(ctx context.Context, name string, a *Agent) error {
 	existing.Model = a.Model
 	existing.SystemPrompt = a.SystemPrompt
 	existing.MCPServers = a.MCPServers
-	existing.SkillIDs = a.SkillIDs
 	existing.Channels = a.Channels
 	existing.NotifyChannel = a.NotifyChannel
 	existing.UpdatedAt = time.Now().Format(time.RFC3339)
@@ -592,7 +599,6 @@ func (a *Agent) ToAgentTemplate() AgentTemplate {
 		IsLeader:      a.IsLeader,
 		Group:         a.TeamName,
 		MCPServers:    a.MCPServers,
-		SkillIDs:      a.SkillIDs,
 		Channels:      a.Channels,
 		NotifyChannel: a.NotifyChannel,
 	}
@@ -630,16 +636,23 @@ func (s *Store) findFileCaseInsensitive(dir, name string) (string, os.FileInfo, 
 
 func (s *Store) writeTeamFile(path string, t *Team) error {
 	fm := prompt.GroupFrontmatter{
-		ID:            t.ID,
-		Name:          t.Name,
-		MemoryOwnerID: t.MemoryOwnerID,
-		CreatedAt:     t.CreatedAt,
-		UpdatedAt:     t.UpdatedAt,
+		ID:               t.ID,
+		Name:             t.Name,
+		MemoryOwnerID:    t.MemoryOwnerID,
+		Skills:           t.SkillIDs,
+		SkillsConfigured: t.SkillsConfigured,
+		CreatedAt:        t.CreatedAt,
+		UpdatedAt:        t.UpdatedAt,
 	}
 
 	fmBytes, err := yaml.Marshal(fm)
 	if err != nil {
 		return fmt.Errorf("teamstore: marshal team frontmatter: %w", err)
+	}
+	// yaml's omitempty drops an explicit empty list. Preserve it so [] means
+	// "no skills".
+	if t.SkillsConfigured && len(t.SkillIDs) == 0 {
+		fmBytes = append(fmBytes, []byte("skills: []\n")...)
 	}
 
 	content := fmt.Sprintf("---\n%s\n---\n%s\n", strings.TrimSpace(string(fmBytes)), strings.TrimSpace(t.Description))
@@ -655,7 +668,6 @@ func (s *Store) writeAgentFile(path string, a *Agent) error {
 		Group:         a.TeamName,
 		IsLeader:      a.IsLeader,
 		MCPServers:    a.MCPServers,
-		Skills:        a.SkillIDs,
 		Channels:      a.Channels,
 		NotifyChannel: a.NotifyChannel,
 		CreatedAt:     a.CreatedAt,
@@ -694,12 +706,14 @@ func parseTeamFile(path string, info os.FileInfo) (*Team, error) {
 	}
 
 	return &Team{
-		ID:            id,
-		Name:          name,
-		Description:   gf.Body,
-		MemoryOwnerID: gf.Frontmatter.MemoryOwnerID,
-		CreatedAt:     createdAt,
-		UpdatedAt:     updatedAt,
+		ID:               id,
+		Name:             name,
+		Description:      gf.Body,
+		SkillIDs:         gf.Frontmatter.Skills,
+		SkillsConfigured: gf.Frontmatter.SkillsConfigured,
+		MemoryOwnerID:    gf.Frontmatter.MemoryOwnerID,
+		CreatedAt:        createdAt,
+		UpdatedAt:        updatedAt,
 	}, nil
 }
 
@@ -734,7 +748,6 @@ func parseAgentFile(path string, info os.FileInfo) (*Agent, error) {
 		Model:         af.Frontmatter.Model,
 		SystemPrompt:  af.Body,
 		MCPServers:    af.Frontmatter.MCPServers,
-		SkillIDs:      af.Frontmatter.Skills,
 		Channels:      af.Frontmatter.Channels,
 		NotifyChannel: af.Frontmatter.NotifyChannel,
 		CreatedAt:     createdAt,
