@@ -9,6 +9,7 @@ import type {
   QQBotConfig,
   WeChatAccountView,
   WeChatLoginSnapshot,
+  TelegramBotConfig,
   StartWeChatLoginRequest,
   LSPMCPConfig,
   SpeechConfig,
@@ -132,6 +133,18 @@ export async function updateWeChatBotsConfig(
     method: 'PUT',
     body: JSON.stringify(data),
   })
+}
+
+export async function getTelegramBotsConfig(): Promise<TelegramBotConfig[]> {
+  return request<TelegramBotConfig[]>('/config/telegram-bots')
+}
+
+export async function updateTelegramBotsConfig(data: Array<TelegramBotConfig & { botToken?: string }>): Promise<TelegramBotConfig[]> {
+  return request<TelegramBotConfig[]>('/config/telegram-bots', { method: 'PUT', body: JSON.stringify(data) })
+}
+
+export async function deleteTelegramBotConfig(id: string): Promise<void> {
+  await request(`/config/telegram-bots/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function deleteWeChatBot(accountId: string): Promise<void> {

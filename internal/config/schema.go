@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
+	telegram "github.com/xiaobaitu/soloqueue/internal/channel/telegram"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"gopkg.in/yaml.v3"
@@ -39,18 +40,38 @@ type SpeechConfig struct {
 }
 
 type Settings struct {
-	Session     SessionConfig     `json:"session" yaml:"session,omitempty"`
-	Log         LogConfig         `json:"log" yaml:"log,omitempty"`
-	Tools       ToolsConfig       `json:"tools" yaml:"tools,omitempty"`
-	Providers   []LLMProvider     `json:"providers" yaml:"providers,omitempty"`
-	Models      []LLMModel        `json:"models" yaml:"models,omitempty"`
-	Embedding   EmbeddingConfig   `json:"embedding" yaml:"embedding,omitempty"`
-	ModelRoutes ModelRoutesConfig `json:"modelRoutes" yaml:"model_routes,omitempty"`
-	QQBots      []QQBotConfig     `json:"qqbots" yaml:"qqbots,omitempty"`
-	WechatBots  []WechatBotConfig `json:"wechatBots" yaml:"wechat_bots,omitempty"`
-	Agent       AgentConfig       `json:"agent" yaml:"agent,omitempty"`
-	LSPMCP      LSPMCPConfig      `json:"lspmcp" yaml:"lspmcp,omitempty"`
-	Speech      SpeechConfig      `json:"speech" yaml:"speech,omitempty"`
+	Session      SessionConfig       `json:"session" yaml:"session,omitempty"`
+	Log          LogConfig           `json:"log" yaml:"log,omitempty"`
+	Tools        ToolsConfig         `json:"tools" yaml:"tools,omitempty"`
+	Providers    []LLMProvider       `json:"providers" yaml:"providers,omitempty"`
+	Models       []LLMModel          `json:"models" yaml:"models,omitempty"`
+	Embedding    EmbeddingConfig     `json:"embedding" yaml:"embedding,omitempty"`
+	ModelRoutes  ModelRoutesConfig   `json:"modelRoutes" yaml:"model_routes,omitempty"`
+	QQBots       []QQBotConfig       `json:"qqbots" yaml:"qqbots,omitempty"`
+	WechatBots   []WechatBotConfig   `json:"wechatBots" yaml:"wechat_bots,omitempty"`
+	TelegramBots []TelegramBotConfig `json:"telegramBots" yaml:"telegram_bots,omitempty"`
+	Agent        AgentConfig         `json:"agent" yaml:"agent,omitempty"`
+	LSPMCP       LSPMCPConfig        `json:"lspmcp" yaml:"lspmcp,omitempty"`
+	Speech       SpeechConfig        `json:"speech" yaml:"speech,omitempty"`
+}
+
+// TelegramBotConfig stores the minimal user-facing Telegram account settings.
+// BotToken is never serialized to JSON responses by the server handlers.
+type TelegramBotConfig struct {
+	ID               string   `json:"id" yaml:"id,omitempty"`
+	Name             string   `json:"name" yaml:"name,omitempty"`
+	Enabled          bool     `json:"enabled" yaml:"enabled,omitempty"`
+	BotToken         string   `json:"-" yaml:"bot_token,omitempty"`
+	BotID            int64    `json:"-" yaml:"bot_id,omitempty"`
+	Username         string   `json:"username,omitempty" yaml:"username,omitempty"`
+	BindType         string   `json:"bind_type" yaml:"bind_type,omitempty"`
+	BindAgent        string   `json:"bind_agent,omitempty" yaml:"bind_agent,omitempty"`
+	WhitelistEnabled bool     `json:"whitelist_enabled" yaml:"whitelist_enabled,omitempty"`
+	Whitelist        []string `json:"whitelist,omitempty" yaml:"whitelist,omitempty"`
+}
+
+func (c TelegramBotConfig) ToTelegramConfig() telegram.Config {
+	return telegram.Config{Enabled: c.Enabled, Token: c.BotToken, BotID: c.BotID}
 }
 
 // ─── WeChat Bot ─────────────────────────────────────────────────────────────
@@ -367,6 +388,7 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"embedding", "Embedding settings", s.Embedding},
 		{"qqbots", "QQ bot integrations", s.QQBots},
 		{"wechat_bots", "WeChat iLink bot integrations", s.WechatBots},
+		{"telegram_bots", "Telegram bot integrations", s.TelegramBots},
 		{"lspmcp", "Built-in LSP-based MCP servers", s.LSPMCP},
 		{"tools", "Tool execution limits", s.Tools},
 		{"speech", "Local speech-to-text via whisper.cpp", s.Speech},

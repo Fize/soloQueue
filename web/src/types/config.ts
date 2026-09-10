@@ -157,6 +157,20 @@ export interface WeChatAccountView {
   whitelist: string[];
 }
 
+export interface TelegramBotConfig {
+  id: string
+  name: string
+  enabled: boolean
+  credentialConfigured: boolean
+  connected: boolean
+  botIdMasked?: string
+  username?: string
+  bind_type: 'l1' | 'l2'
+  bind_agent?: string
+  whitelist_enabled?: boolean
+  whitelist?: string[]
+}
+
 export type WeChatLoginStatus =
   | "creating_qr"
   | "awaiting_scan"
@@ -231,6 +245,7 @@ export interface AppConfig {
 	modelRoutes: ModelRoutesConfig;
   qqbots: QQBotConfig[];
   wechatBots?: WeChatAccountView[];
+  telegramBots?: TelegramBotConfig[];
   agent: L1AgentSettings;
   lspmcp: LSPMCPConfig;
   speech: SpeechConfig;
