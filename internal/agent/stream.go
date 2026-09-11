@@ -162,7 +162,7 @@ func (a *Agent) recoverAndEmit(ctx context.Context, out chan<- AgentEvent) {
 	}
 }
 
-// startRelayGoroutine forwards child errors from relayCh to out.
+// startRelayGoroutine forwards child errors while a tool call is active.
 func (a *Agent) startRelayGoroutine(ctx context.Context, relayCh <-chan iface.AgentEvent, out chan<- AgentEvent) <-chan struct{} {
 	relayDone := make(chan struct{})
 	go func() {
@@ -174,9 +174,14 @@ func (a *Agent) startRelayGoroutine(ctx context.Context, relayCh <-chan iface.Ag
 					a.Log.ErrorContext(ctx, logger.CatTool, "relay goroutine panic recovered",
 						"panic", fmt.Sprintf("%v", r))
 				}
+				for range relayCh {
+				}
 			}
 		}()
 		for ev := range relayCh {
+			if ctx.Err() != nil {
+				continue
+			}
 			if ee, isError := ev.(ErrorEvent); isError {
 				a.emit(ctx, out, ee)
 			}
@@ -208,8 +213,9 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		return
 	}
 
-	// Circuit breaker: refuse to run if too many consecutive failures.
-	if a.CircuitBreakerOpen() {
+	// Cron owns its bounded retry budget, including the fourth actual attempt.
+	// Interactive turns retain the cross-turn circuit breaker.
+	if !iface.IsCronExecution(ctx) && a.CircuitBreakerOpen() {
 		cf := a.ConsecutiveFailures()
 		a.logError(ctx, logger.CatLLM, "circuit breaker open — too many consecutive failures",
 			ErrCircuitBreakerOpen,
@@ -971,7 +977,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		if parent := runwatch.HandleFromContext(ctx); parent != nil {
 			operationID := fmt.Sprintf("tool:%s:%d:%s", a.InstanceID, iter, tc.ID)
 			var watchErr error
-			toolWatch, watchErr = parent.BeginOperation(runwatch.KindTool, operationID, runwatch.Policy{OrphanIdle: timeoutDur})
+			execCtx, toolWatch, watchErr = parent.BeginLocalOperation(execCtx, runwatch.KindTool, operationID, runwatch.Policy{OrphanIdle: timeoutDur})
 			if watchErr != nil {
 				return "error: " + watchErr.Error()
 			}
@@ -985,8 +991,6 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	// Build tool execution context and inject a typed event relay for child agents.
 	relayCh := make(chan iface.AgentEvent, 16)
 	toolCtx := tools.WithToolEventChannel(execCtx, relayCh)
-
-	relayDone := a.startRelayGoroutine(ctx, relayCh, out)
 
 	// Propagate working directory to child agents via context (for L2→L3 passthrough).
 	if a.WorkDir != "" {
@@ -1004,13 +1008,21 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		toolCtx = iface.ContextWithModelOverride(toolCtx, override.ToIFaceOverride())
 	}
 
-	result, err := tool.Execute(toolCtx, args)
-	close(relayCh) // signal relay goroutine to exit
-	<-relayDone    // wait for relay to drain all events
+	relayDone := a.startRelayGoroutine(execCtx, relayCh, out)
+	var result string
+	var err error
+	func() {
+		defer func() {
+			close(relayCh)
+			<-relayDone
+		}()
+		result, err = tool.Execute(toolCtx, args)
+	}()
 
-	// Check TurnTerminator: if the tool signals to end the turn, set the flag.
-	// streamLoop checks this after postIteration and breaks the tool loop.
-	if tt, ok := tool.(tools.TurnTerminator); ok && tt.TerminatesTurn(result, err) {
+	// Deadline/cancellation wins over a result returned after the context ended.
+	if execCtx.Err() != nil {
+		result, err = "", context.Cause(execCtx)
+	} else if tt, ok := tool.(tools.TurnTerminator); ok && tt.TerminatesTurn(result, err) {
 		a.turnTerminated.Store(true)
 	}
 
@@ -1022,7 +1034,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		//   - Parent ctx cancellation (Stop / caller cancel) follows the normal error path, preserving the original error text
 		isToolTimeout := timeoutDur > 0 &&
 			ctx.Err() == nil &&
-			execCtx.Err() == context.DeadlineExceeded
+			(execCtx.Err() == context.DeadlineExceeded || runwatch.CodeOf(context.Cause(execCtx)) == runwatch.CodeToolStalled)
 		a.logError(ctx, logger.CatTool, "tool exec failed", err,
 			"tool_name", name,
 			"tool_call_id", tc.ID,
@@ -1033,9 +1045,6 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		var errResult string
 		if isToolTimeout {
 			cause := &runwatch.Cause{Code: runwatch.CodeToolStalled, OperationID: tc.ID}
-			if toolWatch != nil {
-				toolWatch.Fail(cause)
-			}
 			err = cause
 			errResult = fmt.Sprintf("error: tool timeout after %s (%s)", timeoutDur, cause.Error())
 		} else {

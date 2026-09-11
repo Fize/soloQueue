@@ -153,6 +153,7 @@ func TestL1CronRunsUseDistinctTemporarySessionsWhilePermanentSessionBusy(t *test
 	}
 
 	s := NewScheduler(store, mgr, nil)
+	s.retryDelay = 0
 	s.SetWorkDir(t.TempDir())
 	for _, task := range tasks {
 		go s.executeTask(*task)
@@ -400,8 +401,8 @@ func TestL1CronRetriesExecutionStartFailureAsTaskAttempt(t *testing.T) {
 	}
 }
 
-func TestL1CronDoesNotRetryContextTerminalErrors(t *testing.T) {
-	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+func TestL1CronRetriesAttemptContextErrors(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded, &runwatch.Cause{Code: runwatch.CodeModelTransportStalled}} {
 		t.Run(cause.Error(), func(t *testing.T) {
 			store := openTestDB(t)
 			task, err := store.CreateTask(context.Background(), CreateTaskInput{
@@ -426,8 +427,8 @@ func TestL1CronDoesNotRetryContextTerminalErrors(t *testing.T) {
 			s.SetWorkDir(t.TempDir())
 			s.retryDelay = 0
 			s.runL1Task(context.Background(), *task, session)
-			if calls != 1 || notifications != 1 {
-				t.Fatalf("calls/notifications = %d/%d, want 1/1", calls, notifications)
+			if calls != 4 || notifications != 1 {
+				t.Fatalf("calls/notifications = %d/%d, want 4/1", calls, notifications)
 			}
 		})
 	}
@@ -464,8 +465,8 @@ func TestL1CronRetryModelResolutionFailureKeepsLastResolvedModel(t *testing.T) {
 	})
 	s.runL1Task(context.Background(), *task, session)
 
-	if resolveCalls != 2 || notifications != 1 {
-		t.Fatalf("resolve calls/notifications = %d/%d, want 2/1", resolveCalls, notifications)
+	if resolveCalls != 4 || notifications != 1 {
+		t.Fatalf("resolve calls/notifications = %d/%d, want 4/1", resolveCalls, notifications)
 	}
 	records, err := store.ListExecutionHistory(context.Background(), task.ID, 1, 0)
 	if err != nil || len(records) != 1 {
@@ -567,6 +568,7 @@ func TestL1CronUsesPermanentSessionForNotificationsWithoutChangingStatus(t *test
 		return temporary, true, func() {}, nil
 	}}
 	s := NewScheduler(store, manager, nil)
+	s.retryDelay = 0
 	s.SetWorkDir(t.TempDir())
 	s.executeL1Task(*task)
 
@@ -597,6 +599,7 @@ func TestL1CronSessionBuildFailureIsRecordedAndNotified(t *testing.T) {
 		return nil, false, nil, errors.New("private builder failure")
 	}}
 	s := NewScheduler(store, manager, nil)
+	s.retryDelay = 0
 	s.SetWorkDir(t.TempDir())
 	s.executeL1Task(*task)
 
@@ -802,14 +805,13 @@ func TestOneTimeClaimErrorRearmsSameInstantExactlyOnce(t *testing.T) {
 			var asks atomic.Int32
 			sess := &mockSession{idle: true, askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
 				asks.Add(1)
-				ch := make(chan iface.AgentEvent)
-				close(ch)
-				return ch, nil
+				return successfulCronEvents("done"), nil
 			}}
 			mgr := &mockSessionManager{session: sess, getSession: func(context.Context, string, string) (Session, bool, func(), error) {
 				return sess, false, nil, nil
 			}}
 			s := NewScheduler(store, mgr, nil)
+			s.retryDelay = 0
 			s.SetWorkDir(t.TempDir())
 			t.Cleanup(s.Stop)
 
@@ -869,6 +871,7 @@ func TestStaleOneTimeClaimErrorCannotResurrectAfterScheduleChange(t *testing.T) 
 				return ch, nil
 			}}
 			s := NewScheduler(store, &mockSessionManager{session: sess}, nil)
+			s.retryDelay = 0
 			s.SetWorkDir(t.TempDir())
 			t.Cleanup(s.Stop)
 
@@ -965,6 +968,7 @@ func TestOneTimeClaimRejectedDoesNotRetry(t *testing.T) {
 		return ch, nil
 	}}
 	s := NewScheduler(store, &mockSessionManager{session: sess}, nil)
+	s.retryDelay = 0
 	t.Cleanup(s.Stop)
 
 	s.executeTask(*task)
@@ -1787,6 +1791,7 @@ func TestExecuteL2TaskDeliversGenericArtifactOnlyResult(t *testing.T) {
 		return l2, false, nil, nil
 	}}
 	s := NewScheduler(store, manager, nil)
+	s.retryDelay = 0
 	s.SetWorkDir(t.TempDir())
 	t.Cleanup(s.Stop)
 
@@ -1857,6 +1862,7 @@ func TestCronPanicsUseCanonicalFailureAndKeepRawDiagnosticsPrivate(t *testing.T)
 				return nil
 			}}
 			s := NewScheduler(store, &mockSessionManager{session: session}, nil)
+			s.retryDelay = 0
 			s.SetWorkDir(t.TempDir())
 			callbackOK := true
 			s.OnTaskComplete = func(_, _ string, success bool, _ string) { callbackOK = success }
@@ -2143,6 +2149,7 @@ func TestExecuteTask_UpdatesNextRunOnDrainError(t *testing.T) {
 	}
 
 	s := NewScheduler(store, nil, nil)
+	s.retryDelay = 0
 	runID := "drain-error-run"
 	claimed, err := store.ClaimTask(ctx, task.ID)
 	if err != nil || !claimed {
@@ -2265,3 +2272,146 @@ func (e *testErrorEvent) IsAgentEvent()                {}
 func (e *testErrorEvent) ContentDelta() (string, bool) { return "", false }
 func (e *testErrorEvent) DoneContent() (string, bool)  { return "", false }
 func (e *testErrorEvent) Error() (error, bool)         { return e.err, true }
+
+func TestCronRetriesEveryAttemptFailure(t *testing.T) {
+	for _, target := range []string{"L1", "engineering"} {
+		for _, failure := range []string{"acquire", "nil_session", "acquire_panic", "model", "start", "panic", "cancelled", "deadline", "watchdog"} {
+			for _, recoverOnRetry := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/recover=%t", target, failure, recoverOnRetry), func(t *testing.T) {
+					store := openTestDB(t)
+					task, err := store.CreateTask(context.Background(), CreateTaskInput{Title: "all failures", TaskType: "general", Expression: "0 8 * * *", Instruction: "original unique task", TargetAgent: target, NextRunAt: time.Now().Add(time.Hour)})
+					if err != nil {
+						t.Fatal(err)
+					}
+					attempts, asks, cleanups, notifications := 0, 0, 0, 0
+					var prior context.Context
+					sess := &mockSession{askStreamFn: func(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+						asks++
+						if ctx.Err() != nil {
+							t.Fatalf("attempt context already cancelled: %v", ctx.Err())
+						}
+						if prior != nil {
+							if prior == ctx || prior.Err() == nil {
+								t.Fatal("attempt context was reused or not released")
+							}
+						}
+						prior = ctx
+						if asks == 1 && !strings.Contains(prompt, "original unique task") {
+							t.Fatalf("lost original instruction: %s", prompt)
+						}
+						if !recoverOnRetry || attempts == 1 {
+							switch failure {
+							case "start":
+								return nil, errors.New("start failed")
+							case "panic":
+								panic("private panic")
+							case "cancelled", "deadline", "watchdog":
+								cause := error(context.Canceled)
+								if failure == "deadline" {
+									cause = context.DeadlineExceeded
+								}
+								if failure == "watchdog" {
+									cause = &runwatch.Cause{Code: runwatch.CodeModelSemanticStalled}
+								}
+								ch := make(chan iface.AgentEvent, 1)
+								ch <- &testErrorEvent{err: cause}
+								close(ch)
+								return ch, nil
+							}
+						}
+						return successfulCronEvents("recovered"), nil
+					}}
+					manager := &mockSessionManager{session: &mockSession{sendViaChannelFn: func(context.Context, string) error { notifications++; return nil }}, getSession: func(context.Context, string, string) (Session, bool, func(), error) {
+						if strings.HasPrefix(failure, "acquire") || failure == "nil_session" {
+							attempts++
+							if !recoverOnRetry || attempts == 1 {
+								if failure == "acquire_panic" {
+									panic("private acquisition panic")
+								}
+								if failure == "nil_session" {
+									return nil, false, nil, nil
+								}
+								return nil, false, nil, errors.New("acquire failed")
+							}
+						}
+						return sess, true, func() { cleanups++ }, nil
+					}}
+					s := NewScheduler(store, manager, nil)
+					s.retryDelay = 0
+					s.SetWorkDir(t.TempDir())
+					s.SetModelResolver(func(string) (ResolvedModel, error) {
+						if !strings.HasPrefix(failure, "acquire") && failure != "nil_session" {
+							attempts++
+						}
+						if failure == "model" && (!recoverOnRetry || attempts == 1) {
+							return ResolvedModel{}, errors.New("model resolution failed")
+						}
+						return ResolvedModel{}, nil
+					})
+					if target == "L1" {
+						s.executeL1Task(*task)
+					} else {
+						s.executeL2Task(*task)
+					}
+					want := 4
+					status := "failed"
+					if recoverOnRetry {
+						want = 2
+						status = "success"
+					}
+					if attempts != want || notifications != 1 {
+						t.Fatalf("attempts/notifications = %d/%d, want %d/1", attempts, notifications, want)
+					}
+					records, err := store.ListExecutionHistory(context.Background(), task.ID, 10, 0)
+					if err != nil || len(records) != 1 || records[0].Status != status {
+						t.Fatalf("history: %+v err=%v", records, err)
+					}
+					if asks > 0 && cleanups != 1 {
+						t.Fatalf("cleanup calls=%d", cleanups)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestCronExplicitCancellationStopsRetries(t *testing.T) {
+	for _, owner := range []bool{true, false} {
+		t.Run(fmt.Sprint(owner), func(t *testing.T) {
+			store := openTestDB(t)
+			task, err := store.CreateTask(context.Background(), CreateTaskInput{Title: "stop", TaskType: "general", Expression: "0 8 * * *", Instruction: "stop", TargetAgent: "L1", NextRunAt: time.Now().Add(time.Hour)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			calls := 0
+			sess := &mockSession{askStreamFn: func(context.Context, string) (<-chan iface.AgentEvent, error) {
+				calls++
+				if owner {
+					cancel()
+					return nil, context.Canceled
+				}
+				return nil, &runwatch.Cause{Code: runwatch.CodeCancelledByUser}
+			}}
+			s := NewScheduler(store, &mockSessionManager{session: sess}, nil)
+			s.retryDelay = 0
+			s.SetWorkDir(t.TempDir())
+			s.runL1Task(ctx, *task, sess)
+			if calls != 1 {
+				t.Fatalf("calls=%d", calls)
+			}
+			records, err := store.ListExecutionHistory(context.Background(), task.ID, 10, 0)
+			if err != nil || len(records) != 1 {
+				t.Fatalf("history=%+v err=%v", records, err)
+			}
+		})
+	}
+}
+
+// NewSchedulerForRetryTest exposes a zero-backoff scheduler only to external runtime tests.
+func NewSchedulerForRetryTest(store *DBStore, manager SessionManager) *Scheduler {
+	s := NewScheduler(store, manager, nil)
+	s.retryDelay = 0
+	return s
+}

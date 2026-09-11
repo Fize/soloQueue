@@ -211,45 +211,64 @@ func (e *Executor) ExportFile(ctx context.Context, path string) (string, error) 
 // ─── ReadFile ───────────────────────────────────────────────────────────────
 
 func (e *Executor) ReadFile(ctx context.Context, path string, opts ReadFileOptions) (ReadFileResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ReadFileResult{}, err
+	}
 	fi, err := os.Stat(path)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ReadFileResult{}, ctxErr
+	}
 	if err != nil {
 		if e.log != nil {
 			e.log.LogError(ctx, logger.CatTool, "exec: read file failed", err, "path", path)
 		}
 		return ReadFileResult{}, err
 	}
+	if !fi.Mode().IsRegular() {
+		return ReadFileResult{}, fmt.Errorf("not a regular file: %s", path)
+	}
 	if opts.MaxSize > 0 && fi.Size() > opts.MaxSize {
 		return ReadFileResult{}, fmt.Errorf("file too large: %s (%d bytes > %d). Use Bash with head/tail to read file portions", path, fi.Size(), opts.MaxSize)
 	}
-
-	type readResult struct {
-		data []byte
-		err  error
-	}
-	resultCh := make(chan readResult, 1)
-	go func() {
-		f, ferr := os.Open(path)
-		if ferr != nil {
-			resultCh <- readResult{nil, ferr}
-			return
+	f, err := os.Open(path)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if f != nil {
+			_ = f.Close()
 		}
-		defer f.Close()
-		data, rerr := io.ReadAll(f)
-		resultCh <- readResult{data, rerr}
-	}()
+		return ReadFileResult{}, ctxErr
+	}
+	if err != nil {
+		if e.log != nil {
+			e.log.LogError(ctx, logger.CatTool, "exec: read file failed", err, "path", path)
+		}
+		return ReadFileResult{}, err
+	}
+	defer f.Close()
 
-	select {
-	case res := <-resultCh:
-		if res.err != nil {
-			if e.log != nil {
-				e.log.LogError(ctx, logger.CatTool, "exec: read file failed", res.err, "path", path)
+	data := make([]byte, 0)
+	buf := make([]byte, 64*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return ReadFileResult{}, err
+		}
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			data = append(data, buf[:n]...)
+		}
+		if err := ctx.Err(); err != nil {
+			return ReadFileResult{}, err
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
 			}
-			return ReadFileResult{}, res.err
+			if e.log != nil {
+				e.log.LogError(ctx, logger.CatTool, "exec: read file failed", readErr, "path", path)
+			}
+			return ReadFileResult{}, readErr
 		}
-		return ReadFileResult{Data: res.data}, nil
-	case <-ctx.Done():
-		return ReadFileResult{}, ctx.Err()
 	}
+	return ReadFileResult{Data: data}, nil
 }
 
 // ─── WriteFile ──────────────────────────────────────────────────────────────
@@ -359,6 +378,51 @@ func (e *Executor) MkdirAll(ctx context.Context, path string) error {
 
 // ─── Glob ───────────────────────────────────────────────────────────────────
 
+type contextFS struct {
+	ctx  context.Context
+	fsys fs.FS
+}
+
+func (c contextFS) Open(name string) (fs.File, error) {
+	if err := c.ctx.Err(); err != nil {
+		return nil, err
+	}
+	file, err := c.fsys.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.ctx.Err(); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+func (c contextFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	if err := c.ctx.Err(); err != nil {
+		return nil, err
+	}
+	entries, err := fs.ReadDir(c.fsys, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.ctx.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func (c contextFS) Stat(name string) (fs.FileInfo, error) {
+	if err := c.ctx.Err(); err != nil {
+		return nil, err
+	}
+	info, err := fs.Stat(c.fsys, name)
+	if ctxErr := c.ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	return info, err
+}
+
 func (e *Executor) Glob(ctx context.Context, dir string, pattern string, opts GlobOptions) ([]string, error) {
 	maxItems := opts.MaxItems
 	if maxItems <= 0 {
@@ -371,33 +435,20 @@ func (e *Executor) Glob(ctx context.Context, dir string, pattern string, opts Gl
 		defer cancel()
 	}
 
-	fsys := os.DirFS(dir)
-
-	type globResult struct {
-		matches []string
-		err     error
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	resultCh := make(chan globResult, 1)
-	go func() {
-		matches, err := doublestar.Glob(fsys, pattern)
-		resultCh <- globResult{matches, err}
-	}()
-
-	var res globResult
-	select {
-	case res = <-resultCh:
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	matches, err := doublestar.Glob(contextFS{ctx: ctx, fsys: os.DirFS(dir)}, pattern)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
-
-	if res.err != nil {
+	if err != nil {
 		if e.log != nil {
-			e.log.LogError(ctx, logger.CatTool, "exec: glob failed", res.err, "dir", dir, "pattern", pattern)
+			e.log.LogError(ctx, logger.CatTool, "exec: glob failed", err, "dir", dir, "pattern", pattern)
 		}
-		return nil, res.err
+		return nil, err
 	}
 
-	matches := res.matches
 	if len(matches) > maxItems {
 		matches = matches[:maxItems]
 	}

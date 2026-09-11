@@ -325,6 +325,103 @@ func TestSession_AskStream_CronSourceErrorPreservesCompletedToolHistoryForContin
 	}
 }
 
+func TestSession_AskStream_CronWatchdogAndDeadlinePreserveCompletedToolHistory(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		t.Run(fmt.Sprint(deadline), func(t *testing.T) {
+			clock := &sessionFakeClock{now: time.Unix(1700000000, 0)}
+			watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute, TransportIdle: time.Second}, runwatch.WithClock(clock))
+			defer watchdog.Close()
+			upstreamErr := &runwatch.Cause{Code: runwatch.CodeModelTransportStalled}
+			var llmCalls atomic.Int32
+			var fake *agenttest.FakeLLM
+			fake = &agenttest.FakeLLM{
+				Responses: []string{"continued"},
+				ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+					Index: 0, ID: "call_1", Name: "echo", Arguments: `{}`,
+				}}},
+				FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
+				Hook: func(agent.LLMRequest) {
+					if llmCalls.Add(1) == 2 {
+						if deadline {
+							time.Sleep(150 * time.Millisecond)
+						} else {
+							clock.Advance(2 * time.Second)
+							watchdog.Scan()
+						}
+					}
+				},
+			}
+			a := agent.NewAgent(agent.Definition{ID: "cron-history-agent"}, fake, nil, agent.WithTools(syncEchoTool{}))
+			if err := a.Start(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = a.Stop(time.Second) })
+			s := NewSession("cron-history", "L1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+
+			s.SetRunWatch(watchdog)
+			if deadline {
+				s.requestTimeout = 100 * time.Millisecond
+			}
+			first, err := s.AskStream(iface.ContextWithCronExecution(context.Background()), "initial task")
+			if err != nil {
+				t.Fatalf("first AskStream: %v", err)
+			}
+			var gotSourceError bool
+			for event := range first {
+				if errorEvent, ok := event.(agent.ErrorEvent); ok && (runwatch.CodeOf(errorEvent.Err) == upstreamErr.Code || (deadline && strings.Contains(errorEvent.Err.Error(), "timed out"))) {
+					gotSourceError = true
+				}
+			}
+			if !gotSourceError {
+				t.Fatal("first AskStream did not expose the ordinary source error")
+			}
+
+			// Wait for the failed model invocation to unwind before replacing the test hook.
+			until := time.Now().Add(time.Second)
+			for a.State() != agent.StateIdle && time.Now().Before(until) {
+				time.Sleep(time.Millisecond)
+			}
+			if a.State() != agent.StateIdle {
+				t.Fatal("failed attempt did not unwind")
+			}
+			requests := make(chan agent.LLMRequest, 1)
+			fake.Hook = func(req agent.LLMRequest) {
+				select {
+				case requests <- req:
+				default:
+				}
+			}
+			second, err := s.AskStream(iface.ContextWithCronExecution(context.Background()), "continue")
+			if err != nil {
+				t.Fatalf("continuation AskStream: %v", err)
+			}
+			for range second {
+			}
+
+			var request agent.LLMRequest
+			select {
+			case request = <-requests:
+			case <-time.After(time.Second):
+				t.Fatal("continuation request was not captured")
+			}
+			if len(request.Messages) != 4 {
+				t.Fatalf("continuation payload = %+v, want initial user, assistant tool call, tool result, and continuation user", request.Messages)
+			}
+			if request.Messages[0].Role != "user" || request.Messages[0].Content != "initial task" {
+				t.Fatalf("initial user message = %+v", request.Messages[0])
+			}
+			if request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 1 || request.Messages[1].ToolCalls[0].ID != "call_1" {
+				t.Fatalf("assistant tool call = %+v", request.Messages[1])
+			}
+			if request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call_1" || request.Messages[2].Content != "echoed" {
+				t.Fatalf("tool result = %+v", request.Messages[2])
+			}
+			if request.Messages[3].Role != "user" || request.Messages[3].Content != "continue" {
+				t.Fatalf("continuation user message = %+v", request.Messages[3])
+			}
+		})
+	}
+}
 func TestSession_AskStream_ResizesContextWindow_WithRouter(t *testing.T) {
 	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
 	a := startAgent(t, fake)
@@ -2249,5 +2346,31 @@ func TestStripRecalledMemories(t *testing.T) {
 				t.Errorf("StripRecalledMemories(%q) = %q; want %q", tc.input, got, tc.expected)
 			}
 		})
+	}
+}
+
+func TestSession_CronOwnerCancellationStopsAttemptAndRollsBack(t *testing.T) {
+	a := startAgent(t, &agenttest.FakeLLM{Responses: []string{"late"}, Delay: time.Second})
+	s := NewSession("cron-owner", "L1", a, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	owner, cancel := context.WithCancel(iface.ContextWithCronExecution(context.Background()))
+	defer cancel()
+	stream, err := s.AskStream(owner, "cancel this cron task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case _, ok := <-stream:
+			if !ok {
+				if s.cw.Len() != 0 {
+					t.Fatalf("owner cancellation retained %d history rows", s.cw.Len())
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("owner cancellation did not stop the Cron attempt")
+		}
 	}
 }
