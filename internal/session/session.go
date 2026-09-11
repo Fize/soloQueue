@@ -1840,14 +1840,20 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		return nil, ErrQueued
 	}
 	clientCtx := ctx
+	// Interactive disconnects do not stop background work. Cron's caller owns
+	// the task lifetime, so explicit owner cancellation must reach its attempt.
+	requestBase := context.WithoutCancel(ctx)
+	if iface.IsCronExecution(ctx) {
+		requestBase = ctx
+	}
 	var askCtx context.Context
 	var askCancel context.CancelCauseFunc
 	if s.requestTimeout > 0 {
 		var deadlineCancel context.CancelFunc
-		askCtx, deadlineCancel = context.WithTimeout(context.WithoutCancel(ctx), s.requestTimeout)
+		askCtx, deadlineCancel = context.WithTimeout(requestBase, s.requestTimeout)
 		askCancel = func(error) { deadlineCancel() }
 	} else {
-		askCtx, askCancel = context.WithCancelCause(context.WithoutCancel(ctx))
+		askCtx, askCancel = context.WithCancelCause(requestBase)
 	}
 	askCtx = iface.ContextWithIsQBot(askCtx, s.IsQBot())
 	var runHandle *runwatch.Handle
@@ -2207,13 +2213,18 @@ enqueued:
 		shouldExposeTerminal := func(cause error) bool {
 			return !errors.Is(cause, context.Canceled) || runwatch.CodeOf(cause) != ""
 		}
+		preserveCronHistory := func(cause error) bool {
+			return iface.IsCronExecution(ctx) && clientCtx.Err() == nil && runwatch.CodeOf(cause) != runwatch.CodeCancelledByUser
+		}
 		terminateContext := func() bool {
 			cause := context.Cause(askCtx)
 			if cause == nil {
 				return false
 			}
 			s.quarantineAgentAfterWatchdog(cause, askAgent, jobHandle)
-			rollbackTurn()
+			if !preserveCronHistory(cause) {
+				rollbackTurn()
+			}
 			if shouldExposeTerminal(cause) {
 				emitTerminalError(terminalErrorForCause(cause))
 			}
@@ -2272,19 +2283,16 @@ enqueued:
 					ev = agent.ErrorEvent{Err: terminalErrorForCause(cause)}
 					sourceTerminal = true
 				}
-				preserveCronHistory := iface.IsCronExecution(ctx) && !sourceTerminal &&
-					runwatch.CodeOf(e.Err) == "" &&
-					!errors.Is(e.Err, context.Canceled) && !errors.Is(e.Err, context.DeadlineExceeded)
-				// A Cron continuation can safely reuse completed tool pairs only for
-				// an ordinary upstream interruption. Terminal, watchdog, deadline, and
-				// foreground errors retain the existing whole-turn rollback policy.
-				if !preserveCronHistory {
+				keepHistory := preserveCronHistory(e.Err)
+				// Failed Cron attempts retain completed pairs for the next continuation.
+				// Owner/user stops and foreground errors retain whole-turn rollback.
+				if !keepHistory {
 					rollbackTurn()
 				}
 				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event",
 					"target_id", s.TargetID,
 					"err", e.Err,
-					"history_preserved", preserveCronHistory,
+					"history_preserved", keepHistory,
 				)
 			}
 			s.applyWatchdogEvent(runHandle, ev)

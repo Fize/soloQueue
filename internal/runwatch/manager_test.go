@@ -359,3 +359,65 @@ func TestManager_CloseCancelsAndClearsActiveRunsIdempotently(t *testing.T) {
 	}
 	handle.Complete()
 }
+
+func TestManager_LocalToolExpiryCancelsOnlyOperation(t *testing.T) {
+	clock := NewFakeClock(time.Unix(1700000000, 0))
+	m := NewManager(Policy{RootIdle: time.Minute}, WithClock(clock))
+	defer m.Close()
+	ctx, root, err := m.Start(context.Background(), Metadata{RunID: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolCtx, tool, err := root.BeginLocalOperation(ctx, KindTool, "tool", Policy{OrphanIdle: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sibling, err := root.BeginOperation(KindTool, "sibling", Policy{OrphanIdle: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sibling.Complete()
+	clock.Advance(2 * time.Second)
+	m.Scan()
+	if CodeOf(context.Cause(toolCtx)) != CodeToolStalled {
+		t.Fatalf("local cause = %v", context.Cause(toolCtx))
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("root cancelled: %v", context.Cause(ctx))
+	}
+	m.Scan()
+	if ctx.Err() != nil {
+		t.Fatal("second scan cancelled root")
+	}
+	tool.Complete()
+	next, err := root.BeginOperation(KindModel, "recovery", Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next.Complete()
+}
+
+func TestManager_NestedModelFailsAtLocalToolBoundary(t *testing.T) {
+	clock := NewFakeClock(time.Unix(1700000000, 0))
+	m := NewManager(Policy{RootIdle: time.Second}, WithClock(clock))
+	defer m.Close()
+	ctx, root, err := m.Start(context.Background(), Metadata{RunID: "nested"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, tool, err := root.BeginLocalOperation(ctx, KindTool, "tool", Policy{OrphanIdle: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tool.Complete()
+	_, err = tool.BeginOperation(KindModel, "nested-model", Policy{TransportIdle: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(2 * time.Second)
+	m.Scan()
+	m.Scan()
+	if CodeOf(context.Cause(local)) != CodeModelTransportStalled || ctx.Err() != nil {
+		t.Fatalf("local=%v root=%v", context.Cause(local), context.Cause(ctx))
+	}
+}

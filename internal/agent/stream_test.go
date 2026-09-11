@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"reflect"
 	"strings"
 	"sync"
@@ -148,7 +151,7 @@ func TestRecoveryFenceRejectsNewWorkUntilExactJobFinishes(t *testing.T) {
 }
 
 func TestRecoveryFenceIsNotBlockedByFullMailbox(t *testing.T) {
-	tool := &ignoresCancelTool{started: make(chan struct{}), release: make(chan struct{})}
+	tool := &contextBlockingTool{started: make(chan struct{}), release: make(chan struct{})}
 	fake := &agenttest.FakeLLM{
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
 			Index: 0, ID: "block", Name: tool.Name(), Arguments: `{}`,
@@ -229,7 +232,7 @@ func TestRecoveryFenceGatesAlreadyQueuedNormalAndHighPriorityJobs(t *testing.T) 
 			name = "high"
 		}
 		t.Run(name, func(t *testing.T) {
-			tool := &ignoresCancelTool{started: make(chan struct{}), release: make(chan struct{})}
+			tool := &contextBlockingTool{started: make(chan struct{}), release: make(chan struct{})}
 			fake := &agenttest.FakeLLM{
 				ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{Index: 0, ID: "block", Name: tool.Name(), Arguments: `{}`}}},
 				FinishByTurn:         []llm.FinishReason{llm.FinishToolCalls},
@@ -940,22 +943,28 @@ type slowTool struct {
 	count atomic.Int32
 }
 
-type ignoresCancelTool struct {
+type contextBlockingTool struct {
 	started chan struct{}
 	release chan struct{}
 }
 
-func (t *ignoresCancelTool) Name() string                { return "ignores_cancel" }
-func (t *ignoresCancelTool) Description() string         { return "returns only when explicitly released" }
-func (t *ignoresCancelTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
-func (t *ignoresCancelTool) Execute(context.Context, string) (string, error) {
+func (t *contextBlockingTool) Name() string        { return "context_blocking" }
+func (t *contextBlockingTool) Description() string { return "returns when released or cancelled" }
+func (t *contextBlockingTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+func (t *contextBlockingTool) Execute(ctx context.Context, _ string) (string, error) {
 	close(t.started)
-	<-t.release
-	return "late result", nil
+	select {
+	case <-t.release:
+		return "result", nil
+	case <-ctx.Done():
+		return "", context.Cause(ctx)
+	}
 }
 
-func TestCancelledLateToolResultCannotMutateConversation(t *testing.T) {
-	tool := &ignoresCancelTool{started: make(chan struct{}), release: make(chan struct{})}
+func TestCancelledToolResultCannotMutateConversation(t *testing.T) {
+	tool := &contextBlockingTool{started: make(chan struct{}), release: make(chan struct{})}
 	fake := &agenttest.FakeLLM{
 		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
 			Index: 0, ID: "late", Name: tool.Name(), Arguments: `{}`,
@@ -1040,7 +1049,7 @@ func TestAskStream_ToolTimeout_EmitsErrorFedBack(t *testing.T) {
 	}
 }
 
-func TestExecToolStream_RealTimeoutFailsRunWithTypedToolCause(t *testing.T) {
+func TestExecToolStream_RealTimeoutKeepsRunAliveWithTypedToolCause(t *testing.T) {
 	slow := &slowTool{name: "typed-slow", delay: time.Second}
 	a := NewAgent(Definition{ID: "a1"}, &agenttest.FakeLLM{}, nil,
 		WithTools(slow), WithToolTimeout("typed-slow", 20*time.Millisecond))
@@ -1055,8 +1064,8 @@ func TestExecToolStream_RealTimeoutFailsRunWithTypedToolCause(t *testing.T) {
 	if !strings.Contains(result, string(runwatch.CodeToolStalled)) {
 		t.Fatalf("tool result = %q, want typed cause", result)
 	}
-	if got := runwatch.CodeOf(context.Cause(ctx)); got != runwatch.CodeToolStalled {
-		t.Fatalf("run cause = %q, want %q", got, runwatch.CodeToolStalled)
+	if cause := context.Cause(ctx); cause != nil {
+		t.Fatalf("tool timeout cancelled root: %v", cause)
 	}
 	select {
 	case event := <-out:
@@ -1078,8 +1087,7 @@ func TestExecToolStream_RealTimeoutFailsRunWithTypedToolCause(t *testing.T) {
 // kill tool B's execution when running in parallel.
 func TestAskStream_ToolTimeout_OtherToolsUnaffected(t *testing.T) {
 	slow := &slowTool{name: "slow", delay: 5 * time.Second}
-	quick := newFakeTool("quick")
-	quick.result = "done"
+	quick := &slowTool{name: "quick", delay: 100 * time.Millisecond}
 
 	var capturedMsgs []LLMMessage
 	fake := &agenttest.FakeLLM{
@@ -1104,7 +1112,14 @@ func TestAskStream_ToolTimeout_OtherToolsUnaffected(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = a.Stop(time.Second) })
 
-	_, err := a.Ask(context.Background(), "")
+	manager := runwatch.NewManager(runwatch.Policy{ScanInterval: time.Millisecond, RootIdle: time.Minute})
+	defer manager.Close()
+	ctx, root, err := manager.Start(context.Background(), runwatch.Metadata{RunID: "parallel-timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Complete()
+	_, err = a.Ask(ctx, "")
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
@@ -1582,4 +1597,51 @@ func TestFakeLLM_StreamCallCount_Increments(t *testing.T) {
 	if n := fake.StreamCallCount(); n != 2 {
 		t.Errorf("StreamCallCount = %d, want 2", n)
 	}
+}
+
+func TestAskStream_InteractiveCircuitBreakerStillRejects(t *testing.T) {
+	a := startedAgent(t, &agenttest.FakeLLM{})
+	for range DefaultMaxConsecutiveFailures {
+		a.IncrementConsecutiveFailures()
+	}
+	stream, err := a.AskStream(context.Background(), "interactive request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := drainEvents(t, stream, time.Second)
+	found := false
+	for _, event := range events {
+		if failure, ok := event.(ErrorEvent); ok && errors.Is(failure.Err, ErrCircuitBreakerOpen) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing circuit rejection: %v", events)
+	}
+}
+
+func TestExecToolStreamContainsNoGoStatement(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "stream.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name.Name != "execToolStream" {
+			continue
+		}
+		found := false
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			if _, ok := node.(*ast.GoStmt); ok {
+				found = true
+			}
+			return true
+		})
+		if found {
+			t.Fatal("execToolStream must execute tools synchronously")
+		}
+		return
+	}
+	t.Fatal("execToolStream declaration not found")
 }

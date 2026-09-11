@@ -150,6 +150,7 @@ type state struct {
 	terminal      Code
 	terminated    bool
 	active        bool
+	local         bool
 }
 
 type Handle struct {
@@ -210,7 +211,22 @@ func (m *Manager) Start(ctx context.Context, meta Metadata) (context.Context, *H
 	return ContextWithHandle(runCtx, handle), handle, nil
 }
 
+// BeginLocalOperation limits watchdog cancellation to this operation and its descendants.
+func (h *Handle) BeginLocalOperation(ctx context.Context, kind Kind, id string, policy Policy) (context.Context, *Handle, error) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	handle, err := h.beginOperation(kind, id, policy, cancel)
+	if err != nil {
+		cancel(err)
+		return nil, nil, err
+	}
+	return ContextWithHandle(ctx, handle), handle, nil
+}
+
 func (h *Handle) BeginOperation(kind Kind, id string, policy Policy) (*Handle, error) {
+	return h.beginOperation(kind, id, policy, nil)
+}
+
+func (h *Handle) beginOperation(kind Kind, id string, policy Policy, cancel context.CancelCauseFunc) (*Handle, error) {
 	if h == nil || h.manager == nil || id == "" {
 		return nil, errors.New("runwatch: operation ID is required")
 	}
@@ -229,6 +245,10 @@ func (h *Handle) BeginOperation(kind Kind, id string, policy Policy) (*Handle, e
 		id: id, key: parent.key + "/" + id, kind: kind, policy: mergePolicy(parent.root.policy, policy), parent: parent, root: parent.root,
 		children: make(map[string]*state), cancel: parent.root.cancel, startedAt: now,
 		lastTransport: now, lastSemantic: now, lastProgress: now, active: true,
+	}
+	if cancel != nil {
+		child.cancel = cancel
+		child.local = true
 	}
 	parent.children[id] = child
 	return &Handle{manager: m, state: child}, nil
@@ -310,6 +330,9 @@ func (h *Handle) Complete() {
 	if s == nil || !s.active {
 		return
 	}
+	if s.local {
+		defer s.cancel(context.Canceled)
+	}
 	deactivate(s)
 	if s.parent != nil {
 		parent := s.parent
@@ -333,7 +356,7 @@ func deactivate(s *state) {
 	}
 }
 
-// Fail terminates the owning root exactly once with a typed cancellation cause.
+// Fail terminates the nearest local operation, or the owning root, exactly once.
 func (h *Handle) Fail(cause error) {
 	if h == nil || h.manager == nil || cause == nil {
 		return
@@ -345,12 +368,34 @@ func (h *Handle) Fail(cause error) {
 		m.mu.Unlock()
 		return
 	}
-	root := s.root
+	root := cancellationBoundary(s)
+	if root.terminated {
+		m.mu.Unlock()
+		return
+	}
+	refreshBoundaryParent(root, m.clock.Now())
 	root.terminated = true
 	root.terminal = CodeOf(cause)
 	cancel := root.cancel
 	m.mu.Unlock()
 	cancel(cause)
+}
+
+func refreshBoundaryParent(s *state, now time.Time) {
+	if s.parent != nil {
+		s.parent.lastProgress = now
+		s.parent.lastSemantic = now
+		s.parent.hasSemantic = true
+	}
+}
+
+func cancellationBoundary(s *state) *state {
+	for current := s; current != nil; current = current.parent {
+		if current.local {
+			return current
+		}
+	}
+	return s.root
 }
 
 func (m *Manager) Scan() {
@@ -371,6 +416,8 @@ func (m *Manager) Scan() {
 		}
 		if failed := firstExpired(root, now); failed != nil {
 			code := expiredCode(failed, now)
+			root := cancellationBoundary(failed)
+			refreshBoundaryParent(root, now)
 			root.terminal = code
 			root.terminated = true
 			cancellations = append(cancellations, cancellation{
