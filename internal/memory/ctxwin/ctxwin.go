@@ -189,7 +189,7 @@ type SummarySegment struct {
 //
 // The caller is responsible for deciding whether to store in short-term
 // memory, long-term memory, or timeline based on Date.
-type SummaryHook func(segments []SummarySegment, finalSummary string)
+type SummaryHook func(ctx context.Context, segments []SummarySegment, finalSummary string)
 
 // ─── Option ─────────────────────────────────────────────────────────────────
 
@@ -231,19 +231,21 @@ const (
 // Write operations use Lock()/Unlock(), read operations use RLock()/RUnlock().
 type ContextWindow struct {
 	sync.RWMutex
-	messages      []Message
-	maxTokens     int            // hard waterline: physical capacity limit
-	bufferTokens  int            // reserved for model output (from config)
-	summaryTokens int            // soft waterline: triggers async compression
-	currentTokens int            // real-time token count; exact after Calibrate
-	tokenizer     *Tokenizer     // shared, immutable after init
-	compactor     Compactor      // context compressor (may be nil)
-	pushHook      PushHook       // callback after Push (may be nil)
-	summaryHook   SummaryHook    // callback after compaction (may be nil)
-	replayMode    bool           // disable pushHook during replay
-	log           *logger.Logger // optional logger for message tracking
-	summarizing   atomic.Bool    // true while async compression is in progress
-	pendingDrain  func() PendingInput
+	messages             []Message
+	maxTokens            int            // hard waterline: physical capacity limit
+	bufferTokens         int            // reserved for model output (from config)
+	summaryTokens        int            // soft waterline: triggers async compression
+	currentTokens        int            // real-time token count; exact after Calibrate
+	tokenizer            *Tokenizer     // shared, immutable after init
+	compactor            Compactor      // context compressor (may be nil)
+	pushHook             PushHook       // callback after Push (may be nil)
+	summaryHook          SummaryHook    // callback after compaction (may be nil)
+	replayMode           bool           // disable pushHook during replay
+	log                  *logger.Logger // optional logger for message tracking
+	summarizing          atomic.Bool    // true while async compression is in progress
+	lifecycleCtx         context.Context
+	pendingPrimarySystem *string
+	pendingDrain         func() PendingInput
 }
 
 // NewContextWindow creates a context window
@@ -745,6 +747,10 @@ func (cw *ContextWindow) Reset() {
 func (cw *ContextWindow) ReplacePrimarySystem(content string) {
 	cw.Lock()
 	defer cw.Unlock()
+	cw.replacePrimarySystem(content)
+}
+
+func (cw *ContextWindow) replacePrimarySystem(content string) {
 
 	msg := Message{
 		Role:      RoleSystem,
@@ -907,6 +913,20 @@ const maxToolContentLen = 2000
 // Returns the summary on success, error on failure. On error, CW is NOT modified.
 // Returns ("", nil) if no compactor is set.
 func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) {
+	cw.RLock()
+	owner := cw.lifecycleCtx
+	cw.RUnlock()
+	if owner != nil {
+		merged, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(owner, cancel)
+		defer stop()
+		defer cancel()
+		ctx = merged
+		if owner.Err() != nil {
+			return "", owner.Err()
+		}
+	}
+
 	if cw.compactor == nil {
 		return "", nil
 	}
@@ -976,7 +996,7 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 	cw.Unlock()
 
 	if cw.summaryHook != nil && len(segments) > 0 {
-		cw.summaryHook(segments, finalSummary)
+		cw.summaryHook(ctx, segments, finalSummary)
 	}
 
 	return finalSummary, nil
@@ -995,6 +1015,15 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 //  5. Update currentTokens
 //  6. Set summarizing false
 func (cw *ContextWindow) asyncCompact() {
+	cw.RLock()
+	ctx := cw.lifecycleCtx
+	cw.RUnlock()
+	if ctx == nil {
+		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
 	if !cw.summarizing.CompareAndSwap(false, true) {
 		return
 	}
@@ -1022,7 +1051,7 @@ func (cw *ContextWindow) asyncCompact() {
 		)
 	}
 
-	segments, finalSummary, err := cw.compactSegments(context.Background(), msgs)
+	segments, finalSummary, err := cw.compactSegments(ctx, msgs)
 	if err != nil {
 		if cw.log != nil {
 			cw.log.WarnContext(context.Background(), logger.CatMessages, "async_compact: compression failed",
@@ -1093,7 +1122,7 @@ func (cw *ContextWindow) asyncCompact() {
 
 	// Persist all segments (outside lock)
 	if cw.summaryHook != nil && len(segments) > 0 {
-		cw.summaryHook(segments, finalSummary)
+		cw.summaryHook(ctx, segments, finalSummary)
 	}
 }
 
@@ -1435,4 +1464,41 @@ func toolCallsToJSON(tcs []llm.ToolCall) string {
 		return fmt.Sprintf("%v", tcs)
 	}
 	return string(b)
+}
+
+// SetLifecycleContext binds automatic compaction and its reflection hook to
+// the Session owner. It must be set before messages can trigger compaction.
+func (cw *ContextWindow) SetLifecycleContext(ctx context.Context) {
+	cw.Lock()
+	defer cw.Unlock()
+	cw.lifecycleCtx = ctx
+}
+
+// QueuePrimarySystem saves the latest profile until a serialized actor boundary.
+func (cw *ContextWindow) QueuePrimarySystem(prompt string) {
+	cw.Lock()
+	defer cw.Unlock()
+	cw.pendingPrimarySystem = &prompt
+}
+
+// ApplyQueuedPrimarySystem runs before a new actor request starts.
+func (cw *ContextWindow) ApplyQueuedPrimarySystem() (string, bool) {
+	cw.Lock()
+	defer cw.Unlock()
+	prompt := cw.pendingPrimarySystem
+	cw.pendingPrimarySystem = nil
+	if prompt == nil {
+		return "", false
+	}
+	cw.replacePrimarySystem(*prompt)
+	return *prompt, true
+}
+
+// BindLifecycleContext supplies an owner for windows not owned by a Session.
+func (cw *ContextWindow) BindLifecycleContext(ctx context.Context) {
+	cw.Lock()
+	defer cw.Unlock()
+	if cw.lifecycleCtx == nil {
+		cw.lifecycleCtx = ctx
+	}
 }

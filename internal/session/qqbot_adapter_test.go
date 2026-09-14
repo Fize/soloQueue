@@ -422,6 +422,7 @@ func TestSessionAskAdapter_SaveUploadedFile(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
+	mgr.Session().CurrentAgent().WorkDir = t.TempDir()
 	adapter := NewQQBotAdapter(mgr, testLog)
 	path, err := adapter.SaveUploadedFile(context.Background(), "hello.txt", []byte("world"))
 	if err != nil {

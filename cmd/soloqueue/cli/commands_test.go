@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
@@ -196,4 +198,78 @@ func (f *cronCleanupTestFactory) RebuildLeaderPrompt(tmpl agent.AgentTemplate, _
 
 func (f *cronCleanupTestFactory) ResolveTemplate(_ context.Context, _ string) (agent.AgentTemplate, bool) {
 	return agent.AgentTemplate{}, false
+}
+
+func TestL1PromptReloadUpdatesResidentAndSkipsBusyTurn(t *testing.T) {
+	requests := make(chan agent.LLMRequest, 2)
+	release := make(chan struct{})
+	fake := &agenttest.FakeLLM{Responses: []string{"done", "done"}, Hook: func(req agent.LLMRequest) {
+		requests <- req
+		<-release
+	}}
+	a := agent.NewAgent(agent.Definition{ID: "resident", SystemPrompt: "old soul"}, fake, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop(time.Second)
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "old soul")
+	cw.Push(ctxwin.RoleSystem, "[persona_state] preserved")
+	cw.Push(ctxwin.RoleUser, "past conversation")
+	resident := session.NewSession("resident", "L1", a, cw, nil, nil)
+	rt := &runtime.Stack{SystemPrompt: "old soul"}
+	next := "profile update"
+	reload := installL1PromptReload(rt, &session.Builder{}, func() *session.Session { return resident }, func() error { rt.SetSystemPrompt(next); return nil })
+	// Profile-save callback uses the same resident reconciliation as file reload.
+	if err := reload(); err != nil {
+		t.Fatal(err)
+	}
+	if msg, _ := cw.MessageAt(0); msg.Content != next {
+		t.Fatalf("profile did not replace resident prompt: %s", msg.Content)
+	}
+	if msg, _ := cw.MessageAt(1); msg.Content != "[persona_state] preserved" {
+		t.Fatal("state changed")
+	}
+	if msg, _ := cw.MessageAt(2); msg.Content != "past conversation" {
+		t.Fatal("history changed")
+	}
+	next = "file watcher update"
+	if err := rt.RebuildPrompt(); err != nil {
+		t.Fatal(err)
+	}
+	if msg, _ := cw.MessageAt(0); msg.Content != next {
+		t.Fatal("watcher callback did not update resident")
+	}
+	events, err := resident.AskStream(context.Background(), "running task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-requests // The first model request is active and blocked until reload finishes.
+	next = "saved while busy"
+	if err := reload(); !errors.Is(err, session.ErrSessionBusy) {
+		t.Fatalf("busy reload=%v", err)
+	}
+	if msg, _ := cw.MessageAt(0); msg.Content != "file watcher update" {
+		t.Fatal("busy resident mutated")
+	}
+	if rt.SystemPrompt != next {
+		t.Fatal("runtime did not retain saved prompt")
+	}
+	close(release)
+	for range events {
+	}
+	// No second reload: the next request must consume the pending saved prompt.
+	events, err = resident.AskStream(context.Background(), "next task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := <-requests
+	if len(req.Messages) == 0 || req.Messages[0].Content != next {
+		t.Errorf("next request used stale prompt: %+v", req.Messages)
+	}
+	for range events {
+	}
+	if msg, _ := cw.MessageAt(0); msg.Content != next {
+		t.Fatal("next turn did not apply saved prompt")
+	}
 }

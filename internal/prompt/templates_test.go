@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -70,7 +71,7 @@ func TestBuildProfile_CustomPersonality(t *testing.T) {
 }
 
 func TestDefaultRules(t *testing.T) {
-	if !strings.Contains(DefaultRules, "Delegate First") {
+	if !strings.Contains(DefaultRules, "Task Routing") {
 		t.Error("DefaultRules should contain Delegate First")
 	}
 	if !strings.Contains(DefaultRules, "Task Distribution") {
@@ -93,25 +94,20 @@ func TestDefaultRules(t *testing.T) {
 	}
 }
 
-func TestDefaultRules_EmotionalToneAdaptation(t *testing.T) {
-	// Rule 28 "Emotional Tone Adaptation" is appended after rule 27
-	// "Frustration Detection" in HardcodedL1Rules — the ruleset that is
-	// unconditionally injected into the L1 agent's system prompt
-	// (internal/prompt/assemble.go). The plan named DefaultRules, but that
-	// constant holds only orchestrator rules 1-14 and contains no rule 27;
-	// placing rule 28 there would dangle its "per rule 27" references and
-	// would not guarantee delivery to the main agent. See tester report.
-	if !strings.Contains(HardcodedL1Rules, "Emotional Tone Adaptation") {
-		t.Fatal("HardcodedL1Rules should contain rule 28 'Emotional Tone Adaptation'")
+func TestL1RulesLeavePersonalityToSoul(t *testing.T) {
+	rules := DefaultRules + HardcodedL1Rules
+	for _, competing := range []string{"Professional Conciseness", "Context-Adaptive Tone", "Frustration Detection", "Emotional Tone Adaptation", "Proactive Reminders", "casual and warm", "baseline mood"} {
+		if strings.Contains(rules, competing) {
+			t.Errorf("rules contain competing persona instruction %q", competing)
+		}
 	}
-	// Rule 28 must appear after rule 27 (Frustration Detection).
-	idxFrustration := strings.Index(HardcodedL1Rules, "Frustration Detection")
-	idxTone := strings.Index(HardcodedL1Rules, "Emotional Tone Adaptation")
-	if idxFrustration < 0 {
-		t.Fatal("HardcodedL1Rules should contain 'Frustration Detection'")
+	if regexp.MustCompile(`(?m)^\d+[a-z]?\. \*\*`).MatchString(rules) {
+		t.Error("global rule numbering remains")
 	}
-	if idxTone <= idxFrustration {
-		t.Errorf("'Emotional Tone Adaptation' should appear after 'Frustration Detection' (frustration idx=%d, tone idx=%d)", idxFrustration, idxTone)
+	for _, required := range []string{"### Task Routing", "ordinary concept questions", "daily chat", "failed Team", "L1-only"} {
+		if !strings.Contains(rules, required) {
+			t.Errorf("missing routing contract %q", required)
+		}
 	}
 }
 
@@ -140,11 +136,11 @@ func TestHardcodedL1Rules_ClawHubProgressiveLoading(t *testing.T) {
 		}
 	}
 
-	start := strings.Index(HardcodedL1Rules, "20. **Skill Acquisition via ClawHub")
+	start := strings.Index(HardcodedL1Rules, "### Skill Acquisition via ClawHub")
 	if start < 0 {
 		t.Fatal("could not find the compact ClawHub guidance block")
 	}
-	end := strings.Index(HardcodedL1Rules[start:], "\n22.")
+	end := strings.Index(HardcodedL1Rules[start:], "\n### Task Scheduling")
 	if end < 0 {
 		t.Fatal("could not isolate the compact ClawHub guidance block")
 	}
@@ -208,16 +204,8 @@ func TestBuildSkillForkSystemPrompt_ContainsSkillLifecycleBoundary(t *testing.T)
 }
 
 func TestSharedAgentRules_ThreeSkillExecutionModes(t *testing.T) {
-	// The old model made delegation and skill selection mutually exclusive.
-	// The new model classifies by HOW the task reaches the agent: skill
-	// instance / skill step / standalone.
-	absent := []string{
-		"Delegation and help-seeking decisions take precedence over skill selection",
-	}
-	for _, phrase := range absent {
-		if strings.Contains(SharedAgentRules, phrase) {
-			t.Errorf("SharedAgentRules should NOT contain %q", phrase)
-		}
+	if !strings.Contains(SharedAgentRules, "decide the executor before selecting Skills") {
+		t.Fatal("executor selection must precede Skill matching")
 	}
 
 	required := []string{
@@ -256,7 +244,7 @@ func TestSharedAgentRules_DelegationCarriesDomainSignals(t *testing.T) {
 	required := []string{
 		"task description MUST carry enough domain signals",
 		"file types/formats involved",
-		"Do NOT reference skill IDs",
+		"Do not invent Skill IDs",
 		"executing agent decides",
 	}
 	for _, phrase := range required {
@@ -276,6 +264,16 @@ func TestSharedAgentRules_LowCostInvocation(t *testing.T) {
 	for _, phrase := range required {
 		if !strings.Contains(SharedAgentRules, phrase) {
 			t.Errorf("SharedAgentRules should contain %q", phrase)
+		}
+	}
+}
+
+func TestPlanStorageHonorsUserLocationAcrossLevels(t *testing.T) {
+	for name, rules := range map[string]string{"L1": DefaultRules, "L2": L2EnforcedPlanSection, "L3": L3EnforcedDirectives} {
+		for _, want := range []string{"explicit user location", "cloud workspace", "supplied or existing plan", "configured default", "local"} {
+			if !strings.Contains(rules, want) {
+				t.Errorf("%s lacks plan storage contract %q", name, want)
+			}
 		}
 	}
 }

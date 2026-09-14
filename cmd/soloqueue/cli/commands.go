@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -234,16 +235,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				rt.SetSystemPrompt(newPrompt)
 				return nil
 			}
-			rt.OnPromptRebuild(rebuildPrompt)
-			reloadTeamCatalog := func() error {
-				if err := rebuildPrompt(); err != nil {
-					return err
-				}
-				rt.CfgMu.RLock()
-				systemPrompt := rt.SystemPrompt
-				rt.CfgMu.RUnlock()
-				return builder.ReconcileL1TeamCatalog(mgr.Session(), systemPrompt)
-			}
+			reloadTeamCatalog := installL1PromptReload(rt, builder, mgr.Session, rebuildPrompt)
 
 			// Create RuntimeMetrics (shared by Mux + Hub) for serve mode.
 			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -268,7 +260,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				server.WithSkillRegistry(rt.SkillRegistry),
 				server.WithSkillDirs(map[string]string{"user": filepath.Join(workDir, "skills")}),
 				server.WithAgentsDir(filepath.Join(workDir, "agents")),
-				server.WithPromptRebuild(rebuildPrompt),
+				server.WithPromptRebuild(reloadTeamCatalog),
 				server.WithTeamCatalogReload(reloadTeamCatalog),
 				server.WithMCPLoader(mcpLoaderFromRT(rt)),
 				server.WithMCPManager(rt.MCPManager),
@@ -488,4 +480,23 @@ func newCronSessionCleanup(cronSession *session.Session, registry *agent.Registr
 	return func() {
 		cronSession.DisposeGeneration(5 * time.Second)
 	}
+}
+
+// installL1PromptReload shares the resident-session refresh across profile saves,
+// file watchers and Team catalog updates. A busy Session keeps its current prompt.
+func installL1PromptReload(rt *runtime.Stack, builder *session.Builder, current func() *session.Session, rebuild func() error) func() error {
+	var reloadMu sync.Mutex
+	reload := func() error {
+		reloadMu.Lock()
+		defer reloadMu.Unlock()
+		if err := rebuild(); err != nil {
+			return err
+		}
+		rt.CfgMu.RLock()
+		systemPrompt := rt.SystemPrompt
+		rt.CfgMu.RUnlock()
+		return builder.ReconcileL1TeamCatalog(current(), systemPrompt)
+	}
+	rt.OnPromptRebuild(reload)
+	return reload
 }

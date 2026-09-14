@@ -14,10 +14,12 @@ type JobHandle struct {
 }
 
 type jobTracker struct {
-	id       uint64
-	done     chan struct{}
-	once     sync.Once
-	override *ModelParams
+	// Set once by the actor at request start; retained across async resumes.
+	systemPrompt *string
+	id           uint64
+	done         chan struct{}
+	once         sync.Once
+	override     *ModelParams
 }
 
 type jobTrackerKey struct{}

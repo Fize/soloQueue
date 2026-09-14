@@ -2160,3 +2160,71 @@ func TestL1DynamicDelegationEndToEnd(t *testing.T) {
 	// Wait a moment for stop to complete
 	waitFor(t, 200*time.Millisecond, func() bool { return spawnedChild.State() == StateStopped })
 }
+
+func TestPromptReloadAcrossRepeatedAsyncDelegation(t *testing.T) {
+	releases := make(chan struct{}, 2)
+	started := make(chan struct{}, 2)
+	target := &mockLocatable{askFunc: func(ctx context.Context, _ string) (string, error) {
+		started <- struct{}{}
+		select {
+		case <-releases:
+			return "result", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}}
+	requests := make(chan LLMRequest, 4)
+	fake := &agenttest.FakeLLM{
+		Hook: func(req LLMRequest) { requests <- req },
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{
+			{{Index: 0, ID: "first", Name: "delegate", Arguments: `{}`}}, nil,
+			{{Index: 0, ID: "second", Name: "delegate", Arguments: `{"task":"second"}`}}, nil,
+		},
+		StreamDeltas: [][]string{nil, {"follow-up answer"}, nil, {"finished"}},
+	}
+	a := startedAgent(t, fake, WithPriorityMailbox(), WithTools(&mockAsyncTool{name: "delegate", action: &tools.AsyncAction{Target: target, Prompt: "task", Timeout: time.Second}}))
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "old soul")
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	original, err := a.AskStreamWithHistory(ctx, cw, "delegate twice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalDone := make(chan struct{})
+	go func() {
+		for range original {
+		}
+		close(originalDone)
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	cw.QueuePrimarySystem("new soul")
+	followup, err := a.AskStreamWithHistory(ctx, cw, "follow up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range followup {
+	}
+	releases <- struct{}{}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	releases <- struct{}{}
+	<-originalDone
+	for i, expected := range []string{"old soul", "new soul", "old soul", "old soul"} {
+		select {
+		case req := <-requests:
+			if req.Messages[0].Content != expected {
+				t.Errorf("request %d system=%q, want %q", i, req.Messages[0].Content, expected)
+			}
+		case <-ctx.Done():
+			t.Fatal("missing request", i)
+		}
+	}
+}

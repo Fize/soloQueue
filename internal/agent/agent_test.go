@@ -1365,3 +1365,35 @@ func TestAgent_SetSystemPrompt(t *testing.T) {
 		t.Fatalf("after SetSystemPrompt = %q, want %q", a.Def.SystemPrompt, "updated prompt")
 	}
 }
+
+func TestAgentSystemPromptReloadDuringJobs(t *testing.T) {
+	fake := &agenttest.FakeLLM{Responses: []string{"done"}}
+	a := NewAgent(Definition{ID: "prompt-reload", SystemPrompt: "original"}, fake, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop(time.Second)
+	stop := make(chan struct{})
+	var updates sync.WaitGroup
+	updates.Add(1)
+	go func() {
+		defer updates.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				a.SetSystemPrompt("updated")
+			}
+		}
+	}()
+	defer func() { close(stop); updates.Wait() }()
+	for i := 0; i < 20; i++ {
+		events, err := a.AskStream(context.Background(), "read current prompt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range events {
+		}
+	}
+}

@@ -191,7 +191,13 @@ type Session struct {
 	flightSeq   atomic.Uint64
 	flightOwner atomic.Uint64
 
-	// closed indicates if the Session has been deleted
+	// Session-owned reflection and automatic compaction lifetime.
+	reflectionCtx    context.Context
+	reflectionCancel context.CancelFunc
+	reflectionWG     sync.WaitGroup
+	reflectionMu     sync.Mutex
+
+	// closed indicates if the Session has been deleted.
 	closed      atomic.Bool
 	closeOnce   sync.Once
 	disposeOnce sync.Once
@@ -202,7 +208,7 @@ type Session struct {
 	// delegationPending indicates if an async delegation is in progress
 	// Set to true when DelegationStartedEvent arrives, indicating L1 has delegated a task to L2
 	// At this point, inFlight is released, allowing the user to send new messages
-	// New message CW pushes are delayed until turnDone signal, ensuring correct CW message order
+	// A shared turnDone channel spans successive rounds until completion.
 	delegationPending atomic.Bool
 	turnMu            sync.Mutex    // protects turnDone creation and closing
 	turnDone          chan struct{} // closed when the async delegation turn completes
@@ -344,18 +350,21 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 		}
 	}
 
+	reflectionCtx, reflectionCancel := context.WithCancel(context.Background())
 	s := &Session{
-		TargetID:       id,
-		TeamID:         teamID,
-		Created:        time.Now(),
-		generation:     agentGeneration{agent: a},
-		cw:             cw,
-		tl:             tl,
-		logger:         l,
-		resourceCloser: l.Close,
-		pending:        &PendingQueue{},
-		activeCancels:  make(map[string]activeTurnCancel),
-		requestTimeout: defaultRequestTimeout,
+		reflectionCtx:    reflectionCtx,
+		reflectionCancel: reflectionCancel,
+		TargetID:         id,
+		TeamID:           teamID,
+		Created:          time.Now(),
+		generation:       agentGeneration{agent: a},
+		cw:               cw,
+		tl:               tl,
+		logger:           l,
+		resourceCloser:   l.Close,
+		pending:          &PendingQueue{},
+		activeCancels:    make(map[string]activeTurnCancel),
+		requestTimeout:   defaultRequestTimeout,
 	}
 	if a != nil {
 		s.askStreamHistory = func(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (<-chan agent.AgentEvent, error) {
@@ -365,6 +374,9 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 			s.agentMu.Unlock()
 			return ch, err
 		}
+	}
+	if cw != nil {
+		cw.SetLifecycleContext(reflectionCtx)
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 	if tl != nil {
@@ -554,7 +566,23 @@ func (s *Session) acquireFlight() (uint64, bool) {
 	}
 	id := s.flightSeq.Add(1)
 	s.flightOwner.Store(id)
+	s.applyPendingSystemPrompt()
 	return id, true
+}
+
+// applyPendingSystemPrompt applies idle reloads under the request flight.
+// During async delegation the actor applies queued reloads at its next request boundary.
+func (s *Session) applyPendingSystemPrompt() {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if s.delegationPending.Load() {
+		return
+	}
+	if a := s.CurrentAgent(); a != nil {
+		if prompt, ok := s.cw.ApplyQueuedPrimarySystem(); ok {
+			a.SetSystemPrompt(prompt)
+		}
+	}
 }
 
 func (s *Session) releaseFlight(id uint64) {
@@ -1278,11 +1306,27 @@ func (s *Session) maybeInjectPersonaState() {
 
 // runPersonaReflection runs the state.md reflection asynchronously on the
 // provided raw conversation. L1-only: disabled unless personaLLM is set.
-func (s *Session) runPersonaReflection(ctx context.Context, raw string) {
+func (s *Session) runPersonaReflection(ctx context.Context, raw string) <-chan struct{} {
+	done := make(chan struct{})
 	if s.personaLLM == nil || s.personaStatePath == "" || strings.TrimSpace(raw) == "" {
-		return
+		close(done)
+		return done
 	}
+	s.reflectionMu.Lock()
+	if s.closed.Load() {
+		s.reflectionMu.Unlock()
+		close(done)
+		return done
+	}
+	s.reflectionWG.Add(1)
+	s.reflectionMu.Unlock()
 	go func() {
+		defer s.reflectionWG.Done()
+		defer close(done)
+		reflectionCtx, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(s.reflectionCtx, cancel)
+		defer stop()
+		defer cancel()
 		defer func() {
 			if r := recover(); r != nil {
 				s.logger.Error(logger.CatApp, "persona reflection: panic recovered", "panic", fmt.Sprintf("%v", r))
@@ -1298,10 +1342,11 @@ func (s *Session) runPersonaReflection(ctx context.Context, raw string) {
 		if s.memoryManager != nil {
 			daily, _ = s.memoryManager.ReadRecentMemory(1)
 		}
-		if err := UpdatePersonaState(ctx, s.logger, s.personaLLM, s.personaStatePath, name, raw, daily, time.Now(), s.personaProviderID, s.personaModelID); err != nil {
+		if err := UpdatePersonaState(reflectionCtx, s.logger, s.personaLLM, s.personaStatePath, name, raw, daily, time.Now(), s.personaProviderID, s.personaModelID); err != nil {
 			s.logger.Error(logger.CatApp, "persona reflection failed", "err", err.Error())
 		}
 	}()
+	return done
 }
 
 // Clear performs a soft clear: appends /clear control event to timeline, resets ContextWindow
@@ -1347,7 +1392,7 @@ func (s *Session) Clear() error {
 		for _, g := range dateGroups {
 			parts = append(parts, formatPayloadForMemory(g.msgs))
 		}
-		s.runPersonaReflection(context.Background(), strings.Join(parts, "\n"))
+		s.runPersonaReflection(s.reflectionCtx, strings.Join(parts, "\n"))
 	}
 
 	// Call memory hook for each date group (outside lock)
@@ -1598,7 +1643,7 @@ func (s *Session) FlushMemory(ctx context.Context) {
 	for _, g := range groups {
 		parts = append(parts, formatPayloadForMemory(g.msgs))
 	}
-	s.runPersonaReflection(ctx, strings.Join(parts, "\n"))
+	<-s.runPersonaReflection(ctx, strings.Join(parts, "\n"))
 
 	for _, g := range groups {
 		text := formatPayloadForMemory(g.msgs)
@@ -2380,7 +2425,7 @@ enqueued:
 				)
 			}
 		}
-		// Delegation round completed: close turnDone channel, notify waiting new messages
+		// Delegation completed: release the shared lifecycle signal.
 		s.closeTurnDone()
 
 		s.logger.DebugContext(ctx, logger.CatApp, "askstream complete",
@@ -2426,7 +2471,13 @@ func partialFlushRemainder(pending, persisted string) string {
 
 // Close marks session as closed, preventing new requests; does not stop agent
 func (s *Session) beginClose() {
+	s.reflectionMu.Lock()
 	s.closed.Store(true)
+	if s.reflectionCancel != nil {
+		s.reflectionCancel()
+	}
+	s.reflectionMu.Unlock()
+	s.reflectionWG.Wait()
 	// Synchronize with generation construction/publication. A factory already
 	// in progress observes closed before publish and retires its fresh domain.
 	s.rebuildMu.Lock()
@@ -2519,6 +2570,9 @@ func (s *Session) closeTurnDone() {
 func (s *Session) newTurnDone() {
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
+	if s.delegationPending.Load() {
+		return
+	}
 	s.turnDone = make(chan struct{})
 	s.turnDoneClosed = false
 	s.delegationPending.Store(true)

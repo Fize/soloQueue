@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
@@ -728,6 +732,109 @@ delegationStarted:
 	}
 	if got := fakeLLM.StreamCallCount(); got < 2 {
 		t.Fatalf("L1 stream calls = %d, want at least 2 before delegation completes", got)
+	}
+}
+
+func TestWebSocketReloadAllowsFollowupAndCancelDuringDelegation(t *testing.T) {
+	workDir := t.TempDir()
+	log, err := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatalf("create logger: %v", err)
+	}
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	target := &blockingDelegationTarget{release: release}
+	delegate := tools.NewDelegateTool(
+		"l1-test",
+		5*time.Second,
+		func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+			return target, false, nil
+		},
+		nil,
+		log,
+		tools.WorkDirExplicitOrInherited,
+		tools.WithAlwaysAsyncDelegation(),
+	)
+	fakeLLM := &agenttest.FakeLLM{
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+			Index:     0,
+			ID:        "call-delegate",
+			Name:      "delegate",
+			Arguments: `{"target":"worker","task":"blocked"}`,
+		}}},
+		StreamDeltas: [][]string{nil, {"second request response"}, {"first request response"}},
+	}
+	a := agent.NewAgent(
+		agent.Definition{ID: "l1-test", Name: "L1 test"},
+		fakeLLM,
+		log,
+		agent.WithTools(delegate),
+		agent.WithPriorityMailbox(),
+		agent.WithAgentWorkDir(workDir),
+	)
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "old soul")
+	factory := func(ctx context.Context, teamID string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		return a, cw, nil, nil
+	}
+	mgr := session.NewSessionManager(factory, log)
+	if _, err := mgr.Init(context.Background(), "default"); err != nil {
+		t.Fatalf("init manager: %v", err)
+	}
+	mux := NewMux(workDir, log, WithSessionManager(mgr))
+	t.Cleanup(func() { _ = mux.Close() })
+
+	h := NewHub(mux)
+	mux.SetHub(h)
+	go h.Run()
+	t.Cleanup(h.Close)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	seen := make(map[string]bool)
+	readUntil := func(kind, request string) {
+		if seen[kind+":"+request] {
+			return
+		}
+		t.Helper()
+		for {
+			var msg WSMessage
+			if err := conn.ReadJSON(&msg); err != nil {
+				t.Fatal(err)
+			}
+			seen[msg.Type+":"+msg.RequestID] = true
+			if msg.Type == kind && (request == "" || msg.RequestID == request) {
+				return
+			}
+		}
+	}
+	if err := conn.WriteJSON(ClientMessage{Type: "chat_send", RequestID: "req-delegating", SessionID: "l1", Prompt: "delegate this"}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil("delegation_start", "req-delegating")
+	deadline := time.Now().Add(time.Second)
+	for !mgr.Session().Idle() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if err := (&session.Builder{}).ReconcileL1TeamCatalog(mgr.Session(), "new soul"); !errors.Is(err, session.ErrSessionBusy) {
+		t.Fatalf("reload=%v", err)
+	}
+	if err := conn.WriteJSON(ClientMessage{Type: "chat_send", RequestID: "req-follow-up", SessionID: "l1", Prompt: "answer now"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.WriteJSON(ClientMessage{Type: "chat_cancel", RequestID: "req-delegating", SessionID: "l1"}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil("chat_cancel_confirmed", "req-delegating")
+	readUntil("chat_done", "req-follow-up")
+	if primary, _ := cw.MessageAt(0); primary.Content != "new soul" {
+		t.Fatal("follow-up missed reload")
 	}
 }
 

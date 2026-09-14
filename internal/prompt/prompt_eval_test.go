@@ -19,3 +19,27 @@ func TestPromptQualityGate_DynamicDataIsEscaped(t *testing.T) {
 		t.Fatalf("dynamic prompt data is not safely escaped: %q", got)
 	}
 }
+
+func TestExecutionModesRespectsRoutingBeforeExecution(t *testing.T) {
+	for _, required := range []string{
+		"Apply the routing contract first",
+		"ordinary concept questions and daily chat",
+		"domain research, analysis, and implementation",
+		"matching Team",
+		"selected executor",
+		"Do not implement a fix unless the user explicitly asks",
+	} {
+		if !strings.Contains(ExecutionModesContract, required) {
+			t.Errorf("execution modes missing routing-aware instruction %q", required)
+		}
+	}
+	for _, conflicting := range []string{
+		"Answer with what you know,",
+		"diagnosis (\"why is X failing\"): investigate",
+		"change or build something: implement it",
+	} {
+		if strings.Contains(ExecutionModesContract, conflicting) {
+			t.Errorf("execution modes override routing: %q", conflicting)
+		}
+	}
+}
