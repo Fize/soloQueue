@@ -2,7 +2,7 @@
 
 English | [简体中文](zh/getting-started.md)
 
-This guide covers prerequisites, building from source, first-run configuration, local development, and common troubleshooting.
+This guide covers prerequisites, building from source, first-run configuration, local development, and troubleshooting.
 
 ---
 
@@ -18,7 +18,7 @@ This guide covers prerequisites, building from source, first-run configuration, 
 
 ## Installation & Build
 
-### 1. Embedded Browser Application (Default)
+### 1. Embedded Browser Application
 
 Build both browser bundles, embed them into the Go server, and launch:
 
@@ -33,7 +33,7 @@ export DEEPSEEK_API_KEY="your-api-key"
 
 Open `http://127.0.0.1:57647` in a browser. On initial launch, SoloQueue automatically creates the work directory at `~/.soloqueue/` and populates `settings.yaml`.
 
-> **Note**: Run `make build-assets` before a production Go build so both the Web Console and Status UI are embedded.
+> **Note**: Run `make build-assets` before building a distributable Go binary so both browser bundles are embedded.
 
 ### 2. Browser Development
 
@@ -55,7 +55,7 @@ The Vite dev server proxies `/api` and `/ws` requests to `http://localhost:8765`
 
 | Command | Output |
 | --- | --- |
-| `make build-web` | Builds the full Web Console |
+| `make build-web` | Builds the Web Console |
 | `make build-go` | Builds Go binary (assumes browser assets exist) |
 | `make build` | Builds browser assets and Go binary |
 | `make build-status` | Builds the read-only Status UI |
@@ -64,11 +64,11 @@ The Vite dev server proxies `/api` and `/ws` requests to `http://localhost:8765`
 
 ---
 
-## First Run & Basic Workflow
+## First Run & Workflow
 
 ### Managing Skills
 
-SoloQueue reads installed global skills from `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and hot-reloads their `SKILL.md` definitions when skill directories or recognized entrypoints change. Agents running in a project also load compatible project skills from `<project>/.claude/skills/` when they are created. Set `SOLOQUEUE_WORK_DIR` to change the SoloQueue work directory. Skill installation and updates are intentionally external:
+SoloQueue reads installed global skills from `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and hot-reloads their `SKILL.md` definitions when skill directories or recognized entrypoints change. Agents running in a project also load compatible project skills from `<project>/.claude/skills/` when they are created. Set `SOLOQUEUE_WORK_DIR` to change the SoloQueue work directory. Skill installation and updates use the external ClawHub CLI:
 
 ```bash
 SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
@@ -96,7 +96,7 @@ Inspect README.md and list the build commands. Do not modify files.
 ```
 
 ### 4. Tool Execution Safety
-SoloQueue does not automatically create a sandbox. For deployment, run it inside a configured Docker container or VM and treat that environment as the isolation boundary. When run directly on the host, tools execute with the host process's permissions and without automatic isolation; use this only in a trusted development environment. Deterministic safety checks remain active: shell blocklists reject configured commands, WebFetch blocks private addresses, and file/path/size and timeout limits are enforced.
+SoloQueue does not create a sandbox. In a configured Docker container or VM, that environment provides the isolation boundary. When run directly on the host, tools execute with the SoloQueue process's permissions. Shell blocklists reject configured commands, WebFetch blocks private addresses, and file, path, size, and timeout limits are applied by the tool layer.
 
 ---
 

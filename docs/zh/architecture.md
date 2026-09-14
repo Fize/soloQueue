@@ -4,13 +4,16 @@
 
 本文档提供 SoloQueue 内部架构、进程边界、记忆引擎、任务路由及平台集成的技术概览。
 
-本文描述的 `main` 不包含模拟功能，正在为稳定版本做准备。剥离前的完整实现保留在 `experimental/simulation` 分支；参见[分支边界与工作目录说明](../../README.zh-CN.md#分支边界)。这项准备不代表已发布稳定版本。
+本文描述的 `main` 不包含模拟功能。剥离前的仓库状态保留在
+`experimental/simulation` 分支；参见[分支边界与工作目录说明](../../README.zh-CN.md#分支边界)。
 
 ---
 
 ## 1. 进程边界与分层架构
 
-SoloQueue 采用本地优先架构，由 Go 后端服务、完整浏览器 Web Console（`web/`）和独立只读状态页（`status-ui/`）组成。`internal/assets/` 只嵌入两个前端，Skills 作为外部包安装在工作目录中。
+SoloQueue 由 Go 后端服务、浏览器 Web Console（`web/`）和独立只读状态页
+（`status-ui/`）组成。`internal/assets/` 嵌入两个前端的浏览器资源，Skills
+作为外部包安装在工作目录中。
 
 ```text
 Web Console / 状态页
@@ -36,21 +39,21 @@ Session Manager (internal/session)
 
 ## 2. 任务路由 (`internal/router`)
 
-Prompt 被分类为工作性质类别（`general`、`engineering`、`research`），以选择最佳的模型配置：
+Prompt 被分类为工作性质类别（`general`、`engineering`、`research`），并映射到已配置的模型路由：
 
-1. **本地快速分类规则**：根据明确的结构特征（代码块、Stack Traceback、路径引用、终端命令）进行快速匹配。
-2. **LLM Classifier 回退**：若特征匹配不确定，调用轻量级 LLM 进行分类。
-3. **会话上下文连续性**：后续请求保留上一轮的任务分类上下文，避免对话过程中出现模型路由突变。
+1. **本地快速分类规则**：匹配代码块、Stack Traceback、路径引用和终端命令等结构特征。
+2. **LLM Classifier 回退**：若特征匹配不确定，调用已配置的 Classifier 模型进行分类。
+3. **会话上下文连续性**：分类后续请求时会传入上一轮的任务类别。
 
 ---
 
 ## 3. 上下文窗口与压缩 (`internal/memory/ctxwin`)
 
-上下文管理器在保护上下文预算的同时保留关键信息：
+上下文管理器统计 Payload Token，并在达到配置阈值时压缩历史内容：
 
 - **Token 计数**：使用模型匹配的 Tokenizer 计算 Payload 大小。
 - **双水位线压缩**：当 Token 消耗突破高水位线时，触发历史 Turns 的摘要生成。
-- **Payload 修复与过滤**：在发送给外部 LLM API 之前自动清理孤立的 Tool-call/result 配对，避免触发 HTTP 400 错误。
+- **Payload 修复与过滤**：在发送给外部 LLM API 之前清理孤立的 Tool-call/result 配对。
 
 ---
 
@@ -59,8 +62,8 @@ Prompt 被分类为工作性质类别（`general`、`engineering`、`research`�
 SoloQueue 将短期上下文与长期搜索和审计日志分离开来：
 
 - **短期对话记忆 (`internal/memory/conversation`)**：保存上下文压缩过程中生成的 LLM 驱动对话摘要。
-- **长期记忆 (`internal/memory/engine`)**：纯 Go 实现的混合搜索引擎，结合 SQLite FTS5 BM25 全文检索与内存知识图谱。配置外部向量 Provider 时可融合向量检索（默认关闭，零外部依赖）。
-- **时间线 (`internal/memory/timeline`)**：追加式 JSONL 事件流，记录具体的工具调用、会话状态变更、路由结果及 Agent 委派事件。过滤系统 Prompt 以保护隐私。
+- **长期记忆 (`internal/memory/engine`)**：纯 Go 实现的混合搜索引擎，结合 SQLite FTS5 BM25 全文检索与内存知识图谱。配置外部 Embedding Provider 时启用向量检索，默认配置为关闭。
+- **时间线 (`internal/memory/timeline`)**：追加式 JSONL 事件流，记录工具调用、会话状态变更、路由结果及 Agent 委派事件。系统 Prompt 不写入时间线。
 
 ---
 

@@ -10,7 +10,7 @@
 
 配置项从工作目录下的 `settings.yaml` 读取（默认位于 `~/.soloqueue/`；可通过 `SOLOQUEUE_WORK_DIR` 覆盖）。修改支持热加载的参数会在保存后实时生效。
 
-### 最小配置示例
+### 配置示例
 
 ```yaml
 providers:
@@ -42,7 +42,7 @@ model_routes:
   fallback: deepseek:deepseek-v4-flash-thinking
 ```
 
-### 主要配置区段
+### 配置区段
 
 | 区段 | 用途说明 |
 | --- | --- |
@@ -59,7 +59,7 @@ model_routes:
 
 ## 2. CLI 命令行参考
 
-主执行文件为 `soloqueue`。运行 `soloqueue --help` 查看完整子命令。
+主执行文件为 `soloqueue`。运行 `soloqueue --help` 列出已注册的子命令和参数。
 
 ### `soloqueue serve`
 在 `127.0.0.1` 启动 HTTP REST、WebSocket 及 Agent 运行时服务：
@@ -113,7 +113,7 @@ soloqueue wechat login --id personal --name "Personal WeChat" [--bind-type l1|l2
 
 ---
 
-## 3. 数据目录与安全备份
+## 3. 数据目录与备份
 
 应用数据全部保存在 `~/.soloqueue/` 下（或由 `SOLOQUEUE_WORK_DIR` 指定）：
 
@@ -126,10 +126,10 @@ soloqueue wechat login --id personal --name "Personal WeChat" [--bind-type l1|l2
 | `agents/` / `groups/` | 用户 Agent 模板与团队定义 |
 | `skills/` | 已安装的自定义 Skills |
 
-### 安全备份步骤
+### 一致性备份步骤
 
 1. 停止 `soloqueue` 服务进程。
-2. 将整个工作目录（`~/.soloqueue/`）复制到安全的备份位置。
+2. 将整个工作目录（`~/.soloqueue/`）复制到备份位置。
 3. 重启服务进程。
 
-> **注意**：备份前务必先停止服务，以确保 SQLite WAL checkpoint 完成且时间线 JSONL 日志已完全刷盘。
+> **注意**：复制前停止服务，使 SQLite WAL checkpoint 和时间线 JSONL 写入在复制文件前完成。

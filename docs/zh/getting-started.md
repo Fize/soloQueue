@@ -2,7 +2,7 @@
 
 [English](../getting-started.md) | 简体中文
 
-本指南涵盖环境前置条件、源码构建、首次运行配置、本地开发及常见故障排查。
+本指南涵盖环境前置条件、源码构建、首次运行配置、本地开发及故障排查。
 
 ---
 
@@ -18,7 +18,7 @@
 
 ## 安装与构建
 
-### 1. 嵌入式浏览器应用（默认模式）
+### 1. 嵌入式浏览器应用
 
 构建 Web Console 和状态页、嵌入 Go 服务端并启动：
 
@@ -33,7 +33,7 @@ export DEEPSEEK_API_KEY="your-api-key"
 
 打开 `http://127.0.0.1:57647`。首次启动时，SoloQueue 会自动在 `~/.soloqueue/` 下创建工作目录并生成初始 `settings.yaml`。
 
-> **提示**：生产构建前请运行 `make build-assets`，以嵌入 Web Console 和状态页。
+> **提示**：构建用于分发的 Go 二进制前运行 `make build-assets`，以嵌入 Web Console 和状态页。
 
 ### 2. 浏览器开发
 
@@ -55,7 +55,7 @@ Vite 开发服务器会自动把 `/api` 与 `/ws` 转发至 `http://localhost:87
 
 | 命令 | 产物描述 |
 | --- | --- |
-| `make build-web` | 构建完整 Web Console |
+| `make build-web` | 构建 Web Console |
 | `make build-go` | 构建 Go 二进制（要求浏览器资源已存在） |
 | `make build` | 构建浏览器资源及 Go 二进制 |
 | `make build-status` | 构建只读状态页 |
@@ -64,7 +64,7 @@ Vite 开发服务器会自动把 `/api` 与 `/ws` 转发至 `http://localhost:87
 
 ---
 
-## 首次运行与基本工作流
+## 首次运行与工作流
 
 ### 管理 Skills
 
@@ -96,7 +96,7 @@ clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
 ```
 
 ### 4. 工具执行安全
-SoloQueue 不会自动创建沙箱。部署时应将其运行在已配置的 Docker 容器或 VM 中，并将该环境作为隔离边界。若直接在宿主机运行，工具会使用宿主进程权限且不会自动获得隔离，仅适合可信的开发环境。确定性的安全检查仍然有效：Shell 黑名单会拒绝配置的命令，WebFetch 会阻止私有地址，文件路径、大小和超时限制仍会强制执行。
+SoloQueue 不创建沙箱。在已配置的 Docker 容器或 VM 中运行时，该环境构成隔离边界。直接在宿主机运行时，工具使用 SoloQueue 进程的权限。工具层会执行 Shell 黑名单、WebFetch 私有地址阻止以及文件、路径、大小和超时限制。
 
 ---
 
