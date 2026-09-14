@@ -10,7 +10,7 @@ import (
 // If userCtx is empty, the <user_context> section is skipped.
 // recentMemory is the path to the short-term memory directory (if not empty, injects file location + Read/Grep tool instructions, but not actual content).
 // If permanentMemory is not empty, injects instructions for RecallMemory/Remember long-term memory tools (but not actual content).
-func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir, exploreDir string, mcpServers []string, userRules map[string]string) string {
+func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTable, rules, planDir, workDir, exploreDir string, mcpServers []string, userRules map[string]string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "<identity>\n%s\n</identity>", escapePromptData(strings.TrimSpace(profile)))
@@ -48,8 +48,6 @@ func assembleWithXML(profile, userCtx, recentMemory, permanentMemory, routingTab
 	fmt.Fprintf(&b, "\n\n<delegation_requirement>\n===============================================================================\nTask Routing is defined in the Orchestration Rules below. Apply that contract before tools or Skill selection.\n- L1 can answer ordinary concept questions and daily chat directly; domain research, analysis, and implementation go to a matching Team.\n- Pass work_dir when the task requires a configured project workspace. For cloud or non-filesystem tasks it is optional; do not invent or require a workspace.\n\n👉 SELECTIVE CONTEXT SYNTHESIS FOR MULTI-TURN DELEGATION:\nDelegated agents start with an empty history and only see the `task` string.\nWhen delegating in a multi-turn conversation, you MUST NOT pass the raw user query. You MUST synthesize a self-contained task description that includes:\n1. The overall goal and latest request.\n2. Relevant user instructions and configured user rules (including workflow, tool choice, and storage overrides), plus directly useful context from previous turns (such as specific file paths, specific error logs, or key prior findings discussed). Do NOT dump all history or irrelevant details.\n3. Delegated tasks come in two kinds:\n   - STANDALONE: carry domain signals (task goal, file types/formats, artifact shape, domain keywords) so the receiving agent can match its own skills. Do not invent Skill IDs. Preserve an explicit user-requested Skill ID or upstream skill-step requirement.\n   - SKILL STEP: when you are executing a skill's SOP and delegate one of its steps, mark it explicitly in the task: This is step N of the <skill> SOP — execute this step as specified; do not re-select skills. The receiver then executes without re-matching.\n\nExample: delegate(target=\"dev\", task=\"Fix CSS on login page. Context: user reported layout shift in main.css and we saw line 45 has bad flex properties.\", work_dir=\"/path/to/project\")\n===============================================================================\n</delegation_requirement>")
 
 	fmt.Fprintf(&b, "\n\n<available_teams>\n%s\n</available_teams>", escapePromptData(strings.TrimSpace(routingTable)))
-
-	fmt.Fprintf(&b, "\n\n<team_management>\n%s\n</team_management>", escapePromptData(strings.TrimSpace(teamMgmt)))
 
 	fmt.Fprintf(&b, "\n\n<rules>\n%s\n%s\n%s\n%s\n</rules>", strings.ReplaceAll(SharedAgentRules, "{{EXPLORE_DIR}}", exploreDir), escapePromptData(strings.TrimSpace(DefaultRules)), escapePromptData(strings.TrimSpace(rules)), HardcodedL1Rules)
 
