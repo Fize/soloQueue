@@ -67,6 +67,7 @@ func TestCompactErrorDoesNotModifyCW(t *testing.T) {
 	beforeTokens, _, _ := cw.TokenUsage()
 
 	// Trigger async compact — it should fail silently
+	cw.SetLifecycleContext(t.Context())
 	cw.asyncCompact()
 
 	// Wait briefly for goroutine
@@ -91,6 +92,7 @@ func TestAsyncCompactReducesTokens(t *testing.T) {
 	}
 	// summaryTokens=1: any Push will trigger async compact
 	cw := NewContextWindow(100000, 2000, 1, NewTokenizer(), WithCompactor(mc))
+	cw.SetLifecycleContext(t.Context())
 
 	cw.Push(RoleSystem, "System prompt for testing.")
 	cw.Push(RoleUser, "Tell me a long story about programming.")
@@ -130,6 +132,7 @@ func TestSoftWaterlineTriggersCompact(t *testing.T) {
 	}
 	// summaryTokens=1: any message Push will exceed soft waterline
 	cw := NewContextWindow(100000, 2000, 1, NewTokenizer(), WithCompactor(mc))
+	cw.SetLifecycleContext(t.Context())
 
 	cw.Push(RoleSystem, "System")
 	cw.Push(RoleUser, "Hello")
@@ -217,6 +220,7 @@ func TestAsyncCompactPreservesSystemPrompt(t *testing.T) {
 		},
 	}
 	cw := NewContextWindow(100000, 2000, 1, NewTokenizer(), WithCompactor(mc))
+	cw.SetLifecycleContext(t.Context())
 
 	systemContent := "You are a helpful assistant with specific instructions."
 	cw.Push(RoleSystem, systemContent)
@@ -245,6 +249,7 @@ func TestAsyncCompactDeduplication(t *testing.T) {
 		},
 	}
 	cw := NewContextWindow(100000, 2000, 1, NewTokenizer(), WithCompactor(mc))
+	cw.SetLifecycleContext(t.Context())
 
 	cw.Push(RoleSystem, "System")
 	// Multiple pushes while compact is running — only one compact should execute
@@ -371,7 +376,7 @@ func TestAsyncCompact_MultiSegment(t *testing.T) {
 
 	var hookCalled bool
 	var hookSegments []SummarySegment
-	cw.summaryHook = func(segments []SummarySegment, _ string) {
+	cw.summaryHook = func(_ context.Context, segments []SummarySegment, _ string) {
 		hookCalled = true
 		hookSegments = segments
 	}
@@ -436,5 +441,49 @@ func TestAsyncCompact_PartialFailure(t *testing.T) {
 	}
 	if finalSummary == "" {
 		t.Error("expected non-empty finalSummary from successful batches")
+	}
+}
+
+func TestCompactionSummaryHookUsesCancelableOwner(t *testing.T) {
+	for _, automatic := range []bool{false, true} {
+		name := "manual"
+		if automatic {
+			name = "automatic"
+		}
+		t.Run(name, func(t *testing.T) {
+			owner, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			started := make(chan struct{})
+			stopped := make(chan struct{})
+			cw := NewContextWindow(100000, 2000, 50000, NewTokenizer(), WithCompactor(&mockCompactor{}), WithSummaryHook(func(ctx context.Context, _ []SummarySegment, _ string) {
+				close(started)
+				<-ctx.Done()
+				close(stopped)
+			}))
+			cw.SetLifecycleContext(owner)
+			cw.Push(RoleSystem, "soul")
+			cw.Push(RoleUser, "conversation evidence")
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				if automatic {
+					cw.asyncCompact()
+				} else {
+					_, _ = cw.CompactAndReplace(t.Context())
+				}
+			}()
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("summary hook did not start")
+			}
+			cancel()
+			select {
+			case <-stopped:
+			case <-time.After(time.Second):
+				t.Fatal("owner cancellation did not reach summary hook")
+			}
+			<-done
+		})
 	}
 }

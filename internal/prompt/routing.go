@@ -26,7 +26,7 @@ func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile) string
 	})
 
 	var b strings.Builder
-	b.WriteString("YOU MUST DELEGATE — every task goes to one of these teams (use the delegate tool):\n")
+	b.WriteString("Available Teams for matching-domain work or explicit Team requests (use delegate according to the routing contract):\n")
 
 	// Determine if any leader has group description info
 	hasGroupInfo := false

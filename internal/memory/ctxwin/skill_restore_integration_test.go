@@ -40,6 +40,7 @@ func TestAsyncCompactRestoresSkillContent(t *testing.T) {
 		WithToolName("Skill"), WithToolCallID(callID))
 
 	cw.Push(RoleAssistant, "Finished the docx task.")
+	cw.SetLifecycleContext(t.Context())
 	cw.asyncCompact() // synchronous, deterministic snapshot
 
 	if cw.Len() < 2 {

@@ -237,3 +237,93 @@ func hasToolSpec(a *agent.Agent, name string) bool {
 	}
 	return false
 }
+
+func TestReconcileL1PromptPreservesHistoryAndBusySession(t *testing.T) {
+	a := agent.NewAgent(agent.Definition{ID: "l1", SystemPrompt: "old soul"}, &agenttest.FakeLLM{}, nil)
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "old soul")
+	cw.Push(ctxwin.RoleSystem, "[persona_state] unchanged")
+	cw.Push(ctxwin.RoleUser, "keep history")
+	sess := NewSession("resident", "L1", a, cw, nil, nil)
+	b := &Builder{}
+	flight, ok := sess.acquireFlight()
+	if !ok {
+		t.Fatal("flight")
+	}
+	if err := b.ReconcileL1TeamCatalog(sess, "new soul"); !errors.Is(err, ErrSessionBusy) {
+		t.Fatalf("busy reload=%v", err)
+	}
+	if first, _ := cw.MessageAt(0); first.Content != "old soul" {
+		t.Fatal("busy prompt changed")
+	}
+	// Multiple busy saves coalesce to the latest prompt at the next turn.
+	if err := b.ReconcileL1TeamCatalog(sess, "latest soul"); !errors.Is(err, ErrSessionBusy) {
+		t.Fatalf("second busy reload=%v", err)
+	}
+	sess.releaseFlight(flight)
+	flight, ok = sess.acquireFlight()
+	if !ok {
+		t.Fatal("next flight")
+	}
+	defer sess.releaseFlight(flight)
+	if first, _ := cw.MessageAt(0); first.Content != "latest soul" {
+		t.Fatalf("resident prompt=%s", first.Content)
+	}
+	if a.Def.SystemPrompt != "latest soul" {
+		t.Fatalf("agent prompt=%s", a.Def.SystemPrompt)
+	}
+	if cw.Len() != 3 {
+		t.Fatalf("history length=%d", cw.Len())
+	}
+	if state, _ := cw.MessageAt(1); state.Content != "[persona_state] unchanged" {
+		t.Fatal("persona state changed")
+	}
+	if user, _ := cw.MessageAt(2); user.Content != "keep history" {
+		t.Fatal("history changed")
+	}
+}
+
+func TestPendingPromptDoesNotBlockConcurrentDelegationConversation(t *testing.T) {
+	requests := make(chan agent.LLMRequest, 2)
+	a := startAgent(t, &agenttest.FakeLLM{Responses: []string{"done", "done"}, Hook: func(req agent.LLMRequest) { requests <- req }})
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "old soul")
+	sess := NewSession("pending-delegation", "L1", a, cw, nil, nil)
+	defer sess.Close()
+	sess.newTurnDone()
+	if err := (&Builder{}).ReconcileL1TeamCatalog(sess, "new soul"); !errors.Is(err, ErrSessionBusy) {
+		t.Fatal(err)
+	}
+	sess.newTurnDone() // A second async round must not strand subsequent requests.
+	done := make(chan error, 1)
+	go func() {
+		events, err := sess.AskStream(context.Background(), "follow up")
+		if err == nil {
+			for range events {
+			}
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		sess.closeTurnDone()
+		t.Fatal("reload blocked concurrent conversation")
+	}
+	if req := <-requests; req.Messages[0].Content != "new soul" {
+		t.Fatal("follow-up missed reload at actor boundary")
+	}
+	sess.closeTurnDone()
+	events, err := sess.AskStream(context.Background(), "next task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range events {
+	}
+	if req := <-requests; req.Messages[0].Content != "new soul" {
+		t.Fatal("idle request missed reload")
+	}
+}

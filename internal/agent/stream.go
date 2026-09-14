@@ -615,6 +615,9 @@ func (s *historyStrategy) buildMessages(ctx context.Context, a *Agent, iter int)
 		}
 	}
 	payload := s.cw.BuildPayload()
+	if tracker := jobTrackerFromContext(ctx); tracker != nil && tracker.systemPrompt != nil && len(payload) > 0 && payload[0].Role == string(ctxwin.RoleSystem) {
+		payload[0].Content = *tracker.systemPrompt
+	}
 	return payloadToLLMMessages(payload), nil
 }
 
@@ -702,7 +705,7 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 		maxTokens = DefaultContextWindow
 	}
 	a.streamLoop(ctx, out, &simpleStrategy{
-		systemPrompt: a.Def.SystemPrompt,
+		systemPrompt: a.systemPrompt(),
 		prompt:       prompt,
 		maxTokens:    maxTokens,
 		tok:          ctxwin.NewTokenizer(),
@@ -716,6 +719,10 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 // Returns true if the stream loop yielded (async delegation started);
 // the caller must keep the context alive until resumeTurn completes.
 func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.ContextWindow, prompt string, out chan<- AgentEvent) bool {
+	cw.BindLifecycleContext(a.ctx)
+	if updated, ok := cw.ApplyQueuedPrimarySystem(); ok {
+		a.SetSystemPrompt(updated)
+	}
 	tracker := jobTrackerFromContext(ctx)
 	if tracker != nil {
 		a.beginTrackedJob(tracker)
@@ -729,6 +736,11 @@ func (a *Agent) runOnceStreamWithHistory(ctx context.Context, cw *ctxwin.Context
 				tracker.finish()
 			}
 		}()
+	}
+	if primary, ok := cw.MessageAt(0); ok && primary.Role == ctxwin.RoleSystem {
+		if tracker != nil {
+			tracker.systemPrompt = &primary.Content
+		}
 	}
 	yielded = a.streamLoop(ctx, out, &historyStrategy{cw: cw, prompt: prompt}, 0)
 	if !yielded {

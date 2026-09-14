@@ -38,9 +38,10 @@ type job func(ctx context.Context)
 //   - Jobs in the mailbox are executed serially within the run goroutine (naturally mutually exclusive)
 //   - Start and Stop are mutually exclusive (only one modifies the lifecycle field at a time)
 type Agent struct {
-	Def Definition
-	LLM LLMClient
-	Log *logger.Logger
+	promptMu sync.RWMutex // guards live SystemPrompt updates and runtime reads
+	Def      Definition
+	LLM      LLMClient
+	Log      *logger.Logger
 
 	// Configuration (immutable after construction)
 	mailboxCap    int
@@ -308,9 +309,17 @@ func (a *Agent) SetDelegateSpawnFn(leaderID string, spawnFn func(ctx context.Con
 // SetSystemPrompt replaces the agent's system prompt.
 // The caller is responsible for also updating the context window
 // via ctxwin.ContextWindow.ReplacePrimarySystem().
-// Safe to call when the agent is idle (between jobs).
+// Runtime reads take a snapshot, so reload is safe during asynchronous jobs.
 func (a *Agent) SetSystemPrompt(prompt string) {
+	a.promptMu.Lock()
+	defer a.promptMu.Unlock()
 	a.Def.SystemPrompt = prompt
+}
+
+func (a *Agent) systemPrompt() string {
+	a.promptMu.RLock()
+	defer a.promptMu.RUnlock()
+	return a.Def.SystemPrompt
 }
 
 // RegisterTool registers a tool into the agent's ToolRegistry at runtime.

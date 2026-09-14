@@ -46,7 +46,7 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	if !strings.Contains(result, "\n</rules>") {
 		t.Error("missing rules closing tag")
 	}
-	if !strings.Contains(result, "Proactive Reminders") {
+	if !strings.Contains(result, "Memory Boundary Awareness") {
 		t.Error("missing HardcodedL1Rules in rules section")
 	}
 	if !strings.Contains(result, "<plan_before_action>") {
@@ -371,5 +371,20 @@ func TestAssembleWithXML_ExplorationArtifactsAbsolutePaths(t *testing.T) {
 	// Should contain the absolute explore directory path
 	if !strings.Contains(result, "/home/user/.soloqueue/explore") {
 		t.Error("exploration_artifacts should contain absolute exploreDir path")
+	}
+}
+
+func TestL1AssembledContractsDoNotOverrideRoutingOrReadOnlyWork(t *testing.T) {
+	routing := buildRoutingTable([]LeaderInfo{{Name: "research-lead", Group: "research", Description: "Domain research"}}, nil)
+	got := assembleWithXML("soul", "", "/memory", "/memory", routing, "manage", DefaultRules, "/plans", "/work", "/explore", nil, nil)
+	for _, obsolete := range []string{"YOU MUST DELEGATE", "every task goes to one of these teams", "ONLY DEFAULT ACTION FOR ANY USER TASK", "NEVER pass skill IDs", "Never pass skill IDs", "At the start of a session, or", "PLAN_ID:", "work_dir will cause the delegation to fail"} {
+		if strings.Contains(got, obsolete) {
+			t.Errorf("contradictory instruction: %s", obsolete)
+		}
+	}
+	for _, required := range []string{"Available Teams for matching-domain work or explicit Team requests", "research-lead", "decide the executor before selecting Skills", "read-only", "PLAN_REVIEW_REQUIRED", "optional"} {
+		if !strings.Contains(got, required) {
+			t.Errorf("missing instruction: %s", required)
+		}
 	}
 }

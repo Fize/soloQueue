@@ -502,31 +502,22 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build timeline writer: %w", err)
 	}
-	summaryHook := func(segments []ctxwin.SummarySegment, finalSummary string) {
-		// Nightly persona reflection: runs async before the per-segment memory
-		// routing so the raw conversation is still available for evidence.
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					sessLog.Error(logger.CatApp, "persona reflection: panic recovered",
-						"panic", fmt.Sprintf("%v", r))
-				}
-			}()
-			name := prompt.ReadSoulName(b.RT.PromptCfg)
-			var raw strings.Builder
-			for _, seg := range segments {
-				raw.WriteString(FormatCtxwinMessages(seg.Msgs))
-				raw.WriteString("\n")
-			}
-			var daily string
-			if b.RT.MemoryManager != nil {
-				daily, _ = b.RT.MemoryManager.ReadRecentMemory(1)
-			}
-			statePath := filepath.Join(b.WorkDir, "persona", "roles", "state.md")
-			if err := UpdatePersonaState(context.Background(), sessLog, b.RT.ReadLLMClient(), statePath, name, raw.String(), daily, time.Now(), b.RT.FastModelProviderID, b.RT.FastModelID); err != nil {
-				sessLog.Error(logger.CatApp, "persona reflection failed", "err", err.Error())
-			}
-		}()
+	summaryHook := func(ctx context.Context, segments []ctxwin.SummarySegment, finalSummary string) {
+		// Reflection completes within the compaction owner context, so cancellation
+		// and shutdown cannot leave a detached LLM call behind.
+		var raw strings.Builder
+		for _, seg := range segments {
+			raw.WriteString(FormatCtxwinMessages(seg.Msgs))
+			raw.WriteString("\n")
+		}
+		var daily string
+		if b.RT.MemoryManager != nil {
+			daily, _ = b.RT.MemoryManager.ReadRecentMemory(1)
+		}
+		statePath := filepath.Join(b.WorkDir, "persona", "roles", "state.md")
+		if err := UpdatePersonaState(ctx, sessLog, b.RT.ReadLLMClient(), statePath, prompt.ReadSoulName(b.RT.PromptCfg), raw.String(), daily, time.Now(), b.RT.FastModelProviderID, b.RT.FastModelID); err != nil {
+			sessLog.Error(logger.CatApp, "persona reflection failed", "err", err.Error())
+		}
 
 		cutoff := time.Now().AddDate(0, 0, -7)
 		cursor := time.Time{}
@@ -707,14 +698,19 @@ func memoryScopeForL1(workDir string) (string, string) {
 }
 
 func (b *Builder) ReconcileL1TeamCatalog(sess *Session, systemPrompt string) error {
-	if sess == nil || sess.CurrentAgent() == nil {
+	if sess == nil {
 		return nil
 	}
-	if !sess.Idle() {
+	// Queue first so a busy session applies the latest prompt on its next turn.
+	sess.cw.QueuePrimarySystem(systemPrompt)
+	flight, acquired := sess.acquireFlight()
+	if !acquired {
 		return ErrSessionBusy
 	}
-
-	sess.ContextWindow().ReplacePrimarySystem(systemPrompt)
+	defer sess.releaseFlight(flight)
+	if sess.delegationPending.Load() {
+		return ErrSessionBusy
+	}
 	return nil
 }
 
@@ -979,7 +975,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	}
 
 	// Summary hook (timeline-only, no memory writes).
-	summaryHook := func(_ []ctxwin.SummarySegment, finalSummary string) {
+	summaryHook := func(_ context.Context, _ []ctxwin.SummarySegment, finalSummary string) {
 		if finalSummary == "" {
 			return
 		}
@@ -1192,7 +1188,7 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	}
 
 	// Summary hook (timeline-only).
-	summaryHook := func(_ []ctxwin.SummarySegment, finalSummary string) {
+	summaryHook := func(_ context.Context, _ []ctxwin.SummarySegment, finalSummary string) {
 		if finalSummary == "" {
 			return
 		}

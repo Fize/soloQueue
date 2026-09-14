@@ -837,8 +837,8 @@ func TestL2L3Directives_ContainSkillUseRules(t *testing.T) {
 	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "Skill Use at L2") {
 		t.Error("prompt.L2EnforcedDirectivesPart1 should contain 'Skill Use at L2' section")
 	}
-	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "never pass skill IDs") {
-		t.Error("prompt.L2EnforcedDirectivesPart1 should forbid passing skill IDs to workers")
+	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "do not invent skill IDs") || !strings.Contains(prompt.L2EnforcedDirectivesPart1, "preserve explicit user-requested Skill IDs") {
+		t.Error("L2 delegation must avoid invented Skill IDs while preserving explicit user requirements")
 	}
 	if !strings.Contains(prompt.L3EnforcedDirectives, "Skill Use at L3") {
 		t.Error("prompt.L3EnforcedDirectives should contain 'Skill Use at L3' section")
