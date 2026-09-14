@@ -65,6 +65,43 @@ export function SessionTree() {
     setExpandedSessionLists((prev) => ({ ...prev, [key]: !prev[key] }))
   }, [])
 
+  const loadGroupInfo = useCallback(async () => {
+    try {
+      const [groupNames, projects, teamsData] = await Promise.all([
+        listL2Groups(),
+        listProjects(),
+        getTeams().catch(() => ({ teams: [] })),
+      ])
+      const projectMap = new Map(projects.map((p) => [p.id, p]))
+      const groupProjects: Record<string, Project[]> = {}
+      for (const team of (teamsData as any).teams || []) {
+        if (team.projects && Array.isArray(team.projects)) {
+          for (const pid of team.projects) {
+            const proj = projectMap.get(pid)
+            if (proj) {
+              if (!groupProjects[team.name]) groupProjects[team.name] = []
+              groupProjects[team.name].push(proj)
+            }
+          }
+        }
+      }
+      setGroups(
+        groupNames
+          .map((name) => ({ name, projects: groupProjects[name] || [] }))
+          .sort((a, b) => a.name.localeCompare(b.name))
+      )
+    } catch {
+      try {
+        const names = await listL2Groups()
+        setGroups(
+          names.map((name) => ({ name, projects: [] })).sort((a, b) => a.name.localeCompare(b.name))
+        )
+      } catch {
+        setGroups([])
+      }
+    }
+  }, [])
+
   // Refetch when the backend transitions to running. The initial run fires
   // the three loaders in parallel; if the backend isn't ready yet they all
   // fail silently. When the IPC `getBackendStatus()` finally returns
@@ -72,7 +109,10 @@ export function SessionTree() {
   // loadGroupInfo, which is a local function the App-level auto-retry
   // cannot reach (it's not in a store).
   useEffect(() => {
+    // Initial tree load synchronizes local state from the session API.
     loadSessions()
+    // The group listing also hydrates local tree state from the API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadGroupInfo()
     fetchLiveAgents()
   }, [backendRunning])
@@ -133,46 +173,6 @@ export function SessionTree() {
       }
     })
   }, [activeSessionId, sessions, groups])
-
-  const loadGroupInfo = async () => {
-    try {
-      const [groupNames, projects, teamsData] = await Promise.all([
-        listL2Groups(),
-        listProjects(),
-        getTeams().catch(() => ({ teams: [] })),
-      ])
-      const projectMap = new Map(projects.map((p) => [p.id, p]))
-      const groupProjects: Record<string, Project[]> = {}
-      for (const team of (teamsData as any).teams || []) {
-        if (team.projects && Array.isArray(team.projects)) {
-          for (const pid of team.projects) {
-            const proj = projectMap.get(pid)
-            if (proj) {
-              if (!groupProjects[team.name]) groupProjects[team.name] = []
-              groupProjects[team.name].push(proj)
-            }
-          }
-        }
-      }
-      setGroups(
-        groupNames
-          .map((name) => ({
-            name,
-            projects: groupProjects[name] || [],
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name))
-      )
-    } catch {
-      try {
-        const names = await listL2Groups()
-        setGroups(
-          names.map((name) => ({ name, projects: [] })).sort((a, b) => a.name.localeCompare(b.name))
-        )
-      } catch {
-        setGroups([])
-      }
-    }
-  }
 
   const l2Sessions = sessions.filter((s) => s.type === 'l2')
 

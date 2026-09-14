@@ -7,6 +7,10 @@ import { useChatStore } from '@/stores/chatStore'
 // Track the last mock WebSocket instance so tests can simulate events
 let mockWSServer: WSInstance | null = null
 
+function rememberWebSocket(instance: WSInstance) {
+  mockWSServer = instance
+}
+
 interface WSInstance {
   url: string
   onopen: ((ev?: any) => void) | null
@@ -40,10 +44,10 @@ beforeEach(() => {
       this.onmessage = null
       this.onclose = null
       this.onerror = null
-      this.close = vi.fn(function (this: WSInstance) {
+      this.close = vi.fn(() => {
         if (this.onclose) this.onclose()
       })
-      mockWSServer = this
+      rememberWebSocket(this)
       // Use a microtask delay so the caller has time to assign onopen
       Promise.resolve().then(() => {
         // Only fire if the handler was assigned

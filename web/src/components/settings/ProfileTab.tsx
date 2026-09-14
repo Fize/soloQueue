@@ -31,11 +31,6 @@ function EditorSection({ title, icon: Icon, content, onSave, saving }: EditorSec
   const [saveError, setSaveError] = useState<string | null>(null)
   const { t } = useTranslation()
 
-  // Sync draft when content changes externally (e.g. after save)
-  useEffect(() => {
-    setDraft(content)
-  }, [content])
-
   const lineCount = draft.split('\n').length
   const charCount = draft.length
 
@@ -162,6 +157,8 @@ function CustomRulesSection() {
   }, [])
 
   useEffect(() => {
+    // Initial rule listing synchronizes local state from the API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadRules()
   }, [loadRules])
 
@@ -346,6 +343,8 @@ export function ProfileTab() {
   }, [])
 
   useEffect(() => {
+    // Initial profile load synchronizes local state from the API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchProfile()
     getQQBotsConfig()
       .then((bots) => setQqBotOptions(bots.map(b => ({ id: b.id || '', name: b.name || '' }))))
@@ -502,6 +501,7 @@ export function ProfileTab() {
       )}
 
       <EditorSection
+        key={`soul:${profile.soul}`}
         title={t('profile.soul')}
         icon={Heart}
         content={profile.soul}
@@ -509,6 +509,7 @@ export function ProfileTab() {
         saving={savingSoul}
       />
       <EditorSection
+        key={`rules:${profile.rules}`}
         title={t('profile.rules')}
         icon={Scale}
         content={profile.rules}

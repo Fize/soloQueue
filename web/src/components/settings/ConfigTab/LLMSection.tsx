@@ -90,38 +90,31 @@ export function LLMSection({
 
 
   useEffect(() => {
+    let active = true
     const providerId = modelForm.providerId
     if (!providerId) {
+      // Clearing stale remote models follows the provider selection event.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRemoteModels([])
       setRemoteModelsError(null)
       return
     }
 
-    let active = true
     const fetchModels = async () => {
       setIsLoadingRemoteModels(true)
       setRemoteModelsError(null)
       try {
         const data = await listProviderRemoteModels(providerId)
-        if (active) {
-          setRemoteModels(data || [])
-        }
+        if (active) setRemoteModels(data || [])
       } catch (err) {
-        if (active) {
-          setRemoteModelsError((err as Error).message)
-        }
+        if (active) setRemoteModelsError((err as Error).message)
       } finally {
-        if (active) {
-          setIsLoadingRemoteModels(false)
-        }
+        if (active) setIsLoadingRemoteModels(false)
       }
     }
 
     fetchModels()
-
-    return () => {
-      active = false
-    }
+    return () => { active = false }
   }, [modelForm.providerId])
 
   const startAddProvider = () => {

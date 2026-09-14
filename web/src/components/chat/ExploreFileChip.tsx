@@ -154,7 +154,7 @@ export function getExploreLabel(children: React.ReactNode): string | undefined {
  * matching trailing backtick.  A check on the two characters immediately
  * before the match prevents double-processing already-linked paths.
  */
-const EXPLORE_PATH_RE = /(`?)([a-zA-Z0-9_.~\-/]*\/\.soloqueue\/explore\/[^\s`\[\]()"'<>\n]+\.md)\1/g
+const EXPLORE_PATH_RE = /(`?)([a-zA-Z0-9_.~\-/]*\/\.soloqueue\/explore\/[^\s`[\]()"'<>\n]+\.md)\1/g
 
 export function preprocessExplorePaths(content: string): string {
   return content.replace(EXPLORE_PATH_RE, (match, _backtick, path, offset) => {

@@ -27,10 +27,10 @@ function getInitialStatus(): PWAInstallStatus {
 }
 
 export function usePWAInstall(): PWAInstallState {
-  const [status, setStatus] = useState<PWAInstallStatus>('checking')
+  const [status, setStatus] = useState<PWAInstallStatus>(getInitialStatus)
   const [guideOpen, setGuideOpen] = useState(false)
   const deferredPrompt = useRef<BeforeInstallPromptEvent | null>(null)
-  const statusRef = useRef<PWAInstallStatus>('checking')
+  const statusRef = useRef<PWAInstallStatus>(status)
 
   useEffect(() => {
     captureBeforeInstallPrompt()
@@ -60,9 +60,6 @@ export function usePWAInstall(): PWAInstallState {
 
     window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
     window.addEventListener('appinstalled', onAppInstalled)
-    const initialStatus = getInitialStatus()
-    statusRef.current = initialStatus
-    setStatus(initialStatus)
     const bufferedPrompt = consumeBeforeInstallPrompt()
     if (bufferedPrompt) handleBeforeInstallPrompt(bufferedPrompt)
 

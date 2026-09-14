@@ -368,6 +368,8 @@ export function ChannelsTab() {
   // away while install was running, resume polling the status endpoint.
   useEffect(() => {
     if (sessionStorage.getItem(INSTALL_KEY) !== 'true') return
+    // Restore the persisted installation state before starting polling.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setInstalling(true)
 
     const start = Date.now()
