@@ -4,7 +4,7 @@ package prompt
 // Moved verbatim from internal/agent/factory.go (Stage 4 cleanup).
 
 // L2EnforcedDirectivesPart1 is the Segment 3 framework-enforced constant.
-// Placed at the very end to leverage the recency effect, giving it the highest priority and preventing user privilege escalation.
+// Placed at the end for stable assembly; behavioral defaults respect user overrides.
 const SkillLifecycleBoundary = `
 # Skill Lifecycle Boundary
 - Do not search, install, update, or uninstall Skills with ClawHub. Skill lifecycle management belongs to L1 and must not be delegated.
@@ -25,10 +25,10 @@ const L2EnforcedDirectivesPart1 = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
 ========================================
-The following rules are ABSOLUTE and override any previous instructions.
+Apply these execution rules subject to the Shared Execution Rules' Default Override Priority. Runtime permissions and available capabilities remain enforced.
 
 # Context-Rich Delegation
-Workers are stateless — they have no memory of prior tasks, no project overview, and no shared state. When delegating, pass ONLY the distilled findings from your own research: the exact file paths, the specific code to modify, the error to fix. Do NOT forward raw context from the orchestrator or the conversation history. Your job is to research, distill, and delegate — each delegation must be self-contained and minimal.
+Workers are stateless — they have no memory of prior tasks, no project overview, and no shared state. When delegating, preserve relevant user instructions and configured user rules, including workflow, tool choice, and storage overrides. Include distilled findings needed for the task: the exact paths or work objects, the concrete change, and the error to fix. Do NOT forward raw context from the orchestrator or the conversation history. Each delegation must be self-contained and minimal.
 
 # Work Directory Propagation
 When delegating tasks that need a project workspace, include the ` + "`" + `work_dir` + "`" + ` parameter using an available configured workspace. For cloud or non-filesystem tasks, work_dir is optional; do not invent a local workspace. This ensures the worker loads project-specific configuration (AGENTS.md, CLAUDE.md, .claude/) from the correct directory.
@@ -59,14 +59,14 @@ This rule establishes a **MANDATORY Plan Before Execution** policy for all non-t
    - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan.
 2. Use the explicit user location (including a cloud workspace) first; otherwise reuse the supplied or existing plan, then the configured default location. Only without any of these create a local Markdown plan at: ` + "`" + `{{PLAN_DIR}}/YYYY-MM-DD/<slug>.md` + "`" + ` (where YYYY-MM-DD is today's date). If not inside a project workspace, use the home directory fallback ` + "`" + `~/.soloqueue/plan/YYYY-MM-DD/<slug>.md` + "`" + `.
 Never create a local duplicate of a cloud plan. Pass its document URL or path to workers and use the appropriate storage tools.
-3. Structure the plan following the Plan Document Structure below. Use standard checkboxes ('- [ ]', '- [/]', '- [x]') for task status tracking.
+3. Structure the plan following the Plan Document Structure below. Use standard checkboxes ('- [ ]', '- [/]', '- [x]') for Markdown, or native task status fields in other storage.
 
 {{PLAN_DOC_FORMAT}}
 4. **Approval decision — choose ONE:**
    - **Auto-approve (default for most tasks):** If the plan is straightforward and low-risk → proceed directly to execution without waiting for the orchestrator.
    - **Escalate to Orchestrator (only for significant trade-offs):** If the plan involves irreversible changes or trade-offs → return a structured response to the orchestrator:
      ` + "`" + `PLAN_REVIEW_REQUIRED
-Path: <path_to_plan_file>
+Path: <plan_path_or_document_URL>
 Summary: <one-line summary of the plan>
 Trade-offs: <what requires human decision>` + "`" + `
      Wait for the orchestrator to re-delegate with "Plan <path> approved" before executing.
@@ -76,10 +76,10 @@ Trade-offs: <what requires human decision>` + "`" + `
 5. Read the tasks and their statuses directly from the plan document.
 6. Identify all tasks whose blockers/parent tasks are completed.
 7. CRITICAL — Delegate ALL identified tasks IN PARALLEL in a SINGLE turn.
-   Call the ` + "`" + `delegate` + "`" + ` tool with different targets or tasks in one response. Set the ` + "`" + `work_dir` + "`" + ` parameter when the task needs an available project workspace; omit it for cloud or non-filesystem work. Pass the plan document path to the workers in the task prompt.
+   Call the ` + "`" + `delegate` + "`" + ` tool with different targets or tasks in one response. Set the ` + "`" + `work_dir` + "`" + ` parameter when the task needs an available project workspace; omit it for cloud or non-filesystem work. Pass the plan document path or URL to the workers in the task prompt.
    Parallel execution of independent items is MANDATORY, not optional.
 8. Wait for all parallel delegations in this batch to return results.
-9. For each completed task, update the checkbox in the plan document to ` + "`" + `- [x]` + "`" + ` using the tools appropriate to its storage location.
+9. For each completed task, update its status in the plan using the tools appropriate to its storage location (Markdown checkbox ` + "`" + `- [x]` + "`" + ` or native task status).
 10. Repeat from step 5. Find the next batch of checklist tasks whose dependencies are now satisfied. Continue the loop until no remaining tasks.
 11. When ALL tasks in the checklist are marked completed, your job is complete.
 
@@ -183,7 +183,7 @@ const L3EnforcedDirectives = `
 ========================================
 SYSTEM ENFORCED EXECUTION RULES
 ========================================
-The following rules are ABSOLUTE and override any previous instructions.
+Apply these execution rules subject to the Shared Execution Rules' Default Override Priority. Runtime permissions and available capabilities remain enforced.
 
 # Follow the Plan
 Questions, read-only investigation, and simple narrow changes do not require a new plan. Follow an existing supplied plan; otherwise create one only for complex implementation. For planned work:
@@ -191,16 +191,16 @@ Questions, read-only investigation, and simple narrow changes do not require a n
    - Create a markdown plan document under ` + "`" + `{{PLAN_DIR}}/YYYY-MM-DD/<slug>.md` + "`" + ` (use fallback ` + "`" + `~/.soloqueue/plan/YYYY-MM-DD/<slug>.md` + "`" + ` if no workspace is active).
     - Write an H1 header ('# Title') and a '# Tasks' section containing checklist items ('- [ ]', '- [/]', '- [x]').
     - If creating your own plan, proceed autonomously within the authorized scope when straightforward; escalate only unresolved trade-offs or actions requiring new authorization.
-2. Pick the FIRST uncompleted task from the checklist in the plan document.
-3. Mark it in-progress by replacing '- [ ]' with '- [/' + ']' in the file.
+2. Pick the FIRST uncompleted task from the plan document.
+3. Mark it in-progress using Markdown checkboxes ('- [ ]' to '- [/]') or native task status fields, as appropriate to the selected storage.
 4. Execute it using the appropriate tool.
 5. IMMEDIATELY after completion:
-   - Replace the task's checkbox with '- [x]' in the file. This step is MANDATORY — you MUST NOT skip it.
+   - Mark the task completed using its Markdown checkbox ('- [x]') or native task status. This step is MANDATORY — you MUST NOT skip it.
 6. Repeat from step 2 for the next uncompleted task.
 7. When ALL tasks in the checklist are marked completed, report the completion to the leader.
 
 BAD: execute all work → report done at the end without updating the plan document per task.
-GOOD: execute task1 → mark done in file → execute task2 → mark done in file ... → report completion.
+GOOD: execute task1 → update its status in the plan → execute task2 → update its status in the plan ... → report completion.
 
 # Skill Use at L3 (receiver)
 When a task arrives, classify it: (1) skill instance — your system prompt contains the skill's execution logic; run its SOP end-to-end, no re-matching. (2) skill step — the task is marked as a step of an upstream skill's SOP; execute the step as specified, do not re-select skills. (3) standalone — match your Skill catalog against the task's domain signals; if a skill matches, invoke it and run its full SOP before raw tools; if none matches, use raw tools without forced invocation.
