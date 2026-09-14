@@ -14,7 +14,7 @@ func TestAssembledPromptDefaultPrecedence(t *testing.T) {
 			rules = map[string]string{"cloud_plan": "Use my calendar for reminders and my cloud workspace for plans and exploration artifacts."}
 		}
 		t.Run(name, func(t *testing.T) {
-			got := assembleWithXML("soul", "", "", "", "teams", "manage", "", "/plans", "/work", "/explore", nil, rules)
+			got := assembleWithXML("soul", "", "", "", "teams", "", "/plans", "/work", "/explore", nil, rules)
 			if configured && !strings.Contains(got, rules["cloud_plan"]) {
 				t.Error("configured user rule was lost during assembly")
 			}
@@ -41,7 +41,7 @@ func TestAssembledPromptDefaultPrecedence(t *testing.T) {
 }
 
 func TestAssembledPromptFileReferenceSelectsExecutorFirst(t *testing.T) {
-	got := assembleWithXML("soul", "", "", "", "teams", "manage", "", "/plans", "/work", "/explore", nil, nil)
+	got := assembleWithXML("soul", "", "", "", "teams", "", "/plans", "/work", "/explore", nil, nil)
 	start := strings.Index(got, "### Handling User File Reference")
 	end := strings.Index(got[start:], "### Non-Empty Response")
 	block := got[start : start+end]
@@ -56,7 +56,7 @@ func TestAssembledPromptFileReferenceSelectsExecutorFirst(t *testing.T) {
 }
 
 func TestAssembledPromptExplorationStoragePrecedence(t *testing.T) {
-	got := assembleWithXML("soul", "", "", "", "teams", "manage", "", "/plans", "/work", "/explore", nil, nil)
+	got := assembleWithXML("soul", "", "", "", "teams", "", "/plans", "/work", "/explore", nil, nil)
 	for _, section := range []struct{ start, end string }{
 		{"# Exploration Artifacts\n", "# Safety Boundary"},
 		{"<exploration_artifacts>", "</exploration_artifacts>"},

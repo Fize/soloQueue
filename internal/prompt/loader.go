@@ -55,17 +55,14 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, groups map[string]Group
 	// 4. Build routing table dynamically (with team workspace directories)
 	routingTable := buildRoutingTable(leaders, groups)
 
-	// 5. Team management guide
-	teamMgmt := buildTeamManagementSection(workDir)
-
-	// 6. Compute explore directory from workDir
+	// 5. Compute explore directory from workDir
 	exploreDir := ExploreDir(workDir)
 
-	// 7. Load global rules
+	// 6. Load global rules
 	userRules, _ := LoadGlobalRules(p.GlobalDir)
 
-	// 8. Assemble XML
-	return assembleWithXML(soul, userCtx, recentMemory, permanentMemory, routingTable, teamMgmt, rules, planDir, workDir, exploreDir, mcpServers, userRules), nil
+	// 7. Assemble XML
+	return assembleWithXML(soul, userCtx, recentMemory, permanentMemory, routingTable, rules, planDir, workDir, exploreDir, mcpServers, userRules), nil
 }
 
 // EnsureFiles checks and fills in any missing prompt files.
