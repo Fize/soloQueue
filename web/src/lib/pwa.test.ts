@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  captureBeforeInstallPrompt,
-  consumeBeforeInstallPrompt,
-  isStandaloneDisplayMode,
-  registerServiceWorker,
-} from '@/lib/pwa'
+import { registerServiceWorker } from '@/lib/pwa'
 
 describe('PWA static contract', () => {
   it('ships a standalone manifest with the app shell metadata', async () => {
@@ -25,15 +20,6 @@ describe('PWA static contract', () => {
     )
   })
 
-  it('detects Chromium and iOS standalone display modes', () => {
-    const matchMedia = (matches: boolean) => vi.fn().mockReturnValue({ matches })
-    expect(isStandaloneDisplayMode({ matchMedia, navigator: {} } as never)).toBe(false)
-    expect(isStandaloneDisplayMode({ matchMedia: matchMedia(true), navigator: {} } as never)).toBe(true)
-    expect(
-      isStandaloneDisplayMode({ matchMedia: matchMedia(false), navigator: { standalone: true } } as never)
-    ).toBe(true)
-  })
-
   it('registers the root worker and treats registration failure as non-fatal', async () => {
     const registration = {} as ServiceWorkerRegistration
     const register = vi.fn().mockResolvedValue(registration)
@@ -47,18 +33,6 @@ describe('PWA static contract', () => {
       matchMedia: vi.fn(),
     } as never
     await expect(registerServiceWorker(failingTarget)).resolves.toBeUndefined()
-  })
-
-  it('buffers the one-shot install event for a hook mounted after bootstrap', () => {
-    const target = new EventTarget()
-    captureBeforeInstallPrompt(target as never)
-    const event = new Event('beforeinstallprompt', { cancelable: true })
-
-    target.dispatchEvent(event)
-
-    expect(event.defaultPrevented).toBe(true)
-    expect(consumeBeforeInstallPrompt(target as never)).toBe(event)
-    expect(consumeBeforeInstallPrompt(target as never)).toBeNull()
   })
 
   it('keeps the service worker cache boundary explicit', async () => {
@@ -98,10 +72,11 @@ describe('PWA static contract', () => {
 
   it('registers the worker only for production startup', async () => {
     const main = await import('../../src/main.tsx?raw')
+    const pwa = await import('../../src/lib/pwa.ts?raw')
     expect(main.default).toContain('import.meta.env.PROD')
     expect(main.default).toContain('registerServiceWorker')
-    expect(main.default.indexOf('captureBeforeInstallPrompt()')).toBeLessThan(
-      main.default.indexOf('loadConfig()')
-    )
+    expect(main.default.indexOf('registerServiceWorker()')).toBeLessThan(main.default.indexOf('loadConfig()'))
+    expect(main.default).not.toContain('beforeinstallprompt')
+    expect(pwa.default).not.toContain('beforeinstallprompt')
   })
 })
