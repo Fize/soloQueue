@@ -1,22 +1,17 @@
 # SoloQueue
 
-**A local-first personal AI agent harness and multi-agent workspace.**
+SoloQueue is a local-first, single-user AI agent harness with persistent sessions,
+Team delegation, scheduled tasks, messaging channels, and browser interfaces.
 
 English | [简体中文](README.zh-CN.md)
 
-I built SoloQueue as a complete application while learning and practicing
-Harness Engineering. Inspired by [OpenClaw](https://github.com/openclaw/openclaw),
-I use it to explore how routing, delegation, tools, skills, memory,
-scheduled tasks, messaging channels, and observability can work together in
-one long-running personal agent system.
-
-I use SoloQueue every day. I share it for developers who want to study or
-operate a self-hosted agent harness, while I still treat it as an evolving
-personal project rather than a production-ready enterprise platform.
+The runtime combines task routing, delegation, tools, Skills, memory, Cron,
+channel adapters, and runtime inspection in one self-hosted process.
 
 ## Branch boundary
 
-`main` excludes simulation and is being prepared for a stable release; this does not mean a stable release has been published. `experimental/simulation` preserves the full implementation from `6efd796`, before simulation was extracted.
+`main` excludes simulation. `experimental/simulation` preserves the repository state at
+`6efd796`, before simulation was extracted.
 
 Existing simulation database files (`simulation.db` and any `-wal` / `-shm` sidecars) are retained, but `main` does not open or initialize them. Use a separate work directory when experimenting on `experimental/simulation` to prevent settings rewrites from affecting the directory used by `main`. After building that branch, for example:
 
@@ -30,10 +25,10 @@ SOLOQUEUE_WORK_DIR="$HOME/.soloqueue-simulation" ./soloqueue start
 - SoloQueue uses a multi-agent workspace with teams, agent templates, and delegation.
 - SoloQueue supports task routing, memory, skills, MCP/LSP tools,
   scheduled tasks, and channel delivery.
-- SoloQueue provides a full browser Web Console plus an embedded read-only Status UI for
+- SoloQueue provides a browser Web Console plus an embedded read-only Status UI for
   local use. Remote access is provided through a user-managed reverse proxy.
 
-Skills are installed and updated independently with [ClawHub](https://github.com/openclaw/clawhub). SoloQueue loads packages already present under `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and hot-reloads their `SKILL.md` definitions when skill directories or recognized entrypoints change; when an agent runs in a project, it also loads compatible project Skills from `<project>/.claude/skills/`. The Web Console provides read-only inspection. Set `SOLOQUEUE_WORK_DIR` to use a different SoloQueue work directory. Use `@owner/slug` for owner-qualified ClawHub resources, and the installed skill slug for uninstall.
+Skills are installed and updated independently with [ClawHub](https://github.com/openclaw/clawhub). SoloQueue loads packages already present under `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and hot-reloads their `SKILL.md` definitions when skill directories or recognized entrypoints change; when a project Agent is created, it also loads compatible project Skills from `<project>/.claude/skills/`. The Web Console provides read-only inspection. Set `SOLOQUEUE_WORK_DIR` to use a different SoloQueue work directory. Use `@owner/slug` for owner-qualified ClawHub resources, and the installed skill slug for uninstall.
 
 ```bash
 SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
@@ -45,14 +40,14 @@ clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
 clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
 ```
 
-## Non-goals
+## Scope boundaries
 
-SoloQueue is not intended to replace mature terminal coding tools, and it is
-not positioned as a multi-tenant SaaS, enterprise security product, or
-compatibility clone of OpenClaw. It is valued for the integrated harness and the
-experiments it makes observable.
+SoloQueue does not implement multi-tenant accounts, application-level HTTP
+authentication, TLS termination, a public listener, or OpenClaw compatibility.
+It does not create an execution sandbox; host deployments run tools with the
+permissions of the SoloQueue process.
 
-## Quick start from source
+## Build from source
 
 ### Prerequisites
 
@@ -72,7 +67,7 @@ export DEEPSEEK_API_KEY="your-api-key"
 ./soloqueue start
 ```
 
-Open <http://127.0.0.1:57647>. On the first start, let SoloQueue create the local work
+Open <http://127.0.0.1:57647>. On the first start, SoloQueue creates the local work
 directory and settings file under `~/.soloqueue/`.
 
 Use `make build` to build the Web Console and Status UI and embed them into the
@@ -100,7 +95,7 @@ front of the service and configure authentication, TLS, CORS, and WebSocket
 proxying there. The Docker setup under `deploy/docker-demo/` is a local demo
 with nginx and SoloQueue sharing one network namespace.
 
-## Useful commands
+## Commands
 
 ```bash
 ./soloqueue version
@@ -118,7 +113,7 @@ Start with the [English documentation hub](docs/README.md), or read the
 [中文文档中心](docs/zh/README.md):
 
 - [Getting Started / 快速入门](docs/getting-started.md) · [中文](docs/zh/getting-started.md)
-- [Features / 核心功能](docs/features.md) · [中文](docs/zh/features.md)
+- [Features / 功能](docs/features.md) · [中文](docs/zh/features.md)
 - [Architecture / 架构与设计](docs/architecture.md) · [中文](docs/zh/architecture.md)
 - [Reference / 参考手册](docs/reference.md) · [中文](docs/zh/reference.md)
 
@@ -131,8 +126,8 @@ cd web && pnpm test && pnpm build
 cd status-ui && pnpm test && pnpm build
 ```
 
-The repository is distributed primarily as source. Check the current build and
-test status before treating a revision as a release artifact.
+These commands validate the checked-out source tree. They do not rebuild or test
+an already installed desktop application.
 
 ## License
 

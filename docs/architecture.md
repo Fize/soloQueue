@@ -4,13 +4,13 @@ English | [简体中文](zh/architecture.md)
 
 This document provides a technical overview of SoloQueue's internal architecture, process boundaries, memory engine, task routing, and platform integrations.
 
-It describes `main`, which excludes simulation as part of preparation for a stable release. The full pre-extraction implementation is preserved on `experimental/simulation`; see the [branch boundary and work-directory guidance](../README.md#branch-boundary). This preparation does not indicate that a stable release has been published.
+It describes `main`, which excludes simulation. The repository state before extraction is preserved on `experimental/simulation`; see the [branch boundary and work-directory guidance](../README.md#branch-boundary).
 
 ---
 
 ## 1. Process Boundary & Layering
 
-SoloQueue is structured as a local-first application comprising a Go backend server, an embedded browser Web Console (`web/`), and an independent read-only Status UI (`status-ui/`). Only browser assets are embedded under `internal/assets/`; Skills remain external packages installed in the work directory.
+SoloQueue comprises a Go backend server, an embedded browser Web Console (`web/`), and an independent read-only Status UI (`status-ui/`). Browser assets are embedded under `internal/assets/`; Skills are installed as external packages in the work directory.
 
 ```text
 Web Console / Status UI
@@ -36,21 +36,21 @@ The server constructs a shared dependency container (`runtime.Stack`) at startup
 
 ## 2. Task Router (`internal/router`)
 
-Prompts are classified into work categories (`general`, `engineering`, `research`) to select optimal model configurations:
+Prompts are classified into work categories (`general`, `engineering`, `research`) and mapped to configured model routes:
 
-1. **Local Fast-Track Classifier**: Evaluates input against high-confidence structural patterns (code blocks, stack tracebacks, path mentions, terminal commands).
-2. **LLM Classifier Fallback**: If pattern matching is ambiguous, a lightweight LLM call classifies the prompt.
-3. **Session Context Continuity**: Follow-up turns retain task classification context to prevent abrupt model route switching within a conversation turn.
+1. **Local Fast-Track Classifier**: Evaluates structural patterns such as code blocks, stack tracebacks, path mentions, and terminal commands.
+2. **LLM Classifier Fallback**: If pattern matching is ambiguous, the configured classifier model classifies the prompt.
+3. **Session Context Continuity**: The previous task classification is supplied when classifying follow-up turns.
 
 ---
 
 ## 3. Context Window & Compaction (`internal/memory/ctxwin`)
 
-The context manager protects context window budgets while preserving vital information:
+The context manager counts payload tokens and compacts history at configured thresholds:
 
 - **Token Counting**: Uses model-specific tokenizers to calculate payload size.
 - **Dual Waterline Compaction**: Triggers summarization of historical turns when token consumption breaches upper thresholds.
-- **Payload Sanitization**: Filters orphaned tool-call/result pairs before dispatching payloads to external LLM APIs to prevent HTTP 400 errors.
+- **Payload Sanitization**: Filters orphaned tool-call/result pairs before dispatching payloads to external LLM APIs.
 
 ---
 
@@ -59,8 +59,8 @@ The context manager protects context window budgets while preserving vital infor
 SoloQueue separates ephemeral context from durable search and audit logs:
 
 - **Short-Term Memory (`internal/memory/conversation`)**: Stores LLM-generated conversation summaries written during context window compaction.
-- **Long-Term Memory (`internal/memory/engine`)**: Pure Go hybrid search engine combining SQLite FTS5 BM25 search with an in-process Knowledge Graph. Optional vector search fuses embeddings when an external provider is configured (disabled by default for zero external dependencies).
-- **Timeline (`internal/memory/timeline`)**: Append-only JSONL event stream recording granular tool calls, session state changes, routing resolutions, and agent delegation events. Excludes raw system prompts to protect user privacy.
+- **Long-Term Memory (`internal/memory/engine`)**: Pure Go hybrid search engine combining SQLite FTS5 BM25 search with an in-process Knowledge Graph. Optional vector search is enabled when an external embedding provider is configured and is disabled by default.
+- **Timeline (`internal/memory/timeline`)**: Append-only JSONL event stream recording tool calls, session state changes, routing resolutions, and agent delegation events. Raw system prompts are not written to the timeline.
 
 ---
 

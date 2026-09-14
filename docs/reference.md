@@ -10,7 +10,7 @@ This reference manual documents configuration parameters (`settings.yaml`), CLI 
 
 Configuration settings are loaded from `settings.yaml` located in the active work directory (`~/.soloqueue/` by default; overridden by `SOLOQUEUE_WORK_DIR`). Supported settings are hot-reloaded when modified.
 
-### Minimal Configuration Example
+### Configuration Example
 
 ```yaml
 providers:
@@ -42,7 +42,7 @@ model_routes:
   fallback: deepseek:deepseek-v4-flash-thinking
 ```
 
-### Key Configuration Sections
+### Configuration Sections
 
 | Section | Purpose |
 | --- | --- |
@@ -59,7 +59,7 @@ model_routes:
 
 ## 2. CLI Command Reference
 
-The primary binary is `soloqueue`. Run `soloqueue --help` for complete subcommand options.
+The primary binary is `soloqueue`. Run `soloqueue --help` to list registered subcommands and options.
 
 ### `soloqueue serve`
 Starts the HTTP REST, WebSocket, and agent runtime server on `127.0.0.1`.
@@ -130,10 +130,10 @@ Application data resides in `~/.soloqueue/` (or directory specified by `SOLOQUEU
 | `agents/` / `groups/` | User agent templates and team definitions |
 | `skills/` | Installed custom skills |
 
-### Safe Backup Procedure
+### Consistent Backup Procedure
 
 1. Stop the `soloqueue` server process.
-2. Copy the entire work directory (`~/.soloqueue/`) to a secure backup location.
+2. Copy the entire work directory (`~/.soloqueue/`) to a backup location.
 3. Restart the server process.
 
-> **Note**: Always stop the server before copying to ensure SQLite WAL checkpoints complete and timeline JSONL logs are fully flushed.
+> **Note**: Stopping the server before copying allows SQLite WAL checkpoints and timeline JSONL writes to finish before the files are copied.
