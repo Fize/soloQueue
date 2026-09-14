@@ -77,12 +77,13 @@ export function Sidebar({
   useEffect(() => {
     const onChatRoute = location.pathname.startsWith('/chat') || location.pathname === '/new-chat' || location.pathname.startsWith('/agents')
     // auto-expand when on a chat route, but never auto-collapse
-    if (onChatRoute) setChatOpen(true)
-    if (location.pathname.startsWith('/settings')) {
-      setViewMode('settings')
-    } else {
-      setViewMode('nav')
+    if (onChatRoute) {
+      // Navigation opens the chat section when entering a chat route.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setChatOpen(true)
     }
+    // Navigation selects the settings or main navigation view.
+    setViewMode(location.pathname.startsWith('/settings') ? 'settings' : 'nav')
   }, [location.pathname])
 
   const handleNav = (to: string) => {

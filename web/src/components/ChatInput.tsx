@@ -1,5 +1,5 @@
 import { useTranslation } from '@/lib/i18n'
-import { type KeyboardEvent, useRef, useEffect, useLayoutEffect, useCallback, useState, useMemo } from 'react'
+import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import {
@@ -104,6 +104,7 @@ export function ChatInput({
   const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null)
   const [branch, setBranch] = useState<string>('main')
   const [branches, setBranches] = useState<string[]>(['main'])
+  const branchRequestRef = useRef(0)
 
   // Sets for O(1) token-type lookup (used by backdrop highlight)
   const commandSet = useMemo(() => new Set(BUILTIN_SLASH_COMMANDS.map(c => c.label)), [])
@@ -124,7 +125,7 @@ export function ChatInput({
     result = result.replace(/(^|\s)(@\S+)/g, (_m, pre, mention) => {
       const idx = mentionMap.length
       mentionMap.push(mention) // includes @
-      return `${pre}\x01${idx}\x01`
+      return `${pre}\uE000${idx}\uE000`
     })
 
     // 3. Highlight /command or /skill tokens (safe: @ paths already removed)
@@ -139,7 +140,7 @@ export function ChatInput({
     })
 
     // 4. Restore @mentions, highlighting resolved ones in sky-blue
-    result = result.replace(/\x01(\d+)\x01/g, (_m, idxStr) => {
+    result = result.replace(/\uE000(\d+)\uE000/g, (_m, idxStr) => {
       const mention = mentionMap[Number(idxStr)] // includes @
       const label   = mention.slice(1)
       if (atMentions.has(label)) {
@@ -166,6 +167,14 @@ export function ChatInput({
     return Array.from(atMentions.keys()).some(label => inputValue.includes(`@${label}`))
   }, [inputValue, commandSet, skillSet, atMentions])
 
+  function autoResize() {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    const nextHeight = Math.min(el.scrollHeight, 160)
+    el.style.height = nextHeight + 'px'
+  }
+
   // ─── Callbacks for autocomplete component ────────────────────────────────
 
   // Called by autocomplete after it modifies textarea content (e.g. applying a selection)
@@ -191,16 +200,16 @@ export function ChatInput({
   const cwOffset = cwCircum - (cwPct / 100) * cwCircum
 
   // Compute fixed position for dropdown menus (must break out of overflow-x-auto clipping)
-  const computeDropdownPos = useCallback(() => {
-    if (!activeDropdown) return null
-    const ref = activeDropdown === 'group' ? groupRef
-              : activeDropdown === 'project' ? projectRef
+  const computeDropdownPos = useCallback((dropdown = activeDropdown) => {
+    if (!dropdown) return null
+    const ref = dropdown === 'group' ? groupRef
+              : dropdown === 'project' ? projectRef
               : branchRef
     const rect = ref.current?.getBoundingClientRect()
     if (!rect) return null
 
-    const dropdownWidth = activeDropdown === 'project' ? 208
-                        : activeDropdown === 'group' ? 176
+    const dropdownWidth = dropdown === 'project' ? 208
+                        : dropdown === 'group' ? 176
                         : 128
     const margin = 4
     const vw = window.innerWidth
@@ -216,10 +225,6 @@ export function ChatInput({
     }
     return { top: rect.bottom + margin, bottom: undefined, left }
   }, [activeDropdown])
-
-  useLayoutEffect(() => {
-    setDropdownPos(computeDropdownPos())
-  }, [computeDropdownPos])
 
   useEffect(() => {
     if (!activeDropdown) return
@@ -253,23 +258,32 @@ export function ChatInput({
 
   // Fetch branches dynamically based on the selected project path
   useEffect(() => {
-    if (selectedProjectPath && projects.length > 0) {
-      const proj = projects.find((p) => pathsMatch(p.path, selectedProjectPath))
-      if (proj) {
-        getProjectBranches(proj.id)
-          .then((list) => {
+    const requestId = ++branchRequestRef.current
+    let cancelled = false
+    const isCurrent = () => !cancelled && branchRequestRef.current === requestId
+    const updateBranches = async () => {
+      if (selectedProjectPath && projects.length > 0) {
+        const proj = projects.find((p) => pathsMatch(p.path, selectedProjectPath))
+        if (proj) {
+          try {
+            const list = await getProjectBranches(proj.id)
+            if (!isCurrent()) return
             setBranches(list)
-            if (list.length > 0 && !list.includes(branch)) {
-              setBranch(list[0])
+            if (list.length > 0) {
+              setBranch(prev => list.includes(prev) ? prev : list[0])
             }
-          })
-          .catch(() => {
+          } catch {
+            if (!isCurrent()) return
             setBranches(prev => (prev.length === 1 && prev[0] === 'main') ? prev : ['main'])
-          })
+          }
+          return
+        }
       }
-    } else {
+      if (!isCurrent()) return
       setBranches(prev => (prev.length === 1 && prev[0] === 'main') ? prev : ['main'])
     }
+    void updateBranches()
+    return () => { cancelled = true }
   }, [selectedProjectPath, projects])
 
   const filteredProjects = useMemo(() => {
@@ -492,14 +506,6 @@ export function ChatInput({
     }
   }
 
-  const autoResize = () => {
-    const el = inputRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    const nextHeight = Math.min(el.scrollHeight, 160)
-    el.style.height = nextHeight + 'px'
-  }
-
   // Sync backdrop scroll with textarea scroll
   const handleScroll = useCallback(() => {
     if (backdropInnerRef.current && inputRef.current) {
@@ -681,7 +687,9 @@ export function ChatInput({
                         type="button"
                         onClick={() => {
                           if (readOnlySelectors) return
-                          setActiveDropdown(activeDropdown === 'group' ? null : 'group')
+                          const next = activeDropdown === 'group' ? null : 'group'
+                          setDropdownPos(next ? computeDropdownPos(next) : null)
+                          setActiveDropdown(next)
                         }}
                         className={cn(
                           "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors text-muted-foreground/80",
@@ -729,7 +737,9 @@ export function ChatInput({
                             type="button"
                             onClick={() => {
                               if (readOnlySelectors) return
-                              setActiveDropdown(activeDropdown === 'project' ? null : 'project')
+                              const next = activeDropdown === 'project' ? null : 'project'
+                              setDropdownPos(next ? computeDropdownPos(next) : null)
+                              setActiveDropdown(next)
                             }}
                             className={cn(
                               "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors text-muted-foreground/80",
@@ -792,7 +802,9 @@ export function ChatInput({
                             type="button"
                             onClick={() => {
                               if (readOnlySelectors) return
-                              setActiveDropdown(activeDropdown === 'branch' ? null : 'branch')
+                              const next = activeDropdown === 'branch' ? null : 'branch'
+                              setDropdownPos(next ? computeDropdownPos(next) : null)
+                              setActiveDropdown(next)
                             }}
                             className={cn(
                               "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors text-muted-foreground/80",

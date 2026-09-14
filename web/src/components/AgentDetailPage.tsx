@@ -137,36 +137,29 @@ export function AgentDetailPage() {
     agent?.state === 'processing' || (stream && (stream.segments.length > 0 || stream.error))
 
   // Editing state
-  const [localSoul, setLocalSoul] = useState('')
-  const [localRules, setLocalRules] = useState('')
   const [activeTab, setActiveTab] = useState(isL1 ? 'soul' : 'status')
-
-  // Load profile values
-  useEffect(() => {
-    if (profile) {
-      setLocalSoul(profile.soul || '')
-      setLocalRules(profile.rules || '')
-    }
-  }, [profile])
+  const localSoul = profile?.soul || ''
+  const localRules = profile?.rules || ''
 
   // Auto-select best default tab
   useEffect(() => {
-    // URL ?tab= parameter takes priority
     const tabParam = searchParams.get('tab')
+    let nextTab: typeof activeTab
     if (
       tabParam &&
       ['output', 'status', 'details', 'config', 'prompt', 'soul', 'rules'].includes(tabParam)
     ) {
-      setActiveTab(tabParam as typeof activeTab)
-      return
-    }
-    if (hasAgent && agent.state === 'processing') {
-      setActiveTab('output')
+      nextTab = tabParam as typeof activeTab
+    } else if (hasAgent && agent.state === 'processing') {
+      nextTab = 'output'
     } else if (isL1) {
-      setActiveTab('soul')
+      nextTab = 'soul'
     } else {
-      setActiveTab(hasAgent ? 'status' : 'config')
+      nextTab = hasAgent ? 'status' : 'config'
     }
+    // Route and agent state determine the default tab when this page changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveTab(nextTab)
   }, [searchParams, hasAgent, agent?.state, isL1])
 
   const fmtTokens = (v: number) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { ChevronDown, Loader2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SegmentView } from './SegmentView'
@@ -29,20 +29,10 @@ export function DelegationGroupView({
 
   const [isExpanded, setIsExpanded] = useState(isRunning)
   const [userToggled, setUserToggled] = useState(false)
-  const previousRunningRef = useRef<boolean>(isRunning)
-
-  useEffect(() => {
-    // If we transition from running (true) to done (false), and the user hasn't manually opened/closed it, auto collapse.
-    if (previousRunningRef.current === true && isRunning === false) {
-      if (!userToggled) {
-        setIsExpanded(false)
-      }
-    }
-    previousRunningRef.current = isRunning
-  }, [isRunning, userToggled])
+  const expanded = isExpanded && (isRunning || userToggled)
 
   const handleToggle = () => {
-    setIsExpanded(!isExpanded)
+    setIsExpanded(!expanded)
     setUserToggled(true)
     onUserInteraction?.()
   }
@@ -56,7 +46,7 @@ export function DelegationGroupView({
         onClick={handleToggle}
         className={cn(
           'w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-muted/40 outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
-          isExpanded ? 'border-b border-border/40 bg-muted/20' : ''
+          expanded ? 'border-b border-border/40 bg-muted/20' : ''
         )}
       >
         <div className="flex items-center gap-2.5">
@@ -70,12 +60,12 @@ export function DelegationGroupView({
         <ChevronDown
           className={cn(
             'h-4 w-4 text-muted-foreground/50 transition-transform duration-200',
-            isExpanded ? 'rotate-180' : ''
+            expanded ? 'rotate-180' : ''
           )}
         />
       </button>
 
-      {isExpanded && (
+      {expanded && (
         <div className="p-1.5 bg-muted/10">
           {group.segments.map((s) => (
             <SegmentView

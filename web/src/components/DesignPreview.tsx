@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { injectSelectionBridge } from '@/utils/iframeBridge';
 import { DrawOverlay } from './ui/DrawOverlay';
 import { ArrowLeft, ArrowRight, RotateCcw, Home, Monitor, Smartphone, Tablet, ChevronDown, Check, X } from 'lucide-react';
@@ -92,6 +92,23 @@ export function DesignPreview({
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
   const deviceDropdownRef = useRef<HTMLDivElement>(null);
+  const [deviceDropdownPos, setDeviceDropdownPos] = useState<{ top: number; left: number } | null>(null);
+
+  const updateDeviceDropdownPos = useCallback(() => {
+    const rect = deviceDropdownRef.current?.getBoundingClientRect();
+    if (rect) setDeviceDropdownPos({ top: rect.bottom + 4, left: rect.left });
+  }, []);
+
+  useEffect(() => {
+    if (!showDeviceDropdown) return;
+    updateDeviceDropdownPos();
+    window.addEventListener('resize', updateDeviceDropdownPos);
+    window.addEventListener('scroll', updateDeviceDropdownPos, true);
+    return () => {
+      window.removeEventListener('resize', updateDeviceDropdownPos);
+      window.removeEventListener('scroll', updateDeviceDropdownPos, true);
+    };
+  }, [showDeviceDropdown, updateDeviceDropdownPos]);
 
   // Close device dropdown when clicking outside
   useEffect(() => {
@@ -111,14 +128,16 @@ export function DesignPreview({
 
   // Reset scrollOffset when srcDoc changes (iframe reloads)
   useEffect(() => {
+    // A new document resets the iframe's scroll position.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setScrollOffset({ x: 0, y: 0 });
   }, [srcDoc]);
 
-  const getIframeMode = () => {
+  const getIframeMode = useCallback(() => {
     if (mode === 'draw') return 'pod';
     if (mode === 'click') return 'picker';
     return 'interact';
-  };
+  }, [mode]);
 
   useEffect(() => {
     const iframeWindow = iframeRef.current?.contentWindow;
@@ -132,7 +151,7 @@ export function DesignPreview({
         console.error('Failed to post mode to iframe', e);
       }
     }
-  }, [mode, srcDoc]);
+  }, [getIframeMode, srcDoc]);
 
   useEffect(() => {
     const handleMessage = (ev: MessageEvent) => {
@@ -225,7 +244,7 @@ export function DesignPreview({
         <div className="w-px h-4 bg-border/40 mx-1" />
         <div className="relative shrink-0" ref={deviceDropdownRef} onMouseDown={(e) => e.stopPropagation()}>
           <button
-            onClick={(e) => { e.stopPropagation(); setShowDeviceDropdown(!showDeviceDropdown); }}
+            onClick={(e) => { e.stopPropagation(); if (!showDeviceDropdown) updateDeviceDropdownPos(); setShowDeviceDropdown(!showDeviceDropdown); }}
             onMouseDown={(e) => e.stopPropagation()}
             className={cn(
               "flex items-center gap-1 px-2 h-7 rounded text-xs font-medium transition-colors cursor-pointer",
@@ -250,11 +269,7 @@ export function DesignPreview({
           {showDeviceDropdown && (
             <div
               className="fixed z-[100] mt-1 w-56 rounded-xl border border-border/40 bg-background shadow-xl overflow-hidden"
-              style={(() => {
-                const rect = deviceDropdownRef.current?.getBoundingClientRect();
-                if (!rect) return {};
-                return { top: rect.bottom + 4, left: rect.left };
-              })()}
+              style={deviceDropdownPos ? { top: deviceDropdownPos.top, left: deviceDropdownPos.left } : undefined}
             >
               <div className="max-h-72 overflow-y-auto py-1">
                 {DEVICE_GROUPS.map((group) => {

@@ -55,6 +55,8 @@ export function ModelsTab() {
   }
 
   useEffect(() => {
+    // Initial model load synchronizes local state from the API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData()
   }, [])
 

@@ -81,15 +81,6 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
     setSelectedPath(null)
   }, [])
 
-  // Load root on mount / projectPath change
-  useEffect(() => {
-    if (!projectPath) return
-    deselectFile()
-    setExpanded({ [projectPath]: true })
-    loadNode(projectPath)
-    setChildren({})
-  }, [projectPath])
-
   const loadNode = useCallback(async (path: string) => {
     setLoadingNodes((prev) => ({ ...prev, [path]: true }))
     try {
@@ -103,11 +94,22 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
       }))
       setChildren((prev) => ({ ...prev, [path]: nodes }))
     } catch {
-      /* ignore */
+      /* file listing failures are shown as an empty node */
     } finally {
       setLoadingNodes((prev) => ({ ...prev, [path]: false }))
     }
   }, [])
+
+  // Load root on mount / projectPath change
+  useEffect(() => {
+    if (!projectPath) return
+    // A project switch resets the tree selection before loading its root.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    deselectFile()
+    setExpanded({ [projectPath]: true })
+    setChildren({})
+    loadNode(projectPath)
+  }, [projectPath, deselectFile, loadNode])
 
   const toggleNode = useCallback(
     async (node: TreeNode) => {
@@ -219,6 +221,7 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
         </div>
         <div className="flex-1 min-w-0 overflow-hidden">
           <FileContentView
+            key={selectedPath}
             path={selectedPath}
             onError={deselectFile}
           />
@@ -239,6 +242,7 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
             <DialogTitle className="sr-only">{t('common.preview')}</DialogTitle>
             <div className="flex-1 min-h-0 overflow-hidden">
               <FileContentView
+                key={selectedPath}
                 path={selectedPath}
                 onError={handleError}
                 onClose={() => setModalOpen(false)}

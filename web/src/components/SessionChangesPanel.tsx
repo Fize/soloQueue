@@ -143,7 +143,9 @@ export function SessionChangesPanel({ sessionId }: SessionChangesPanelProps) {
   );
 
   useEffect(() => {
-    fetchChanges();
+    // Initial diff load synchronizes local state from the session API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchChanges()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 

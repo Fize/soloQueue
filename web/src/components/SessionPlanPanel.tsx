@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2, FileText } from "lucide-react";
 import { readFile, toggleFileCheckbox } from "@/lib/api";
 import { MarkdownPreview } from "@/components/ui/markdown-preview";
@@ -15,39 +15,48 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const { t } = useTranslation();
-
-  // Sync selected plan if plans list changes and current selection is no longer in the list
-  useEffect(() => {
-    if (plans.length > 0 && !plans.includes(selectedPlan)) {
-      setSelectedPlan(plans[0]);
-    }
-  }, [plans, selectedPlan]);
+  const effectiveSelectedPlan = plans.includes(selectedPlan) ? selectedPlan : (plans[0] || "");
+  const planRequestRef = useRef(0);
 
   const loadPlanContent = useCallback(async (path: string, showSpinner = true) => {
+    const requestId = ++planRequestRef.current;
     if (showSpinner) setLoading(true);
     setError("");
     try {
       const text = await readFile(path);
+      if (requestId !== planRequestRef.current) return;
       setContent(text);
     } catch (err) {
+      if (requestId !== planRequestRef.current) return;
       setError(err instanceof Error ? err.message : t('common.error'));
     } finally {
-      if (showSpinner) setLoading(false);
+      if (showSpinner && requestId === planRequestRef.current) setLoading(false);
     }
   }, [t]);
 
   useEffect(() => {
-    if (selectedPlan) {
-      loadPlanContent(selectedPlan, true);
+    if (!effectiveSelectedPlan) {
+      planRequestRef.current += 1
+      return
     }
-  }, [selectedPlan, loadPlanContent]);
+    // Plan content is loaded when the selected plan changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadPlanContent(effectiveSelectedPlan, true)
+  }, [effectiveSelectedPlan, loadPlanContent]);
+
+  useEffect(() => () => {
+    planRequestRef.current += 1
+  }, []);
 
   const handleToggleCheckbox = async (index: number) => {
-    if (!selectedPlan) return;
+    if (!effectiveSelectedPlan) return;
+    const requestId = planRequestRef.current;
     try {
-      await toggleFileCheckbox(selectedPlan, index);
+      await toggleFileCheckbox(effectiveSelectedPlan, index);
+      // A plan switch starts a newer request; do not reload the old plan.
+      if (requestId !== planRequestRef.current) return;
       // Reload content without showing the full page loader for smooth micro-interaction
-      await loadPlanContent(selectedPlan, false);
+      await loadPlanContent(effectiveSelectedPlan, false);
     } catch (err) {
       console.error("Failed to toggle checkbox:", err);
     }
@@ -81,7 +90,7 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
             {plans.map((p) => {
               const parts = p.split(/[/\\]/);
               const basename = parts[parts.length - 1];
-              const isSelected = p === selectedPlan;
+              const isSelected = p === effectiveSelectedPlan;
               return (
                 <button
                   key={p}
@@ -112,7 +121,7 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
           <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
             <p className="text-xs text-destructive max-w-xs break-all">{error}</p>
             <button
-              onClick={() => loadPlanContent(selectedPlan, true)}
+              onClick={() => loadPlanContent(effectiveSelectedPlan, true)}
               className="px-3 py-1.5 rounded bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors cursor-pointer"
             >
               {t('chat.retry')}
@@ -122,14 +131,14 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
           <div className="space-y-4">
             {/* Display plan path */}
             <div className="p-2 rounded bg-muted/30 border border-border/20 text-[10px] font-mono text-muted-foreground/80 break-all select-all">
-              {t('chat.path')} {selectedPlan}
+              {t('chat.path')} {effectiveSelectedPlan}
             </div>
 
             {/* Render Plan Markdown */}
             <div className="prose dark:prose-invert prose-xs max-w-none">
               <MarkdownPreview
                 content={content}
-                basePath={selectedPlan}
+                basePath={effectiveSelectedPlan}
                 onToggleCheckbox={handleToggleCheckbox}
               />
             </div>

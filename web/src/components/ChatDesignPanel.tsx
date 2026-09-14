@@ -107,18 +107,18 @@ export function ChatDesignPanel({
   });
   const setActiveTab = useCallback((tab: string) => {
     setActiveTabRaw(tab);
-    try { localStorage.setItem(ACTIVE_TAB_KEY, tab); } catch {}
+    try { localStorage.setItem(ACTIVE_TAB_KEY, tab); } catch { /* storage is optional */ }
   }, []);
 
   const [designMode, setDesignModeState] = useState<'click' | 'draw' | 'interact'>(() => {
     try {
       const saved = localStorage.getItem(DESIGN_SUBMODE_KEY);
       if (saved === 'click' || saved === 'draw' || saved === 'interact') return saved;
-    } catch {}
+    } catch { /* storage is optional */ }
     return 'click';
   });
   useEffect(() => {
-    try { localStorage.setItem(DESIGN_SUBMODE_KEY, designMode); } catch {}
+    try { localStorage.setItem(DESIGN_SUBMODE_KEY, designMode); } catch { /* storage is optional */ }
   }, [designMode]);
 
   const [currentColor, setCurrentColor] = useState<string>("#ef4444");
@@ -133,11 +133,28 @@ export function ChatDesignPanel({
     try {
       const raw = localStorage.getItem(CLOSED_TABS_KEY);
       if (raw) return new Set(JSON.parse(raw));
-    } catch {}
+    } catch { /* storage is optional */ }
     return new Set<string>();
   });
   const [showFileDropdown, setShowFileDropdown] = useState(false);
   const fileDropdownRef = useRef<HTMLDivElement>(null);
+  const [fileDropdownPos, setFileDropdownPos] = useState<{ top: number; left: number } | null>(null);
+
+  const updateFileDropdownPos = useCallback(() => {
+    const rect = fileDropdownRef.current?.getBoundingClientRect();
+    if (rect) setFileDropdownPos({ top: rect.bottom + 4, left: rect.right - 224 });
+  }, []);
+
+  useEffect(() => {
+    if (!showFileDropdown) return;
+    updateFileDropdownPos();
+    window.addEventListener('resize', updateFileDropdownPos);
+    window.addEventListener('scroll', updateFileDropdownPos, true);
+    return () => {
+      window.removeEventListener('resize', updateFileDropdownPos);
+      window.removeEventListener('scroll', updateFileDropdownPos, true);
+    };
+  }, [showFileDropdown, updateFileDropdownPos]);
 
   const hasAutoSavedSketch = useRef(false);
 
@@ -149,7 +166,7 @@ export function ChatDesignPanel({
   // ── Persist closedTabs ────────────────────────────────────────────────────
 
   useEffect(() => {
-    try { localStorage.setItem(CLOSED_TABS_KEY, JSON.stringify([...closedTabs])); } catch {}
+    try { localStorage.setItem(CLOSED_TABS_KEY, JSON.stringify([...closedTabs])); } catch { /* storage is optional */ }
   }, [closedTabs]);
 
   // ── Click outside file dropdown ───────────────────────────────────────────
@@ -216,7 +233,7 @@ export function ChatDesignPanel({
             if (health.work_dir) {
               designDir = `${health.work_dir}/workspace/${group}/design`;
             }
-          } catch {}
+          } catch { /* health endpoint may be unavailable */ }
         }
       }
       if (designDir) {
@@ -274,10 +291,7 @@ export function ChatDesignPanel({
   // ── Load design files listing ─────────────────────────────────────────────
 
   useEffect(() => {
-    if (!isDesignMode) {
-      setDesignFiles([]);
-      return;
-    }
+    if (!isDesignMode) return;
     const session = activeSession;
     let cancelled = false;
     async function loadFiles() {
@@ -335,15 +349,7 @@ export function ChatDesignPanel({
   // ── Load HTML for design preview ──────────────────────────────────────────
 
   useEffect(() => {
-    if (!isDesignMode) {
-      setDesignHtmlContent(null);
-      return;
-    }
-    if (activeTab === 'sketch') {
-      setDesignHtmlContent(null);
-      setStrokes([]);
-      return;
-    }
+    if (!isDesignMode || activeTab === 'sketch') return;
     let cancelled = false;
     async function fetchHtml() {
       try {
@@ -468,6 +474,7 @@ export function ChatDesignPanel({
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                if (!showFileDropdown) updateFileDropdownPos();
                 setShowFileDropdown(!showFileDropdown);
               }}
               className={cn(
@@ -487,14 +494,7 @@ export function ChatDesignPanel({
             {showFileDropdown && (
               <div
                 className="fixed z-[100] mt-1 w-56 rounded-xl border border-border/40 bg-background shadow-xl overflow-hidden"
-                style={(() => {
-                  const rect = fileDropdownRef.current?.getBoundingClientRect();
-                  if (!rect) return {};
-                  return {
-                    top: rect.bottom + 4,
-                    left: rect.right - 224,
-                  };
-                })()}
+                style={fileDropdownPos ? { top: fileDropdownPos.top, left: fileDropdownPos.left } : undefined}
               >
                 <div className="max-h-64 overflow-y-auto py-1">
                   {designFiles.map((file) => {

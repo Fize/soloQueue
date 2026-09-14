@@ -1,5 +1,5 @@
 import { useTranslation } from '@/lib/i18n'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { getFileUrl, readFileBytes, toggleFileCheckbox } from '@/lib/api'
@@ -46,23 +46,11 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
   const [designMode, setDesignMode] = useState<'click' | 'draw' | 'interact'>('interact')
   const [selectedTarget, setSelectedTarget] = useState<PreviewCommentSnapshot | null>(null)
 
-  // Use a ref so we can call the latest onError without adding it to the
-  // effect dependency array (avoiding re-fetch when the parent re-renders).
-  const onErrorRef = useRef(onError)
-  onErrorRef.current = onError
-
   useEffect(() => {
-    if (!path) {
-      setContent(null)
-      setError(null)
-      return
-    }
+    let cancelled = false
+    if (!path) return
 
     const ext = getExt(path)
-    // Reset view mode when switching files
-    setViewMode('preview')
-    setDesignMode('interact')
-    setSelectedTarget(null)
 
     if (
       imageExtensions.includes(ext) ||
@@ -70,16 +58,16 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
       videoExtensions.includes(ext) ||
       isBinaryFile(path)
     ) {
-      setContent(null)
-      setError(null)
-      setLoading(false)
       return
     }
 
+    // Text content is loaded asynchronously after a file selection.
+    // The loading indicator must be visible before the request resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
-    setError(null)
     readFileBytes(path)
       .then((buf) => {
+        if (cancelled) return
         // Content-based binary detection: if the file contains NUL bytes it
         // is binary regardless of extension. Prevents freezing the renderer.
         if (looksBinary(buf)) {
@@ -93,11 +81,13 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
         setLoading(false)
       })
       .catch((err) => {
-        setError(err.message)
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : String(err))
         setLoading(false)
-        onErrorRef.current?.(path)
+        onError?.(path)
       })
-  }, [path, refreshKey])
+    return () => { cancelled = true }
+  }, [path, refreshKey, onError])
 
   if (!path) {
     return (
@@ -336,6 +326,10 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
                     if (!path) return
                     try {
                       await toggleFileCheckbox(path, index)
+                      setError(null)
+                      setViewMode('preview')
+                      setDesignMode('interact')
+                      setSelectedTarget(null)
                       setRefreshKey((k) => k + 1)
                     } catch (err) {
                       console.error('Failed to toggle checkbox:', err)

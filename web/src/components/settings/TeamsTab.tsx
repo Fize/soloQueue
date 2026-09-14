@@ -88,6 +88,11 @@ function MultiSelect({ label, placeholder, options, selected, onChange, builtinN
     }
   }
 
+  const updateDropdownPos = useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (rect) setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+  }, [])
+
   // Close dropdown when clicking outside both the container AND the portaled dropdown
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -104,23 +109,14 @@ function MultiSelect({ label, placeholder, options, selected, onChange, builtinN
   }, [])
 
   useEffect(() => {
-    if (!isOpen || !containerRef.current) {
-      setDropdownPos(null)
-      return
-    }
-    const updatePos = () => {
-      if (!containerRef.current) return
-      const rect = containerRef.current.getBoundingClientRect()
-      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
-    }
-    updatePos()
-    window.addEventListener('scroll', updatePos, true)
-    window.addEventListener('resize', updatePos)
+    if (!isOpen) return
+    window.addEventListener('scroll', updateDropdownPos, true)
+    window.addEventListener('resize', updateDropdownPos)
     return () => {
-      window.removeEventListener('scroll', updatePos, true)
-      window.removeEventListener('resize', updatePos)
+      window.removeEventListener('scroll', updateDropdownPos, true)
+      window.removeEventListener('resize', updateDropdownPos)
     }
-  }, [isOpen])
+  }, [isOpen, updateDropdownPos])
 
   const filteredOptions = options.filter(
     opt => opt.toLowerCase().includes(search.toLowerCase()) && !selected.includes(opt)
@@ -189,9 +185,13 @@ function MultiSelect({ label, placeholder, options, selected, onChange, builtinN
           value={search}
           onChange={e => {
             setSearch(e.target.value)
+            updateDropdownPos()
             setIsOpen(true)
           }}
-          onFocus={() => setIsOpen(true)}
+          onFocus={() => {
+            updateDropdownPos()
+            setIsOpen(true)
+          }}
           onKeyDown={handleKeyDown}
           className="flex-1 bg-transparent border-0 outline-none placeholder:text-muted-foreground min-w-[80px] p-0 text-xs text-foreground focus:ring-0 focus:outline-none"
         />
@@ -211,12 +211,12 @@ interface TeamDialogProps {
 }
 
 function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [skillIds, setSkillIds] = useState<string[]>([])
+  const [name, setName] = useState(() => editTeam?.name || '')
+  const [description, setDescription] = useState(() => editTeam?.description || '')
+  const [skillIds, setSkillIds] = useState<string[]>(() => editTeam?.skill_ids || [])
   const [skillOptions, setSkillOptions] = useState<string[]>([])
-  const [skillsConfigured, setSkillsConfigured] = useState(false)
-  const [descTab, setDescTab] = useState<'edit' | 'preview'>('edit')
+  const [skillsConfigured, setSkillsConfigured] = useState(() => editTeam?.skills_configured ?? true)
+  const [descTab, setDescTab] = useState<'edit' | 'preview'>(() => editTeam ? 'preview' : 'edit')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { t } = useTranslation()
@@ -224,26 +224,11 @@ function TeamDialog({ open, onOpenChange, onSave, editTeam }: TeamDialogProps) {
   const isEdit = !!editTeam
 
   useEffect(() => {
-    if (open) {
-      if (editTeam) {
-        setName(editTeam.name)
-        setDescription(editTeam.description || '')
-        setSkillIds(editTeam.skill_ids || [])
-        setSkillsConfigured(editTeam.skills_configured ?? false)
-        setDescTab('preview')
-      } else {
-        setName('')
-        setDescription('')
-        setSkillIds([])
-        setSkillsConfigured(true)
-        setDescTab('edit')
-      }
-      setError(null)
-      getSkills()
-        .then((res) => setSkillOptions(res.skills.map((s) => s.id)))
-        .catch(console.error)
-    }
-  }, [open, editTeam])
+    if (!open) return
+    getSkills()
+      .then((res) => setSkillOptions(res.skills.map((s) => s.id)))
+      .catch(console.error)
+  }, [open])
 
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
@@ -415,17 +400,17 @@ interface AgentDialogProps {
 }
 
 function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDialogProps) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [teamName, setTeamName] = useState('')
-  const [isLeader, setIsLeader] = useState(false)
-  const [model, setModel] = useState('')
-  const [systemPrompt, setSystemPrompt] = useState('')
-  const [mcpServers, setMcpServers] = useState<string[]>([])
-  const [qqChannel, setQqChannel] = useState('')
-  const [wechatChannel, setWechatChannel] = useState('')
-  const [telegramChannel, setTelegramChannel] = useState('')
-  const [notifyChannel, setNotifyChannel] = useState('')
+  const [name, setName] = useState(() => editAgent?.name || '')
+  const [description, setDescription] = useState(() => editAgent?.description || '')
+  const [teamName, setTeamName] = useState(() => editAgent?.team_name || teams[0]?.name || '')
+  const [isLeader, setIsLeader] = useState(() => editAgent?.is_leader || false)
+  const [model, setModel] = useState(() => editAgent?.model || '')
+  const [systemPrompt, setSystemPrompt] = useState(() => editAgent?.system_prompt || '')
+  const [mcpServers, setMcpServers] = useState<string[]>(() => editAgent?.mcp_servers || [])
+  const [qqChannel, setQqChannel] = useState(() => editAgent?.channels?.qq || '')
+  const [wechatChannel, setWechatChannel] = useState(() => editAgent?.channels?.wechat || '')
+  const [telegramChannel, setTelegramChannel] = useState(() => editAgent?.channels?.telegram || '')
+  const [notifyChannel, setNotifyChannel] = useState(() => editAgent?.notify_channel || '')
   const [qqBotOptions, setQqBotOptions] = useState<{ id: string; name: string; bind_agent?: string }[]>([])
   const [wechatBotOptions, setWechatBotOptions] = useState<{ id: string; name: string; bind_agent?: string }[]>([])
   const [telegramBotOptions, setTelegramBotOptions] = useState<{ id: string; name: string; username?: string; bind_agent?: string }[]>([])
@@ -445,61 +430,24 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const isEdit = !!editAgent
 
   useEffect(() => {
-    if (open) {
-      setPromptTab('preview')
-      setSelectedProviderFilter('all')
-      if (editAgent) {
-        setName(editAgent.name)
-        setDescription(editAgent.description || '')
-        setTeamName(editAgent.team_name || '')
-        setIsLeader(editAgent.is_leader)
-        setModel(editAgent.model || '')
-        setSystemPrompt(editAgent.system_prompt || '')
-        setMcpServers(editAgent.mcp_servers || [])
-        const channels = editAgent.channels || {}
-        setQqChannel(channels.qq || '')
-        setWechatChannel(channels.wechat || '')
-        setTelegramChannel(channels.telegram || '')
-        setNotifyChannel(editAgent.notify_channel || '')
-      } else {
-        setName('')
-        setDescription('')
-        setTeamName(teams[0]?.name || '')
-        setIsLeader(false)
-        setModel('')
-        setSystemPrompt('')
-        setMcpServers([])
-        setQqChannel('')
-        setWechatChannel('')
-        setTelegramChannel('')
-        setNotifyChannel('')
-      }
-      setError(null)
-
-      // Fetch autocomplete options
-      getAvailableMCPServers()
-        .then((res) => {
-          setMcpOptions(res.servers.map(s => ({ name: s.name, source: s.source, command: s.command })))
-          setBuiltinMCPNames(new Set(res.servers.filter(s => s.source === 'builtin').map(s => s.name)))
-        })
-        .catch(console.error)
-
-      listModels()
-        .then(setModelOptions)
-        .catch(console.error)
-
-      getQQBotsConfig()
-        .then((bots) => setQqBotOptions(bots.map(b => ({ id: b.id || '', name: b.name || '', bind_agent: b.bind_agent }))))
-        .catch(console.error)
-
-      getWeChatBotsConfig()
-        .then((bots) => setWechatBotOptions(bots.map(b => ({ id: b.id, name: b.name, bind_agent: b.bind_agent }))))
-        .catch(console.error)
-      getTelegramBotsConfig()
-        .then((bots) => setTelegramBotOptions(bots.map(b => ({ id: b.id, name: b.name, username: b.username, bind_agent: b.bind_agent }))))
-        .catch(console.error)
-    }
-  }, [open, editAgent, teams])
+    if (!open) return
+    getAvailableMCPServers()
+      .then((res) => {
+        setMcpOptions(res.servers.map(s => ({ name: s.name, source: s.source, command: s.command })))
+        setBuiltinMCPNames(new Set(res.servers.filter(s => s.source === 'builtin').map(s => s.name)))
+      })
+      .catch(console.error)
+    listModels().then(setModelOptions).catch(console.error)
+    getQQBotsConfig()
+      .then((bots) => setQqBotOptions(bots.map(b => ({ id: b.id || '', name: b.name || '', bind_agent: b.bind_agent }))))
+      .catch(console.error)
+    getWeChatBotsConfig()
+      .then((bots) => setWechatBotOptions(bots.map(b => ({ id: b.id, name: b.name, bind_agent: b.bind_agent }))))
+      .catch(console.error)
+    getTelegramBotsConfig()
+      .then((bots) => setTelegramBotOptions(bots.map(b => ({ id: b.id, name: b.name, username: b.username, bind_agent: b.bind_agent }))))
+      .catch(console.error)
+  }, [open])
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -973,6 +921,8 @@ export default function TeamsTab() {
   }, [t])
 
   useEffect(() => {
+    // Initial team/agent load synchronizes local state from the API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData()
   }, [fetchData])
 
@@ -1243,6 +1193,7 @@ export default function TeamsTab() {
 
       {/* ── Dialogs ────────────────────────────────────────────────────── */}
       <TeamDialog
+        key={`${teamDialogOpen}:${editingTeam?.name || 'new'}`}
         open={teamDialogOpen}
         onOpenChange={setTeamDialogOpen}
         onSave={handleTeamSaved}
@@ -1250,6 +1201,7 @@ export default function TeamsTab() {
       />
 
       <AgentDialog
+        key={`${agentDialogOpen}:${editingAgent?.id || 'new'}`}
         open={agentDialogOpen}
         onOpenChange={setAgentDialogOpen}
         onSave={handleAgentSaved}

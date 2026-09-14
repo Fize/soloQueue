@@ -1,5 +1,5 @@
 import { useTranslation } from '@/lib/i18n'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import type { RefObject } from 'react'
 import type { AgentStreamState, Segment } from '@/types'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
@@ -148,16 +148,7 @@ function StreamDelegationGroup({ group }: { group: { segment: Segment; index: nu
   const isRunning = group.some(s => s.segment.type === 'tool_call' && !s.segment.done)
   const [isExpanded, setIsExpanded] = useState(isRunning)
   const [userToggled, setUserToggled] = useState(false)
-  const previousRunningRef = useRef<boolean>(isRunning)
-
-  useEffect(() => {
-    if (previousRunningRef.current === true && isRunning === false) {
-      if (!userToggled) {
-        setIsExpanded(false)
-      }
-    }
-    previousRunningRef.current = isRunning
-  }, [isRunning, userToggled])
+  const expanded = isExpanded && (isRunning || userToggled)
 
   const numTasks = group.length
   const title = `Delegated ${numTasks} task${numTasks !== 1 ? 's' : ''}...`
@@ -166,12 +157,12 @@ function StreamDelegationGroup({ group }: { group: { segment: Segment; index: nu
     <div className="my-2 rounded-[12px] border border-border/40 bg-card overflow-hidden">
       <button
         onClick={() => {
-          setIsExpanded(!isExpanded)
+          setIsExpanded(!expanded)
           setUserToggled(true)
         }}
         className={cn(
           'w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-muted/40 outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
-          isExpanded ? 'border-b border-border/40 bg-muted/20' : ''
+          expanded ? 'border-b border-border/40 bg-muted/20' : ''
         )}
       >
         <div className="flex items-center gap-2.5">
@@ -185,12 +176,12 @@ function StreamDelegationGroup({ group }: { group: { segment: Segment; index: nu
         <ChevronDown
           className={cn(
             'h-4 w-4 text-muted-foreground/50 transition-transform duration-200',
-            isExpanded ? 'rotate-180' : ''
+            expanded ? 'rotate-180' : ''
           )}
         />
       </button>
 
-      {isExpanded && (
+      {expanded && (
         <div className="p-1.5 bg-muted/10">
           {group.map((s) => {
              const seg = s.segment

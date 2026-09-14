@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { listCronHistory, getCronHistory } from '@/lib/api'
 import type { CronTask, CronExecutionRecord, CronHistoryDetail, TimelineEvent } from '@/types'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -391,30 +391,59 @@ export function CronHistoryDialog({ open, task, onClose }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<CronHistoryDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const historyRequestRef = useRef(0)
+  const detailRequestRef = useRef(0)
 
   useEffect(() => {
-    if (!open || !task) return
-    setLoading(true)
-    setSelectedId(null)
-    setDetail(null)
-    listCronHistory(task.id, { limit: 50 })
-      .then((data) => {
+    let cancelled = false
+    const historyRequestId = ++historyRequestRef.current
+    // Invalidate detail requests from the previous task or dialog instance.
+    detailRequestRef.current += 1
+    const loadHistory = async () => {
+      if (!open || !task) return
+      setLoading(true)
+      setSelectedId(null)
+      setDetail(null)
+      try {
+        const data = await listCronHistory(task.id, { limit: 50 })
+        if (cancelled || historyRequestId !== historyRequestRef.current) return
         setRecords(data)
         if (data.length > 0) {
           setSelectedId(data[0].id)
           loadDetail(task.id, data[0].id)
         }
-      })
-      .catch((err) => toast.error(`${t('cron.loadHistoryFailed')}: ${err.message}`))
-      .finally(() => setLoading(false))
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : String(err)
+          toast.error(`${t('cron.loadHistoryFailed')}: ${message}`)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void loadHistory()
+    return () => {
+      cancelled = true
+      historyRequestRef.current += 1
+      detailRequestRef.current += 1
+    }
   }, [open, task?.id])
 
   function loadDetail(taskId: string, execId: string) {
+    const requestId = ++detailRequestRef.current
     setDetailLoading(true)
     getCronHistory(taskId, execId)
-      .then(setDetail)
-      .catch((err) => toast.error(`${t('cron.loadDetailFailed')}: ${err.message}`))
-      .finally(() => setDetailLoading(false))
+      .then((nextDetail) => {
+        if (requestId === detailRequestRef.current) setDetail(nextDetail)
+      })
+      .catch((err) => {
+        if (requestId === detailRequestRef.current) {
+          toast.error(`${t('cron.loadDetailFailed')}: ${err.message}`)
+        }
+      })
+      .finally(() => {
+        if (requestId === detailRequestRef.current) setDetailLoading(false)
+      })
   }
 
   function handleSelect(record: CronExecutionRecord) {

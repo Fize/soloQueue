@@ -236,6 +236,8 @@ export function ChatPage() {
   // Safety check: redirect away from plan tab if plans list becomes empty
   useEffect(() => {
     if (inspectorTab === "plan" && (!activeSession?.plans || activeSession.plans.length === 0)) {
+      // Keep the inspector on an available tab when the plan list disappears.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInspectorTab("files");
     }
   }, [activeSession?.plans, inspectorTab]);
@@ -243,6 +245,8 @@ export function ChatPage() {
   // Sync selectors from active session when session changes
   useEffect(() => {
     if (activeSession) {
+      // Session changes restore the session's saved selectors.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedGroup(activeSession.group || "");
       setSelectedProjectPath(activeSession.project_path || "");
     }
@@ -269,10 +273,13 @@ export function ChatPage() {
   // Sync selected group and project path when active session data changes
   useEffect(() => {
     if (hasActiveSession) {
+      // Session data changes restore the current session's selectors.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedGroup(activeGroup || "");
       setSelectedProjectPath(activeProjectPath || "");
     } else {
       if (l2Groups.length > 0) {
+        // The first available group is the fallback for a session without data.
         setSelectedGroup(l2Groups[0]);
       }
       setSelectedProjectPath("");

@@ -26,9 +26,9 @@ interface ProjectDialogProps {
 }
 
 function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialogProps) {
-  const [name, setName] = useState('')
-  const [path, setPath] = useState('')
-  const [description, setDescription] = useState('')
+  const [name, setName] = useState(() => editProject?.name || '')
+  const [path, setPath] = useState(() => editProject?.path || '')
+  const [description, setDescription] = useState(() => editProject?.description || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { t } = useTranslation()
@@ -37,21 +37,6 @@ function ProjectDialog({ open, onOpenChange, onSave, editProject }: ProjectDialo
 
   // Auto-derive slug from name; only user-editable for new projects
   const derivedId = name.trim().toLowerCase().replace(/\s+/g, '-')
-
-  useEffect(() => {
-    if (open) {
-      if (editProject) {
-        setName(editProject.name)
-        setPath(editProject.path)
-        setDescription(editProject.description || '')
-      } else {
-        setName('')
-        setPath('')
-        setDescription('')
-      }
-      setError(null)
-    }
-  }, [open, editProject])
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -181,6 +166,8 @@ export function ProjectsTab() {
   }, [t])
 
   useEffect(() => {
+    // Initial data load synchronizes local state from the API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchProjectsList()
   }, [fetchProjectsList])
 
@@ -293,6 +280,7 @@ export function ProjectsTab() {
       </div>
 
       <ProjectDialog
+        key={`${dialogOpen}:${editingProject?.id || 'new'}`}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSave={fetchProjectsList}
