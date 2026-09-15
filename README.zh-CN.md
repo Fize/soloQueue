@@ -1,123 +1,132 @@
-# SoloQueue
+<p align="center">
+  <img src="web/public/logo.png" alt="SoloQueue Logo" width="128">
+</p>
 
-SoloQueue 是一个本地优先、面向单用户的 AI Agent Harness，包含持久会话、
-Team 委派、定时任务、消息渠道和浏览器界面。
+<h1 align="center">SoloQueue</h1>
 
-[English](README.md) | 简体中文
+<p align="center">
+  一个本地运行的个人 AI 工作台，用于持续对话、团队任务处理、
+  定时任务和消息应用接入。
+</p>
 
-运行时在一个自托管进程中组合任务路由、委派、工具、Skills、Memory、Cron、
-渠道适配器和运行状态检查。
+<p align="center">
+  <a href="README.md">English</a> ·
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="docs/zh/README.md">文档</a>
+</p>
 
-## 分支边界
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.25.8-00ADD8?style=flat-square&logo=go" alt="Go 1.25.8">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Fize/soloQueue?style=flat-square" alt="MIT License"></a>
+</p>
 
-`main` 不包含模拟功能。`experimental/simulation` 保留了剥离模拟功能前
-`6efd796` 对应的仓库状态。
+## SoloQueue 的功能
 
-已有的模拟数据库文件（`simulation.db` 及其可能存在的 `-wal` / `-shm` 附属文件）会保留，`main` 不会打开或初始化它们。在 `experimental/simulation` 上实验时，请使用独立工作目录，避免配置保存时重写 `main` 所用目录中的设置。例如，构建该分支后运行：
+| 功能 | 说明 |
+| --- | --- |
+| 对话 | 服务重启后保留对话历史，并实时显示回复和工具执行过程 |
+| 项目任务 | 以选定项目作为文件和命令的工作目录，并可访问 Web 资源 |
+| 团队协作 | 将任务交给可配置的团队处理，并把结果返回当前对话 |
+| 模型选择 | 根据请求类型选择已配置的模型 |
+| 定时任务 | 运行一次性或周期性任务，并保存执行历史 |
+| 消息渠道 | 连接 QQ Bot、微信 iLink 和 Telegram 账户 |
+| 浏览器界面 | 提供用于操作的 Web Console 和查看运行状态的只读页面 |
 
-~~~bash
-SOLOQUEUE_WORK_DIR="$HOME/.soloqueue-simulation" ./soloqueue start
-~~~
+## 构建与运行
 
-## 功能
+### 环境要求
 
-- 使用本地优先的运行时维护长期 Agent 会话。
-- 使用团队、Agent 模板和委派构建多智能体工作台。
-- 支持任务路由、Memory、Skills、MCP/LSP、定时任务和消息渠道。
-- 提供浏览器 Web Console 和独立的嵌入式只读状态页。
+- Go 1.25.8
+- Node.js 和 `pnpm`
+- Git
+- 至少一个已启用 LLM Provider 的 API Key
 
-Skills 使用独立的 [ClawHub](https://github.com/openclaw/clawhub) 安装和更新。SoloQueue 加载 `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` 中已经存在的全局技能包，并在技能目录或受支持的入口文件变化时热加载其 `SKILL.md` 定义；项目 Agent 创建时，也会加载 `<project>/.claude/skills/` 中兼容的项目级技能。Web Console 仅提供只读查看。可以设置 `SOLOQUEUE_WORK_DIR` 使用其他工作目录。ClawHub 的所有者限定资源使用 `@owner/slug`，卸载使用已安装技能的 slug。
+### 从源码构建
 
-~~~bash
-SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills inspect @owner/slug
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update @owner/slug
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
-~~~
-
-## 范围边界
-
-SoloQueue 不实现多租户账户、应用层 HTTP 认证、TLS 终止、公网监听或
-OpenClaw 兼容。SoloQueue 不创建执行沙箱；直接在宿主机部署时，工具继承
-SoloQueue 进程的权限。
-
-## 从源码构建
-
-### 前置条件
-
-- Go 1.25.8 或兼容的 1.25 版本。
-- Node.js 和 pnpm。
-- 至少一个已启用 LLM Provider 的 API Key。
-
-### 构建并运行嵌入式浏览器应用
-
-~~~bash
+```bash
 git clone https://github.com/Fize/soloQueue.git
 cd soloQueue
 
 make build
 export DEEPSEEK_API_KEY="your-api-key"
 ./soloqueue start
-~~~
+```
 
-打开 http://127.0.0.1:57647。第一次启动时，SoloQueue 会在 ~/.soloqueue/ 下创建工作
-目录和 settings.yaml。
+打开 <http://127.0.0.1:57647>。首次启动时，SoloQueue 创建工作目录和初始
+`settings.yaml`。
 
-### 开发浏览器前端
+### 初始配置
 
-在两个终端中分别运行后端和 Web Console：
-
-~~~bash
-# 终端 1
-go run ./cmd/soloqueue serve --port 8765 --verbose
-
-# 终端 2：Web Console
-cd web
-pnpm install
-pnpm dev
-~~~
-
-只读状态页可以在 `status-ui/` 中独立开发。`soloqueue serve` 默认提供状态页，
-`soloqueue web` 只启动 Web Console，`soloqueue start` 在一个端口同时提供两者。
-
-SoloQueue 服务绑定 `127.0.0.1`，不提供应用层 HTTP 认证。远程访问由用户配置的
-反向代理提供，认证、TLS、CORS 和 WebSocket 代理也由该入口处理。
+1. 打开 **Settings → Models**，配置已启用的 Provider 和 Model。
+2. 打开 **Settings → Projects**，使用绝对路径注册代码仓库。
+3. 打开 **Chat**，选择项目并提交 Prompt。
+4. 按需在 Web Console 对应页面配置 Team、Cron 任务或渠道账户。
 
 ## 命令
 
-~~~bash
-./soloqueue version
-./soloqueue --help
-./soloqueue skills report
-./soloqueue memory audit
-./soloqueue memory cleanup              # 仅生成清理计划
-./soloqueue memory cleanup --apply      # 备份后执行清理计划
-./soloqueue wechat login --id personal
-~~~
+```bash
+./soloqueue start   # 启动 SoloQueue
+./soloqueue --help  # 查看命令和参数
+```
+
+## Skills
+
+SoloQueue 从 `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` 加载全局
+Skills，并从 `<project>/.claude/skills/` 加载兼容的项目 Skills。Skill
+目录或受支持的入口文件变化时，全局 `SKILL.md` 定义会重新加载。
+
+全局 Skills 的安装和更新使用独立的
+[ClawHub](https://github.com/openclaw/clawhub) CLI：
+
+```bash
+SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
+```
+
+发现规则和生命周期命令见[功能说明](docs/zh/features.md)和
+[参考手册](docs/zh/reference.md)。
 
 ## 文档
 
-文档入口为[中文文档中心](docs/zh/README.md)：
+| 主题 | 中文 | English |
+| --- | --- | --- |
+| 构建、配置与故障排查 | [快速入门](docs/zh/getting-started.md) | [Getting Started](docs/getting-started.md) |
+| 运行时功能 | [功能](docs/zh/features.md) | [Features](docs/features.md) |
+| 进程与子系统边界 | [架构与设计](docs/zh/architecture.md) | [Architecture](docs/architecture.md) |
+| 配置、CLI、存储与备份 | [参考手册](docs/zh/reference.md) | [Reference](docs/reference.md) |
 
-- [快速入门](docs/zh/getting-started.md) · [English](docs/getting-started.md)
-- [功能](docs/zh/features.md) · [English](docs/features.md)
-- [架构与设计](docs/zh/architecture.md) · [English](docs/architecture.md)
-- [参考手册](docs/zh/reference.md) · [English](docs/reference.md)
+## 运行边界
 
-## 测试
+- 服务默认绑定 `127.0.0.1`。
+- SoloQueue 不提供应用层 HTTP 认证、TLS 终止或公网监听。远程访问时，这些功能由用户配置的入口提供。
+- SoloQueue 不创建执行沙箱。直接在宿主机部署时，工具继承 SoloQueue 进程的权限；已配置的容器或 VM 构成隔离边界。
 
-~~~bash
+## 开发
+
+```bash
+# 后端与 Status UI
+go run ./cmd/soloqueue serve --port 8765 --verbose
+
+# Web Console 开发服务
+cd web
+pnpm install
+pnpm dev
+```
+
+Web Console 开发服务将 `/api` 和 `/ws` 代理到端口 `8765`。
+
+### 验证
+
+```bash
 go test ./...
 cd web && pnpm test && pnpm build
 cd status-ui && pnpm test && pnpm build
-~~~
+```
 
 这些命令验证当前检出的源码，不会重新构建或测试已安装的桌面应用。
 
-
 ## 许可证
 
-SoloQueue 使用 [MIT License](LICENSE) 发布。
+[MIT](LICENSE)
