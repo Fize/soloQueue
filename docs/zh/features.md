@@ -57,6 +57,7 @@ Cron 任务在每次执行时创建的临时 L1 或 L2 Session 中运行周期�
 
 - **QQ Bot**：通过腾讯 Bot Gateway 连接，支持 App ID / App Secret 配置，将私聊、群聊和 Guild 消息规范化为会话输入。
 - **微信 iLink**：通过二维码流程授权（`soloqueue wechat login --id personal`），支持长轮询文本接收及运行期间的 typing 状态保持。
+- **Telegram**：使用 BotFather Token 连接 Telegram Bot API，并通过长轮询接收更新。
 
 定时任务的渠道通知依赖已注册的渠道发送方和平台投递结果，执行历史保存在 Web UI 中。
 

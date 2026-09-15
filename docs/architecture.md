@@ -4,7 +4,7 @@ English | [简体中文](zh/architecture.md)
 
 This document provides a technical overview of SoloQueue's internal architecture, process boundaries, memory engine, task routing, and platform integrations.
 
-It describes `main`, which excludes simulation. The repository state before extraction is preserved on `experimental/simulation`; see the [branch boundary and work-directory guidance](../README.md#branch-boundary).
+It describes `main`, which excludes simulation. The repository state before extraction is preserved on `experimental/simulation`. Existing `simulation.db` files and their `-wal` or `-shm` sidecars are retained, but `main` does not open or initialize them. Use a separate `SOLOQUEUE_WORK_DIR` when running that branch so its settings do not affect the work directory used by `main`.
 
 ---
 
@@ -26,7 +26,7 @@ Session Manager (internal/session)
        │       ├── Native Tools, Skills, MCP/LSP (internal/agenttools)
        │       └── Deterministic tool safety checks
        ├── Cron Runtime (internal/cron)
-       ├── Channel Bridges (internal/channel/qq, internal/channel/wechat)
+       ├── Channel Bridges (internal/channel/qq, internal/channel/wechat, internal/channel/telegram)
        └── Memory, Timeline, SQLite DB & Logger (internal/infra, internal/memory)
 ```
 
@@ -70,3 +70,4 @@ Channel bridges normalize external messaging protocols into the internal session
 
 - **QQ Bot (`internal/channel/qq`)**: Implements Tencent Bot Gateway protocol. Handles passive response windows and queues active outbound message bursts.
 - **WeChat iLink (`internal/channel/wechat`)**: Connects through Tencent's official iLink Bot API. Supports long-poll update streams, QR login pairing, and typing state keepalives.
+- **Telegram (`internal/channel/telegram`)**: Connects to the Telegram Bot API. Uses long polling for updates and supports text and media delivery.

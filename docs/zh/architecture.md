@@ -5,7 +5,9 @@
 本文档提供 SoloQueue 内部架构、进程边界、记忆引擎、任务路由及平台集成的技术概览。
 
 本文描述的 `main` 不包含模拟功能。剥离前的仓库状态保留在
-`experimental/simulation` 分支；参见[分支边界与工作目录说明](../../README.zh-CN.md#分支边界)。
+`experimental/simulation` 分支。已有的 `simulation.db` 文件及其 `-wal` 或
+`-shm` 附属文件会保留，但 `main` 不会打开或初始化它们。运行该分支时应使用独立的
+`SOLOQUEUE_WORK_DIR`，避免其设置影响 `main` 使用的工作目录。
 
 ---
 
@@ -29,7 +31,7 @@ Session Manager (internal/session)
        │       ├── 原生工具、Skills、MCP/LSP (internal/agenttools)
        │       └── 确定性工具安全检查
        ├── Cron 运行时 (internal/cron)
-       ├── 渠道桥接 (internal/channel/qq, internal/channel/wechat)
+       ├── 渠道桥接 (internal/channel/qq, internal/channel/wechat, internal/channel/telegram)
        └── 记忆、时间线、SQLite 数据库与日志 (internal/infra, internal/memory)
 ```
 
@@ -73,3 +75,4 @@ SoloQueue 将短期上下文与长期搜索和审计日志分离开来：
 
 - **QQ Bot (`internal/channel/qq`)**：实现腾讯 Bot Gateway 协议，处理被动回复窗口并维护主动发送限流队列。
 - **微信 iLink (`internal/channel/wechat`)**：通过腾讯官方 iLink Bot API 连接，支持长轮询更新流、二维码配对及 typing 状态保持。
+- **Telegram (`internal/channel/telegram`)**：连接 Telegram Bot API，使用长轮询接收更新，并支持文本和媒体投递。

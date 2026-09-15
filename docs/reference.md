@@ -51,7 +51,7 @@ model_routes:
 | `model_routes` | Task type routing mappings (`general`, `engineering`, `research`, `classifier`, `fallback`) |
 | `tools` | File paths, shell execute regex filters, HTTP host allowlists, output limits |
 | `agent` | Internal agent tool and MCP server settings |
-| `qqbots` / `wechat_bots` | Credentials, bindings, and user whitelists for QQ/WeChat channels |
+| `qqbots` / `wechat_bots` / `telegram_bots` | Credentials and session bindings for QQ, WeChat, and Telegram channels |
 | `lspmcp` | Language server binary paths, arguments, and language/file extension bindings |
 | `embedding` | Vector embedding provider and model settings (optional) |
 

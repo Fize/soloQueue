@@ -51,7 +51,7 @@ model_routes:
 | `model_routes` | 任务类型路由映射 (`general`, `engineering`, `research`, `classifier`, `fallback`) |
 | `tools` | 文件路径限制、Shell 正则安全过滤、HTTP Host 白名单及输出限制 |
 | `agent` | 内置工具与 MCP Server 授权许可 |
-| `qqbots` / `wechat_bots` | QQ / 微信渠道的凭据、绑定设置及用户白名单 |
+| `qqbots` / `wechat_bots` / `telegram_bots` | QQ、微信和 Telegram 渠道的凭据及 Session 绑定 |
 | `lspmcp` | 语言服务器二进制路径、参数及语言/扩展名绑定 |
 | `embedding` | 向量 Embedding Provider 及模型设置（可选） |
 

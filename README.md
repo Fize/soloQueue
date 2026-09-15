@@ -1,62 +1,47 @@
-# SoloQueue
+<p align="center">
+  <img src="web/public/logo.png" alt="SoloQueue logo" width="128">
+</p>
 
-SoloQueue is a local-first, single-user AI agent harness with persistent sessions,
-Team delegation, scheduled tasks, messaging channels, and browser interfaces.
+<h1 align="center">SoloQueue</h1>
 
-English | [简体中文](README.zh-CN.md)
+<p align="center">
+  A self-hosted AI workspace for ongoing conversations, team-based task handling,
+  scheduled tasks, and messaging apps.
+</p>
 
-The runtime combines task routing, delegation, tools, Skills, memory, Cron,
-channel adapters, and runtime inspection in one self-hosted process.
+<p align="center">
+  <a href="README.md">English</a> ·
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="docs/README.md">Documentation</a>
+</p>
 
-## Branch boundary
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.25.8-00ADD8?style=flat-square&logo=go" alt="Go 1.25.8">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Fize/soloQueue?style=flat-square" alt="MIT License"></a>
+</p>
 
-`main` excludes simulation. `experimental/simulation` preserves the repository state at
-`6efd796`, before simulation was extracted.
+## What SoloQueue Does
 
-Existing simulation database files (`simulation.db` and any `-wal` / `-shm` sidecars) are retained, but `main` does not open or initialize them. Use a separate work directory when experimenting on `experimental/simulation` to prevent settings rewrites from affecting the directory used by `main`. After building that branch, for example:
+| Feature | Description |
+| --- | --- |
+| Conversations | Keeps conversation history across restarts and displays responses and tool activity as they arrive |
+| Project work | Uses a selected project as the working directory for files and commands, and can access web resources |
+| Team collaboration | Delegates tasks to configurable teams and returns their results to the conversation |
+| Model selection | Selects a configured model according to the type of request |
+| Scheduled tasks | Runs one-off or recurring tasks and keeps their execution history |
+| Messaging | Connects QQ Bot, WeChat iLink, and Telegram accounts |
+| Browser interfaces | Provides a Web Console for operation and a read-only page for runtime status |
 
-```bash
-SOLOQUEUE_WORK_DIR="$HOME/.soloqueue-simulation" ./soloqueue start
-```
+## Build and Run
 
-## Features
+### Requirements
 
-- SoloQueue runs a local-first runtime for persistent agent sessions.
-- SoloQueue uses a multi-agent workspace with teams, agent templates, and delegation.
-- SoloQueue supports task routing, memory, skills, MCP/LSP tools,
-  scheduled tasks, and channel delivery.
-- SoloQueue provides a browser Web Console plus an embedded read-only Status UI for
-  local use. Remote access is provided through a user-managed reverse proxy.
+- Go 1.25.8
+- Node.js and `pnpm`
+- Git
+- An API key for at least one enabled LLM provider
 
-Skills are installed and updated independently with [ClawHub](https://github.com/openclaw/clawhub). SoloQueue loads packages already present under `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and hot-reloads their `SKILL.md` definitions when skill directories or recognized entrypoints change; when a project Agent is created, it also loads compatible project Skills from `<project>/.claude/skills/`. The Web Console provides read-only inspection. Set `SOLOQUEUE_WORK_DIR` to use a different SoloQueue work directory. Use `@owner/slug` for owner-qualified ClawHub resources, and the installed skill slug for uninstall.
-
-```bash
-SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills inspect @owner/slug
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update @owner/slug
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
-```
-
-## Scope boundaries
-
-SoloQueue does not implement multi-tenant accounts, application-level HTTP
-authentication, TLS termination, a public listener, or OpenClaw compatibility.
-It does not create an execution sandbox; host deployments run tools with the
-permissions of the SoloQueue process.
-
-## Build from source
-
-### Prerequisites
-
-- Go 1.25.8 or newer in the 1.25 series.
-- Node.js with `pnpm` available on `PATH`.
-- An API key for the provider configured in `settings.yaml` (the defaults use
-  `DEEPSEEK_API_KEY`).
-
-### Build and run the embedded browser application
+### Build from Source
 
 ```bash
 git clone https://github.com/Fize/soloQueue.git
@@ -67,58 +52,75 @@ export DEEPSEEK_API_KEY="your-api-key"
 ./soloqueue start
 ```
 
-Open <http://127.0.0.1:57647>. On the first start, SoloQueue creates the local work
-directory and settings file under `~/.soloqueue/`.
+Open <http://127.0.0.1:57647>. On first start, SoloQueue creates the work
+directory and initial `settings.yaml`.
 
-Use `make build` to build the Web Console and Status UI and embed them into the
-Go binary. `soloqueue serve` starts the backend with the Status UI at `/status/`;
-`soloqueue web` starts only the standalone Web Console.
+### Initial Setup
 
-### Develop the browser frontends
-
-Use two terminals:
-
-```bash
-# Terminal 1: backend
-go run ./cmd/soloqueue serve --port 8765 --verbose
-
-# Terminal 2: Web Console
-cd web && pnpm install && pnpm dev
-```
-
-The Web Console development server proxies API and WebSocket traffic to port
-`8765`. The Status UI can be developed independently with `cd status-ui && pnpm dev`.
-
-SoloQueue services bind to `127.0.0.1` and do not provide application HTTP
-authentication. If remote access is needed, place nginx or another ingress in
-front of the service and configure authentication, TLS, CORS, and WebSocket
-proxying there. The Docker setup under `deploy/docker-demo/` is a local demo
-with nginx and SoloQueue sharing one network namespace.
+1. Open **Settings → Models** and configure an enabled provider and model.
+2. Open **Settings → Projects** and register a repository by absolute path.
+3. Open **Chat**, select the project, and submit a prompt.
+4. Configure Teams, Cron tasks, or channel accounts from their Web Console pages as needed.
 
 ## Commands
 
 ```bash
-./soloqueue version
-./soloqueue --help
-./soloqueue skills report
-./soloqueue memory audit
-./soloqueue memory cleanup              # plan only
-./soloqueue memory cleanup --apply      # backup, then apply the plan
-./soloqueue wechat login --id personal
+./soloqueue start   # Start SoloQueue
+./soloqueue --help  # List commands and flags
 ```
+
+## Skills
+
+SoloQueue loads global Skills from
+`${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and compatible project Skills
+from `<project>/.claude/skills/`. Global `SKILL.md` definitions reload when
+Skill directories or recognized entrypoints change.
+
+Install and update global Skills with the standalone
+[ClawHub](https://github.com/openclaw/clawhub) CLI:
+
+```bash
+SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
+clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
+```
+
+See the [Feature Guide](docs/features.md) and [Reference Manual](docs/reference.md)
+for discovery rules and lifecycle commands.
 
 ## Documentation
 
-Start with the [English documentation hub](docs/README.md), or read the
-[中文文档中心](docs/zh/README.md):
+| Topic | English | 简体中文 |
+| --- | --- | --- |
+| Build, setup, and troubleshooting | [Getting Started](docs/getting-started.md) | [快速入门](docs/zh/getting-started.md) |
+| Runtime capabilities | [Features](docs/features.md) | [功能](docs/zh/features.md) |
+| Process and subsystem boundaries | [Architecture](docs/architecture.md) | [架构与设计](docs/zh/architecture.md) |
+| Configuration, CLI, storage, and backup | [Reference](docs/reference.md) | [参考手册](docs/zh/reference.md) |
 
-- [Getting Started / 快速入门](docs/getting-started.md) · [中文](docs/zh/getting-started.md)
-- [Features / 功能](docs/features.md) · [中文](docs/zh/features.md)
-- [Architecture / 架构与设计](docs/architecture.md) · [中文](docs/zh/architecture.md)
-- [Reference / 参考手册](docs/reference.md) · [中文](docs/zh/reference.md)
+## Runtime Boundaries
 
+- Services bind to `127.0.0.1` by default.
+- SoloQueue does not provide application-level HTTP authentication, TLS termination,
+  or a public listener. A user-managed ingress provides those functions for remote access.
+- SoloQueue does not create an execution sandbox. Host deployments run tools with the
+  permissions of the SoloQueue process; a configured container or VM provides an isolation boundary.
 
-## Testing
+## Development
+
+```bash
+# Backend and Status UI
+go run ./cmd/soloqueue serve --port 8765 --verbose
+
+# Web Console development server
+cd web
+pnpm install
+pnpm dev
+```
+
+The Web Console development server proxies `/api` and `/ws` to port `8765`.
+
+### Validation
 
 ```bash
 go test ./...
@@ -127,8 +129,8 @@ cd status-ui && pnpm test && pnpm build
 ```
 
 These commands validate the checked-out source tree. They do not rebuild or test
-an already installed desktop application.
+an installed desktop application.
 
 ## License
 
-SoloQueue is released under the [MIT License](LICENSE).
+[MIT](LICENSE)

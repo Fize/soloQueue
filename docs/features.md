@@ -57,6 +57,7 @@ Channel adapters normalize platform messages and submit them to their configured
 
 - **QQ Bot**: Connects via Tencent Bot Gateway using App ID and App Secret. Normalizes private, group, and guild messages into session inputs.
 - **WeChat iLink**: Authorizes via QR code flow (`soloqueue wechat login --id personal`). Uses long-polling for text messages and typing keepalive during runs.
+- **Telegram**: Connects to the Telegram Bot API with a BotFather token and receives updates through long polling.
 
 Cron channel notification depends on an active channel sender and successful platform delivery. Execution history remains available in the Web UI.
 
