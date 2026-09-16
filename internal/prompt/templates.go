@@ -1,10 +1,5 @@
 package prompt
 
-import (
-	"fmt"
-	"strings"
-)
-
 // DefaultRules is the general-purpose rules template.
 const DefaultRules = `## Orchestration Rules
 
@@ -274,93 +269,18 @@ GOOD plan — specific, actionable, self-contained:
   - [ ] Add ErrProfileMissing template in internal/server/errors.go
   - [ ] Add test case for nil profile in internal/server/auth_handler_test.go`
 
-// personalityDescriptions maps personality keys to English descriptions used in the prompt.
-var personalityDescriptions = map[string]string{
-	"strict":  "Emphasizes accuracy and thorough evidence; avoids jumping to conclusions",
-	"playful": "Uses vivid language, metaphors, and analogies",
-	"gentle":  "Speaks gently with encouragement; avoids blunt phrasing",
-	"direct":  "Gets straight to the point without beating around the bush",
-}
-
-// commStyleDescriptions maps communication style keys to English descriptions used in the prompt.
-var commStyleDescriptions = map[string]string{
-	"brief":    "Prioritizes conclusions and key information; minimizes preamble",
-	"detailed": "Provides full background, reasoning process, and supplementary details",
-	"casual":   "Uses conversational, casual, and natural language",
-	"formal":   "Uses formal, precise wording suitable for professional settings",
-}
-
-// BuildProfile generates soul.md content from ProfileAnswers.
-// The generic questionnaire template is used.
-func BuildProfile(answers ProfileAnswers) string {
-	personalityDesc := personalityDesc(answers.Personality)
-	commStyleDesc := commStyleDesc(answers.CommStyle)
-
-	// Detect multiple names from comma-separated list
-	nameList := parseNameList(answers.Name)
-	nameClause := answers.Name
-	if len(nameList) > 1 {
-		nameClause = fmt.Sprintf("one of %s (pick whichever fits the moment)", answers.Name)
-	}
-
-	genderTone := genderToneGuidance(answers.Gender)
-
-	return fmt.Sprintf(`You are %s, a personal assistant and the single point of interaction for the user.
+// DefaultSoul is the initial identity written when no user-owned Soul exists.
+const DefaultSoul = `You are SoloQueue, a personal assistant and the single point of interaction for the user.
 
 Your role is to assist the user with both personal and work matters. Your primary job is to understand user intent, break down complex tasks, and assign them to the appropriate teams for execution.
 
+## Communication baseline
+
+Warm, direct, and conversational. Lead with the answer. For simple questions, respond in 1-3 sentences without unnecessary headings or lists. Expand only when complexity requires it or the user asks. Use humor and metaphors sparingly and only when they improve understanding. Avoid performative, flattering, sales-like, or overly familiar language. Stay calm and precise on serious topics.
+
 ## Personalization
 
-- Name: %s
-- Gender: %s. %s
-- Personality: %s. %s
-- Communication style: %s. %s`,
-		nameClause,
-		answers.Name,
-		answers.Gender, genderTone,
-		answers.Personality, personalityDesc,
-		answers.CommStyle, commStyleDesc,
-	)
-}
-
-// parseNameList splits a comma-separated name string into a list.
-func parseNameList(name string) []string {
-	var result []string
-	for _, n := range strings.Split(name, ",") {
-		n = strings.TrimSpace(n)
-		// Also handle full-width Chinese comma
-		for _, nn := range strings.Split(n, "，") {
-			nn = strings.TrimSpace(nn)
-			if nn != "" {
-				result = append(result, nn)
-			}
-		}
-	}
-	return result
-}
-
-// genderToneGuidance returns casual-chat tone guidance based on gender.
-func genderToneGuidance(gender string) string {
-	switch gender {
-	case "male":
-		return "In casual chat, adopt a brotherly, steady, and straightforward tone"
-	case "female":
-		return "In casual chat, adopt a warm, lively, and engaging tone"
-	default:
-		return "In casual chat, adopt a balanced and natural tone"
-	}
-}
-
-func personalityDesc(p string) string {
-	if desc, ok := personalityDescriptions[p]; ok {
-		return desc
-	}
-	return p // custom value: use as-is
-}
-
-func commStyleDesc(s string) string {
-	if desc, ok := commStyleDescriptions[s]; ok {
-		return desc
-	}
-	return s // custom value: use as-is
-}
+- Name: SoloQueue
+- Gender: female
+- Personality: playful. Uses humor and metaphors sparingly and only when they improve understanding
+- Communication style: casual. Uses conversational, casual, and natural language`

@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,7 +68,7 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, groups map[string]Group
 
 // EnsureFiles checks and fills in any missing prompt files.
 // Return value: (rulesCreated bool, err error)
-//   - Returns SoulNeededError when soul.md is missing; the caller handles the interactive flow.
+//   - Returns SoulNeededError when soul.md is missing; the caller writes the default Soul.
 //   - Creates a default rules.md when it is missing, returning rulesCreated=true.
 //   - Missing directory structure is created automatically.
 func (p *PromptConfig) EnsureFiles() (bool, error) {
@@ -139,15 +140,23 @@ func (p *PromptConfig) EnsureFiles() (bool, error) {
 	return rulesCreated, nil
 }
 
-// WriteSoul writes the soul.md file based on the user's questionnaire answers.
-func (p *PromptConfig) WriteSoul(answers ProfileAnswers) error {
-	// Ensure the directory exists.
+// WriteDefaultSoul writes the fixed initial Soul content.
+func (p *PromptConfig) WriteDefaultSoul() error {
 	if err := os.MkdirAll(p.RolesDir, 0o755); err != nil {
 		return fmt.Errorf("create soul dir: %w", err)
 	}
-	content := BuildProfile(answers)
-	if err := os.WriteFile(p.soulPath(), []byte(content), 0o644); err != nil {
-		return fmt.Errorf("write soul: %w", err)
+	file, err := os.OpenFile(p.soulPath(), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("create soul: %w", err)
+	}
+	if _, err := file.WriteString(DefaultSoul); err != nil {
+		return fmt.Errorf("write soul: %w", errors.Join(err, file.Close()))
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close soul: %w", err)
 	}
 	return nil
 }

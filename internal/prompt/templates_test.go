@@ -6,67 +6,24 @@ import (
 	"testing"
 )
 
-func TestBuildProfile_Defaults(t *testing.T) {
-	answers := DefaultProfileAnswers()
-	result := BuildProfile(answers)
+func TestDefaultSoulContent(t *testing.T) {
+	want := `You are SoloQueue, a personal assistant and the single point of interaction for the user.
 
-	if !strings.Contains(result, "You are SoloQueue") {
-		t.Error("should contain default name in English")
-	}
-	if !strings.Contains(result, "personal assistant") {
-		t.Error("should contain 'personal assistant'")
-	}
-	if !strings.Contains(result, "female") {
-		t.Error("should contain default gender")
-	}
-	if !strings.Contains(result, "playful") {
-		t.Error("should contain default personality")
-	}
-	if !strings.Contains(result, "vivid language") {
-		t.Error("should contain 'playful' personality description in English")
-	}
-	if !strings.Contains(result, "casual") {
-		t.Error("should contain default comm style")
-	}
-	if !strings.Contains(result, "conversational") {
-		t.Error("should contain 'casual' comm style description in English")
-	}
-}
+Your role is to assist the user with both personal and work matters. Your primary job is to understand user intent, break down complex tasks, and assign them to the appropriate teams for execution.
 
-func TestBuildProfile_Custom(t *testing.T) {
-	answers := ProfileAnswers{
-		Name:        "Small Q",
-		Gender:      "female",
-		Personality: "playful",
-		CommStyle:   "detailed",
-	}
-	result := BuildProfile(answers)
+## Communication baseline
 
-	if !strings.Contains(result, "You are Small Q") {
-		t.Error("should contain custom name")
-	}
-	if !strings.Contains(result, "vivid language") {
-		t.Error("should contain 'playful' personality description in English")
-	}
-	if !strings.Contains(result, "full background") {
-		t.Error("should contain 'detailed' comm style description in English")
-	}
-}
+Warm, direct, and conversational. Lead with the answer. For simple questions, respond in 1-3 sentences without unnecessary headings or lists. Expand only when complexity requires it or the user asks. Use humor and metaphors sparingly and only when they improve understanding. Avoid performative, flattering, sales-like, or overly familiar language. Stay calm and precise on serious topics.
 
-func TestBuildProfile_CustomPersonality(t *testing.T) {
-	answers := ProfileAnswers{
-		Name:        "SoloQueue",
-		Gender:      "female",
-		Personality: "Communicate like an old friend",
-		CommStyle:   "casual",
-	}
-	result := BuildProfile(answers)
+## Personalization
 
-	if !strings.Contains(result, "Communicate like an old friend") {
-		t.Error("custom personality should be used as-is for description")
-	}
-	if !strings.Contains(result, "conversational") {
-		t.Error("should contain 'casual' comm style description in English")
+- Name: SoloQueue
+- Gender: female
+- Personality: playful. Uses humor and metaphors sparingly and only when they improve understanding
+- Communication style: casual. Uses conversational, casual, and natural language`
+
+	if DefaultSoul != want {
+		t.Fatalf("DefaultSoul differs from the approved default:\n--- got ---\n%s\n--- want ---\n%s", DefaultSoul, want)
 	}
 }
 

@@ -52,8 +52,7 @@ func TestEnsureFiles_Idempotent(t *testing.T) {
 	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
 	// First: write soul, then EnsureFiles.
-	answers := DefaultProfileAnswers()
-	cfg.WriteSoul(answers)
+	cfg.WriteDefaultSoul()
 
 	rulesCreated1, err := cfg.EnsureFiles()
 	if err != nil {
@@ -80,7 +79,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 	cfg := &PromptConfig{RolesDir: rolesDir, GlobalDir: globalDir}
 
 	// Create all required files.
-	cfg.WriteSoul(DefaultProfileAnswers())
+	cfg.WriteDefaultSoul()
 	cfg.EnsureFiles()
 
 	// Create user.md
@@ -127,7 +126,7 @@ func TestBuildPrompt_NoUserCtx(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
-	cfg.WriteSoul(DefaultProfileAnswers())
+	cfg.WriteDefaultSoul()
 	cfg.EnsureFiles()
 	// Do not create user.md.
 
@@ -151,7 +150,7 @@ func TestBuildPrompt_EmptyPlanDir(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
-	cfg.WriteSoul(DefaultProfileAnswers())
+	cfg.WriteDefaultSoul()
 	cfg.EnsureFiles()
 
 	result, err := cfg.BuildPrompt(nil, nil, "", "", "", nil)
@@ -226,8 +225,8 @@ func TestReadSoulName(t *testing.T) {
 		t.Errorf("expected empty name for missing soul, got %q", name)
 	}
 
-	// Write a soul.
-	cfg.WriteSoul(ProfileAnswers{Name: "Test Assistant", Gender: "female", Personality: "playful", CommStyle: "casual"})
+	// Write a custom soul through the raw-content editing path.
+	cfg.WriteSoulContent("You are Test Assistant, a personal assistant.\n\n- Name: Test Assistant")
 
 	name := ReadSoulName(cfg)
 	if name != "Test Assistant" {
@@ -235,27 +234,63 @@ func TestReadSoulName(t *testing.T) {
 	}
 }
 
-func TestWriteSoul(t *testing.T) {
+func TestWriteDefaultSoul(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
-	answers := ProfileAnswers{
-		Name:        "XiaoQ",
-		Gender:      "female",
-		Personality: "playful",
-		CommStyle:   "casual",
-	}
-	if err := cfg.WriteSoul(answers); err != nil {
-		t.Fatalf("WriteSoul: %v", err)
+	if err := cfg.WriteDefaultSoul(); err != nil {
+		t.Fatalf("WriteDefaultSoul: %v", err)
 	}
 
 	data, err := os.ReadFile(cfg.soulPath())
 	if err != nil {
 		t.Fatalf("read soul: %v", err)
 	}
-	content := string(data)
-	if !contains(content, "You are XiaoQ") {
-		t.Error("soul should contain custom name")
+	if content := string(data); content != DefaultSoul {
+		t.Errorf("written soul differs from DefaultSoul:\n--- got ---\n%s\n--- want ---\n%s", content, DefaultSoul)
+	}
+}
+
+func TestWriteDefaultSoul_PreservesExistingSoul(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
+	want := []byte("custom soul bytes\x00\xff")
+
+	if err := os.MkdirAll(cfg.RolesDir, 0o755); err != nil {
+		t.Fatalf("mkdir roles: %v", err)
+	}
+	if err := os.WriteFile(cfg.soulPath(), want, 0o644); err != nil {
+		t.Fatalf("write custom soul: %v", err)
+	}
+
+	if err := cfg.WriteDefaultSoul(); err != nil {
+		t.Fatalf("WriteDefaultSoul: %v", err)
+	}
+
+	got, err := os.ReadFile(cfg.soulPath())
+	if err != nil {
+		t.Fatalf("read soul: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("existing soul changed: got %q, want %q", got, want)
+	}
+}
+
+func TestWriteSoulContent(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
+	want := "You are Custom, a personal assistant.\n\n- Name: Custom\n"
+
+	if err := cfg.WriteSoulContent(want); err != nil {
+		t.Fatalf("WriteSoulContent: %v", err)
+	}
+
+	data, err := os.ReadFile(cfg.soulPath())
+	if err != nil {
+		t.Fatalf("read soul: %v", err)
+	}
+	if got := string(data); got != want {
+		t.Errorf("written soul = %q, want %q", got, want)
 	}
 }
 
