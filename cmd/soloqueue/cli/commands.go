@@ -97,12 +97,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 
 			settings := cfg.Get()
 
-			// serve mode has no interactive terminal, use default profile
-			profileSetup := func(cfg *prompt.PromptConfig) error {
-				return cfg.WriteSoul(prompt.DefaultProfileAnswers())
-			}
-
-			rt, err := runtime.Build(workDir, cfg, log, profileSetup)
+			rt, err := runtime.Build(workDir, cfg, log)
 			if err != nil {
 				return err
 			}

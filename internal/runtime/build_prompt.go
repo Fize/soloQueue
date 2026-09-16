@@ -28,7 +28,7 @@ func (bc *buildContext) buildPrompt() error {
 	if err != nil {
 		var profileErr *prompt.SoulNeededError
 		if errors.As(err, &profileErr) {
-			if writeErr := bc.profileSetup(promptCfg); writeErr != nil {
+			if writeErr := promptCfg.WriteDefaultSoul(); writeErr != nil {
 				return fmt.Errorf("write soul: %w", writeErr)
 			}
 			rulesCreated, err = promptCfg.EnsureFiles()

@@ -36,30 +36,21 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
-// ProfileSetupFn writes the user profile on first startup.
-type ProfileSetupFn func(cfg *prompt.PromptConfig) error
-
 // Build initializes the runtime stack shared by both modes:
 //
 //  1. LLM client (DeepSeek)
 //  2. Prompt system (EnsureFiles + BuildPrompt)
 //  3. Agent Registry + DefaultFactory
 //  4. L2 Supervisor list (one per IsLeader template)
-func Build(
-	workDir string,
-	cfg *config.GlobalService,
-	log *logger.Logger,
-	profileSetup ProfileSetupFn,
-) (*Stack, error) {
+func Build(workDir string, cfg *config.GlobalService, log *logger.Logger) (*Stack, error) {
 	buildStart := time.Now()
 	settings := cfg.Get()
 
 	bc := &buildContext{
-		workDir:      workDir,
-		cfg:          cfg,
-		settings:     settings,
-		log:          log,
-		profileSetup: profileSetup,
+		workDir:  workDir,
+		cfg:      cfg,
+		settings: settings,
+		log:      log,
 	}
 
 	// Phase 1: Shared DB + TeamStore
@@ -193,11 +184,10 @@ func NewAgentID() string {
 // buildContext holds intermediate build state during initialization.
 // Kept unexported as it is only used internally by the Build process.
 type buildContext struct {
-	workDir      string
-	cfg          *config.GlobalService
-	settings     config.Settings
-	log          *logger.Logger
-	profileSetup ProfileSetupFn
+	workDir  string
+	cfg      *config.GlobalService
+	settings config.Settings
+	log      *logger.Logger
 
 	// Resolved config
 	provider            *config.LLMProvider

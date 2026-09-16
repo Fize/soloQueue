@@ -10,26 +10,7 @@ type LeaderInfo struct {
 	GroupDescription string // Group description (from group file body)
 }
 
-// ProfileAnswers holds the user's responses to the personalization questionnaire.
-type ProfileAnswers struct {
-	Name        string // Assistant name, defaults to "SoloQueue"
-	Gender      string // Gender, defaults to "female"
-	Personality string // Personality, defaults to "playful"
-	CommStyle   string // Communication style, defaults to "casual"
-}
-
-// DefaultProfileAnswers returns ProfileAnswers with all defaults.
-func DefaultProfileAnswers() ProfileAnswers {
-	return ProfileAnswers{
-		Name:        "SoloQueue",
-		Gender:      "female",
-		Personality: "playful",
-		CommStyle:   "casual",
-	}
-}
-
 // SoulNeededError is returned when soul.md is missing.
-// The caller handles the interactive questionnaire flow.
 type SoulNeededError struct {
 	RoleID string // Kept for backward compatibility, now refers to "default" role
 }
