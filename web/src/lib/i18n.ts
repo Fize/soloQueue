@@ -460,7 +460,7 @@ export const translations = {
         'Connect to a remote backend server. The local backend will not start automatically.',
       remoteUrl: 'Remote Backend URL',
       remoteUrlDesc:
-        'Enter the full URL of the remote backend (e.g., http://192.168.1.100:57647). All API and WebSocket connections will be routed to this address.',
+        'Enter the full URL of the remote backend (e.g., http://192.168.1.100:57689). All API and WebSocket connections will be routed to this address.',
       saveSuccess: 'Connection configuration saved. Restart the app to apply changes.',
       saveFail: 'Failed to save connection configuration',
       enterUrlError: 'Please enter a remote backend URL',
@@ -1408,7 +1408,7 @@ export const translations = {
       remoteDesc: '连接到远程后台服务器。本地后台服务将不会自动启动。',
       remoteUrl: '远程后台地址',
       remoteUrlDesc:
-        '输入远程后台服务器的完整 URL（例如：http://192.168.1.100:57647）。所有 API 和 WebSocket 连接将路由到此地址。',
+        '输入远程后台服务器的完整 URL（例如：http://192.168.1.100:57689）。所有 API 和 WebSocket 连接将路由到此地址。',
       saveSuccess: '连接配置已保存。请重启应用以应用更改。',
       saveFail: '保存连接配置失败',
       enterUrlError: '请输入远程后台地址',

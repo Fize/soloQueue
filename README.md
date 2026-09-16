@@ -52,8 +52,13 @@ export DEEPSEEK_API_KEY="your-api-key"
 ./soloqueue start
 ```
 
-Open <http://127.0.0.1:57647>. On first start, SoloQueue creates the work
+Open <http://127.0.0.1:57689>. On first start, SoloQueue creates the work
 directory and initial `settings.yaml`.
+
+### Docker
+
+See [Docker deployment](deploy/docker/README.md) for the standalone image build
+and `docker run` example.
 
 ### Initial Setup
 

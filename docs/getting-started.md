@@ -31,11 +31,16 @@ export DEEPSEEK_API_KEY="your-api-key"
 ./soloqueue start
 ```
 
-Open `http://127.0.0.1:57647` in a browser. On initial launch, SoloQueue automatically creates the work directory at `~/.soloqueue/` and populates `settings.yaml`.
+Open `http://127.0.0.1:57689` in a browser. On initial launch, SoloQueue automatically creates the work directory at `~/.soloqueue/` and populates `settings.yaml`.
 
 > **Note**: Run `make build-assets` before building a distributable Go binary so both browser bundles are embedded.
 
-### 2. Browser Development
+### 2. Docker
+
+See [Docker deployment](../deploy/docker/README.md) for the standalone image
+build and `docker run` example.
+
+### 3. Browser Development
 
 Run the Web Console alongside the Go backend:
 
@@ -51,7 +56,7 @@ pnpm dev
 
 The Vite dev server proxies `/api` and `/ws` requests to `http://localhost:8765`.
 
-### 3. Build Targets
+### 4. Build Targets
 
 | Command | Output |
 | --- | --- |
@@ -102,16 +107,9 @@ SoloQueue does not create a sandbox. In a configured Docker container or VM, tha
 
 ## Service Boundary
 
-SoloQueue binds only to `127.0.0.1`. It does not provide HTTP authentication,
-TLS, or a public listener. The local Web Console and Status UI use the
-embedded same-origin routes, while Vite and the standalone Web Console use
-loopback CORS to reach the backend during development.
-
-For remote access, configure nginx or another deployment ingress to proxy the
-Web Console, REST API, WebSocket, and Status UI. The ingress owns external
-authentication, TLS, CORS, rate limiting, and access logging. The Docker demo
-in `deploy/docker-demo/` shows the local nginx topology and is not a production
-deployment.
+Native `serve` and `start` commands bind to `127.0.0.1` by default. Use
+`--host` to select another listening address. The Docker image passes
+`--host 0.0.0.0` so Docker can publish its default port `57689`.
 
 ---
 
@@ -120,5 +118,5 @@ deployment.
 - **Blank Web UI**: Run `make build-assets` and `make build`, then restart the server.
 - **Port In Use**: Specify a different port using `./soloqueue serve --port 8765`.
 - **No Model Response**: Verify provider API key, check `model_routes` mapping, and inspect server logs.
-- **Remote access**: Configure the external reverse proxy and keep SoloQueue bound to its loopback address.
+- **Listening address**: Use `--host` to select the address for `serve` or `start`.
 - **Tool Blocked**: Inspect `settings.yaml` under the `tools` section for shell blocklist or file/path policy restrictions.

@@ -71,7 +71,7 @@ function ConnectionModeSection() {
             <Input
               value={remoteUrl}
               onChange={(e) => setRemoteUrl(e.target.value)}
-              placeholder="http://remote-server:57647"
+              placeholder="http://remote-server:57689"
               className="font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground mt-1.5">

@@ -31,11 +31,15 @@ export DEEPSEEK_API_KEY="your-api-key"
 ./soloqueue start
 ```
 
-打开 `http://127.0.0.1:57647`。首次启动时，SoloQueue 会自动在 `~/.soloqueue/` 下创建工作目录并生成初始 `settings.yaml`。
+打开 `http://127.0.0.1:57689`。首次启动时，SoloQueue 会自动在 `~/.soloqueue/` 下创建工作目录并生成初始 `settings.yaml`。
 
 > **提示**：构建用于分发的 Go 二进制前运行 `make build-assets`，以嵌入 Web Console 和状态页。
 
-### 2. 浏览器开发
+### 2. Docker
+
+独立镜像的构建与 `docker run` 示例见 [Docker 部署](../../deploy/docker/README.md)。
+
+### 3. 浏览器开发
 
 在独立终端中分别运行 Web Console 与后端：
 
@@ -51,7 +55,7 @@ pnpm dev
 
 Vite 开发服务器会自动把 `/api` 与 `/ws` 转发至 `http://localhost:8765`。
 
-### 3. 构建目标说明
+### 4. 构建目标说明
 
 | 命令 | 产物描述 |
 | --- | --- |
@@ -102,13 +106,9 @@ SoloQueue 不创建沙箱。在已配置的 Docker 容器或 VM 中运行时，�
 
 ## 服务边界
 
-SoloQueue 只绑定 `127.0.0.1`，不提供 HTTP 认证、TLS 或公网监听能力。
-本地 Web Console 与状态页使用内置同源路由；Vite 和独立 Web Console
-开发模式通过受限的回环 CORS 访问后端。
-
-如果需要远程访问，请使用 nginx 或其他部署入口代理 Web Console、REST
-API、WebSocket 和状态页。外部认证、TLS、CORS、限流和访问日志都由该
-入口负责。`deploy/docker-demo/` 仅展示本地 nginx 拓扑，不是生产部署模板。
+原生 `serve` 和 `start` 命令默认绑定 `127.0.0.1`。可使用 `--host`
+指定其他监听地址。Docker 镜像传入 `--host 0.0.0.0`，以便 Docker 发布
+默认端口 `57689`。
 
 ---
 
@@ -117,5 +117,5 @@ API、WebSocket 和状态页。外部认证、TLS、CORS、限流和访问日志
 - **Web 界面空白**：依次运行 `make build-assets` 与 `make build` 后重启服务。
 - **端口被占用**：使用 `--port` 参数指定新端口（如 `./soloqueue serve --port 8765`）。
 - **模型无响应**：检查环境变量 API Key、核对 `model_routes` 配置，并查看服务端日志。
-- **远程访问**：配置外部反向代理，并保持 SoloQueue 监听回环地址。
+- **监听地址**：使用 `--host` 指定 `serve` 或 `start` 的监听地址。
 - **工具操作被阻断**：阅读卡片提示，或在 `settings.yaml` 的 `tools` 区段调整 Shell/路径策略。

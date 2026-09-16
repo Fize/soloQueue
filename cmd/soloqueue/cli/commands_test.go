@@ -5,8 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
@@ -15,6 +18,52 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
+
+func TestCommandDefaultFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		command func(string) *cobra.Command
+		flag    string
+		want    string
+	}{
+		{name: "serve host", command: ServeCmd, flag: "host", want: "127.0.0.1"},
+		{name: "serve port", command: ServeCmd, flag: "port", want: "57689"},
+		{name: "start host", command: StartCmd, flag: "host", want: "127.0.0.1"},
+		{name: "start port", command: StartCmd, flag: "port", want: "57689"},
+		{name: "web port", command: WebCmd, flag: "port", want: "57648"},
+		{name: "web backend", command: WebCmd, flag: "backend", want: "http://127.0.0.1:57689"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			flag := tt.command("test").Flags().Lookup(tt.flag)
+			if flag == nil {
+				t.Fatalf("flag %q not found", tt.flag)
+			}
+			if flag.DefValue != tt.want {
+				t.Fatalf("default %s = %q, want %q", tt.flag, flag.DefValue, tt.want)
+			}
+		})
+	}
+}
+
+func TestServeCommandsRejectBlankHost(t *testing.T) {
+	for _, command := range []struct {
+		name string
+		new  func(string) *cobra.Command
+	}{
+		{name: "serve", new: ServeCmd},
+		{name: "start", new: StartCmd},
+	} {
+		t.Run(command.name, func(t *testing.T) {
+			cmd := command.new("test")
+			cmd.SetArgs([]string{"--host", "   "})
+			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "host must not be empty") {
+				t.Fatalf("Execute() error = %v, want host validation error", err)
+			}
+		})
+	}
+}
 
 func TestInstallChannelConfigReloadUsesAcceptedFileWatchCandidate(t *testing.T) {
 	dir := t.TempDir()

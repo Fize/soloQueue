@@ -34,11 +34,10 @@ RUN mkdir -p internal/assets/dist \
 
 FROM alpine:3.22
 
-RUN addgroup -S soloqueue && adduser -S -G soloqueue -h /home/soloqueue soloqueue
-RUN mkdir -p /home/soloqueue/.soloqueue \
-    && chown -R soloqueue:soloqueue /home/soloqueue
+RUN apk add --no-cache ca-certificates
 COPY --from=go-build /out/soloqueue /usr/local/bin/soloqueue
-ENV HOME=/home/soloqueue
-USER soloqueue
-WORKDIR /home/soloqueue
+ENV HOME=/root
+WORKDIR /root
+EXPOSE 57689
 ENTRYPOINT ["/usr/local/bin/soloqueue"]
+CMD ["start", "--host", "0.0.0.0"]

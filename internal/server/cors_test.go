@@ -84,8 +84,8 @@ func TestWebSocketOriginPolicy(t *testing.T) {
 		origin string
 		want   bool
 	}{
-		{name: "missing origin", host: "127.0.0.1:57647", want: true},
-		{name: "standalone loopback", host: "127.0.0.1:57647", origin: "http://127.0.0.1:57648", want: true},
+		{name: "missing origin", host: "127.0.0.1:57689", want: true},
+		{name: "standalone loopback", host: "127.0.0.1:57689", origin: "http://127.0.0.1:57648", want: true},
 		{name: "nginx same host", host: "app.example.com", origin: "https://app.example.com", want: true},
 		{name: "different host", host: "app.example.com", origin: "https://evil.example.com", want: false},
 	}
