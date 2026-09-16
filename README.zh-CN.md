@@ -52,8 +52,12 @@ export DEEPSEEK_API_KEY="your-api-key"
 ./soloqueue start
 ```
 
-打开 <http://127.0.0.1:57647>。首次启动时，SoloQueue 创建工作目录和初始
+打开 <http://127.0.0.1:57689>。首次启动时，SoloQueue 创建工作目录和初始
 `settings.yaml`。
+
+### Docker
+
+独立镜像的构建与 `docker run` 示例见 [Docker 部署](deploy/docker/README.md)。
 
 ### 初始配置
 

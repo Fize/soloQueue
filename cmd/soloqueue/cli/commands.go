@@ -62,12 +62,18 @@ func ServeCmd(version string) *cobra.Command {
 func StartCmd(version string) *cobra.Command { return serveCmd("start", version, server.FrontendStart) }
 
 func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Command {
+	var host string
 	var port int
 	var verbose bool
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: "Start the local HTTP/WebSocket server",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			host = strings.TrimSpace(host)
+			if host == "" {
+				return fmt.Errorf("host must not be empty")
+			}
+
 			workDir, err := config.DefaultWorkDir()
 			if err != nil {
 				return err
@@ -85,7 +91,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			defer log.Close()
 
 			log.Info(logger.CatApp, "soloqueue serve starting",
-				"host", "127.0.0.1", "port", port, "version", version)
+				"host", host, "port", port, "version", version)
 
 			if tools.IsRTKEnabled() {
 				log.Info(logger.CatApp, "RTK command is available; Bash tool will compress outputs using RTK")
@@ -233,9 +239,10 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			reloadTeamCatalog := installL1PromptReload(rt, builder, mgr.Session, rebuildPrompt)
 
 			// Create RuntimeMetrics (shared by Mux + Hub) for serve mode.
-			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+			listenAddr := net.JoinHostPort(host, fmt.Sprint(port))
+			listener, err := net.Listen("tcp", listenAddr)
 			if err != nil {
-				return fmt.Errorf("listen 127.0.0.1:%d: %w", port, err)
+				return fmt.Errorf("listen %s: %w", listenAddr, err)
 			}
 			actualAddr := listener.Addr().String()
 			runtimeMetrics := &server.RuntimeMetrics{HTTPAddr: actualAddr}
@@ -369,7 +376,8 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 		},
 	}
 
-	cmd.Flags().IntVarP(&port, "port", "p", 57647, "HTTP server port (57647 = default, 0 = random)")
+	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "HTTP server host")
+	cmd.Flags().IntVarP(&port, "port", "p", 57689, "HTTP server port (57689 = default, 0 = random)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print logs to console (stderr)")
 	return cmd
 }
@@ -404,7 +412,7 @@ func WebCmd(version string) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVarP(&port, "port", "p", 57648, "Web server port (0 = random)")
-	cmd.Flags().StringVar(&backendURL, "backend", "http://127.0.0.1:57647", "Backend URL used by the browser")
+	cmd.Flags().StringVar(&backendURL, "backend", "http://127.0.0.1:57689", "Backend URL used by the browser")
 	_ = version // retained for command registration symmetry and future banner use
 	return cmd
 }

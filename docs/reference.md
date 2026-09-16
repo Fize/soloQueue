@@ -63,14 +63,15 @@ The primary binary is `soloqueue`. Run `soloqueue --help` to list registered sub
 
 ### `soloqueue serve`
 Starts the HTTP REST, WebSocket, and agent runtime server on `127.0.0.1`.
-- `--port, -p`: Listening port (default: `57647`; `0` for random port).
+- `--host`: Listening host (default: `127.0.0.1`).
+- `--port, -p`: Listening port (default: `57689`; `0` for random port).
 - `--verbose, -v`: Enables verbose stderr logging.
 
 ### `soloqueue start`
-Starts the backend runtime, Web Console at `/`, and Status UI at `/status/` on one `127.0.0.1` listener. It accepts the same port and verbose flags as `serve`.
+Starts the backend runtime, Web Console at `/`, and Status UI at `/status/` on one listener. It accepts the same host, port, and verbose flags as `serve`.
 
 ### `soloqueue web`
-Starts only the standalone Web Console. Use `--backend` to set the backend URL; the default is `http://127.0.0.1:57647`.
+Starts only the standalone Web Console. Use `--backend` to set the backend URL; the default is `http://127.0.0.1:57689`.
 
 ### `soloqueue version`
 Prints the application version string.

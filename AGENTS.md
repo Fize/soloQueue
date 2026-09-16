@@ -70,9 +70,9 @@ Open the Web Console Vite dev server at `http://localhost:5173`; it proxies `/ap
 
 `github.com/xiaobaitu/soloqueue`. Go 1.25.8.
 
-`soloqueue start` is the combined browser mode. `serve` defaults to port 57647 and `web` to 57648. All bind `127.0.0.1` by default.
+`soloqueue start` is the combined browser mode. `serve` defaults to port 57689 and `web` to 57648. All bind `127.0.0.1` by default.
 Other subcommands: `version`.
-`serve` flags: `--verbose` / `-v` (logs to stderr).
+`serve` flags: `--host`, `--port` / `-p`, and `--verbose` / `-v` (logs to stderr).
 
 ## Config & data
 

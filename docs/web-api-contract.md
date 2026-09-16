@@ -8,7 +8,7 @@ This contract is the API-first boundary for the browser-only runtime.
 - `soloqueue web` starts only the embedded Web Console static server. It does not initialize the database, agents, Cron, MCP, channels, or sessions. `--backend` is the backend URL used by the browser UI.
 - `soloqueue start` starts one backend runtime, one HTTP listener, the Web Console at `/`, and Status UI at `/status/`.
 
-All commands default to `127.0.0.1`; `serve` and `start` default to port `57647`, while `web` defaults to `57648`.
+All commands default to `127.0.0.1`; `serve` and `start` default to port `57689`, while `web` defaults to `57648`.
 
 ## HTTP routes
 

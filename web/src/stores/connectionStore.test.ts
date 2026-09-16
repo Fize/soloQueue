@@ -60,13 +60,13 @@ describe('connectionStore', () => {
       'fetch',
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ backend_url: 'http://127.0.0.1:57647/' }),
+        json: async () => ({ backend_url: 'http://127.0.0.1:57689/' }),
       })
     )
 
     await useConnectionStore.getState().loadConfig()
 
-    expect(useConnectionStore.getState().getEffectiveBaseUrl()).toBe('http://127.0.0.1:57647')
+    expect(useConnectionStore.getState().getEffectiveBaseUrl()).toBe('http://127.0.0.1:57689')
   })
 
   describe('getEffectiveWsUrl', () => {
