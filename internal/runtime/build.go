@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -172,15 +170,6 @@ func InitLogger(workDir string, cfg *config.GlobalService, console bool) (*logge
 	return log, nil
 }
 
-// NewAgentID returns a short random ID for an agent instance.
-func NewAgentID() string {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
-	}
-	return "agent-" + hex.EncodeToString(b[:])
-}
-
 // buildContext holds intermediate build state during initialization.
 // Kept unexported as it is only used internally by the Build process.
 type buildContext struct {
@@ -203,7 +192,6 @@ type buildContext struct {
 	mcpMgr            *mcp.Manager
 	lspMgr            *lsp.Manager
 	promptCfg         *prompt.PromptConfig
-	rulesCreated      bool
 	groups            map[string]prompt.GroupFile
 	leaders           []prompt.LeaderInfo
 	allTemplates      []agent.AgentTemplate
@@ -324,7 +312,6 @@ func (bc *buildContext) assembleStack() *Stack {
 		Compactor:           bc.compactorInstance,
 		ToolsCfg:            bc.toolsCfg,
 		Executor:            bc.executor,
-		RulesCreated:        bc.rulesCreated,
 		TaskRouter:          bc.taskRouter,
 		SkillRegistry:       bc.skillReg,
 		MemoryManager:       bc.memoryMgr,

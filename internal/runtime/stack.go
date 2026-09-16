@@ -52,7 +52,6 @@ type Stack struct {
 	PromptCfg     *prompt.PromptConfig
 	Tokenizer     *ctxwin.Tokenizer
 	Compactor     ctxwin.Compactor // context compression engine
-	RulesCreated  bool
 	TaskRouter    *router.Router
 	SkillRegistry *skill.SkillRegistry
 	MemoryManager *conversation.Manager // Short-term memory manager

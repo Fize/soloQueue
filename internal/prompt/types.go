@@ -11,9 +11,7 @@ type LeaderInfo struct {
 }
 
 // SoulNeededError is returned when soul.md is missing.
-type SoulNeededError struct {
-	RoleID string // Kept for backward compatibility, now refers to "default" role
-}
+type SoulNeededError struct{}
 
 func (e *SoulNeededError) Error() string {
 	return "soul.md not found in roles directory"

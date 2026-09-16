@@ -24,14 +24,14 @@ func (bc *buildContext) buildPrompt() error {
 		RolesDir:  filepath.Join(bc.workDir, "persona", "roles"),
 		GlobalDir: filepath.Join(bc.workDir, "persona", "global"),
 	}
-	rulesCreated, err := promptCfg.EnsureFiles()
+	err := promptCfg.EnsureFiles()
 	if err != nil {
 		var profileErr *prompt.SoulNeededError
 		if errors.As(err, &profileErr) {
 			if writeErr := promptCfg.WriteDefaultSoul(); writeErr != nil {
 				return fmt.Errorf("write soul: %w", writeErr)
 			}
-			rulesCreated, err = promptCfg.EnsureFiles()
+			err = promptCfg.EnsureFiles()
 			if err != nil {
 				return fmt.Errorf("ensure prompt files: %w", err)
 			}
@@ -40,7 +40,6 @@ func (bc *buildContext) buildPrompt() error {
 		}
 	}
 	bc.promptCfg = promptCfg
-	bc.rulesCreated = rulesCreated
 	bc.log.Debug(logger.CatApp, "build: prompt system ready", "duration", time.Since(promptStart).String())
 
 	// ── Groups ─────────────────────────────────────────────────────────────

@@ -67,13 +67,10 @@ func (p *PromptConfig) BuildPrompt(leaders []LeaderInfo, groups map[string]Group
 }
 
 // EnsureFiles checks and fills in any missing prompt files.
-// Return value: (rulesCreated bool, err error)
 //   - Returns SoulNeededError when soul.md is missing; the caller writes the default Soul.
-//   - Creates a default rules.md when it is missing, returning rulesCreated=true.
+//   - Creates a default rules.md when it is missing.
 //   - Missing directory structure is created automatically.
-func (p *PromptConfig) EnsureFiles() (bool, error) {
-	rulesCreated := false
-
+func (p *PromptConfig) EnsureFiles() error {
 	// Migrate old "prompts" directory to "persona"
 	workDir := filepath.Dir(filepath.Dir(p.RolesDir))
 	personaDir := filepath.Dir(p.RolesDir)
@@ -111,33 +108,32 @@ func (p *PromptConfig) EnsureFiles() (bool, error) {
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return false, fmt.Errorf("create dir %s: %w", dir, err)
+			return fmt.Errorf("create dir %s: %w", dir, err)
 		}
 	}
 
 	// Check soul.md
 	soulExists, err := fileExists(p.soulPath())
 	if err != nil {
-		return false, err
+		return err
 	}
 	if !soulExists {
-		return false, &SoulNeededError{RoleID: "default"}
+		return &SoulNeededError{}
 	}
 
 	// Check rules.md
 	rulesExists, err := fileExists(p.RulesPath())
 	if err != nil {
-		return false, err
+		return err
 	}
 	if !rulesExists {
 		stub := "<!-- \nAdd your custom rules here. \nSystem rules are built-in automatically and do not need to be copied here.\n-->\n"
 		if err := os.WriteFile(p.RulesPath(), []byte(stub), 0o644); err != nil {
-			return false, fmt.Errorf("write default rules: %w", err)
+			return fmt.Errorf("write default rules: %w", err)
 		}
-		rulesCreated = true
 	}
 
-	return rulesCreated, nil
+	return nil
 }
 
 // WriteDefaultSoul writes the fixed initial Soul content.

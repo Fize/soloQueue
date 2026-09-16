@@ -14,12 +14,8 @@ func TestEnsureFiles_CreatesRules(t *testing.T) {
 	os.WriteFile(filepath.Join(rolesDir, "soul.md"), []byte("test soul"), 0o644)
 
 	cfg := &PromptConfig{RolesDir: rolesDir, GlobalDir: filepath.Join(dir, "persona", "global")}
-	rulesCreated, err := cfg.EnsureFiles()
-	if err != nil {
+	if err := cfg.EnsureFiles(); err != nil {
 		t.Fatalf("EnsureFiles: %v", err)
-	}
-	if !rulesCreated {
-		t.Error("rulesCreated should be true when rules.md is newly created")
 	}
 
 	// Verify that rules.md was created.
@@ -36,7 +32,7 @@ func TestEnsureFiles_SoulNeeded(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &PromptConfig{RolesDir: filepath.Join(dir, "persona", "roles"), GlobalDir: filepath.Join(dir, "persona", "global")}
 
-	_, err := cfg.EnsureFiles()
+	err := cfg.EnsureFiles()
 	if err == nil {
 		t.Fatal("expected SoulNeededError")
 	}
@@ -54,21 +50,24 @@ func TestEnsureFiles_Idempotent(t *testing.T) {
 	// First: write soul, then EnsureFiles.
 	cfg.WriteDefaultSoul()
 
-	rulesCreated1, err := cfg.EnsureFiles()
-	if err != nil {
+	if err := cfg.EnsureFiles(); err != nil {
 		t.Fatalf("first EnsureFiles: %v", err)
 	}
-	if !rulesCreated1 {
-		t.Error("first call should create rules")
+	const customRules = "custom rules"
+	if err := os.WriteFile(cfg.RulesPath(), []byte(customRules), 0o644); err != nil {
+		t.Fatalf("write custom rules: %v", err)
 	}
 
 	// Second: rules already exist.
-	rulesCreated2, err := cfg.EnsureFiles()
-	if err != nil {
+	if err := cfg.EnsureFiles(); err != nil {
 		t.Fatalf("second EnsureFiles: %v", err)
 	}
-	if rulesCreated2 {
-		t.Error("second call should not create rules again")
+	data, err := os.ReadFile(cfg.RulesPath())
+	if err != nil {
+		t.Fatalf("read rules after second EnsureFiles: %v", err)
+	}
+	if string(data) != customRules {
+		t.Errorf("second call overwrote rules: got %q, want %q", string(data), customRules)
 	}
 }
 
@@ -309,8 +308,7 @@ func TestEnsureFiles_MigratesOldPromptsDir(t *testing.T) {
 		GlobalDir: filepath.Join(dir, "persona", "global"),
 	}
 
-	_, err := cfg.EnsureFiles()
-	if err != nil {
+	if err := cfg.EnsureFiles(); err != nil {
 		t.Fatalf("EnsureFiles error: %v", err)
 	}
 
@@ -343,8 +341,7 @@ func TestEnsureFiles_BothDirectoriesExist(t *testing.T) {
 		GlobalDir: filepath.Join(dir, "persona", "global"),
 	}
 
-	_, err := cfg.EnsureFiles()
-	if err != nil {
+	if err := cfg.EnsureFiles(); err != nil {
 		t.Fatalf("EnsureFiles error: %v", err)
 	}
 
