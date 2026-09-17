@@ -11,6 +11,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
@@ -140,13 +141,14 @@ type streamStrategy interface {
 	// Returns an error for overflow or other pre-flight failures.
 	buildMessages(ctx context.Context, a *Agent, iter int) ([]LLMMessage, error)
 
-	// execTools runs all tool calls and returns per-call result strings.
-	execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) []string
+	// execTools runs all tool calls and returns per-call results plus the async
+	// turn created by this exact batch, if any.
+	execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) toolExecutionResult
 
 	// postIteration handles post-LLM-response processing: calibration,
 	// context window push, async delegation check, tool result storage.
 	// Returns true if the loop should yield (async delegation started).
-	postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, results []string, out chan<- AgentEvent) (yield bool)
+	postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, execution toolExecutionResult, out chan<- AgentEvent) (yield bool)
 
 	// promptLen returns the original prompt length for logging.
 	promptLen() int
@@ -416,14 +418,14 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			return
 		}
 
-		results := strat.execTools(a, ctx, iter, toolCalls, out)
+		execution := strat.execTools(a, ctx, iter, toolCalls, out)
 		// A tool may ignore cancellation and return late. Do not let that stale
 		// generation cross the next conversation/timeline mutation boundary.
 		if err := ctx.Err(); err != nil {
 			a.emit(ctx, out, ErrorEvent{Err: context.Cause(ctx)})
 			return false
 		}
-		if strat.postIteration(a, ctx, iter, acc, toolCalls, results, out) {
+		if strat.postIteration(a, ctx, iter, acc, toolCalls, execution, out) {
 			return true // async delegation started, loop yields — out stays open
 		}
 
@@ -494,11 +496,11 @@ func (s *simpleStrategy) buildMessages(_ context.Context, a *Agent, iter int) ([
 	return s.msgs, nil
 }
 
-func (s *simpleStrategy) execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) []string {
-	return a.execTools(ctx, iter, calls, out)
+func (s *simpleStrategy) execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) toolExecutionResult {
+	return toolExecutionResult{results: a.execTools(ctx, iter, calls, out)}
 }
 
-func (s *simpleStrategy) postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, results []string, out chan<- AgentEvent) bool {
+func (s *simpleStrategy) postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, execution toolExecutionResult, out chan<- AgentEvent) bool {
 	asstMsg := LLMMessage{
 		Role:             "assistant",
 		Content:          acc.content.String(),
@@ -508,7 +510,11 @@ func (s *simpleStrategy) postIteration(a *Agent, ctx context.Context, iter int, 
 	s.msgs = append(s.msgs, asstMsg)
 	s.totalTokens += msgTokens(s.tok, asstMsg)
 
+	results := execution.results
 	for i, tc := range calls {
+		if i >= len(results) {
+			continue
+		}
 		toolMsg := LLMMessage{
 			Role:       "tool",
 			ToolCallID: tc.ID,
@@ -621,11 +627,12 @@ func (s *historyStrategy) buildMessages(ctx context.Context, a *Agent, iter int)
 	return payloadToLLMMessages(payload), nil
 }
 
-func (s *historyStrategy) execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) []string {
-	return a.execToolsWithAsync(ctx, iter, calls, out, s.cw)
+func (s *historyStrategy) execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) toolExecutionResult {
+	return a.execToolsWithAsyncState(ctx, iter, calls, out, s.cw)
 }
 
-func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, results []string, out chan<- AgentEvent) bool {
+func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int, acc *streamAccumulator, calls []llm.ToolCall, execution toolExecutionResult, out chan<- AgentEvent) bool {
+	results := execution.results
 	// Strict ordering: calibrate first (align to API exact value), then push
 	if acc.usage.PromptTokens > 0 {
 		s.cw.Calibrate(acc.usage.PromptTokens)
@@ -637,12 +644,9 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 		ctxwin.WithToolCalls(calls),
 	)
 
-	// Check for async delegation (tool loop must pause)
-	a.turnMu.RLock()
-	_, hasAsync := a.asyncTurns[iter]
-	a.turnMu.RUnlock()
-
-	if hasAsync {
+	// Check only the async state returned by this exact tool batch. Looking up
+	// by iter is incorrect because every concurrent request starts at iter=0.
+	if turn := execution.async; turn != nil {
 		// Async path:
 		// - assistant(tool_calls) already pushed to cw
 		// - Push immediate tool results for delegated calls to complete the pair.
@@ -650,12 +654,7 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 		//   and tool(result), which would violate LLM API message ordering.
 		// - out NOT closed (streamLoop returns yielded=true, resumeTurn → streamLoop will close on final exit)
 		// - emit DelegationStartedEvent
-		var numTasks int
-		a.turnMu.RLock()
-		if ts := a.asyncTurns[iter]; ts != nil {
-			numTasks = int(ts.pending.Load())
-		}
-		a.turnMu.RUnlock()
+		numTasks := int(turn.pending.Load())
 
 		// Push immediate tool results for ALL tools (sync results + delegated calls)
 		for i, tc := range calls {
@@ -798,6 +797,7 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 //   - If buffer is full, select { ch <- ev; <-ctx.Done() } — exit when either is ready
 //   - Returning false means ctx is cancelled; the caller should return immediately (usually paired with defer close(out))
 func (a *Agent) emit(ctx context.Context, out chan<- AgentEvent, ev AgentEvent) bool {
+	ev = attachRequestID(ctx, ev)
 	// Fan-out to watchers (non-blocking, drop if slow).
 	a.emitToWatchers(ev)
 
@@ -819,6 +819,54 @@ func (a *Agent) emit(ctx context.Context, out chan<- AgentEvent, ev AgentEvent) 
 		default:
 			return false
 		}
+	}
+}
+
+// attachRequestID stamps the request metadata onto events before they are
+// fanned out to the runtime watcher. The watcher receives events without a
+// context, so this is the only reliable way to keep concurrent L1 streams
+// distinguishable in the live projection.
+func attachRequestID(ctx context.Context, ev AgentEvent) AgentEvent {
+	if ctx == nil {
+		return ev
+	}
+	requestID := telemetryctx.FromContext(ctx).RequestID
+	if requestID == "" || RequestIDOfEvent(ev) != "" {
+		return ev
+	}
+	switch e := ev.(type) {
+	case ContentDeltaEvent:
+		e.RequestID = requestID
+		return e
+	case ReasoningDeltaEvent:
+		e.RequestID = requestID
+		return e
+	case ToolCallDeltaEvent:
+		e.RequestID = requestID
+		return e
+	case ToolExecStartEvent:
+		e.RequestID = requestID
+		return e
+	case ToolExecDoneEvent:
+		e.RequestID = requestID
+		return e
+	case IterationDoneEvent:
+		e.RequestID = requestID
+		return e
+	case DoneEvent:
+		e.RequestID = requestID
+		return e
+	case ErrorEvent:
+		e.RequestID = requestID
+		return e
+	case DelegationStartedEvent:
+		e.RequestID = requestID
+		return e
+	case DelegationCompletedEvent:
+		e.RequestID = requestID
+		return e
+	default:
+		return ev
 	}
 }
 

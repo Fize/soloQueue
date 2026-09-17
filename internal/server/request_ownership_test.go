@@ -615,6 +615,17 @@ type blockingDelegationTarget struct {
 	release <-chan struct{}
 }
 
+type requestOwnershipEchoTool struct{}
+
+func (requestOwnershipEchoTool) Name() string        { return "echo" }
+func (requestOwnershipEchoTool) Description() string { return "returns a deterministic sync result" }
+func (requestOwnershipEchoTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+func (requestOwnershipEchoTool) Execute(context.Context, string) (string, error) {
+	return "sync follow-up result", nil
+}
+
 func (t *blockingDelegationTarget) Ask(ctx context.Context, prompt string) (string, error) {
 	select {
 	case <-t.release:
@@ -669,14 +680,19 @@ func TestL1DesktopStartsSecondRequestBeforeDelegationCompletes(t *testing.T) {
 			ID:        "call-delegate",
 			Name:      "delegate",
 			Arguments: `{"target":"worker","task":"blocked"}`,
-		}}},
-		StreamDeltas: [][]string{nil, {"second request response"}, {"first request response"}},
+		}}, {{
+			Index:     0,
+			ID:        "call-follow-up-tool",
+			Name:      "echo",
+			Arguments: `{}`,
+		}}, nil, nil},
+		StreamDeltas: [][]string{nil, nil, {"second request response"}, {"first request response"}},
 	}
 	a := agent.NewAgent(
 		agent.Definition{ID: "l1-test", Name: "L1 test"},
 		fakeLLM,
 		log,
-		agent.WithTools(delegate),
+		agent.WithTools(delegate, requestOwnershipEchoTool{}),
 		agent.WithPriorityMailbox(),
 		agent.WithAgentWorkDir(workDir),
 	)
@@ -732,6 +748,32 @@ delegationStarted:
 	}
 	if got := fakeLLM.StreamCallCount(); got < 2 {
 		t.Fatalf("L1 stream calls = %d, want at least 2 before delegation completes", got)
+	}
+
+	// The follow-up deliberately uses a synchronous tool at its own iter=0.
+	// Before the fix, the old request's asyncTurns[0] was mistaken for the
+	// follow-up's state, so the stream yielded without ever emitting chat_done.
+	followupDone := false
+	deadline = time.After(2 * time.Second)
+	for !followupDone {
+		select {
+		case data := <-client.send:
+			var msg WSMessage
+			if err := json.Unmarshal(data, &msg); err != nil {
+				t.Fatalf("unmarshal follow-up websocket message: %v", err)
+			}
+			if msg.Type == "delegation_start" && msg.RequestID == "req-follow-up" {
+				t.Fatal("follow-up sync tool was misclassified as async delegation")
+			}
+			if msg.Type == "chat_done" && msg.RequestID == "req-follow-up" {
+				if msg.Content != "second request response" {
+					t.Fatalf("follow-up content = %q, want %q", msg.Content, "second request response")
+				}
+				followupDone = true
+			}
+		case <-deadline:
+			t.Fatal("follow-up did not emit chat_done while delegation was still pending")
+		}
 	}
 }
 

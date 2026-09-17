@@ -226,7 +226,10 @@ export function ChatPage() {
   // subscription made this whole component re-render on every chat_chunk;
   // the per-message React.memo on ChatMessageView now prevents the old
   // messages from re-rendering, so this re-render is cheap.
-  const currentMessages = messages[activeSessionId || ""] || [];
+  const currentMessages = useMemo(
+    () => messages[activeSessionId || ""] ?? [],
+    [messages, activeSessionId],
+  );
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const hasActiveSession = activeSession != null;
   const activeGroup = activeSession?.group ?? null;
@@ -377,7 +380,10 @@ export function ChatPage() {
 
   const activeAgentInstanceId = isL1Session ? (groupAgents[0]?.instance_id || null) : (activeAgent?.instance_id || null);
   const activeAgentState = isL1Session ? groupAgents[0]?.state : activeAgent?.state;
-  const stream = useAgentStream(activeAgentInstanceId);
+  const liveRequestId = activeSessionId
+    ? routeSessions[activeSessionId]?.requestId
+    : undefined;
+  const stream = useAgentStream(activeAgentInstanceId, liveRequestId);
 
   const prevAgentState = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -413,20 +419,17 @@ export function ChatPage() {
   }, [stream]);
 
   const finalMessages = useMemo(() => {
-    const requestId = activeSessionId
-      ? routeSessions[activeSessionId]?.requestId
-      : undefined;
     return recoverInFlightMessages(
       currentMessages,
       streamChatSegments,
       activeAgentState === "processing" &&
-        !wsManager.hasChatHandler(requestId),
+        (!liveRequestId || !wsManager.hasChatHandler(liveRequestId)),
+      liveRequestId,
     );
   }, [
     currentMessages,
-    activeSessionId,
     activeAgentState,
-    routeSessions,
+    liveRequestId,
     streamChatSegments,
   ]);
 

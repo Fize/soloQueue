@@ -43,11 +43,16 @@ const (
 
 // asyncTurnState tracks and aggregates all tool_call results in an async turn.
 type asyncTurnState struct {
-	agentID   string
-	out       chan<- AgentEvent
-	cw        *ctxwin.ContextWindow
-	iter      int
-	toolCalls []llm.ToolCall
+	// registryKey identifies this exact async turn in Agent.asyncTurns. It is
+	// allocated independently from iter so concurrent requests cannot replace
+	// one another when both start at iteration zero.
+	registryKey int
+	registered  bool
+	agentID     string
+	out         chan<- AgentEvent
+	cw          *ctxwin.ContextWindow
+	iter        int
+	toolCalls   []llm.ToolCall
 	// Concurrency safety: each worker writes to its distinct callIndex index.
 	// happens-before established by pending atomic counter hitting 0.
 	results   []string
@@ -72,6 +77,14 @@ type asyncTurnState struct {
 	// Test-only scheduling hook used to deterministically exercise cancellation
 	// after queued->resuming but before the first persistent mutation.
 	beforeResumeMutation func()
+}
+
+// toolExecutionResult keeps the result of one tool batch together with the
+// async turn created by that same batch. The stream loop must use this local
+// identity instead of inferring ownership from the shared iteration number.
+type toolExecutionResult struct {
+	results []string
+	async   *asyncTurnState
 }
 
 func (t *asyncTurnState) claimResume() bool {
@@ -231,6 +244,16 @@ func (a *Agent) execToolsWithAsync(
 	out chan<- AgentEvent,
 	cw *ctxwin.ContextWindow,
 ) []string {
+	return a.execToolsWithAsyncState(ctx, iter, calls, out, cw).results
+}
+
+func (a *Agent) execToolsWithAsyncState(
+	ctx context.Context,
+	iter int,
+	calls []llm.ToolCall,
+	out chan<- AgentEvent,
+	cw *ctxwin.ContextWindow,
+) toolExecutionResult {
 	results := make([]string, len(calls))
 
 	// Phase 1: Identify asynchronous tools + pre-create asyncTurnState
@@ -473,15 +496,15 @@ func (a *Agent) execToolsWithAsync(
 	}
 
 	// Phase 2: If there are asynchronous tools, register state + start goroutines
+	var asyncTurn *asyncTurnState
 	if turnState != nil && turnState.pending.Load() > 0 {
+		asyncTurn = turnState
 		a.logInfo(ctx, logger.CatTool, "execToolsWithAsync: registering async turn and starting goroutines",
 			"agent_id", a.Def.ID,
 			"iter", iter,
 			"num_async", turnState.pending.Load(),
 		)
-		a.turnMu.Lock()
-		a.asyncTurns[iter] = turnState
-		a.turnMu.Unlock()
+		a.registerAsyncTurn(turnState)
 
 		// Start all asynchronous goroutines (state is now safely persisted)
 		for _, action := range asyncActions {
@@ -512,7 +535,31 @@ func (a *Agent) execToolsWithAsync(
 		}
 	}
 
-	return results
+	return toolExecutionResult{results: results, async: asyncTurn}
+}
+
+// registerAsyncTurn stores a turn under a unique per-Agent key. Retain the
+// iteration as the first key when it is free for backwards-compatible
+// observability/tests; concurrent turns automatically receive a sequence key.
+func (a *Agent) registerAsyncTurn(turn *asyncTurnState) {
+	if a == nil || turn == nil {
+		return
+	}
+	a.turnMu.Lock()
+	key := turn.iter
+	if _, exists := a.asyncTurns[key]; exists {
+		for {
+			candidate := int(a.asyncTurnSeq.Add(1))
+			if _, exists := a.asyncTurns[candidate]; !exists {
+				key = candidate
+				break
+			}
+		}
+	}
+	turn.registryKey = key
+	turn.registered = true
+	a.asyncTurns[key] = turn
+	a.turnMu.Unlock()
 }
 
 // watchDelegatedTask awaits one async result, stores it, and triggers resumeTurn when all pending complete.
@@ -586,7 +633,13 @@ func (a *Agent) removeAsyncTurnIfSame(turn *asyncTurnState) {
 		return
 	}
 	a.turnMu.Lock()
-	if a.asyncTurns[turn.iter] == turn {
+	if turn.registered {
+		if a.asyncTurns[turn.registryKey] == turn {
+			delete(a.asyncTurns, turn.registryKey)
+		}
+		turn.registered = false
+	} else if a.asyncTurns[turn.iter] == turn {
+		// Test/helpers may inject a turn directly using the historical iter key.
 		delete(a.asyncTurns, turn.iter)
 	}
 	a.turnMu.Unlock()
