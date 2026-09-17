@@ -73,9 +73,12 @@ type Agent struct {
 	// Supports multiple Agent instances of the same template coexisting (parallel scheduling).
 	InstanceID string
 
-	// Asynchronous delegation tracking (L1 specific)
-	turnMu     sync.RWMutex
-	asyncTurns map[int]*asyncTurnState // iter → turn asynchronous state
+	// Asynchronous delegation tracking (L1 specific). The map key is a
+	// per-Agent registry key, not the LLM iteration number: multiple requests
+	// may legitimately be at iter=0 while L1 is serving concurrent work.
+	turnMu       sync.RWMutex
+	asyncTurns   map[int]*asyncTurnState
+	asyncTurnSeq atomic.Uint64
 
 	// taskWg tracks spawned async goroutines (execToolsWithAsync, watchDelegatedTask).
 	// When Stop is called, runJob waits for taskWg before closing done, ensuring

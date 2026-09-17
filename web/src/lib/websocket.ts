@@ -323,17 +323,49 @@ class WebSocketManager {
           }
           msg.runtime.sessions = accepted
           const chat = useChatStore.getState()
-          for (const [sessionId, runtime] of Object.entries(accepted)) {
+          const runtimeSessionIDs = new Map<string, Set<string>>()
+          const activeRuntimeSessions = new Set<string>()
+          const delegatingRuntimeSessions = new Set<string>()
+          for (const [sessionKey, runtime] of Object.entries(accepted)) {
+            const sessionId = runtime.session_id || sessionKey
+            if (runtime.request_id) {
+              const requestIDs = runtimeSessionIDs.get(sessionId) || new Set<string>()
+              requestIDs.add(runtime.request_id)
+              runtimeSessionIDs.set(sessionId, requestIDs)
+            }
+            if (runtime.state !== 'idle' && runtime.state !== 'error') {
+              activeRuntimeSessions.add(sessionId)
+            }
+            if (runtime.delegating) {
+              delegatingRuntimeSessions.add(sessionId)
+            }
+          }
+          for (const [sessionKey, runtime] of Object.entries(accepted)) {
+            // L1 may have several request-keyed entries at once. The map key
+            // is an API identity, not the logical chat session ID.
+            const sessionId = runtime.session_id || sessionKey
             const active = runtime.state !== 'idle' && runtime.state !== 'error'
             const wasActive = !!chat.streamingSessions[sessionId]
             const hasActiveRequests = Object.values(chat.activeRequests).some(
               (request) => request.sessionId === sessionId
             )
+            const hasActiveRuntimeRequest = activeRuntimeSessions.has(sessionId)
             if (active) {
               chat.setStreaming(true, sessionId)
-              chat.setDelegating(runtime.delegating, sessionId)
+              chat.setDelegating(delegatingRuntimeSessions.has(sessionId), sessionId)
               if (runtime.request_id) {
                 const existing = chat.routeSessions[sessionId]
+                const runtimeRequestIDs = runtimeSessionIDs.get(sessionId)
+                const currentRouteIsTracked = !!existing?.requestId && !!runtimeRequestIDs?.has(existing.requestId)
+                const currentRouteIsActiveLocally = !!existing?.requestId && !!chat.activeRequests[existing.requestId]
+                // Keep the route already selected by the local sender (or a
+                // persisted route still present in runtime). A second
+                // concurrent runtime entry must not replace it with an older
+                // request merely because Go map iteration order changed.
+                const shouldAdoptRoute = !existing ||
+                  existing.requestId === runtime.request_id ||
+                  (!currentRouteIsTracked && !currentRouteIsActiveLocally)
+                if (!shouldAdoptRoute) continue
                 const sameRequest = existing?.requestId === runtime.request_id
                 const route = {
                   requestId: runtime.request_id,
@@ -346,7 +378,7 @@ class WebSocketManager {
                 chat.updateRequestRoute(runtime.request_id, route)
                 chat.setRoute(route)
               }
-            } else if (!hasActiveRequests && (wasActive || chat.routeSessions[sessionId])) {
+            } else if (!hasActiveRequests && !hasActiveRuntimeRequest && (wasActive || chat.routeSessions[sessionId])) {
               chat.setStreaming(false, sessionId)
               chat.setDelegating(false, sessionId)
               const requestId = chat.routeSessions[sessionId]?.requestId

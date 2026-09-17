@@ -85,7 +85,8 @@ export function AssistantPage() {
   }, [agentsData]);
   const l1AgentState = l1Agent?.state;
   const l1AgentInstanceId = l1Agent?.instance_id || null;
-  const stream = useAgentStream(l1AgentInstanceId);
+  const liveRequestId = routeSessions["l1"]?.requestId;
+  const stream = useAgentStream(l1AgentInstanceId, liveRequestId);
 
   const filteredSkillNames = useMemo(() => {
     return skills.map((s) => s.name);
@@ -145,7 +146,7 @@ export function AssistantPage() {
     return () => el.removeEventListener("scroll", handleScroll);
   }, [hasMore, isLoadingMore, loadMoreHistory]);
 
-  const currentMessages = messages["l1"] || [];
+  const currentMessages = useMemo(() => messages["l1"] ?? [], [messages]);
 
   // ── Send & Cancel ─────────────────────────────────────────────────────────
   const handleSend = useCallback(
@@ -181,20 +182,20 @@ export function AssistantPage() {
   }, [stream]);
 
   const finalMessages = useMemo(() => {
-    const activeRequestId = routeSessions["l1"]?.requestId;
-    const requestOwnedLocally = wsManager.hasChatHandler(activeRequestId);
+    const requestOwnedLocally = wsManager.hasChatHandler(liveRequestId);
     return recoverInFlightMessages(
       currentMessages,
       streamChatSegments,
       isL1Session &&
         l1AgentState === "processing" &&
-        !requestOwnedLocally,
+        (!liveRequestId || !requestOwnedLocally),
+      liveRequestId,
     );
   }, [
     currentMessages,
     isL1Session,
     l1AgentState,
-    routeSessions,
+    liveRequestId,
     streamChatSegments,
   ]);
 

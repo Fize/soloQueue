@@ -111,6 +111,7 @@ type Segment struct {
 // as an ordered timeline of segments.
 type AgentStreamState struct {
 	AgentID    string    `json:"agent_id"`
+	RequestID  string    `json:"request_id,omitempty"`
 	Processing bool      `json:"processing"`
 	Segments   []Segment `json:"segments"`
 	Iteration  int       `json:"iteration"`
@@ -153,6 +154,12 @@ func (rm *RuntimeMetrics) StopAgentWatch(instanceID string) {
 		delete(rm.agentCancels, instanceID)
 	}
 	delete(rm.agentStreams, instanceID)
+	prefix := instanceID + "\x00"
+	for key := range rm.agentStreams {
+		if strings.HasPrefix(key, prefix) {
+			delete(rm.agentStreams, key)
+		}
+	}
 	notify = rm.onChange
 	rm.agentStreamsMu.Unlock()
 	if notify != nil {
@@ -170,13 +177,16 @@ func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEve
 		rm.agentStreamsMu.Unlock()
 		return
 	}
-	s := rm.agentStreams[instanceID]
+	requestID := agent.RequestIDOfEvent(ev)
+	streamKey := agentStreamKey(instanceID, requestID)
+	s := rm.agentStreams[streamKey]
 	if s == nil {
 		s = &AgentStreamState{
-			AgentID:  instanceID,
-			Segments: []Segment{},
+			AgentID:   instanceID,
+			RequestID: requestID,
+			Segments:  []Segment{},
 		}
-		rm.agentStreams[instanceID] = s
+		rm.agentStreams[streamKey] = s
 	}
 
 	if !s.Processing {
@@ -187,6 +197,14 @@ func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEve
 			s.Segments = []Segment{}
 			s.Error = ""
 			s.Processing = true
+			// Keep active request streams independent, but discard completed
+			// snapshots when a newer request starts so the runtime payload does
+			// not grow without bound over the lifetime of the Agent instance.
+			for key, other := range rm.agentStreams {
+				if key != streamKey && !other.Processing {
+					delete(rm.agentStreams, key)
+				}
+			}
 		}
 	}
 
@@ -261,6 +279,13 @@ func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEve
 	if notify != nil {
 		notify()
 	}
+}
+
+func agentStreamKey(instanceID, requestID string) string {
+	if requestID == "" {
+		return instanceID
+	}
+	return instanceID + "\x00" + requestID
 }
 
 // AgentStreams returns a snapshot of all agents' stream states.

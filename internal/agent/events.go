@@ -18,18 +18,21 @@ type AgentEvent interface {
 // the assistant's user-facing content stream. Control-plane status belongs in
 // a dedicated structural event instead of this event.
 type ContentDeltaEvent struct {
-	Iter  int
-	Delta string
+	RequestID string
+	Iter      int
+	Delta     string
 }
 
 // ReasoningDeltaEvent carries an incremental reasoning_content fragment.
 type ReasoningDeltaEvent struct {
-	Iter  int
-	Delta string
+	RequestID string
+	Iter      int
+	Delta     string
 }
 
 // ToolCallDeltaEvent carries an incremental tool_call arguments fragment.
 type ToolCallDeltaEvent struct {
+	RequestID string
 	Iter      int
 	CallID    string
 	Name      string
@@ -38,6 +41,7 @@ type ToolCallDeltaEvent struct {
 
 // ToolExecStartEvent signals a tool execution start.
 type ToolExecStartEvent struct {
+	RequestID     string
 	Iter          int
 	CallID        string
 	Name          string
@@ -47,16 +51,18 @@ type ToolExecStartEvent struct {
 
 // ToolExecDoneEvent signals a tool execution completion.
 type ToolExecDoneEvent struct {
-	Iter     int
-	CallID   string
-	Name     string
-	Result   string
-	Err      error
-	Duration time.Duration
+	RequestID string
+	Iter      int
+	CallID    string
+	Name      string
+	Result    string
+	Err       error
+	Duration  time.Duration
 }
 
 // IterationDoneEvent signals the end of an LLM iteration.
 type IterationDoneEvent struct {
+	RequestID    string
 	Iter         int
 	FinishReason llm.FinishReason
 	Usage        llm.Usage
@@ -65,27 +71,61 @@ type IterationDoneEvent struct {
 // DoneEvent signals successful completion of the entire AskStream.
 // Content is the final assistant response.
 type DoneEvent struct {
+	RequestID        string
 	Content          string
 	ReasoningContent string
 }
 
 // ErrorEvent signals that AskStream has terminated due to an error.
 type ErrorEvent struct {
-	Err error
+	RequestID string
+	Err       error
 }
 
 // DelegationStartedEvent signals that async delegation has begun.
 type DelegationStartedEvent struct {
-	Iter     int
-	NumTasks int
+	RequestID string
+	Iter      int
+	NumTasks  int
 }
 
 // DelegationCompletedEvent signals that all async delegations have completed.
 type DelegationCompletedEvent struct {
+	RequestID       string
 	Iter            int
 	TargetAgentID   string
 	TargetAgentName string
 	ResultContent   string // L3's full output, for frontend modal display
+}
+
+// RequestIDOfEvent returns the request identity attached to an AgentEvent.
+// Events emitted by older/direct callers may have no request ID; callers must
+// treat the empty value as an unscoped stream rather than inventing ownership.
+func RequestIDOfEvent(ev AgentEvent) string {
+	switch e := ev.(type) {
+	case ContentDeltaEvent:
+		return e.RequestID
+	case ReasoningDeltaEvent:
+		return e.RequestID
+	case ToolCallDeltaEvent:
+		return e.RequestID
+	case ToolExecStartEvent:
+		return e.RequestID
+	case ToolExecDoneEvent:
+		return e.RequestID
+	case IterationDoneEvent:
+		return e.RequestID
+	case DoneEvent:
+		return e.RequestID
+	case ErrorEvent:
+		return e.RequestID
+	case DelegationStartedEvent:
+		return e.RequestID
+	case DelegationCompletedEvent:
+		return e.RequestID
+	default:
+		return ""
+	}
 }
 
 // --- iface.AgentEvent marker (all types satisfy iface.AgentEvent) ---

@@ -42,4 +42,20 @@ describe("recoverInFlightMessages", () => {
   it("leaves handler-owned live messages unchanged", () => {
     expect(recoverInFlightMessages(history, runtimeStream, false)).toBe(history);
   });
+
+  it("keeps request-scoped recovery idempotent", () => {
+    const first = recoverInFlightMessages(history, runtimeStream, true, "req-new");
+    const second = recoverInFlightMessages(first, [
+      { type: "content", text: "updated answer" },
+    ], true, "req-new");
+
+    expect(second.map((message) => message.id)).toEqual([
+      "old-assistant",
+      "current-user",
+      "msg-req-new",
+    ]);
+    expect(second.at(-1)?.segments).toEqual([
+      { type: "content", text: "updated answer" },
+    ]);
+  });
 });

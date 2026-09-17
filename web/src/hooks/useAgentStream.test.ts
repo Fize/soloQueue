@@ -46,4 +46,15 @@ describe('useAgentStream', () => {
     const { result } = renderHook(() => useAgentStream('unknown'))
     expect(result.current).toBeNull()
   })
+
+  it('selects the stream belonging to the requested turn', () => {
+    const oldStream = { agent_id: 'a1', request_id: 'req-old', processing: true, segments: [], iteration: 1 }
+    const newStream = { agent_id: 'a1', request_id: 'req-new', processing: true, segments: [], iteration: 2 }
+    mockUseRuntime.mockReturnValue(mockRuntime({
+      'a1\u0000req-old': oldStream,
+      'a1\u0000req-new': newStream,
+    }))
+    const { result } = renderHook(() => useAgentStream('a1', 'req-new'))
+    expect(result.current).toEqual(newStream)
+  })
 })

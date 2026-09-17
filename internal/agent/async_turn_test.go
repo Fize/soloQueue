@@ -479,6 +479,51 @@ func TestAsyncDelegationCancellationDropsLateTargetEvents(t *testing.T) {
 	}
 }
 
+func TestAsyncTurnsAtSameIterationRemainIndependent(t *testing.T) {
+	release := make(chan struct{})
+	target := &mockLocatable{askFunc: func(ctx context.Context, _ string) (string, error) {
+		select {
+		case <-release:
+			return "done", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}}
+	asyncTool := &mockAsyncTool{
+		name:   "delegate",
+		action: &tools.AsyncAction{Target: target, Prompt: "same iteration", Timeout: time.Second},
+	}
+	a := NewAgent(Definition{ID: "l1"}, &agenttest.FakeLLM{}, newTestLogger(t), WithTools(asyncTool))
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+
+	first := a.execToolsWithAsyncState(context.Background(), 0, []llm.ToolCall{{
+		ID: "first", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{}`},
+	}}, make(chan AgentEvent, 8), cw)
+	second := a.execToolsWithAsyncState(context.Background(), 0, []llm.ToolCall{{
+		ID: "second", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{}`},
+	}}, make(chan AgentEvent, 8), cw)
+
+	if first.async == nil || second.async == nil {
+		t.Fatal("expected both same-iteration calls to create async turns")
+	}
+	if first.async == second.async || first.async.registryKey == second.async.registryKey {
+		t.Fatalf("same-iteration async turns were aliased: first=%p/%d second=%p/%d", first.async, first.async.registryKey, second.async, second.async.registryKey)
+	}
+	a.turnMu.RLock()
+	count := len(a.asyncTurns)
+	a.turnMu.RUnlock()
+	if count != 2 {
+		t.Fatalf("registered async turn count = %d, want 2", count)
+	}
+
+	close(release)
+	waitFor(t, time.Second, func() bool {
+		a.turnMu.RLock()
+		defer a.turnMu.RUnlock()
+		return len(a.asyncTurns) == 0
+	})
+}
+
 func TestAsyncDelegationPropagatesPersistenceCallbackFailure(t *testing.T) {
 	persistErr := errors.New("persist callback failed")
 	finishInput := make(chan error, 1)

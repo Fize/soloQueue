@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
@@ -73,6 +74,25 @@ func TestBeginModelWatchCreatesLeafOperation(t *testing.T) {
 	}
 	if _, ok := handle.Snapshot(); !ok {
 		t.Fatal("model leaf was not registered")
+	}
+}
+
+func TestAttachRequestIDScopesWatcherEvents(t *testing.T) {
+	ctx := telemetryctx.WithMetadata(context.Background(), telemetryctx.Metadata{RequestID: "req-scoped"})
+	got := attachRequestID(ctx, ContentDeltaEvent{Iter: 2, Delta: "hello"})
+	event, ok := got.(ContentDeltaEvent)
+	if !ok {
+		t.Fatalf("attachRequestID returned %T, want ContentDeltaEvent", got)
+	}
+	if event.RequestID != "req-scoped" {
+		t.Fatalf("RequestID = %q, want req-scoped", event.RequestID)
+	}
+
+	// Do not overwrite an explicitly scoped event when a nested caller already
+	// attached its own request identity.
+	kept := attachRequestID(ctx, ContentDeltaEvent{RequestID: "req-explicit"})
+	if got := RequestIDOfEvent(kept); got != "req-explicit" {
+		t.Fatalf("explicit RequestID = %q, want req-explicit", got)
 	}
 }
 
