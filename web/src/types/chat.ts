@@ -196,6 +196,8 @@ export interface ChatRouteInfo {
 
 export interface ChatMessage {
   id: string;
+  /** Page-lifetime worked preferences carried through history hydration; never persisted. */
+  workedStateKeys?: Record<string, string>;
   role: "user" | "assistant";
   segments: ChatSegment[];
   timestamp: string;

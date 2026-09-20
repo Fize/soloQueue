@@ -3,10 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/xiaobaitu/soloqueue/internal/channel"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
 // ─── WebSocket Message Types ────────────────────────────────────────────────
@@ -124,7 +128,7 @@ type Hub struct {
 
 // NewHub creates a new Hub. The Hub is not started until Run is called.
 func NewHub(m *Mux) *Hub {
-	return &Hub{
+	h := &Hub{
 		clients:          make(map[*Client]bool),
 		broadcast:        make(chan *WSMessage, 64),
 		register:         make(chan *Client),
@@ -135,6 +139,89 @@ func NewHub(m *Mux) *Hub {
 		requests:         NewActiveRequestRegistry(),
 		sessionRevisions: make(map[string]uint64),
 	}
+	if m != nil {
+		h.configureRequestLifecycle()
+	}
+	return h
+}
+
+// configureRequestLifecycle installs one request-owned runtime truth for every
+// Session entrypoint. Web and channel adapters only provide owner/source
+// metadata; reservation and terminal state are handled here.
+func (h *Hub) configureRequestLifecycle() {
+	if h == nil || h.mux == nil || h.requests == nil {
+		return
+	}
+	hooks := session.RequestLifecycleHooks{
+		OnStart: func(ctx context.Context, sessionID, requestID string) error {
+			logicalSessionID := logicalRuntimeSessionID(sessionID)
+			metadata := telemetry.MetadataFromContext(ctx)
+			owner := metadata.OwnerID
+			if owner == "" {
+				if _, ok := channel.ChatMetaFromContext(ctx); ok {
+					owner = session.ChannelRequestOwner(ctx)
+				}
+			}
+			if owner == "" {
+				owner = "runtime"
+			}
+			if _, err := h.requests.Reserve(logicalSessionID, requestID, owner); err != nil {
+				return err
+			}
+			h.NextSessionRevision(logicalSessionID)
+			h.Notify()
+			return nil
+		},
+		OnBind: func(sessionID, requestID string, cancel func() error) error {
+			return h.requests.BindCanceller(requestID, cancel)
+		},
+		OnCancel: func(sessionID, requestID, owner string) error {
+			req, err := h.requests.Validate(logicalRuntimeSessionID(sessionID), requestID)
+			if err != nil {
+				return err
+			}
+			if req.OwnerClientID != owner {
+				return ErrRequestOwnerMismatch
+			}
+			return nil
+		},
+		OnRoute: func(sessionID, requestID string, route session.RequestRoute) {
+			_ = h.requests.SetRouteMetadata(requestID, route.ModelID, route.ProviderID, route.TaskType, route.AgentInstanceID)
+			logicalSessionID := logicalRuntimeSessionID(sessionID)
+			h.refreshRequestWatchdog(logicalSessionID, requestID, "")
+			h.NextSessionRevision(logicalSessionID)
+			h.Notify()
+		},
+		OnFinish: func(sessionID, requestID, terminal, message string) {
+			if terminal == "" {
+				terminal = "completed"
+			}
+			_ = h.requests.SetTerminalCode(requestID, terminal)
+			_ = h.requests.SetTerminalError(requestID, message)
+			h.finalizeRequest(logicalRuntimeSessionID(sessionID), requestID)
+		},
+	}
+	session.SetDefaultRequestLifecycleHooks(hooks)
+	if h.mux.sessionMgr != nil {
+		h.mux.sessionMgr.SetRequestLifecycleHooks(hooks)
+	}
+	if h.mux.l2Store != nil {
+		for _, entry := range h.mux.l2Store.List() {
+			if sess := h.mux.l2Store.GetActivated(entry.ID); sess != nil {
+				sess.SetRequestLifecycleHooks(hooks)
+			}
+		}
+	}
+}
+
+func logicalRuntimeSessionID(targetID string) string {
+	if targetID == "" || targetID == "l1" || targetID == "l1-session" {
+		return "l1"
+	}
+	if len(targetID) >= 3 && targetID[:3] == "l2:" {
+		return targetID
+	}
+	return "l2:" + targetID
 }
 
 // Run starts the Hub's main loop. It should be called in a dedicated goroutine.
@@ -365,12 +452,13 @@ type Client struct {
 	cancel         context.CancelFunc
 	mu             sync.Mutex
 	activeRequests map[string]*activeRequest // request_id → request
+	ownerID        string
 }
 
 // newClient creates a new Client for the given WebSocket connection.
 func newClient(hub *Hub, conn *websocket.Conn) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Client{
+	c := &Client{
 		hub:            hub,
 		conn:           conn,
 		send:           make(chan []byte, 4096),
@@ -378,6 +466,8 @@ func newClient(hub *Hub, conn *websocket.Conn) *Client {
 		cancel:         cancel,
 		activeRequests: make(map[string]*activeRequest),
 	}
+	c.ownerID = fmt.Sprintf("browser:%p", c)
+	return c
 }
 
 // addActiveRequest registers a chat request with the client.

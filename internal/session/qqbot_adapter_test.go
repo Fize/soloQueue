@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,11 +18,87 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
+
+func TestChannelRunIDUsesRequestIdentityAndPreservesOrigin(t *testing.T) {
+	base := &channelAdapterBase{}
+	for _, channelName := range []string{"qqbot", "wechat", "telegram"} {
+		t.Run(channelName, func(t *testing.T) {
+			ctx := channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{Channel: channelName})
+			ctx = withChannelTelemetry(ctx)
+			ctx, runID := base.withChannelRunID(ctx)
+			metadata := telemetry.MetadataFromContext(ctx)
+
+			if runID == "" || metadata.RunID != runID || metadata.RequestID != runID {
+				t.Fatalf("run/request IDs = run %q request %q, want both %q", metadata.RunID, metadata.RequestID, runID)
+			}
+			wantOrigin := channelName
+			if channelName == "qqbot" {
+				wantOrigin = telemetry.OriginQQ
+			}
+			if metadata.Origin != wantOrigin {
+				t.Fatalf("origin = %q, want %q", metadata.Origin, wantOrigin)
+			}
+			if metadata.OwnerID == "" {
+				t.Fatalf("owner ID is empty for %s", channelName)
+			}
+		})
+	}
+}
+
+func TestChannelRequestOwnerSeparatesConversations(t *testing.T) {
+	first := ChannelRequestOwner(channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{
+		Channel: "qqbot", AccountID: "bot", ConversationID: "chat-a", UserID: "user-a",
+	}))
+	second := ChannelRequestOwner(channel.ContextWithChatMeta(context.Background(), channel.ChatMeta{
+		Channel: "qqbot", AccountID: "bot", ConversationID: "chat-b", UserID: "user-a",
+	}))
+	if first == second || !strings.HasPrefix(first, "channel\x00qqbot\x00") {
+		t.Fatalf("owners = %q and %q, want distinct conversation-scoped owners", first, second)
+	}
+}
+
+func TestChannelRunIDPreservesExistingRequestID(t *testing.T) {
+	base := &channelAdapterBase{}
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{
+		Origin:    telemetry.OriginWechat,
+		RequestID: "request-existing",
+	})
+	ctx, runID := base.withChannelRunID(ctx)
+	metadata := telemetry.MetadataFromContext(ctx)
+	if runID != "request-existing" || metadata.RequestID != "request-existing" || metadata.RunID != "request-existing" {
+		t.Fatalf("metadata = %#v, runID = %q", metadata, runID)
+	}
+}
+
+func TestChannelTelemetryThenRunIDPreservesExistingRequestID(t *testing.T) {
+	base := &channelAdapterBase{}
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{
+		RequestID: "request-existing",
+		SessionID: "session-existing",
+		TeamID:    "team-existing",
+		Origin:    telemetry.OriginAPI,
+	})
+	ctx = channel.ContextWithChatMeta(ctx, channel.ChatMeta{Channel: "qqbot"})
+	ctx = withChannelTelemetry(ctx)
+	ctx, runID := base.withChannelRunID(ctx)
+	metadata := telemetry.MetadataFromContext(ctx)
+
+	if metadata.Origin != telemetry.OriginQQ {
+		t.Fatalf("origin = %q, want %q", metadata.Origin, telemetry.OriginQQ)
+	}
+	if runID != "request-existing" || metadata.RequestID != "request-existing" || metadata.RunID != "request-existing" {
+		t.Fatalf("run/request IDs = run %q request %q, want request-existing", metadata.RunID, metadata.RequestID)
+	}
+	if metadata.SessionID != "session-existing" || metadata.TeamID != "team-existing" {
+		t.Fatalf("metadata fields were not preserved: %#v", metadata)
+	}
+}
 
 // newTestLog creates a silent logger for adapter tests.
 func newTestLog(t *testing.T) *logger.Logger {
@@ -435,6 +513,42 @@ func TestSessionAskAdapter_SaveUploadedFile(t *testing.T) {
 	}
 	if string(data) != "world" {
 		t.Errorf("file content = %q, want world", string(data))
+	}
+}
+
+func TestChannelUploadsDoNotOverwriteRepeatedNames(t *testing.T) {
+	for _, filename := range []string{"download", "white.png", "../white.png"} {
+		t.Run(filename, func(t *testing.T) {
+			log := newTestLog(t)
+			ag := startAgent(t, &agenttest.FakeLLM{Responses: []string{"ok"}})
+			ag.WorkDir = t.TempDir()
+			sess := NewSession("uploads", "team", ag, nil, nil, log)
+			t.Cleanup(func() { sess.Close() })
+			base := &channelAdapterBase{log: log}
+			first, err := base.saveUploadedFileToSession(sess, filename, []byte("first image"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := base.saveUploadedFileToSession(sess, filename, []byte("second image"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first == second {
+				t.Fatalf("repeated upload reused %s", first)
+			}
+			for path, want := range map[string]string{first: "first image", second: "second image"} {
+				got, err := os.ReadFile(path)
+				if err != nil || string(got) != want {
+					t.Fatalf("saved bytes = %q, %v; want %q", got, err, want)
+				}
+				if filepath.Dir(path) != filepath.Join(ag.WorkDir, "downloads") {
+					t.Fatalf("upload escaped downloads: %s", path)
+				}
+				if filepath.Ext(path) != filepath.Ext(filename) {
+					t.Fatalf("lost filename extension: %s", path)
+				}
+			}
+		})
 	}
 }
 

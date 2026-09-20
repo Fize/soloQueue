@@ -72,6 +72,108 @@ function simulateMessage(data: unknown) {
 }
 
 describe('websocket', () => {
+  it('normalizes legacy request-keyed runtime entries to their logical session', async () => {
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'state',
+      runtime: {
+        phase: 'processing',
+        prompt_tokens: 0,
+        output_tokens: 0,
+        cache_hit_tokens: 0,
+        cache_miss_tokens: 0,
+        context_pct: 0,
+        current_tokens: 0,
+        max_tokens: 0,
+        current_iter: 0,
+        content_deltas: 0,
+        active_delegations: 0,
+        total_agents: 1,
+        running_agents: 1,
+        idle_agents: 0,
+        total_errors: 0,
+        http_addr: ':8765',
+        agent_streams: {},
+        sessions: {
+          'l1:req-legacy': {
+            session_id: '',
+            request_id: 'req-legacy',
+            state: 'streaming',
+            revision: 1,
+            ctxwin_used: 0,
+            ctxwin_limit: 0,
+            delegating: false,
+          },
+        },
+      },
+    })
+
+    expect(useChatStore.getState().streamingSessions.l1).toBe(true)
+  })
+
+  it('reconciles a silent terminal runtime snapshot once', async () => {
+    const onRuntimeTerminal = vi.fn(() => {
+      useChatStore.getState().reconcileRuntimeTerminal('req-silent', 'l1')
+    })
+    useChatStore.setState({
+      activeRequests: {
+        'req-silent': {
+          requestId: 'req-silent',
+          sessionId: 'l1',
+          status: 'streaming',
+        },
+      },
+      streamingSessions: { l1: true },
+      routeSessions: {
+        l1: { requestId: 'req-silent', sessionId: 'l1', taskLevel: 'research', modelId: 'model' },
+      },
+    })
+    wsManager.registerChat('req-silent', { onRuntimeTerminal })
+    await wsManager.connect()
+    simulateOpen()
+
+    const runtime = {
+      phase: 'idle',
+      prompt_tokens: 0,
+      output_tokens: 0,
+      cache_hit_tokens: 0,
+      cache_miss_tokens: 0,
+      context_pct: 0,
+      current_tokens: 0,
+      max_tokens: 0,
+      current_iter: 0,
+      content_deltas: 0,
+      active_delegations: 0,
+      total_agents: 1,
+      running_agents: 0,
+      idle_agents: 1,
+      total_errors: 0,
+      http_addr: ':8765',
+      agent_streams: {},
+      sessions: {
+        'l1:req-silent': {
+          session_id: 'l1',
+          request_id: 'req-silent',
+          state: 'idle',
+          terminal_code: 'completed',
+          revision: 1,
+          ctxwin_used: 0,
+          ctxwin_limit: 0,
+          delegating: false,
+        },
+      },
+    }
+    simulateMessage({ type: 'state', runtime })
+    simulateMessage({ type: 'state', runtime })
+
+    expect(onRuntimeTerminal).toHaveBeenCalledTimes(1)
+    expect(useChatStore.getState().activeRequests['req-silent']).toBeUndefined()
+    expect(useChatStore.getState().streamingSessions.l1).toBe(false)
+    expect(useChatStore.getState().routeSessions.l1).toBeUndefined()
+  })
+
   it('does not reuse route metadata from a different runtime request', async () => {
     useChatStore.setState({
       routeSessions: {
@@ -344,7 +446,7 @@ describe('websocket', () => {
       type: 'chat_route',
       request_id: 'req-route',
       session_id: 'l2:s1',
-      task_level: 'L2-MediumMultiFile',
+      task_type: 'L2-MediumMultiFile',
       model_id: 'routed-model',
       provider_id: 'provider',
       agent_instance_id: 'agent-instance',
@@ -382,6 +484,26 @@ describe('websocket', () => {
     })
 
     expect(sent).toBe(false)
+  })
+
+  it('marks transiently disconnected chat handlers for runtime recovery', async () => {
+    const onChunk = vi.fn()
+    wsManager.registerChat('req-recover', { onChunk })
+    await wsManager.connect()
+    simulateOpen()
+    expect(wsManager.hasChatHandler('req-recover')).toBe(true)
+
+    mockWSServer?.onclose?.({ code: 1006, reason: 'network reset' })
+    expect(wsManager.hasChatHandler('req-recover')).toBe(false)
+
+    // A fresh event proves the request stream has resumed; normal handler
+    // ownership can then suppress redundant runtime snapshot hydration.
+    await wsManager.connect()
+    simulateOpen()
+    simulateMessage({ type: 'chat_chunk', request_id: 'req-recover', delta: 'resumed' })
+    expect(onChunk).toHaveBeenCalledWith('resumed')
+    expect(wsManager.hasChatHandler('req-recover')).toBe(true)
+    wsManager.disconnect()
   })
 
   it('reports a message-too-large close immediately to chat handlers', async () => {

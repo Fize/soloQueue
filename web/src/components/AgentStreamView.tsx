@@ -144,7 +144,13 @@ function groupStreamSegments(segments: Segment[]): GroupedStreamItem[] {
   return grouped
 }
 
-function StreamDelegationGroup({ group }: { group: { segment: Segment; index: number }[] }) {
+function StreamDelegationGroup({
+  group,
+  requestId,
+}: {
+  group: { segment: Segment; index: number }[]
+  requestId?: string
+}) {
   const isRunning = group.some(s => s.segment.type === 'tool_call' && !s.segment.done)
   const [isExpanded, setIsExpanded] = useState(isRunning)
   const [userToggled, setUserToggled] = useState(false)
@@ -193,8 +199,11 @@ function StreamDelegationGroup({ group }: { group: { segment: Segment; index: nu
                     args={seg.args}
                     callId={seg.call_id || ''}
                     done={seg.done}
+                    result={seg.result}
                     error={seg.error}
                     durationMs={seg.duration_ms}
+                    agentInstanceId={seg.agent_instance_id}
+                    requestId={requestId}
                   />
                )
              }
@@ -238,7 +247,7 @@ export function AgentStreamView({ state, scrollContainerRef }: AgentStreamViewPr
       {/* Segments in chronological order */}
       {grouped.map((item) => {
         if (item.type === 'delegation_group') {
-          return <StreamDelegationGroup key={item.id} group={item.segments} />
+          return <StreamDelegationGroup key={item.id} group={item.segments} requestId={state.request_id} />
         }
 
         const seg = item.segment

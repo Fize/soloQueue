@@ -31,6 +31,7 @@ const (
 type Metadata struct {
 	RequestID string
 	SessionID string
+	OwnerID   string
 	RunID     string
 	AgentID   string
 	TeamID    string
@@ -55,6 +56,9 @@ func WithMetadata(ctx context.Context, metadata Metadata) context.Context {
 	}
 	if metadata.SessionID != "" {
 		current.SessionID = metadata.SessionID
+	}
+	if metadata.OwnerID != "" {
+		current.OwnerID = metadata.OwnerID
 	}
 	if metadata.RunID != "" {
 		current.RunID = metadata.RunID

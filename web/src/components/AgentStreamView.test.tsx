@@ -4,6 +4,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentStreamState } from '@/types'
 import { AgentStreamView } from './AgentStreamView'
 
+vi.mock('@/components/DelegationCard', () => ({
+  DelegationCard: ({ requestId, agentInstanceId, result }: { requestId?: string; agentInstanceId?: string; result?: string }) => (
+    <div
+      data-testid="nested-delegation-card"
+      data-request-id={requestId ?? ''}
+      data-agent-instance-id={agentInstanceId ?? ''}
+      data-result={result ?? ''}
+    />
+  ),
+}))
+
 describe('AgentStreamView', () => {
   const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
   const originalScrollTo = HTMLElement.prototype.scrollTo
@@ -113,5 +124,79 @@ describe('AgentStreamView', () => {
     )
 
     expect(scrollTo).toHaveBeenCalledTimes(callsBeforeNewSegment)
+  })
+
+  it('passes its request-scoped stream identity to nested delegation cards', () => {
+    HTMLElement.prototype.scrollTo = vi.fn()
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver
+    const streamScrollRef = createRef<HTMLDivElement>()
+    const state: AgentStreamState = {
+      agent_id: 'agent-1',
+      request_id: 'request-parent',
+      processing: true,
+      iteration: 1,
+      segments: [{
+        type: 'tool_call',
+        call_id: 'call-1',
+        name: 'delegate',
+        args: '{"target":"research"}',
+        agent_instance_id: 'child-instance-1',
+        result: '',
+        error: '',
+        done: false,
+        duration_ms: 0,
+      }],
+    }
+
+    render(
+      <div ref={streamScrollRef}>
+        <AgentStreamView state={state} scrollContainerRef={streamScrollRef} />
+      </div>,
+    )
+
+    expect(screen.getByTestId('nested-delegation-card')).toHaveAttribute('data-request-id', 'request-parent')
+    expect(screen.getByTestId('nested-delegation-card')).toHaveAttribute('data-agent-instance-id', 'child-instance-1')
+  })
+
+  it('passes a completed nested delegation result after the stream is restored', () => {
+    HTMLElement.prototype.scrollTo = vi.fn()
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver
+    const streamScrollRef = createRef<HTMLDivElement>()
+
+    render(
+      <div ref={streamScrollRef}>
+        <AgentStreamView
+          state={{
+            agent_id: 'agent-1',
+            request_id: 'request-parent',
+            processing: false,
+            iteration: 2,
+            segments: [{
+              type: 'tool_call',
+              call_id: 'call-1',
+              name: 'delegate',
+              args: '{}',
+              agent_instance_id: 'child-instance-1',
+              result: 'completed nested result',
+              error: '',
+              done: true,
+              duration_ms: 42,
+            }],
+          }}
+          scrollContainerRef={streamScrollRef}
+        />
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Delegated 1 task/ }))
+    expect(screen.getByTestId('nested-delegation-card')).toHaveAttribute('data-result', 'completed nested result')
   })
 })

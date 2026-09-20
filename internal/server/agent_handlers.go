@@ -40,8 +40,9 @@ type RuntimeMetrics struct {
 	onChange          func() // called (under lock) after every setter; notifies Hub
 
 	agentStreamsMu sync.RWMutex
-	agentStreams   map[string]*AgentStreamState // instanceID → stream state
+	agentStreams   map[string]*AgentStreamState // composite instance/request key → stream state
 	agentCancels   map[string]func()            // instanceID → Watch cancel
+	agentWatchGen  map[string]uint64            // instanceID → current Watch generation
 }
 
 // SetOnChange sets the callback invoked after every state change.
@@ -98,13 +99,14 @@ type Segment struct {
 	Text string `json:"text,omitempty"`
 
 	// For tool_call
-	CallID     string `json:"call_id,omitempty"`
-	Name       string `json:"name,omitempty"`
-	Args       string `json:"args,omitempty"`
-	Result     string `json:"result,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Done       bool   `json:"done"`
-	DurationMs int64  `json:"duration_ms,omitempty"`
+	CallID          string `json:"call_id,omitempty"`
+	Name            string `json:"name,omitempty"`
+	Args            string `json:"args,omitempty"`
+	AgentInstanceID string `json:"agent_instance_id,omitempty"`
+	Result          string `json:"result,omitempty"`
+	Error           string `json:"error,omitempty"`
+	Done            bool   `json:"done"`
+	DurationMs      int64  `json:"duration_ms,omitempty"`
 }
 
 // AgentStreamState holds the live streaming output for one agent
@@ -116,6 +118,7 @@ type AgentStreamState struct {
 	Segments   []Segment `json:"segments"`
 	Iteration  int       `json:"iteration"`
 	Error      string    `json:"error,omitempty"`
+	StartedAt  time.Time `json:"started_at,omitempty"`
 }
 
 // StartAgentWatch subscribes to an agent's Watch() and starts a goroutine that
@@ -129,8 +132,15 @@ func (rm *RuntimeMetrics) StartAgentWatch(a *agent.Agent) {
 	rm.agentStreamsMu.Lock()
 	if rm.agentStreams == nil {
 		rm.agentStreams = make(map[string]*AgentStreamState)
+	}
+	if rm.agentCancels == nil {
 		rm.agentCancels = make(map[string]func())
 	}
+	if rm.agentWatchGen == nil {
+		rm.agentWatchGen = make(map[string]uint64)
+	}
+	rm.agentWatchGen[a.InstanceID]++
+	generation := rm.agentWatchGen[a.InstanceID]
 	if oldCancel, ok := rm.agentCancels[a.InstanceID]; ok {
 		oldCancel()
 	}
@@ -139,7 +149,7 @@ func (rm *RuntimeMetrics) StartAgentWatch(a *agent.Agent) {
 
 	go func() {
 		for ev := range ch {
-			rm.updateAgentStream(a.InstanceID, ev)
+			rm.updateAgentStreamForGeneration(a.InstanceID, generation, ev)
 		}
 	}()
 }
@@ -148,6 +158,14 @@ func (rm *RuntimeMetrics) StartAgentWatch(a *agent.Agent) {
 func (rm *RuntimeMetrics) StopAgentWatch(instanceID string) {
 	var notify func()
 	rm.agentStreamsMu.Lock()
+	if rm.agentWatchGen == nil {
+		rm.agentWatchGen = make(map[string]uint64)
+	}
+	// Invalidate the current watcher before cancelling it. A cancelled Watch
+	// channel may still contain buffered events; those events belong to the
+	// previous subscription and must not recreate a stream after this method
+	// deletes it.
+	rm.agentWatchGen[instanceID]++
 	cancel, ok := rm.agentCancels[instanceID]
 	if ok {
 		cancel()
@@ -170,10 +188,21 @@ func (rm *RuntimeMetrics) StopAgentWatch(instanceID string) {
 // updateAgentStream processes a single AgentEvent and updates the
 // corresponding agent's stream state. Triggers onChange on every event.
 func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEvent) {
+	rm.updateAgentStreamForGeneration(instanceID, 0, ev)
+}
+
+// updateAgentStreamForGeneration processes an event only when it came from
+// the currently installed watcher. generation == 0 is reserved for direct
+// event injection in tests and for callers that do not have a watcher token.
+func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, generation uint64, ev agent.AgentEvent) {
 	var notify func()
 
 	rm.agentStreamsMu.Lock()
 	if rm.agentStreams == nil {
+		rm.agentStreamsMu.Unlock()
+		return
+	}
+	if generation != 0 && rm.agentWatchGen[instanceID] != generation {
 		rm.agentStreamsMu.Unlock()
 		return
 	}
@@ -185,6 +214,7 @@ func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEve
 			AgentID:   instanceID,
 			RequestID: requestID,
 			Segments:  []Segment{},
+			StartedAt: time.Now(),
 		}
 		rm.agentStreams[streamKey] = s
 	}
@@ -227,10 +257,11 @@ func (rm *RuntimeMetrics) updateAgentStream(instanceID string, ev agent.AgentEve
 
 	case agent.ToolExecStartEvent:
 		s.Segments = append(s.Segments, Segment{
-			Type:   SegToolCall,
-			CallID: e.CallID,
-			Name:   e.Name,
-			Args:   e.Args,
+			Type:            SegToolCall,
+			CallID:          e.CallID,
+			Name:            e.Name,
+			Args:            e.Args,
+			AgentInstanceID: e.TargetAgentID,
 		})
 
 	case agent.ToolExecDoneEvent:
@@ -306,18 +337,24 @@ func (rm *RuntimeMetrics) AgentStreams() map[string]*AgentStreamState {
 
 // SessionRuntimeInfo holds per-session runtime state for WebSocket state broadcasts.
 type SessionRuntimeInfo struct {
-	SessionID      string    `json:"session_id"`
-	RequestID      string    `json:"request_id,omitempty"`
-	State          string    `json:"state"` // "idle", "starting", "streaming", "delegating", "cancelling"
-	Revision       uint64    `json:"revision"`
-	CtxwinUsed     int       `json:"ctxwin_used"`
-	CtxwinLimit    int       `json:"ctxwin_limit"`
-	Delegating     bool      `json:"delegating"`
-	RunID          string    `json:"run_id,omitempty"`
-	Phase          string    `json:"phase,omitempty"`
-	LastProgressAt time.Time `json:"last_progress_at,omitempty"`
-	WatchdogDueAt  time.Time `json:"watchdog_due_at,omitempty"`
-	TerminalCode   string    `json:"terminal_code,omitempty"`
+	SessionID       string    `json:"session_id"`
+	RequestID       string    `json:"request_id,omitempty"`
+	AgentInstanceID string    `json:"agent_instance_id,omitempty"`
+	ModelID         string    `json:"model_id,omitempty"`
+	ProviderID      string    `json:"provider_id,omitempty"`
+	TaskType        string    `json:"task_type,omitempty"`
+	State           string    `json:"state"` // "idle", "starting", "streaming", "delegating", "cancelling"
+	Revision        uint64    `json:"revision"`
+	CtxwinUsed      int       `json:"ctxwin_used"`
+	CtxwinLimit     int       `json:"ctxwin_limit"`
+	Delegating      bool      `json:"delegating"`
+	RunID           string    `json:"run_id,omitempty"`
+	Phase           string    `json:"phase,omitempty"`
+	LastProgressAt  time.Time `json:"last_progress_at,omitempty"`
+	WatchdogDueAt   time.Time `json:"watchdog_due_at,omitempty"`
+	TerminalCode    string    `json:"terminal_code,omitempty"`
+	Error           string    `json:"error,omitempty"`
+	StartedAt       time.Time `json:"started_at,omitempty"`
 }
 
 // RuntimeStatusResponse is the JSON response for GET /api/runtime.
@@ -827,18 +864,24 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 					for _, req := range l1Reqs {
 						req = hub.projectLiveWatchdog(req)
 						info := SessionRuntimeInfo{
-							SessionID:      "l1",
-							RequestID:      req.RequestID,
-							State:          string(req.State),
-							Delegating:     req.Delegating,
-							RunID:          req.RunID,
-							Phase:          req.Phase,
-							LastProgressAt: req.LastProgressAt,
-							WatchdogDueAt:  req.WatchdogDueAt,
-							TerminalCode:   req.TerminalCode,
-							Revision:       hub.GetSessionRevision("l1"),
-							CtxwinUsed:     used,
-							CtxwinLimit:    limit,
+							SessionID:       "l1",
+							RequestID:       req.RequestID,
+							AgentInstanceID: req.AgentInstanceID,
+							ModelID:         req.ModelID,
+							ProviderID:      req.ProviderID,
+							TaskType:        req.TaskType,
+							State:           string(req.State),
+							Delegating:      req.Delegating,
+							RunID:           req.RunID,
+							Phase:           req.Phase,
+							LastProgressAt:  req.LastProgressAt,
+							WatchdogDueAt:   req.WatchdogDueAt,
+							TerminalCode:    req.TerminalCode,
+							Error:           req.Error,
+							StartedAt:       req.StartedAt,
+							Revision:        hub.GetSessionRevision("l1"),
+							CtxwinUsed:      used,
+							CtxwinLimit:     limit,
 						}
 						key := "l1:" + req.RequestID
 						sessions[key] = info
@@ -854,16 +897,24 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 					continue
 				}
 				sid := "l2:" + entry.ID
+				used, limit := entry.CtxwinUsed, entry.CtxwinLimit
+				if activeSess := m.l2Store.GetActivated(entry.ID); activeSess != nil && activeSess.CW() != nil {
+					used, limit, _ = activeSess.CW().TokenUsage()
+				}
 				info := SessionRuntimeInfo{
 					SessionID:   sid,
 					State:       "idle",
 					Revision:    hub.GetSessionRevision(sid),
-					CtxwinUsed:  entry.CtxwinUsed,
-					CtxwinLimit: entry.CtxwinLimit,
+					CtxwinUsed:  used,
+					CtxwinLimit: limit,
 				}
 				if req, active := hub.requests.GetBySession(sid); active {
 					req = hub.projectLiveWatchdog(req)
 					info.RequestID = req.RequestID
+					info.AgentInstanceID = req.AgentInstanceID
+					info.ModelID = req.ModelID
+					info.ProviderID = req.ProviderID
+					info.TaskType = req.TaskType
 					info.State = string(req.State)
 					info.Delegating = req.Delegating
 					info.RunID = req.RunID
@@ -871,8 +922,35 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 					info.LastProgressAt = req.LastProgressAt
 					info.WatchdogDueAt = req.WatchdogDueAt
 					info.TerminalCode = req.TerminalCode
+					info.Error = req.Error
+					info.StartedAt = req.StartedAt
 				}
 				sessions[sid] = info
+			}
+		}
+	}
+
+	agentStreams := m.runtimeMetrics.AgentStreams()
+	if hub != nil && hub.requests != nil {
+		// The registry timestamp is the request ownership boundary. Keep the
+		// producer timestamp as a fallback for direct/runtime-only streams, but
+		// prefer the authoritative request start whenever it is available.
+		requestStarts := make(map[string]time.Time)
+		for _, req := range hub.requests.GetBySessionAll("l1") {
+			if !req.StartedAt.IsZero() {
+				requestStarts[req.RequestID] = req.StartedAt
+			}
+		}
+		if m.l2Store != nil {
+			for _, entry := range m.l2Store.List() {
+				if req, ok := hub.requests.GetBySession("l2:" + entry.ID); ok && !req.StartedAt.IsZero() {
+					requestStarts[req.RequestID] = req.StartedAt
+				}
+			}
+		}
+		for _, stream := range agentStreams {
+			if startedAt := requestStarts[stream.RequestID]; !startedAt.IsZero() {
+				stream.StartedAt = startedAt
 			}
 		}
 	}
@@ -894,7 +972,7 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 		IdleAgents:        idleAgents,
 		TotalErrors:       totalErrors,
 		HTTPAddr:          httpAddr,
-		AgentStreams:      m.runtimeMetrics.AgentStreams(),
+		AgentStreams:      agentStreams,
 		Sessions:          sessions,
 	}
 }

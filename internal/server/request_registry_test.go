@@ -1,9 +1,27 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 )
+
+func TestActiveRequestRegistry_CancelRequiresOwner(t *testing.T) {
+	reg := NewActiveRequestRegistry()
+	if _, err := reg.Reserve("l1", "req-owned", "browser:a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.BindCanceller("req-owned", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, owner, err := reg.CancelAndWaitOwned(context.Background(), "l1", "req-owned", "browser:b"); !errors.Is(err, ErrRequestOwnerMismatch) || owner {
+		t.Fatalf("wrong-owner cancel = owner %v err %v", owner, err)
+	}
+	if _, owner, err := reg.CancelAndWaitOwned(context.Background(), "l1", "req-owned", "browser:a"); !owner || err != nil {
+		t.Fatalf("owner cancel = owner %v err %v", owner, err)
+	}
+}
 
 func TestActiveRequestRegistry_ReserveAndGet(t *testing.T) {
 	reg := NewActiveRequestRegistry()

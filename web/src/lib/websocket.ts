@@ -6,7 +6,7 @@ import type {
   NotificationPayload,
   ClientMessage,
 } from '@/types'
-import { useRuntimeStore } from '@/stores/runtimeStore'
+import { useRuntimeStore, runtimeSessionId } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -46,6 +46,7 @@ export interface ChatHandler {
   onSessionName?: (name: string) => void
   onSessionPlans?: (plans: string[]) => void
   onClose?: (code?: number, final?: boolean) => void
+  onRuntimeTerminal?: (data: { terminal_code?: string; error?: string }) => void
 }
 
 type MessageHandler = {
@@ -60,6 +61,12 @@ class WebSocketManager {
   private cachedStreams: Record<string, AgentStreamState> = {}
   private streamTimestamps: Record<string, number> = {}
   private chatHandlers: Map<string, ChatHandler> = new Map()
+  // A transient close can drop chat events while handlers remain registered
+  // during the reconnect grace period. Mark those requests so the UI can
+  // hydrate from the authoritative runtime snapshot until a fresh event is
+  // observed for the request.
+  private chatHandlersNeedRecovery = new Set<string>()
+  private reconciledTerminals = new Set<string>()
   private pendingMessages: string[] = []
   private handlers: MessageHandler = {
     runtime: new Set(),
@@ -120,11 +127,15 @@ class WebSocketManager {
         // Transient close (network hiccup): give handlers a grace period to
         // survive a quick reconnect. If the WS doesn't reconnect within 8s,
         // notify handlers of the permanent close.
+        this.chatHandlers.forEach((_, requestId) => {
+          this.chatHandlersNeedRecovery.add(requestId)
+        })
         this.setStatus('reconnecting')
         this.scheduleReconnect()
         const handlerCloseTimer = setTimeout(() => {
           this.chatHandlers.forEach((h) => h.onClose?.(closeCode, true))
           this.chatHandlers.clear()
+          this.chatHandlersNeedRecovery.clear()
         }, 8000)
         // Store so connect() can clear it on successful reconnect.
         ;(this as any)._handlerCloseTimer = handlerCloseTimer
@@ -132,6 +143,7 @@ class WebSocketManager {
         this.setStatus('disconnected')
         this.chatHandlers.forEach((h) => h.onClose?.(closeCode, true))
         this.chatHandlers.clear()
+        this.chatHandlersNeedRecovery.clear()
       }
     }
 
@@ -159,22 +171,53 @@ class WebSocketManager {
     this.setStatus('disconnected')
     this.chatHandlers.forEach((h) => h.onClose?.())
     this.chatHandlers.clear()
+    this.chatHandlersNeedRecovery.clear()
+    this.reconciledTerminals.clear()
     this.pendingMessages = []
   }
 
   /** Register a chat handler for a specific request_id. */
   registerChat(requestId: string, handler: ChatHandler) {
     this.chatHandlers.set(requestId, handler)
+    this.chatHandlersNeedRecovery.delete(requestId)
+    this.reconciledTerminals.forEach((key) => {
+      if (key.startsWith(`${requestId}:`)) this.reconciledTerminals.delete(key)
+    })
   }
 
   /** Whether this renderer owns the live stream handler for a request. */
   hasChatHandler(requestId?: string) {
-    return !!requestId && this.chatHandlers.has(requestId)
+    return !!requestId && this.chatHandlers.has(requestId) && !this.chatHandlersNeedRecovery.has(requestId)
   }
 
   /** Unregister a chat handler. */
   unregisterChat(requestId: string) {
     this.chatHandlers.delete(requestId)
+    this.chatHandlersNeedRecovery.delete(requestId)
+  }
+
+  private markChatHandlerProgress(requestId: string) {
+    this.chatHandlersNeedRecovery.delete(requestId)
+  }
+
+  private reconcileRuntimeTerminal(
+    sessionId: string,
+    requestId: string,
+    runtime: NonNullable<RuntimeStatus['sessions']>[string],
+  ) {
+    const terminalKey = `${requestId}:${sessionId}:${runtime.terminal_code || runtime.state}`
+    if (this.reconciledTerminals.has(terminalKey)) return
+    this.reconciledTerminals.add(terminalKey)
+
+    const handler = this.chatHandlers.get(requestId)
+    if (handler?.onRuntimeTerminal) {
+      handler.onRuntimeTerminal({ terminal_code: runtime.terminal_code, error: runtime.error })
+      return
+    }
+
+    const chat = useChatStore.getState()
+    chat.reconcileRuntimeTerminal(requestId, sessionId)
+    void chat.loadHistory(sessionId)
   }
 
   /** Send a message to the server and report whether it was delivered or queued. */
@@ -240,21 +283,25 @@ class WebSocketManager {
       }
       case 'chat_chunk': {
         const h = this.chatHandlers.get(msg.request_id)
+        if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onChunk?.(msg.delta)
         return
       }
       case 'reasoning_chunk': {
         const h = this.chatHandlers.get(msg.request_id)
+        if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onReasoning?.(msg.delta)
         return
       }
       case 'tool_start': {
         const h = this.chatHandlers.get(msg.request_id)
+        if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onToolStart?.({ call_id: msg.call_id, name: msg.name, args: msg.args, target_agent_id: msg.target_agent_id })
         return
       }
       case 'tool_done': {
         const h = this.chatHandlers.get(msg.request_id)
+        if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onToolDone?.({
           call_id: msg.call_id,
           name: msg.name,
@@ -266,26 +313,31 @@ class WebSocketManager {
       }
       case 'chat_done': {
         const h = this.chatHandlers.get(msg.request_id)
+        if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onDone?.({ content: msg.content, reasoning_content: msg.reasoning_content })
         return
       }
       case 'chat_error': {
         const h = this.chatHandlers.get(msg.request_id)
+        if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onError?.(msg.error)
         return
       }
       case 'chat_queued': {
         const h = this.chatHandlers.get(msg.request_id)
+        if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onQueued?.({ error: msg.error })
         return
       }
       case 'delegation_start': {
         const h = this.chatHandlers.get(msg.request_id)
+        if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onDelegationStart?.({ num_tasks: msg.num_tasks })
         return
       }
       case 'delegation_done': {
         const h = this.chatHandlers.get(msg.request_id)
+        if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onDelegationDone?.({
           target_agent_id: msg.target_agent_id,
           agent_name: msg.agent_name,
@@ -314,7 +366,11 @@ class WebSocketManager {
           const accepted: NonNullable<RuntimeStatus['sessions']> = {}
           for (const [sessionId, next] of Object.entries(msg.runtime.sessions)) {
             const previousRevision = this.sessionRevisions[sessionId]
-            if (previousRevision === undefined || next.revision > previousRevision) {
+            // Revisions track lifecycle topology. Context usage and watchdog
+            // progress are live values and may change without a revision bump.
+            // Accept equal revisions so channel requests do not freeze the
+            // context ring at their initial snapshot.
+            if (previousRevision === undefined || next.revision >= previousRevision) {
               accepted[sessionId] = next
               this.sessionRevisions[sessionId] = next.revision
             } else if (currentSessions[sessionId]) {
@@ -327,7 +383,7 @@ class WebSocketManager {
           const activeRuntimeSessions = new Set<string>()
           const delegatingRuntimeSessions = new Set<string>()
           for (const [sessionKey, runtime] of Object.entries(accepted)) {
-            const sessionId = runtime.session_id || sessionKey
+            const sessionId = runtimeSessionId(sessionKey, runtime)
             if (runtime.request_id) {
               const requestIDs = runtimeSessionIDs.get(sessionId) || new Set<string>()
               requestIDs.add(runtime.request_id)
@@ -343,13 +399,16 @@ class WebSocketManager {
           for (const [sessionKey, runtime] of Object.entries(accepted)) {
             // L1 may have several request-keyed entries at once. The map key
             // is an API identity, not the logical chat session ID.
-            const sessionId = runtime.session_id || sessionKey
+            const sessionId = runtimeSessionId(sessionKey, runtime)
             const active = runtime.state !== 'idle' && runtime.state !== 'error'
             const wasActive = !!chat.streamingSessions[sessionId]
             const hasActiveRequests = Object.values(chat.activeRequests).some(
               (request) => request.sessionId === sessionId
             )
             const hasActiveRuntimeRequest = activeRuntimeSessions.has(sessionId)
+            if (runtime.request_id && !active) {
+              this.reconcileRuntimeTerminal(sessionId, runtime.request_id, runtime)
+            }
             if (active) {
               chat.setStreaming(true, sessionId)
               chat.setDelegating(delegatingRuntimeSessions.has(sessionId), sessionId)
@@ -370,10 +429,10 @@ class WebSocketManager {
                 const route = {
                   requestId: runtime.request_id,
                   sessionId,
-                  taskLevel: sameRequest ? existing?.taskLevel || '' : '',
-                  modelId: sameRequest ? existing?.modelId || '' : '',
-                  providerId: sameRequest ? existing?.providerId : undefined,
-                  agentInstanceId: sameRequest ? existing?.agentInstanceId : undefined,
+                  taskLevel: runtime.task_type || (sameRequest ? existing?.taskLevel || '' : ''),
+                  modelId: runtime.model_id || (sameRequest ? existing?.modelId || '' : ''),
+                  providerId: runtime.provider_id || (sameRequest ? existing?.providerId : undefined),
+                  agentInstanceId: runtime.agent_instance_id || (sameRequest ? existing?.agentInstanceId : undefined),
                 }
                 chat.updateRequestRoute(runtime.request_id, route)
                 chat.setRoute(route)
@@ -384,6 +443,20 @@ class WebSocketManager {
               const requestId = chat.routeSessions[sessionId]?.requestId
               if (requestId) chat.clearRoute(sessionId, requestId)
               void chat.loadHistory(sessionId)
+            }
+          }
+
+          // A legacy idle snapshot can omit request_id after a silent stream
+          // close. Once no request for that logical session remains active in
+          // the authoritative snapshot, clear stale local ownership exactly
+          // once instead of leaving handlers and busy indicators stuck.
+          for (const [sessionKey, runtime] of Object.entries(accepted)) {
+            const sessionId = runtimeSessionId(sessionKey, runtime)
+            if (runtime.request_id || runtime.state !== 'idle' || activeRuntimeSessions.has(sessionId)) continue
+            for (const request of Object.values(chat.activeRequests)) {
+              if (request.sessionId === sessionId) {
+                this.reconcileRuntimeTerminal(sessionId, request.requestId, runtime)
+              }
             }
           }
         }

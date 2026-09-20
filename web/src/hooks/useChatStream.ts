@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
+import { runtimeSessionId } from '@/stores/runtimeStore'
 import { wsManager } from '@/lib/websocket'
 import type { ChatHandler } from '@/lib/websocket'
 
@@ -302,6 +303,18 @@ export function useChatStream() {
           failAssistantMessage(sid, ensureAssistantMessage(), error)
           finishRequest()
         },
+        onRuntimeTerminal: ({ terminal_code, error }) => {
+          if (error) {
+            failAssistantMessage(sid, ensureAssistantMessage(), error)
+          } else if (!asstId) {
+            const terminalText = terminal_code === 'completed'
+              ? 'Response completed; loading history…'
+              : `Request ${terminal_code || 'ended'}.`
+            appendAssistantContent(sid, ensureAssistantMessage(), terminalText)
+          }
+          finishRequest()
+          void useChatStore.getState().loadHistory(sid)
+        },
         onDelegationStart: () => {
           updateRequestStatus(requestId, 'streaming')
           setDelegating(true, sid)
@@ -362,7 +375,10 @@ export function useChatStream() {
     const requestId =
       Object.values(store.activeRequests)
         .filter((request) => request.sessionId === sid)
-        .at(-1)?.requestId || store.routeSessions[sid]?.requestId
+        .at(-1)?.requestId || store.routeSessions[sid]?.requestId ||
+      Object.entries(useRuntimeStore.getState().status?.sessions ?? {})
+        .find(([key, runtime]) => runtimeSessionId(key, runtime) === sid && runtime.state !== 'idle' && runtime.state !== 'error')?.[1]
+        ?.request_id
     if (!requestId) return
 
     store.cancelRunningDelegations(sid)

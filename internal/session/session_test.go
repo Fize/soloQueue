@@ -68,8 +68,8 @@ func TestSessionOwnsDispatchManagerAndClearRetainsArtifacts(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = a.Stop(time.Second) })
 	s := NewSession("session-1", "default", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), tw, nil)
-	if s.dispatchManager == nil || !a.HasTool("inspect_delegation") {
-		t.Fatal("session must create its dispatch manager and inspection tool")
+	if s.dispatchManager == nil || !a.HasTool("inspect_delegation") || !a.HasTool("cancel_delegation") {
+		t.Fatal("session must create its dispatch manager, inspection tool, and cancellation tool")
 	}
 	created, err := s.dispatchManager.Begin(dispatch.BeginInput{TaskName: "retain", Task: "Retain this.", Requester: "L1", Executor: "dev"})
 	if err != nil {
@@ -207,6 +207,55 @@ func TestSession_AskStream_AppendsHistoryOnDone(t *testing.T) {
 	}
 	if h[1].Content != "hello" {
 		t.Errorf("final = %q, want 'hello'", h[1].Content)
+	}
+}
+
+func TestSessionAskStreamLifecycleHooksApplyToEveryOrigin(t *testing.T) {
+	for _, origin := range []string{telemetry.OriginDesktop, telemetry.OriginQQ, telemetry.OriginWechat, "telegram"} {
+		t.Run(origin, func(t *testing.T) {
+			fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"reply"}}}
+			a := startAgent(t, fake)
+			s := NewSession("lifecycle", "team", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+
+			var starts, binds, routes, finishes atomic.Int32
+			s.SetRequestLifecycleHooks(RequestLifecycleHooks{
+				OnStart: func(context.Context, string, string) error {
+					starts.Add(1)
+					return nil
+				},
+				OnBind: func(string, string, func() error) error {
+					binds.Add(1)
+					return nil
+				},
+				OnRoute:  func(string, string, RequestRoute) { routes.Add(1) },
+				OnFinish: func(string, string, string, string) { finishes.Add(1) },
+			})
+
+			ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{
+				RequestID: "request-" + origin,
+				SessionID: "lifecycle",
+				Origin:    origin,
+			})
+			ch, err := s.AskStream(ctx, "hello")
+			if err != nil {
+				t.Fatalf("AskStream: %v", err)
+			}
+			for range ch {
+			}
+
+			if got := starts.Load(); got != 1 {
+				t.Fatalf("OnStart calls = %d, want 1", got)
+			}
+			if got := binds.Load(); got != 1 {
+				t.Fatalf("OnBind calls = %d, want 1", got)
+			}
+			if got := routes.Load(); got != 1 {
+				t.Fatalf("OnRoute calls = %d, want 1", got)
+			}
+			if got := finishes.Load(); got != 1 {
+				t.Fatalf("OnFinish calls = %d, want 1", got)
+			}
+		})
 	}
 }
 

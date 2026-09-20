@@ -23,6 +23,7 @@ var (
 	ErrDuplicateRequestID     = errors.New("request ID is already registered")
 	ErrRequestNotFound        = errors.New("request not found")
 	ErrRequestSessionMismatch = errors.New("request does not belong to session")
+	ErrRequestOwnerMismatch   = errors.New("request is owned by another client")
 )
 
 // ActiveRequest holds active request metadata independent of WebSocket client connection state.
@@ -30,6 +31,9 @@ type ActiveRequest struct {
 	SessionID          string
 	RequestID          string
 	AgentInstanceID    string
+	ModelID            string
+	ProviderID         string
+	TaskType           string
 	OwnerClientID      string
 	State              RequestState
 	StartedAt          time.Time
@@ -39,6 +43,7 @@ type ActiveRequest struct {
 	LastProgressAt     time.Time
 	WatchdogDueAt      time.Time
 	TerminalCode       string
+	Error              string
 	cancelReady        chan struct{}
 	canceller          func() error
 	cancelBound        bool
@@ -165,11 +170,21 @@ func (r *ActiveRequestRegistry) BindCanceller(requestID string, canceller func()
 // stopped (the Session canceller provides the final wait). owner is true only
 // for the caller responsible for emitting the request's terminal envelopes.
 func (r *ActiveRequestRegistry) CancelAndWait(ctx context.Context, sessionID, requestID string) (ActiveRequest, bool, error) {
+	return r.CancelAndWaitOwned(ctx, sessionID, requestID, "")
+}
+
+// CancelAndWaitOwned is the owner-checked cancellation path used by browser
+// clients. An empty owner preserves the internal cleanup compatibility path.
+func (r *ActiveRequestRegistry) CancelAndWaitOwned(ctx context.Context, sessionID, requestID, owner string) (ActiveRequest, bool, error) {
 	r.mu.Lock()
 	req, ok := r.byRequest[requestID]
 	if !ok || req.SessionID != sessionID || req.finalized {
 		r.mu.Unlock()
 		return ActiveRequest{}, false, ErrRequestNotFound
+	}
+	if owner != "" && req.OwnerClientID != owner {
+		r.mu.Unlock()
+		return ActiveRequest{}, false, ErrRequestOwnerMismatch
 	}
 	if req.cancelStarted {
 		done := req.cancelDone
@@ -349,6 +364,24 @@ func (r *ActiveRequestRegistry) SetRoute(requestID, agentInstanceID string) erro
 	return nil
 }
 
+// SetRouteMetadata records the immutable route selected for one request.
+func (r *ActiveRequestRegistry) SetRouteMetadata(requestID, modelID, providerID, taskType, agentInstanceID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	req, ok := r.byRequest[requestID]
+	if !ok {
+		return ErrRequestNotFound
+	}
+	req.ModelID = modelID
+	req.ProviderID = providerID
+	req.TaskType = taskType
+	req.AgentInstanceID = agentInstanceID
+	if req.State == RequestStateStarting {
+		req.State = RequestStateStreaming
+	}
+	return nil
+}
+
 // SetState updates the state of an active request.
 func (r *ActiveRequestRegistry) SetState(requestID string, state RequestState) error {
 	r.mu.Lock()
@@ -378,6 +411,30 @@ func (r *ActiveRequestRegistry) SetDelegating(requestID string, delegating bool)
 	return nil
 }
 
+// SetTerminalCode records a terminal outcome before the request is finalized,
+// preserving a short-lived tombstone for reconnecting clients.
+func (r *ActiveRequestRegistry) SetTerminalCode(requestID, code string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	req, ok := r.byRequest[requestID]
+	if !ok {
+		return ErrRequestNotFound
+	}
+	req.TerminalCode = code
+	return nil
+}
+
+func (r *ActiveRequestRegistry) SetTerminalError(requestID, message string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	req, ok := r.byRequest[requestID]
+	if !ok {
+		return ErrRequestNotFound
+	}
+	req.Error = message
+	return nil
+}
+
 // Finalize removes an active request from both session and request indexes.
 // It is idempotent.
 func (r *ActiveRequestRegistry) Finalize(sessionID, requestID string) bool {
@@ -400,6 +457,7 @@ func (r *ActiveRequestRegistry) Finalize(sessionID, requestID string) bool {
 		delete(r.bySession, sessionID)
 	}
 	if req.TerminalCode != "" {
+		req.State = "idle"
 		if r.terminals[sessionID] == nil {
 			r.terminals[sessionID] = make(map[string]*ActiveRequest)
 		}
@@ -476,6 +534,9 @@ func (r *ActiveRequestRegistry) snapshot(req *ActiveRequest) ActiveRequest {
 		SessionID:       req.SessionID,
 		RequestID:       req.RequestID,
 		AgentInstanceID: req.AgentInstanceID,
+		ModelID:         req.ModelID,
+		ProviderID:      req.ProviderID,
+		TaskType:        req.TaskType,
 		OwnerClientID:   req.OwnerClientID,
 		State:           req.State,
 		StartedAt:       req.StartedAt,
@@ -485,5 +546,6 @@ func (r *ActiveRequestRegistry) snapshot(req *ActiveRequest) ActiveRequest {
 		LastProgressAt:  req.LastProgressAt,
 		WatchdogDueAt:   req.WatchdogDueAt,
 		TerminalCode:    req.TerminalCode,
+		Error:           req.Error,
 	}
 }
