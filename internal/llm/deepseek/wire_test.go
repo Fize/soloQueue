@@ -255,15 +255,27 @@ func TestBuildWireRequest_ReasoningEffort_Empty(t *testing.T) {
 }
 
 func TestBuildWireRequest_ThinkingTypeAdaptive(t *testing.T) {
-	req := agent.LLMRequest{
-		Model:           "minimax-m3",
-		Messages:        []agent.LLMMessage{{Role: "user", Content: "hi"}},
-		ThinkingEnabled: true,
-		ThinkingType:    "adaptive",
-	}
-	w := buildWireRequest(req, true, false)
-	if w.Thinking == nil || w.Thinking.Type != "adaptive" {
-		t.Errorf("Thinking = %+v, want type adaptive", w.Thinking)
+	for _, stream := range []bool{false, true} {
+		for _, effort := range []string{"", "medium", "high", "max"} {
+			req := agent.LLMRequest{
+				Model:           "minimax-m3",
+				Messages:        []agent.LLMMessage{{Role: "user", Content: "hi"}},
+				ThinkingEnabled: true,
+				ThinkingType:    "adaptive",
+				ReasoningEffort: effort,
+			}
+			w := buildWireRequest(req, stream, false)
+			if w.Thinking == nil || w.Thinking.Type != "adaptive" {
+				t.Errorf("Thinking = %+v, want type adaptive", w.Thinking)
+			}
+			data, err := json.Marshal(w)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if contains(string(data), `"reasoning_effort"`) {
+				t.Errorf("stream=%v effort=%q: adaptive must omit reasoning_effort, got %s", stream, effort, data)
+			}
+		}
 	}
 }
 
