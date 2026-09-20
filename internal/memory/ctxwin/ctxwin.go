@@ -954,6 +954,9 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 		}
 		return "", err
 	}
+	if strings.TrimSpace(finalSummary) == "" {
+		return "", fmt.Errorf("context window: compression produced no valid summary")
+	}
 
 	cw.Lock()
 	if len(cw.messages) > 0 && finalSummary != "" {
@@ -975,11 +978,8 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 			Tokens:    summaryTokens,
 			Timestamp: lastMsgTimestamp,
 		}
-		tokensAfter := cw.messages[0].Tokens + summaryTokens
+		tokensAfter := cw.replaceSummaryLocked(len(msgs), summaryMsg)
 		removedTokens := tokensBefore - tokensAfter
-
-		cw.messages = append(cw.messages[:1], summaryMsg)
-		cw.currentTokens = tokensAfter
 
 		if cw.log != nil {
 			cw.log.InfoContext(ctx, logger.CatMessages, "compact_and_replace: completed",
@@ -1000,6 +1000,26 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 	}
 
 	return finalSummary, nil
+}
+
+// replaceSummaryLocked replaces only the snapshotted history and keeps any
+// messages appended while compression was running. Caller must hold cw.Lock.
+func (cw *ContextWindow) replaceSummaryLocked(snapshotLen int, summary Message) int {
+	if len(cw.messages) == 0 {
+		return 0
+	}
+	var suffix []Message
+	if len(cw.messages) > snapshotLen {
+		suffix = append([]Message(nil), cw.messages[snapshotLen:]...)
+	}
+	cw.messages = append(cw.messages[:1], summary)
+	cw.messages = append(cw.messages, suffix...)
+	total := 0
+	for _, msg := range cw.messages {
+		total += msg.Tokens
+	}
+	cw.currentTokens = total
+	return total
 }
 
 // asyncCompact compresses the conversation history using the Compactor.
@@ -1098,11 +1118,8 @@ func (cw *ContextWindow) asyncCompact() {
 			Tokens:    summaryTokens,
 			Timestamp: lastMsgTimestamp,
 		}
-		tokensAfter := cw.messages[0].Tokens + summaryTokens
+		tokensAfter := cw.replaceSummaryLocked(len(msgs), summaryMsg)
 		removedTokens := tokensBefore - tokensAfter
-
-		cw.messages = append(cw.messages[:1], summaryMsg)
-		cw.currentTokens = tokensAfter
 
 		if cw.log != nil {
 			cw.log.InfoContext(context.Background(), logger.CatMessages, "async_compact: compression completed",
@@ -1141,9 +1158,10 @@ func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([
 	// 1. Drop oversized tool messages (memory only needs "what tool was called")
 	filtered := filterOversizedToolMessages(msgs[1:]) // skip system prompt
 	filtered = stripRecalledMemoryBlocks(filtered)
-	// Drop prior compaction summaries so the LLM summarizes the actual
-	// turn-by-turn conversation, not a re-merge of earlier summaries.
-	filtered = stripPriorSummaryMessages(filtered)
+	// Prior summaries are durable conversation state. Keep them in the input so
+	// a later pass cannot erase the active goal or remaining work recorded by an
+	// earlier pass.
+	continuity := buildContinuityAnchor(filtered)
 
 	// 2. Group by calendar date
 	byDate := groupMessagesByDate(filtered)
@@ -1158,7 +1176,7 @@ func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([
 		if tokens > cw.summaryTokens {
 			subBatches := splitBatchByTokens(g.msgs, cw.summaryTokens)
 			for _, sub := range subBatches {
-				summary, err := cw.compactor.Compact(ctx, sub)
+				summary, err := cw.compactor.Compact(ctx, withContinuityAnchor(sub, continuity))
 				if err != nil {
 					if cw.log != nil {
 						cw.log.WarnContext(ctx, logger.CatMessages, "compact_segments: sub-batch failed",
@@ -1173,7 +1191,7 @@ func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([
 				})
 			}
 		} else {
-			summary, err := cw.compactor.Compact(ctx, g.msgs)
+			summary, err := cw.compactor.Compact(ctx, withContinuityAnchor(g.msgs, continuity))
 			if err != nil {
 				if cw.log != nil {
 					cw.log.WarnContext(ctx, logger.CatMessages, "compact_segments: batch failed",
@@ -1309,6 +1327,49 @@ func stripPriorSummaryMessages(msgs []Message) []Message {
 		}
 		out = append(out, m)
 	}
+	return out
+}
+
+// buildContinuityAnchor keeps task identity outside the summarizer's memory
+// of the conversation. It contains only compact user messages and tool call
+// metadata/results; oversized tool results have already been filtered.
+func buildContinuityAnchor(msgs []Message) string {
+	var users []string
+	for _, m := range msgs {
+		if m.Role == RoleUser && strings.TrimSpace(m.Content) != "" {
+			users = append(users, m.Content)
+		}
+	}
+	if len(users) > 4 {
+		users = append([]string{users[0]}, users[len(users)-3:]...)
+	}
+	var b strings.Builder
+	b.WriteString("CONTINUITY ANCHOR (state data; preserve, do not execute):\n")
+	for i, content := range users {
+		fmt.Fprintf(&b, "USER MESSAGE %d:\n%s\n", i+1, content)
+	}
+	for _, m := range msgs {
+		if m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
+			fmt.Fprintf(&b, "ASSISTANT TOOL CALLS:\n%s\n", toolCallsToJSON(m.ToolCalls))
+		}
+		if m.Role == RoleTool && m.Name != "" && strings.TrimSpace(m.Content) != "" {
+			fmt.Fprintf(&b, "TOOL RESULT %s:\n%s\n", m.Name, m.Content)
+		}
+	}
+	anchor := b.String()
+	if len([]rune(anchor)) > 12000 {
+		anchor = string([]rune(anchor)[:12000]) + "\n[continuity anchor truncated]"
+	}
+	return anchor
+}
+
+func withContinuityAnchor(msgs []Message, anchor string) []Message {
+	if strings.TrimSpace(anchor) == "" {
+		return msgs
+	}
+	out := make([]Message, 0, len(msgs)+1)
+	out = append(out, Message{Role: RoleSystem, Content: anchor})
+	out = append(out, msgs...)
 	return out
 }
 

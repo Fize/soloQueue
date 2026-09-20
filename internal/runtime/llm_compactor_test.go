@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
 
@@ -16,12 +17,14 @@ type mockChatClient struct {
 	called int
 }
 
+const validCompactedSummary = "## Current goal\nPreserve the active task.\n## Completed\n- None.\n## Current state\n- Compression is in progress.\n## Key decisions\n- Keep verified state.\n## Changed files\n- None.\n## Remaining work\n- Continue the active task.\n## Blockers\n- None.\n## User preferences\n- None."
+
 func (m *mockChatClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	m.called++
 	if m.chatFn != nil {
 		return m.chatFn(ctx, req)
 	}
-	return &ChatResponse{Content: "This is a compressed summary."}, nil
+	return &ChatResponse{Content: validCompactedSummary}, nil
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -59,7 +62,7 @@ func TestLLMCompactorCompactWithReasoning(t *testing.T) {
 					sawReasoningInInput = true
 				}
 			}
-			return &ChatResponse{Content: "Compressed summary."}, nil
+			return &ChatResponse{Content: validCompactedSummary}, nil
 		},
 	}
 	c := NewLLMCompactor(mc, "deepseek", "test-model")
@@ -73,7 +76,7 @@ func TestLLMCompactorCompactWithReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compact failed: %v", err)
 	}
-	if summary != "Compressed summary." {
+	if summary != validCompactedSummary {
 		t.Errorf("Unexpected summary: %q", summary)
 	}
 	if sawReasoningInInput {
@@ -84,7 +87,7 @@ func TestLLMCompactorCompactWithReasoning(t *testing.T) {
 func TestLLMCompactorStripsReasoningFromOutput(t *testing.T) {
 	mc := &mockChatClient{
 		chatFn: func(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-			return &ChatResponse{Content: "Header summary.\n\n[Reasoning]: This is internal chain of thought that must not leak.\n\nTrailing summary."}, nil
+			return &ChatResponse{Content: "## Current goal\nHeader summary.\n## Completed\n[Reasoning]: This is internal chain of thought that must not leak.\n\nTrailing summary.\n## Current state\n- Active.\n## Key decisions\n- Keep state.\n## Changed files\n- None.\n## Remaining work\n- Continue.\n## Blockers\n- None."}, nil
 		},
 	}
 	c := NewLLMCompactor(mc, "deepseek", "test-model")
@@ -145,7 +148,7 @@ func TestLLMCompactorUsesCorrectModel(t *testing.T) {
 	mc := &mockChatClient{
 		chatFn: func(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 			gotModel = req.Model
-			return &ChatResponse{Content: "Summary"}, nil
+			return &ChatResponse{Content: validCompactedSummary}, nil
 		},
 	}
 	c := NewLLMCompactor(mc, "deepseek", "deepseek-v4-flash")
@@ -172,5 +175,36 @@ func TestCompactorPromptHasContinuationStateSchema(t *testing.T) {
 	}
 	if !strings.Contains(compactSystemPrompt, "untrusted data") {
 		t.Fatal("compactor prompt must define a trust boundary")
+	}
+}
+
+func TestCompactorPreservesToolCallMetadata(t *testing.T) {
+	var input string
+	mc := &mockChatClient{chatFn: func(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+		for _, m := range req.Messages {
+			input += m.Content
+		}
+		return &ChatResponse{Content: validCompactedSummary}, nil
+	}}
+	c := NewLLMCompactor(mc, "deepseek", "test-model")
+	_, err := c.Compact(context.Background(), []ctxwin.Message{{
+		Role:      ctxwin.RoleAssistant,
+		ToolCalls: []llm.ToolCall{{ID: "call-7", Type: "function", Function: llm.FunctionCall{Name: "delegate", Arguments: `{"task":"keep"}`}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(input, "call-7") || !strings.Contains(input, "delegate") || !strings.Contains(input, "keep") {
+		t.Fatalf("tool call metadata missing from compactor input: %q", input)
+	}
+}
+
+func TestCompactorRejectsInvalidSummary(t *testing.T) {
+	mc := &mockChatClient{chatFn: func(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+		return &ChatResponse{Content: "unrelated answer"}, nil
+	}}
+	c := NewLLMCompactor(mc, "deepseek", "test-model")
+	if _, err := c.Compact(context.Background(), []ctxwin.Message{{Role: ctxwin.RoleUser, Content: "task"}}); err == nil {
+		t.Fatal("expected invalid summary to be rejected")
 	}
 }

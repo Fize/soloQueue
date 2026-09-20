@@ -316,9 +316,12 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 				a.logInfo(ctx, logger.CatLLM, "llm chat overflow, compacting and retrying")
 				switch s := strat.(type) {
 				case *historyStrategy:
-					_, cerr := s.cw.CompactAndReplace(ctx)
-					if cerr == nil {
+					compressed, cerr := s.cw.CompactAndReplace(ctx)
+					if cerr == nil && strings.TrimSpace(compressed) != "" {
 						continue
+					}
+					if cerr == nil {
+						cerr = fmt.Errorf("context compression returned an empty summary")
 					}
 					a.logError(ctx, logger.CatLLM, "compact on overflow retry failed", cerr)
 				case *simpleStrategy:
