@@ -11,12 +11,14 @@ export function DelegationGroupView({
   segments,
   isStreaming,
   onUserInteraction,
+  requestId,
 }: {
   group: GroupedDelegation
   isUser?: boolean
   segments?: ChatMessage['segments']
   isStreaming?: boolean
   onUserInteraction?: () => void
+  requestId?: string
 }) {
   const isRunning = group.segments.some((s) => {
     if (s.segment.type === 'tool_call') {
@@ -27,13 +29,14 @@ export function DelegationGroupView({
     return false
   })
 
-  const [isExpanded, setIsExpanded] = useState(isRunning)
-  const [userToggled, setUserToggled] = useState(false)
-  const expanded = isExpanded && (isRunning || userToggled)
+  // Automatic expansion follows the live running state until the user makes
+  // an explicit choice. The choice is intentionally component-local and is
+  // lost on refresh, matching worked-block behavior.
+  const [userExpanded, setUserExpanded] = useState<boolean | undefined>(undefined)
+  const expanded = userExpanded ?? isRunning
 
   const handleToggle = () => {
-    setIsExpanded(!expanded)
-    setUserToggled(true)
+    setUserExpanded(!expanded)
     onUserInteraction?.()
   }
 
@@ -76,6 +79,7 @@ export function DelegationGroupView({
               segments={segments}
               isStreaming={isStreaming}
               onUserInteraction={onUserInteraction}
+              requestId={requestId}
             />
           ))}
         </div>

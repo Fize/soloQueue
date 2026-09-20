@@ -16,6 +16,7 @@ export function DelegationCard({
   error,
   durationMs,
   agentInstanceId,
+  requestId,
 }: {
   name: string
   args: string
@@ -25,6 +26,7 @@ export function DelegationCard({
   error?: string
   durationMs?: number
   agentInstanceId?: string
+  requestId?: string
 }) {
   const [modalOpen, setModalOpen] = useState(false)
   const streamScrollRef = useRef<HTMLDivElement>(null)
@@ -56,7 +58,9 @@ export function DelegationCard({
   )
 
   const instanceId = agentInstanceId || matchedAgent?.instance_id || null
-  const agentStream = useAgentStream(instanceId)
+  const agentStream = useAgentStream(instanceId, requestId)
+  const streamIsLive = agentStream?.processing === true
+  const streamIsSnapshot = !!agentStream && !streamIsLive
 
   const running = !done
   const cancelled = done && error === 'Cancelled by user'
@@ -187,16 +191,26 @@ export function DelegationCard({
                     <span
                       className={cn(
                         'h-1.5 w-1.5 rounded-full',
-                        agentStream ? 'bg-success' : 'bg-muted-foreground/40'
+                        streamIsLive
+                          ? 'bg-signal'
+                          : streamIsSnapshot
+                            ? 'bg-success/60'
+                            : 'bg-muted-foreground/40'
                       )}
                     />
                     <span
                       className={cn(
                         'text-[10px] font-medium',
-                        agentStream ? 'text-success' : 'text-muted-foreground/60'
+                        streamIsLive || streamIsSnapshot
+                          ? 'text-success'
+                          : 'text-muted-foreground/60'
                       )}
                     >
-                      {agentStream ? 'Stream live' : 'Stream unavailable'}
+                      {streamIsLive
+                        ? 'Stream live'
+                        : streamIsSnapshot
+                          ? 'Stream snapshot'
+                          : 'Stream unavailable'}
                     </span>
                   </div>
                 </div>
@@ -240,11 +254,22 @@ export function DelegationCard({
                   )}
                 </div>
               ) : agentStream ? (
-                <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} />
+                <div className="space-y-3">
+                  {streamIsSnapshot && (
+                    <p className="text-[11px] text-muted-foreground/70">
+                      {running
+                        ? 'The live stream ended; showing the latest available agent output while the task finishes.'
+                        : 'The live stream has ended; showing the latest available agent output.'}
+                    </p>
+                  )}
+                  <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} />
+                </div>
               ) : running ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
                   <Bot className="h-8 w-8" />
-                  <p className="text-xs">Waiting for agent stream...</p>
+                  <p className="text-xs text-center">
+                    Live stream unavailable. The task may still be running; close and reopen this card to refresh.
+                  </p>
                   {taskText && <p className="text-[11px] max-w-md text-center">{taskText}</p>}
                 </div>
               ) : (

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import {
   ArrowUp, StopCircle, Plus, ChevronDown,
-  Check, Laptop, GitBranch, Users, Palette
+  Check, Laptop, GitBranch, Users, Palette, Cpu
 } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
@@ -41,6 +41,8 @@ export interface ChatInputProps {
   readOnlySelectors?: boolean
   ctxwinUsed?: number
   ctxwinLimit?: number
+  modelName?: string
+  taskLevel?: string
 
 
   // Autocomplete: skill names fetched from /api/skills
@@ -73,6 +75,8 @@ export function ChatInput({
   readOnlySelectors = false,
   ctxwinUsed = 0,
   ctxwinLimit = 0,
+  modelName,
+  taskLevel,
   skillNames = [],
   atRootDir = '',
   selectedTarget,
@@ -639,9 +643,9 @@ export function ChatInput({
             </div>
 
             {/* Inner action buttons row */}
-            <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/15">
+            <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-border/15">
               {/* Left actions: plus and selectors */}
-              <div className="flex items-center gap-2 flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -848,9 +852,28 @@ export function ChatInput({
                 )}
               </div>
 
-              {/* Right actions: model badge, context window ring, send/stop */}
-              <div className="flex items-center gap-2">
+              {/* Right actions wrap within the pane, including beside an expanded sidebar. */}
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2 min-w-0 max-w-full">
 
+                {(taskLevel !== undefined || modelName !== undefined) && (
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 min-w-0 max-w-full">
+                    {taskLevel ? (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border text-foreground/80 bg-signal/10 border-signal/20">
+                        {taskLevel}
+                      </span>
+                    ) : taskLevel === '' ? (
+                      <span className="h-[22px] w-14 rounded-md border border-border/40 bg-foreground/5 animate-pulse" aria-label="Loading task type" />
+                    ) : null}
+                    {modelName ? (
+                      <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border border-border/40 bg-muted/30 min-w-0 max-w-[min(100%,180px)] truncate" title={modelName}>
+                        <Cpu className="h-2.5 w-2.5 shrink-0 text-signal" />
+                        <span className="truncate">{modelName}</span>
+                      </span>
+                    ) : modelName === '' ? (
+                      <span className="h-[22px] w-16 rounded-md border border-border/40 bg-foreground/5 animate-pulse" aria-label="Loading model" />
+                    ) : null}
+                  </div>
+                )}
 
                 {ctxwinLimit > 0 && (
                   <div className="relative group/cw flex items-center">
@@ -896,7 +919,7 @@ export function ChatInput({
                   <button
                     type="button"
                     onClick={onCancel}
-                    className="flex items-center gap-1 px-2 sm:px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
+                    className="flex shrink-0 items-center gap-1 px-2 sm:px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
                   >
                     <StopCircle className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">{t('common.stopped')}</span>
@@ -906,7 +929,7 @@ export function ChatInput({
                     type="button"
                     onClick={handleSubmit}
                     disabled={disabled || attachments.some((att) => att.status === 'uploading')}
-                    className="flex items-center justify-center h-7 w-7 rounded-lg bg-secondary text-secondary-foreground hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                    className="flex shrink-0 items-center justify-center h-7 w-7 rounded-lg bg-secondary text-secondary-foreground hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
                   >
                     <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
                   </button>

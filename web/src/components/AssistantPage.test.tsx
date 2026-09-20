@@ -92,11 +92,11 @@ vi.mock("@/components/chat/AgentWorkingIndicator", () => ({
 }));
 
 describe("AssistantPage", () => {
-  it("renders an L1 channel stream without a Desktop request ID", async () => {
+  it("does not attach an unscoped L1 channel stream to local history", async () => {
     render(<AssistantPage />);
 
     await waitFor(() =>
-      expect(screen.getByText("channel live output")).toBeInTheDocument(),
+      expect(screen.queryByText("channel live output")).not.toBeInTheDocument(),
     );
   });
 });

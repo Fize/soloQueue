@@ -254,12 +254,12 @@ function App() {
           </div>
 
           {/* Main content pane */}
-          <main className="flex flex-1 flex-col min-w-0 overflow-hidden h-full bg-background relative">
+          <main className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden h-full bg-background relative">
             {/* Connection status bar — 4pt HIG progress indicator */}
             <ConnectionStatusBar />
 
             {/* Routes */}
-            <div className="flex-1 overflow-hidden h-full">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <Suspense fallback={<RouteFallback />}>
                 <Routes>
                   <Route path="/" element={<Navigate to={getLastRoute()} replace />} />
