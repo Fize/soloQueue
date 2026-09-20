@@ -227,12 +227,14 @@ func buildWireRequest(req agent.LLMRequest, stream, includeUsage bool) wireReque
 	// DeepSeek defaults an omitted thinking switch to enabled, so both boolean
 	// states must be explicit on the wire.
 	if req.ThinkingEnabled {
-		if req.ReasoningEffort != "" {
-			out.ReasoningEffort = &req.ReasoningEffort
-		}
 		t := req.ThinkingType
 		if t == "" {
 			t = "enabled" // default: DeepSeek convention
+		}
+		// Adaptive thinking chooses its own effort; MiniMax rejects requests
+		// that combine it with an explicit reasoning_effort.
+		if t != "adaptive" && req.ReasoningEffort != "" {
+			out.ReasoningEffort = &req.ReasoningEffort
 		}
 		out.Thinking = &wireThinking{Type: t}
 	} else {
