@@ -86,6 +86,13 @@ func WithPeerTarget(match func(string) bool) DelegateToolOption {
 	return func(dt *DelegateTool) { dt.isPeerTarget = match }
 }
 
+// WithTargetValidator restricts delegation to targets that are valid for the
+// caller's delegation boundary. The validator is evaluated for every call so
+// hot-reloaded Team catalogs are reflected without rebuilding the tool.
+func WithTargetValidator(allowed func(string) bool) DelegateToolOption {
+	return func(dt *DelegateTool) { dt.targetValidator = allowed }
+}
+
 func WithProgressCheckpointInterval(interval time.Duration) DelegateToolOption {
 	return func(dt *DelegateTool) {
 		if interval > 0 {
@@ -108,6 +115,7 @@ type DelegateTool struct {
 	PeerLocateOrSpawn          LocateOrSpawnResolver
 	Reap                       func(loc iface.Locatable)
 	SkillInstructionsLook      func(skillID string) (instructions string, agentName string, skillDir string, ok bool)
+	targetValidator            func(string) bool
 	alwaysAsync                bool
 	isPeerTarget               func(string) bool
 	progressCheckpointInterval time.Duration
@@ -150,8 +158,8 @@ func (dt *DelegateTool) SetLogger(l *logger.Logger) {
 func (dt *DelegateTool) Name() string { return "delegate" }
 
 func (dt *DelegateTool) Description() string {
-	return "Delegate a task to another agent, team leader, or dynamic worker (e.g. 'dev', 'ops', 'qa', or custom name). " +
-		"Provide a stable task name and the exact work content; scheduling is controlled by the framework."
+	return "Delegate a task to a matching Team Leader or an explicitly requested Team. " +
+		"Provide a stable task name and the exact work content."
 }
 
 func (dt *DelegateTool) Parameters() json.RawMessage {
@@ -168,7 +176,7 @@ func (dt *DelegateTool) Parameters() json.RawMessage {
   "properties": {
     "target": {
       "type": "string",
-      "description": "Name of the target agent or team leader (e.g. 'dev', 'ops', 'qa', 'code-reviewer')."
+      "description": "Name of an available Team Leader or the explicitly requested Team."
     },
 	"task_name": {
 	  "type": "string",
@@ -184,11 +192,11 @@ func (dt *DelegateTool) Parameters() json.RawMessage {
     },
     "system_prompt": {
       "type": "string",
-      "description": "Optional system prompt / instructions if spawning a dynamic worker agent."
+      "description": "Optional task-specific instructions for the Team Leader."
     },
     "skill_id": {
       "type": "string",
-      "description": "Optional skill ID if spawning a dynamic worker agent based on a skill."
+      "description": "Optional skill ID when the selected Team explicitly supports that skill."
 	}%s,
     "model_id": {
       "type": "string",
@@ -233,7 +241,7 @@ func (dt *DelegateTool) prepareDelegationContext(ctx context.Context, target str
 			dt.logger.WarnContext(ctx, logger.CatTool, "delegate: depth limit exceeded",
 				"self", dt.SelfName, "target", target, "chain_len", len(chain))
 		}
-		return nil, fmt.Errorf("delegate: delegation depth limit reached (%d >= %d) — escalate to L1 instead",
+		return nil, fmt.Errorf("delegate: delegation depth limit reached (%d >= %d) — return the blocker to the requesting assistant",
 			len(chain), maxPeerDepth)
 	}
 
@@ -254,6 +262,9 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 	}
 	if dArgs.Target == "" {
 		return "", fmt.Errorf("delegate: target is required")
+	}
+	if dt.targetValidator != nil && !dt.targetValidator(dArgs.Target) {
+		return "", fmt.Errorf("delegate: target %q is not an available Team", dArgs.Target)
 	}
 	if strings.TrimSpace(dArgs.TaskName) == "" {
 		if _, managed := dispatch.ScopeFromContext(ctx); managed {
@@ -285,7 +296,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 		return "", err
 	}
 	if reused {
-		return fmt.Sprintf(`{"dispatch_id":%q,"status":"running","reused":true}`, dispatchID), nil
+		return `{"status":"running","reused":true}`, nil
 	}
 	var finishOnce sync.Once
 	var terminalErr error
@@ -299,7 +310,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			panicErr := fmt.Errorf("delegate %s panicked: %v", dispatchID, recovered)
+			panicErr := fmt.Errorf("delegated task failed unexpectedly: %v", recovered)
 			result = ""
 			retErr = errors.Join(panicErr, finish(dispatch.StatusFailed, panicErr))
 		}
@@ -436,12 +447,9 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 			"target", dArgs.Target, "content_len", len(content), "events_processed", eventCount, "duration_ms", time.Since(start).Milliseconds())
 	}
 	if err := finish(dispatch.StatusCompleted, nil); err != nil {
-		return "", fmt.Errorf("dispatch %s terminal persistence: %w", dispatchID, err)
+		return "", fmt.Errorf("delegation terminal persistence: %w", err)
 	}
 
-	if dispatchID != "" {
-		return fmt.Sprintf("dispatch_id: %s\n%s", dispatchID, content), nil
-	}
 	return content, nil
 }
 
@@ -465,6 +473,9 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 	if dArgs.Target == "" {
 		return nil, fmt.Errorf("delegate async: target is required")
 	}
+	if dt.targetValidator != nil && !dt.targetValidator(dArgs.Target) {
+		return nil, fmt.Errorf("delegate async: target %q is not an available Team", dArgs.Target)
+	}
 	if strings.TrimSpace(dArgs.TaskName) == "" {
 		if _, managed := dispatch.ScopeFromContext(ctx); managed {
 			return nil, fmt.Errorf("delegate async: task_name is required")
@@ -484,6 +495,13 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 	}
 	if reused {
 		return nil, nil
+	}
+	delCtx, cancelDelegation := context.WithCancelCause(delCtx)
+	if scope, ok := dispatch.ScopeFromContext(delCtx); ok {
+		if err := scope.Manager.RegisterCancel(dispatchID, cancelDelegation); err != nil {
+			cancelDelegation(err)
+			return nil, err
+		}
 	}
 	var finishOnce sync.Once
 	var terminalErr error
@@ -509,7 +527,7 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			panicErr := fmt.Errorf("delegate async setup %s panicked: %v", dispatchID, recovered)
+			panicErr := fmt.Errorf("delegated task setup failed unexpectedly: %v", recovered)
 			action = nil
 			retErr = errors.Join(panicErr, finish(dispatch.StatusFailed, panicErr))
 		}

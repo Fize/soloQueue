@@ -834,21 +834,21 @@ func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
 }
 
 func TestL2L3Directives_ContainSkillUseRules(t *testing.T) {
-	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "Skill Use at L2") {
-		t.Error("prompt.L2EnforcedDirectivesPart1 should contain 'Skill Use at L2' section")
+	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "Skill Use for Delegating Agents") {
+		t.Error("prompt.L2EnforcedDirectivesPart1 should contain the delegating-agent Skill section")
 	}
 	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "do not invent skill IDs") || !strings.Contains(prompt.L2EnforcedDirectivesPart1, "preserve explicit user-requested Skill IDs") {
 		t.Error("L2 delegation must avoid invented Skill IDs while preserving explicit user requirements")
 	}
-	if !strings.Contains(prompt.L3EnforcedDirectives, "Skill Use at L3") {
-		t.Error("prompt.L3EnforcedDirectives should contain 'Skill Use at L3' section")
+	if !strings.Contains(prompt.L3EnforcedDirectives, "Skill Use for Receiving Agents") {
+		t.Error("prompt.L3EnforcedDirectives should contain the receiving-agent Skill section")
 	}
 	if !strings.Contains(prompt.L3EnforcedDirectives, "standalone") {
 		t.Error("prompt.L3EnforcedDirectives should classify standalone tasks")
 	}
 }
 
-func TestL2L3Directives_KeepSkillLifecycleWithL1(t *testing.T) {
+func TestL2L3Directives_KeepSkillLifecycleWithAssistant(t *testing.T) {
 	checks := []struct {
 		name string
 		text string
@@ -862,7 +862,7 @@ func TestL2L3Directives_KeepSkillLifecycleWithL1(t *testing.T) {
 				t.Errorf("%s directives should forbid Skill lifecycle management", check.name)
 			}
 			if !strings.Contains(check.text, "report its Skill ID") {
-				t.Errorf("%s directives should route missing Skills to L1", check.name)
+				t.Errorf("%s directives should route missing Skills to the caller", check.name)
 			}
 		})
 	}
@@ -891,8 +891,25 @@ func TestBuildL2L3SystemPrompts_IncludeSkillLifecycleBoundary(t *testing.T) {
 			if !strings.Contains(got, "Do not search, install, update, or uninstall Skills with ClawHub") {
 				t.Errorf("%s system prompt should include lifecycle boundary", name)
 			}
-			if !strings.Contains(got, "report its Skill ID and requirement to L1") {
-				t.Errorf("%s system prompt should route missing Skills to L1", name)
+			if !strings.Contains(got, "report its Skill ID and requirement to the caller") {
+				t.Errorf("%s system prompt should route missing Skills to the caller", name)
+			}
+		})
+	}
+}
+
+func TestBuildL2L3SystemPromptsHideRuntimeArchitecture(t *testing.T) {
+	l2 := buildL2SystemPrompt(
+		AgentTemplate{ID: "leader", Name: "Leader", IsLeader: true, Group: "team"},
+		nil, nil, "/work/plan", "/work", "/work/explore", nil, false,
+	)
+	l3 := buildL3SystemPrompt(AgentTemplate{ID: "worker", Name: "Worker"}, nil, "/work/plan", "/work", "/work/explore")
+	for name, got := range map[string]string{"team": l2, "worker": l3} {
+		t.Run(name, func(t *testing.T) {
+			for _, forbidden := range []string{"L1", "L2", "L3", "orchestrator", "Orchestrator", "dispatch_id", "root_dispatch_id", "parent_dispatch_id", "agent_instance_id", "run_id"} {
+				if strings.Contains(got, forbidden) {
+					t.Errorf("%s system prompt exposes runtime architecture %q", name, forbidden)
+				}
 			}
 		})
 	}
@@ -1861,7 +1878,7 @@ func TestCreateSkillForkAgent_ContainsSkillLifecycleBoundary(t *testing.T) {
 		t.Fatal("Skill Fork prompt should forbid Skill lifecycle management")
 	}
 	if !strings.Contains(child.Agent.Def.SystemPrompt, "report its Skill ID") {
-		t.Fatal("Skill Fork prompt should route missing Skills to L1")
+		t.Fatal("Skill Fork prompt should route missing Skills to the caller")
 	}
 }
 

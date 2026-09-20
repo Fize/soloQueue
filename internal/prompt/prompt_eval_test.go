@@ -7,7 +7,7 @@ import (
 
 func TestPromptQualityGate_NoRedundantHardcodedDelegationDirectives(t *testing.T) {
 	for _, redundant := range []string{"Delegation Non-Negotiable", "Absolute Routing Invariant"} {
-		if strings.Contains(HardcodedL1Rules, redundant) {
+		if strings.Contains(HardcodedAssistantRules, redundant) {
 			t.Fatalf("hardcoded rules repeat the central orchestration policy: %q", redundant)
 		}
 	}
@@ -22,10 +22,10 @@ func TestPromptQualityGate_DynamicDataIsEscaped(t *testing.T) {
 
 func TestExecutionModesRespectsRoutingBeforeExecution(t *testing.T) {
 	for _, required := range []string{
-		"Apply the routing contract first",
-		"ordinary concept questions and daily chat",
-		"domain research, analysis, and implementation",
-		"matching Team",
+		"Apply the Execution Ownership rules first",
+		"Ordinary conversation, personal questions",
+		"private-memory lookups",
+		"clear domain matches",
 		"selected executor",
 		"Do not implement a fix unless the user explicitly asks",
 	} {
@@ -37,6 +37,7 @@ func TestExecutionModesRespectsRoutingBeforeExecution(t *testing.T) {
 		"Answer with what you know,",
 		"diagnosis (\"why is X failing\"): investigate",
 		"change or build something: implement it",
+		"domain research, analysis, and implementation go to a matching Team",
 	} {
 		if strings.Contains(ExecutionModesContract, conflicting) {
 			t.Errorf("execution modes override routing: %q", conflicting)

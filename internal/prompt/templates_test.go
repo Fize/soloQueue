@@ -7,9 +7,9 @@ import (
 )
 
 func TestDefaultSoulContent(t *testing.T) {
-	want := `You are SoloQueue, a personal assistant and the single point of interaction for the user.
+	want := `You are SoloQueue, the user's personal assistant and CEO-like point of contact.
 
-Your role is to assist the user with both personal and work matters. Your primary job is to understand user intent, break down complex tasks, and assign them to the appropriate teams for execution.
+Your job is to understand the user's intent, protect their private context, make sound decisions, and get useful work completed. You may coordinate a listed Team when it clearly owns the work, but you remain responsible for the outcome and execute directly when no suitable Team exists.
 
 ## Communication baseline
 
@@ -28,8 +28,8 @@ Warm, direct, and conversational. Lead with the answer. For simple questions, re
 }
 
 func TestDefaultRules(t *testing.T) {
-	if !strings.Contains(DefaultRules, "Task Routing") {
-		t.Error("DefaultRules should contain Delegate First")
+	if !strings.Contains(DefaultRules, "Execution Ownership") {
+		t.Error("DefaultRules should contain the execution ownership contract")
 	}
 	if !strings.Contains(DefaultRules, "Task Distribution") {
 		t.Error("DefaultRules should contain Task Distribution")
@@ -46,13 +46,13 @@ func TestDefaultRules(t *testing.T) {
 	if !strings.Contains(DefaultRules, "need_clarification") {
 		t.Error("DefaultRules should reference need_clarification status")
 	}
-	if !strings.Contains(DefaultRules, "NEVER include them in a user-facing answer") {
-		t.Error("DefaultRules should keep internal identifiers out of user-facing answers")
+	if !strings.Contains(DefaultRules, "Internal runtime identifiers are never needed in a response") {
+		t.Error("DefaultRules should keep runtime identifiers out of agent responses")
 	}
 }
 
 func TestL1RulesLeavePersonalityToSoul(t *testing.T) {
-	rules := DefaultRules + HardcodedL1Rules
+	rules := DefaultRules + HardcodedAssistantRules
 	for _, competing := range []string{"Professional Conciseness", "Context-Adaptive Tone", "Frustration Detection", "Emotional Tone Adaptation", "Proactive Reminders", "casual and warm", "baseline mood"} {
 		if strings.Contains(rules, competing) {
 			t.Errorf("rules contain competing persona instruction %q", competing)
@@ -61,19 +61,19 @@ func TestL1RulesLeavePersonalityToSoul(t *testing.T) {
 	if regexp.MustCompile(`(?m)^\d+[a-z]?\. \*\*`).MatchString(rules) {
 		t.Error("global rule numbering remains")
 	}
-	for _, required := range []string{"### Task Routing", "ordinary concept questions", "daily chat", "failed Team", "L1-only"} {
+	for _, required := range []string{"### Execution Ownership", "ordinary conversation", "private-memory lookups", "a Team fails", "capability/configuration questions"} {
 		if !strings.Contains(rules, required) {
 			t.Errorf("missing routing contract %q", required)
 		}
 	}
 }
 
-func TestHardcodedL1Rules_ClawHubProgressiveLoading(t *testing.T) {
+func TestHardcodedAssistantRules_ClawHubProgressiveLoading(t *testing.T) {
 	required := []string{
 		"Skill Acquisition via ClawHub",
 		"explicit exception to Delegate First",
 		"clawhub --help",
-		"identifies and runs the current version query option shown by that help",
+		"identify and run the current version query option shown by that help",
 		"clawhub <command> --help",
 		"current official ClawHub installation or upgrade guidance",
 		"ask the user for explicit approval before installing or upgrading host-level CLI software",
@@ -88,25 +88,25 @@ func TestHardcodedL1Rules_ClawHubProgressiveLoading(t *testing.T) {
 		"Never substitute openclaw",
 	}
 	for _, phrase := range required {
-		if !strings.Contains(HardcodedL1Rules, phrase) {
-			t.Errorf("HardcodedL1Rules missing progressive ClawHub guidance %q", phrase)
+		if !strings.Contains(HardcodedAssistantRules, phrase) {
+			t.Errorf("HardcodedAssistantRules missing progressive ClawHub guidance %q", phrase)
 		}
 	}
 
-	start := strings.Index(HardcodedL1Rules, "### Skill Acquisition via ClawHub")
+	start := strings.Index(HardcodedAssistantRules, "### Skill Acquisition via ClawHub")
 	if start < 0 {
 		t.Fatal("could not find the compact ClawHub guidance block")
 	}
-	end := strings.Index(HardcodedL1Rules[start:], "\n### Task Scheduling")
+	end := strings.Index(HardcodedAssistantRules[start:], "\n### Task Scheduling")
 	if end < 0 {
 		t.Fatal("could not isolate the compact ClawHub guidance block")
 	}
 	if end > 1400 {
 		t.Fatalf("ClawHub guidance block grew beyond its compact progressive-loading budget: %d bytes", end)
 	}
-	block := HardcodedL1Rules[start : start+end]
+	block := HardcodedAssistantRules[start : start+end]
 	helpIndex := strings.Index(block, "clawhub --help")
-	versionQueryIndex := strings.Index(block, "identifies and runs the current version query option shown by that help")
+	versionQueryIndex := strings.Index(block, "identify and run the current version query option shown by that help")
 	commandHelpIndex := strings.Index(block, "clawhub <command> --help")
 	inspectIndex := strings.Index(block, "Before installing, inspect the candidate")
 	approvalIndex := strings.Index(block, "ask the user for explicit approval before installing or upgrading host-level CLI software")
@@ -133,15 +133,15 @@ func TestHardcodedL1Rules_ClawHubProgressiveLoading(t *testing.T) {
 	}
 }
 
-func TestHardcodedL1Rules_ClawHubLifecycleStaysWithL1(t *testing.T) {
+func TestHardcodedAssistantRules_ClawHubLifecycleStaysWithAssistant(t *testing.T) {
 	required := []string{
-		"Skill lifecycle management is an L1-only responsibility",
+		"Skill lifecycle management is handled directly by the assistant",
 		"Never delegate Skill search, installation, update, or removal",
 		"perform the operation directly",
 	}
 	for _, phrase := range required {
-		if !strings.Contains(HardcodedL1Rules, phrase) {
-			t.Errorf("HardcodedL1Rules missing direct L1 lifecycle guidance %q", phrase)
+		if !strings.Contains(HardcodedAssistantRules, phrase) {
+			t.Errorf("HardcodedAssistantRules missing direct lifecycle guidance %q", phrase)
 		}
 	}
 }
@@ -152,7 +152,7 @@ func TestBuildSkillForkSystemPrompt_ContainsSkillLifecycleBoundary(t *testing.T)
 		"base prompt",
 		"skill instructions",
 		"Do not search, install, update, or uninstall Skills with ClawHub",
-		"report its Skill ID and requirement to L1",
+		"report its Skill ID and requirement to the caller",
 	} {
 		if !strings.Contains(got, phrase) {
 			t.Errorf("Skill Fork prompt missing %q", phrase)
@@ -226,7 +226,7 @@ func TestSharedAgentRules_LowCostInvocation(t *testing.T) {
 }
 
 func TestPlanStorageHonorsUserLocationAcrossLevels(t *testing.T) {
-	for name, rules := range map[string]string{"L1": DefaultRules, "L2": L2EnforcedPlanSection, "L3": L3EnforcedDirectives} {
+	for name, rules := range map[string]string{"assistant": DefaultRules, "team": L2EnforcedPlanSection, "worker": L3EnforcedDirectives} {
 		for _, want := range []string{"explicit user location", "cloud workspace", "supplied or existing plan", "configured default", "local"} {
 			if !strings.Contains(rules, want) {
 				t.Errorf("%s lacks plan storage contract %q", name, want)

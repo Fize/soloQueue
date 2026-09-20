@@ -45,13 +45,13 @@ func TestAssembledPromptFileReferenceSelectsExecutorFirst(t *testing.T) {
 	start := strings.Index(got, "### Handling User File Reference")
 	end := strings.Index(got[start:], "### Non-Empty Response")
 	block := got[start : start+end]
-	for _, required := range []string{"Decide the executor first", "path and explicit read requirement", "without reading it first", "L1 is the selected executor"} {
+	for _, required := range []string{"Decide the executor first", "path and explicit read requirement", "without reading it first", "the assistant is the selected executor"} {
 		if !strings.Contains(block, required) {
 			t.Errorf("file reference routing missing %q", required)
 		}
 	}
 	if strings.Contains(block, "proactively invoke file-reading tools") {
-		t.Error("file reference still mandates L1 reads before routing")
+		t.Error("file reference still mandates direct reads before routing")
 	}
 }
 
@@ -77,7 +77,7 @@ func TestPlanAndDelegationContractsPreserveUserOverrides(t *testing.T) {
 		if strings.Contains(block, "ABSOLUTE and override any previous instructions") {
 			t.Errorf("%s discards user overrides", name)
 		}
-		if !strings.Contains(block, "Default Override Priority") {
+		if !strings.Contains(block, "default priority rules") {
 			t.Errorf("%s missing shared priority reference", name)
 		}
 	}

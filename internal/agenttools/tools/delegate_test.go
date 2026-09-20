@@ -49,6 +49,27 @@ type routedDispatchTarget struct {
 	setCalls atomic.Int32
 }
 
+func TestDelegateTargetValidatorRejectsUnknownTeams(t *testing.T) {
+	resolverCalled := false
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		resolverCalled = true
+		return dispatchTestTarget{}, false, nil
+	}
+	allowed := func(target string) bool { return strings.EqualFold(target, "engineering") }
+	dt := NewDelegateTool("assistant", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited,
+		WithTargetValidator(allowed), WithAlwaysAsyncDelegation())
+	ctx := iface.ContextWithWorkDir(context.Background(), t.TempDir())
+	if _, err := dt.Execute(ctx, `{"target":"personal-memory","task":"lookup"}`); err == nil || !strings.Contains(err.Error(), "not an available Team") {
+		t.Fatalf("sync unknown target error = %v", err)
+	}
+	if _, err := dt.ExecuteAsync(ctx, `{"target":"personal-memory","task":"lookup"}`); err == nil || !strings.Contains(err.Error(), "not an available Team") {
+		t.Fatalf("async unknown target error = %v", err)
+	}
+	if resolverCalled {
+		t.Fatal("target resolver was called for a rejected Team")
+	}
+}
+
 func (t *routedDispatchTarget) Ask(context.Context, string) (string, error) { return "", nil }
 func (t *routedDispatchTarget) AskStream(ctx context.Context, _ string) (<-chan iface.AgentEvent, error) {
 	t.routes = append(t.routes, iface.ModelOverrideFromContext(ctx))
@@ -234,8 +255,8 @@ func TestDelegateToolPersistsPeerHelpLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, "dispatch_id: dlg_") {
-		t.Fatalf("result = %q", result)
+	if strings.Contains(result, "dispatch_id") || strings.Contains(result, "dlg_") {
+		t.Fatalf("delegation result leaked internal identifier: %q", result)
 	}
 	records := m.List()
 	if len(records) != 1 || records[0].Kind != dispatch.KindPeerHelp || records[0].Status != dispatch.StatusCompleted {

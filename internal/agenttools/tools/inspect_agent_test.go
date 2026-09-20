@@ -21,6 +21,9 @@ func TestInspectAgentTool_Interface(t *testing.T) {
 	if tool.Parameters() == nil {
 		t.Error("Parameters() should not be nil")
 	}
+	if strings.Contains(string(tool.Parameters()), "agent_id") {
+		t.Error("inspect_agent schema must not expose internal agent IDs")
+	}
 }
 
 func TestInspectAgentTool_NilQueryFn(t *testing.T) {
@@ -54,8 +57,8 @@ func TestInspectAgentTool_Execute_QueryError(t *testing.T) {
 	}
 	tool := NewInspectAgentTool(queryFn)
 	result, _ := tool.Execute(context.Background(), `{}`)
-	if !strings.Contains(result, "simulated failure") {
-		t.Errorf("result = %q, want to contain 'simulated failure'", result)
+	if !strings.Contains(result, "agent status unavailable") || strings.Contains(result, "simulated failure") {
+		t.Errorf("result = %q, want a generic status error", result)
 	}
 }
 
@@ -80,6 +83,11 @@ func TestInspectAgentTool_Execute_ReturnsValidJSON(t *testing.T) {
 	var output map[string]interface{}
 	if err := json.Unmarshal([]byte(result), &output); err != nil {
 		t.Fatalf("result is not valid JSON: %v\nresult: %s", err, result)
+	}
+	for _, forbidden := range []string{"instance_id", "template_id", "prompt"} {
+		if strings.Contains(result, forbidden) {
+			t.Errorf("inspect_agent result leaked internal field %q: %s", forbidden, result)
+		}
 	}
 }
 

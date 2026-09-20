@@ -12,7 +12,7 @@ import (
 // groups is used to display team workspace directories.
 func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile) string {
 	if len(leaders) == 0 {
-		return "No Team Leaders are currently available. You must handle all tasks yourself."
+		return "No matching teams are currently available. Handle all tasks yourself."
 	}
 
 	// Sort by Group to ensure stable output
@@ -26,7 +26,7 @@ func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile) string
 	})
 
 	var b strings.Builder
-	b.WriteString("Available Teams for matching-domain work or explicit Team requests (use delegate according to the routing contract):\n")
+	b.WriteString("Available Teams for matching-domain work or explicit Team requests. Use only these listed Team targets; if none matches, handle the work directly:\n")
 
 	// Determine if any leader has group description info
 	hasGroupInfo := false
@@ -50,7 +50,7 @@ func buildRoutingTable(leaders []LeaderInfo, groups map[string]GroupFile) string
 				}
 			}
 
-			fmt.Fprintf(&b, "- Leader: %s → call delegate(target=\"%s\", task=\"...\", work_dir=\"...\")\n", l.Name, l.Name)
+			fmt.Fprintf(&b, "- Team: %s → use delegate(target=\"%s\", task=\"...\", work_dir=\"...\")\n", l.Name, l.Name)
 		}
 	} else {
 		// Old format: inline (backward compatible)
