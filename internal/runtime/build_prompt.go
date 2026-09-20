@@ -153,6 +153,7 @@ func loadFromTeamStore(store *store.Store) (map[string]prompt.GroupFile, []promp
 
 		if a.IsLeader {
 			li := prompt.LeaderInfo{
+				ID:          a.ID,
 				Name:        a.Name,
 				Description: a.Description,
 				Group:       a.TeamName,

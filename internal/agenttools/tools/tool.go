@@ -105,32 +105,13 @@ type TurnTerminator interface {
 	TerminatesTurn(result string, err error) bool
 }
 
-// ─── FallbackTool wrapper ───────────────────────────────────────────────────
-
-// FallbackTool wraps a Tool and prepends a routing-aware prefix to its
-// Description. All other methods delegate to the inner Tool.
-//
-// AsyncTool is handled by the agent layer, so FallbackTool only needs to implement the base Tool.
-type FallbackTool struct {
-	Tool
-	desc string
-}
-
-// WithFallbackPrefix retains compatibility for callers that want a routing hint
-// in tool descriptions. Routing remains conditional on an actual Team match.
+// WithFallbackPrefix retains the historical helper name for callers that still
+// use it, but tool availability must never encode the executor-routing choice.
+// L1 receives the complete tool set and decides whether to execute directly or
+// delegate from the task and the routing prompt. Returning the original tools
+// unchanged also keeps their native descriptions and optional interfaces intact.
 func WithFallbackPrefix(tools []Tool) []Tool {
 	out := make([]Tool, len(tools))
-	for i, t := range tools {
-		if _, requiredTerminalTool := t.(TurnTerminator); requiredTerminalTool {
-			out[i] = t
-			continue
-		}
-		out[i] = &FallbackTool{
-			Tool: t,
-			desc: "Use this tool when the assistant is the selected executor. If a matching Team has already been selected, delegate instead. " + t.Description(),
-		}
-	}
+	copy(out, tools)
 	return out
 }
-
-func (f *FallbackTool) Description() string { return f.desc }

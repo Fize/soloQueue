@@ -100,6 +100,7 @@ func LoadLeaders(agentsDir string, groups map[string]GroupFile) ([]LeaderInfo, e
 
 		if af.Frontmatter.IsLeader {
 			li := LeaderInfo{
+				ID:          af.Frontmatter.ID,
 				Name:        af.Frontmatter.Name,
 				Description: af.Frontmatter.Description,
 				Group:       af.Frontmatter.Group,

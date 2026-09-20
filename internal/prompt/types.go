@@ -4,6 +4,7 @@ package prompt
 // The main agent only needs to know what each team can do (Description),
 // not what tools they have — tools are implementation details managed internally.
 type LeaderInfo struct {
+	ID               string // canonical target ID used in delegate(target=...)
 	Name             string // e.g. "dev"
 	Description      string // e.g. "Full-stack developer, responsible for frontend/backend development"
 	Group            string // e.g. "DevOps"
