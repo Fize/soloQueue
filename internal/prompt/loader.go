@@ -127,8 +127,7 @@ func (p *PromptConfig) EnsureFiles() error {
 		return err
 	}
 	if !rulesExists {
-		stub := "<!-- \nAdd your custom rules here. \nSystem rules are built-in automatically and do not need to be copied here.\n-->\n"
-		if err := os.WriteFile(p.RulesPath(), []byte(stub), 0o644); err != nil {
+		if err := os.WriteFile(p.RulesPath(), nil, 0o644); err != nil {
 			return fmt.Errorf("write default rules: %w", err)
 		}
 	}

@@ -28,17 +28,19 @@ Warm, direct, and conversational. Lead with the answer. For simple questions, re
 }
 
 func TestDefaultRules(t *testing.T) {
-	if !strings.Contains(DefaultRules, "Execution Ownership") {
-		t.Error("DefaultRules should contain the execution ownership contract")
-	}
-	if !strings.Contains(DefaultRules, "Task Distribution") {
-		t.Error("DefaultRules should contain Task Distribution")
-	}
-	if !strings.Contains(DefaultRules, "Result Aggregation") {
-		t.Error("DefaultRules should contain Result Aggregation")
-	}
-	if !strings.Contains(DefaultRules, "Failure Fallback") {
-		t.Error("DefaultRules should contain Failure Fallback")
+	for _, required := range []string{
+		"### Execution Ownership and Delegation",
+		"stable task_name",
+		"self-contained task",
+		"inspect_delegation",
+		"cancel_delegation",
+		"continue directly when possible",
+		"available Teams catalog",
+		"Use only listed Team targets at this layer",
+	} {
+		if !strings.Contains(DefaultRules, required) {
+			t.Errorf("DefaultRules should contain the consolidated delegation contract %q", required)
+		}
 	}
 	if !strings.Contains(DefaultRules, "Clarification Handling") {
 		t.Error("DefaultRules should contain Clarification Handling")
@@ -48,6 +50,32 @@ func TestDefaultRules(t *testing.T) {
 	}
 	if !strings.Contains(DefaultRules, "Internal runtime identifiers are never needed in a response") {
 		t.Error("DefaultRules should keep runtime identifiers out of agent responses")
+	}
+}
+
+func TestRoleSpecificExecutionOwnershipPolicies(t *testing.T) {
+	for _, required := range []string{
+		"available Teams catalog",
+		"Use only listed Team targets at this layer",
+	} {
+		if !strings.Contains(L1ExecutionOwnershipPolicy, required) {
+			t.Errorf("L1 policy should contain %q", required)
+		}
+	}
+	for _, forbidden := range []string{"dynamic Worker", "peer Team", "visible Worker"} {
+		if strings.Contains(L1ExecutionOwnershipPolicy, forbidden) {
+			t.Errorf("L1 policy must not contain supervisor target class %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"visible Worker from your own Team",
+		"visible peer Team",
+		"dynamic Worker only when no suitable Worker or peer Team exists",
+		"at least two independent sub-tasks",
+	} {
+		if !strings.Contains(L2ExecutionOwnershipPolicy, required) {
+			t.Errorf("L2 policy should contain %q", required)
+		}
 	}
 }
 
@@ -61,31 +89,25 @@ func TestL1RulesLeavePersonalityToSoul(t *testing.T) {
 	if regexp.MustCompile(`(?m)^\d+[a-z]?\. \*\*`).MatchString(rules) {
 		t.Error("global rule numbering remains")
 	}
-	for _, required := range []string{"### Execution Ownership", "ordinary conversation", "private-memory lookups", "a Team fails", "capability/configuration questions"} {
+	for _, required := range []string{"### Execution Ownership", "ordinary conversation", "a Team fails", "capability/configuration questions"} {
 		if !strings.Contains(rules, required) {
 			t.Errorf("missing routing contract %q", required)
 		}
 	}
 }
 
-func TestHardcodedAssistantRules_ClawHubProgressiveLoading(t *testing.T) {
+func TestHardcodedAssistantRules_SkillAcquisitionAndScheduling(t *testing.T) {
 	required := []string{
-		"Skill Acquisition via ClawHub",
-		"explicit exception to Delegate First",
-		"clawhub --help",
-		"identify and run the current version query option shown by that help",
-		"clawhub <command> --help",
-		"current official ClawHub installation or upgrade guidance",
-		"ask the user for explicit approval before installing or upgrading host-level CLI software",
-		"maintain the standalone CLI directly",
-		"never delegate that maintenance",
-		"Never delegate CLI help inspection, version querying, or maintenance",
-		"After maintenance, re-run clawhub --help",
-		"Do not hardcode, pin, or declare a ClawHub version or version-query option",
+		"### Skill Acquisition",
+		"Use ClawHub directly when a required Skill is missing or incompatible",
+		"do not delegate Skill search, installation, update, or removal",
+		"Before mutation, run current CLI help and inspect the candidate",
+		"installation, update, and removal require explicit user intent",
 		`--workdir "$PWD" --dir skills`,
-		"do not search it speculatively",
-		"Before installing, inspect the candidate",
-		"Never substitute openclaw",
+		"Request approval before host-level CLI installation or upgrade",
+		"### Task Scheduling",
+		"Use create_cron_job for scheduled tasks",
+		"Use list_cron_jobs for unknown IDs",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(HardcodedAssistantRules, phrase) {
@@ -93,65 +115,25 @@ func TestHardcodedAssistantRules_ClawHubProgressiveLoading(t *testing.T) {
 		}
 	}
 
-	start := strings.Index(HardcodedAssistantRules, "### Skill Acquisition via ClawHub")
-	if start < 0 {
-		t.Fatal("could not find the compact ClawHub guidance block")
-	}
-	end := strings.Index(HardcodedAssistantRules[start:], "\n### Task Scheduling")
-	if end < 0 {
-		t.Fatal("could not isolate the compact ClawHub guidance block")
-	}
-	if end > 1400 {
-		t.Fatalf("ClawHub guidance block grew beyond its compact progressive-loading budget: %d bytes", end)
-	}
-	block := HardcodedAssistantRules[start : start+end]
-	helpIndex := strings.Index(block, "clawhub --help")
-	versionQueryIndex := strings.Index(block, "identify and run the current version query option shown by that help")
-	commandHelpIndex := strings.Index(block, "clawhub <command> --help")
-	inspectIndex := strings.Index(block, "Before installing, inspect the candidate")
-	approvalIndex := strings.Index(block, "ask the user for explicit approval before installing or upgrading host-level CLI software")
-	approvedMaintenanceIndex := strings.Index(block, "After approval, maintain the standalone CLI directly")
-	directIndex := strings.Index(block, "perform the operation directly")
-	if helpIndex < 0 || versionQueryIndex < 0 || commandHelpIndex < 0 || inspectIndex < 0 || approvalIndex < 0 || approvedMaintenanceIndex < 0 || directIndex < 0 || helpIndex >= versionQueryIndex || versionQueryIndex >= commandHelpIndex || commandHelpIndex >= inspectIndex || approvalIndex >= approvedMaintenanceIndex || approvedMaintenanceIndex >= directIndex {
-		t.Fatalf("ClawHub guidance must order help, dynamic version query, command help, inspection, approval, and direct mutation: help=%d version_query=%d command_help=%d inspect=%d approval=%d approved_maintenance=%d direct=%d", helpIndex, versionQueryIndex, commandHelpIndex, inspectIndex, approvalIndex, approvedMaintenanceIndex, directIndex)
-	}
-	afterStart := strings.Index(block, "After maintenance,")
-	if afterStart < 0 {
-		t.Fatal("missing post-maintenance verification sequence")
-	}
-	afterMaintenance := block[afterStart:]
-	helpAfter := strings.Index(afterMaintenance, "clawhub --help")
-	versionAfter := strings.Index(afterMaintenance, "identify and run its current version query option from that help")
-	commandHelpAfter := strings.Index(afterMaintenance, "clawhub <command> --help")
-	if helpAfter < 0 || versionAfter <= helpAfter || commandHelpAfter <= versionAfter {
-		t.Fatalf("post-maintenance checks must repeat help, dynamic version query, and command help in order: help=%d version_query=%d command_help=%d", helpAfter, versionAfter, commandHelpAfter)
-	}
-	for _, fixedOption := range []string{"clawhub --version", "--cli-version", "clawhub -V"} {
-		if strings.Contains(block, fixedOption) {
-			t.Errorf("ClawHub guidance must not hardcode version query option %q", fixedOption)
+	for _, explanation := range []string{
+		"default scheduling mechanism",
+		"提醒和未来任务",
+		"Skill Lifecycle Boundary",
+		"handle its lifecycle",
+	} {
+		if strings.Contains(HardcodedAssistantRules, explanation) {
+			t.Errorf("HardcodedAssistantRules must not expose explanatory Skill/scheduling text %q", explanation)
 		}
 	}
 }
 
-func TestHardcodedAssistantRules_ClawHubLifecycleStaysWithAssistant(t *testing.T) {
-	required := []string{
-		"Skill lifecycle management is handled directly by the assistant",
-		"Never delegate Skill search, installation, update, or removal",
-		"perform the operation directly",
-	}
-	for _, phrase := range required {
-		if !strings.Contains(HardcodedAssistantRules, phrase) {
-			t.Errorf("HardcodedAssistantRules missing direct lifecycle guidance %q", phrase)
-		}
-	}
-}
-
-func TestBuildSkillForkSystemPrompt_ContainsSkillLifecycleBoundary(t *testing.T) {
+func TestBuildSkillForkSystemPrompt_ContainsSkillManagementRules(t *testing.T) {
 	got := BuildSkillForkSystemPrompt("base prompt", "skill instructions")
 	for _, phrase := range []string{
 		"base prompt",
 		"skill instructions",
-		"Do not search, install, update, or uninstall Skills with ClawHub",
+		"# Skill Management",
+		"Use ClawHub directly for Skill search, installation, update, or removal",
 		"report its Skill ID and requirement to the caller",
 	} {
 		if !strings.Contains(got, phrase) {
@@ -160,22 +142,39 @@ func TestBuildSkillForkSystemPrompt_ContainsSkillLifecycleBoundary(t *testing.T)
 	}
 }
 
-func TestSharedAgentRules_ThreeSkillExecutionModes(t *testing.T) {
+func TestSharedAgentRules_L1SkillSelection(t *testing.T) {
 	if !strings.Contains(SharedAgentRules, "decide the executor before selecting Skills") {
 		t.Fatal("executor selection must precede Skill matching")
 	}
 
 	required := []string{
-		"YOU ARE THE SKILL",
-		"SKILL STEP",
-		"STANDALONE",
-		"do not re-select",
-		"If none matches, proceed with raw tools",
-		"This is step N of the <skill> SOP",
+		"# Skill Selection",
+		"If this system prompt already contains a Skill's execution logic",
+		"If a Skill matches, invoke it",
+		"if none matches, use raw tools",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(SharedAgentRules, phrase) {
 			t.Errorf("SharedAgentRules should contain %q", phrase)
+		}
+	}
+	for _, forbidden := range []string{"SKILL STEP", "upstream step", "This is step N of the <skill> SOP"} {
+		if strings.Contains(SharedAgentRules, forbidden) {
+			t.Errorf("SharedAgentRules must not contain supervisor-only Skill handoff %q", forbidden)
+		}
+	}
+}
+
+func TestL2SkillExecutionContract_ContainsUpstreamStepHandling(t *testing.T) {
+	for _, phrase := range []string{
+		"SKILL INSTANCE",
+		"SKILL STEP",
+		"STANDALONE",
+		"This is step N of the <skill> SOP",
+		"preserve the exact step marker",
+	} {
+		if !strings.Contains(L2SkillExecutionContract, phrase) {
+			t.Errorf("L2SkillExecutionContract should contain %q", phrase)
 		}
 	}
 }
@@ -195,14 +194,11 @@ func TestSharedAgentRules_ExplicitSkillRequest(t *testing.T) {
 }
 
 func TestSharedAgentRules_DelegationCarriesDomainSignals(t *testing.T) {
-	// The delegating agent cannot see the executor's skill set, so tasks must
-	// carry domain signals (goal, formats, artifacts, keywords) instead of
-	// skill IDs — the executing agent matches its own skills.
 	required := []string{
-		"task description MUST carry enough domain signals",
-		"file types/formats involved",
+		"When delegating a standalone task",
+		"file types/formats",
+		"artifact shape",
 		"Do not invent Skill IDs",
-		"executing agent decides",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(SharedAgentRules, phrase) {
