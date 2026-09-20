@@ -404,6 +404,66 @@ func TestAsyncCompact_MultiSegment(t *testing.T) {
 	}
 }
 
+func TestCompactionPreservesMessagesAppendedDuringCompression(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var captured []Message
+	mc := &mockCompactor{compactFn: func(ctx context.Context, msgs []Message) (string, error) {
+		captured = append([]Message(nil), msgs...)
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		<-release
+		return "Summary.", nil
+	}}
+	cw := NewContextWindow(100000, 2000, 50000, NewTokenizer(), WithCompactor(mc))
+	cw.SetLifecycleContext(context.Background())
+	cw.Push(RoleSystem, "System")
+	cw.Push(RoleUser, "Original task")
+	cw.Push(RoleSystem, "[Previous Conversation Summary]\nKeep the pending delivery link.")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cw.asyncCompact()
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("compression did not start")
+	}
+	cw.Push(RoleUser, "Message received during compression")
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("compression did not finish")
+	}
+	found := false
+	for i := 0; i < cw.Len(); i++ {
+		msg, _ := cw.MessageAt(i)
+		if msg.Content == "Message received during compression" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("message appended during compression was lost")
+	}
+	if len(captured) == 0 || !strings.Contains(captured[0].Content, "Original task") {
+		t.Fatal("continuity anchor did not preserve the original task")
+	}
+	foundSummary := false
+	for _, msg := range captured {
+		if strings.Contains(msg.Content, "Keep the pending delivery link") {
+			foundSummary = true
+		}
+	}
+	if !foundSummary {
+		t.Fatal("prior conversation summary was removed from compaction input")
+	}
+}
+
 func TestAsyncCompact_PartialFailure(t *testing.T) {
 	callCount := 0
 	mc := &mockCompactor{
