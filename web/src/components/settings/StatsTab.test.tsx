@@ -100,7 +100,14 @@ describe('StatsTab', () => {
   it('shows decision-ready KPIs and explicit coverage limitations', async () => {
     render(<StatsTab />)
 
-    expect(await screen.findByText('125K')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        new Intl.NumberFormat(undefined, {
+          notation: 'compact',
+          maximumFractionDigits: 1,
+        }).format(metrics.total_tokens)
+      )
+    ).toBeInTheDocument()
     expect(screen.getByText('42')).toBeInTheDocument()
     expect(screen.getByText('95.2%')).toBeInTheDocument()
     expect(screen.getByText('1.3 s')).toBeInTheDocument()
