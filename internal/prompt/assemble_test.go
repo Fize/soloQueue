@@ -42,14 +42,29 @@ func TestAssembleWithXML_Full(t *testing.T) {
 	if !strings.Contains(result, "\n</rules>") {
 		t.Error("missing rules closing tag")
 	}
-	if !strings.Contains(result, "Memory Boundary Awareness") {
+	if !strings.Contains(result, "### Memory Use") {
 		t.Error("missing assistant rules in rules section")
+	}
+	if strings.Contains(result, "### User-Facing Boundary") || strings.Contains(result, "### Memory Boundary") {
+		t.Error("prompt should not expose internal boundary headings")
 	}
 	if !strings.Contains(result, "<plan_before_action>") {
 		t.Error("missing plan_before_action section when planDir is provided")
 	}
 	if !strings.Contains(result, "/home/user/.soloqueue/plan") {
 		t.Error("missing plan directory path in plan_before_action section")
+	}
+}
+
+func TestAssembleWithXML_RemovesDefaultRulesComment(t *testing.T) {
+	rules := "<!--\nAdd your custom rules here.\nSystem rules are built-in automatically and do not need to be copied here.\n-->\ncustom rule\n<!--\n在此添加自定义规则。\n系统规则会自动内置，无需复制到此处。\n-->"
+	result := assembleWithXML("soul", "", "", "", "teams", rules, "", "/work", "/explore", nil, nil)
+
+	if strings.Contains(result, "Add your custom rules here") || strings.Contains(result, "在此添加自定义规则") {
+		t.Fatal("default rules template comment must not be injected into the prompt")
+	}
+	if !strings.Contains(result, "custom rule") {
+		t.Fatal("custom user rules must be preserved")
 	}
 }
 
@@ -169,49 +184,6 @@ func TestAssembleWithXML_ContainsExplorationArtifacts(t *testing.T) {
 	}
 }
 
-func TestAssembleWithXML_ContainsExecutionModes(t *testing.T) {
-	result := assembleWithXML(
-		"profile content",
-		"user context",
-		"",
-		"",
-		"routing table",
-		"rules content",
-		"/home/user/.soloqueue/plan",
-		"/home/user/.soloqueue",
-		"/home/user/.soloqueue/explore",
-		nil,
-		nil,
-	)
-
-	if !strings.Contains(result, "<execution_modes>") {
-		t.Error("execution_modes section should be present")
-	}
-	if !strings.Contains(result, "</execution_modes>") {
-		t.Error("execution_modes section should be closed")
-	}
-	// The execution modes block must be appended after exploration_artifacts
-	// (append-only placement so the earlier system prompt prefix stays stable).
-	artifactsIdx := strings.Index(result, "</exploration_artifacts>")
-	modesIdx := strings.Index(result, "<execution_modes>")
-	if artifactsIdx < 0 || modesIdx < 0 || modesIdx < artifactsIdx {
-		t.Error("execution_modes should be appended after exploration_artifacts")
-	}
-	// Key behavioral directives must be present.
-	for _, want := range []string{
-		"FACING USER",
-		"DELEGATING",
-		"EDITING",
-		"Do not poll or sleep waiting for results",
-		"Preserve pre-existing uncommitted changes",
-		"lead with the outcome or the answer",
-	} {
-		if !strings.Contains(result, want) {
-			t.Errorf("execution_modes should mention %q", want)
-		}
-	}
-}
-
 func TestAssembleWithXML_MCPServers(t *testing.T) {
 	result := assembleWithXML(
 		"profile content",
@@ -273,16 +245,13 @@ func TestAssembleWithXML_PermanentMemoryIsSelective(t *testing.T) {
 		nil,
 	)
 
-	if !strings.Contains(result, "USE MEMORY WHEN RELEVANT") {
+	if !strings.Contains(result, "Use recalled memory only when prior context materially helps") {
 		t.Fatal("permanent memory instructions should explain when to use memory")
-	}
-	if !strings.Contains(result, "self-contained requests") {
-		t.Fatal("permanent memory instructions should exclude self-contained requests")
 	}
 	if strings.Contains(result, "At the start of a session") || strings.Contains(result, "Auto-Search") {
 		t.Fatal("permanent memory instructions should not require automatic recall")
 	}
-	for _, instructions := range []string{result, MemoryEngineSection} {
+	for _, instructions := range []string{result} {
 		if !strings.Contains(instructions, "replaces_content_hash") {
 			t.Fatal("permanent memory instructions should explain explicit replacement")
 		}
@@ -407,7 +376,7 @@ func TestAssembledContractsDoNotOverrideRoutingOrReadOnlyWork(t *testing.T) {
 			t.Errorf("contradictory instruction: %s", obsolete)
 		}
 	}
-	for _, required := range []string{"Available Teams for matching-domain work or explicit Team requests", "research-lead", "decide the executor before selecting Skills", "read-only", "PLAN_REVIEW_REQUIRED", "optional", "Private and global user memory"} {
+	for _, required := range []string{"Available Teams for matching-domain work or explicit Team requests", "research-lead", "decide the executor before selecting Skills", "read-only", "PLAN_REVIEW_REQUIRED", "optional", "### Memory Use"} {
 		if !strings.Contains(got, required) {
 			t.Errorf("missing instruction: %s", required)
 		}
@@ -420,5 +389,31 @@ func TestAssembledPromptHidesRuntimeArchitecture(t *testing.T) {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("assembled prompt exposes runtime architecture %q", forbidden)
 		}
+	}
+}
+
+func TestAssembledL1PromptOmitsSupervisorSkillSteps(t *testing.T) {
+	got := assembleWithXML("soul", "", "", "", "teams", "", "/plans", "/work", "/explore", nil, nil)
+	for _, forbidden := range []string{
+		"SKILL STEP",
+		"upstream step",
+		"This is step N of the <skill> SOP",
+		"Agent-to-Agent Communication",
+		"All communication between agents MUST be in English",
+		"visible Worker from your own Team",
+		"dynamic Worker only when no suitable Worker or peer Team exists",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("L1 prompt must not contain supervisor-only Skill handoff %q", forbidden)
+		}
+	}
+	if !strings.Contains(got, "# Skill Selection") {
+		t.Fatal("L1 prompt should retain direct Skill selection guidance")
+	}
+	if strings.Count(got, "# Strict Scope Adherence") != 1 {
+		t.Fatalf("L1 prompt should inject strict-scope guidance once, got %d", strings.Count(got, "# Strict Scope Adherence"))
+	}
+	if !strings.Contains(got, "available Teams catalog") || !strings.Contains(got, "Use only listed Team targets at this layer") {
+		t.Fatal("L1 prompt should describe the Team-only delegation boundary")
 	}
 }

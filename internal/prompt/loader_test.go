@@ -18,13 +18,14 @@ func TestEnsureFiles_CreatesRules(t *testing.T) {
 		t.Fatalf("EnsureFiles: %v", err)
 	}
 
-	// Verify that rules.md was created.
+	// Verify that rules.md was created empty; explanatory template comments must
+	// not become part of the model prompt.
 	data, err := os.ReadFile(cfg.RulesPath())
 	if err != nil {
 		t.Fatalf("read rules.md: %v", err)
 	}
-	if len(data) == 0 {
-		t.Error("rules.md should not be empty")
+	if len(data) != 0 {
+		t.Errorf("rules.md should be empty, got %q", string(data))
 	}
 }
 
@@ -86,7 +87,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 	os.WriteFile(filepath.Join(globalDir, "user.md"), []byte("Test User"), 0o644)
 
 	leaders := []LeaderInfo{
-		{Name: "dev", Description: "Development Engineer", Group: "DevOps"},
+		{ID: "dev", Name: "dev", Description: "Development Engineer", Group: "DevOps"},
 	}
 
 	result, err := cfg.BuildPrompt(leaders, nil, "", "", "/home/user/.soloqueue/plan", nil)
@@ -107,7 +108,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 	if !contains(result, "<rules>") {
 		t.Error("missing <rules> tag")
 	}
-	if !contains(result, "dev (DevOps)") {
+	if !contains(result, "Team: dev (target=dev): Development Engineer") {
 		t.Error("missing leader in routing table")
 	}
 	if !contains(result, "Test User") {
