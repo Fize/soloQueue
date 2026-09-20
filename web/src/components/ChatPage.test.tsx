@@ -197,11 +197,11 @@ beforeEach(() => {
 });
 
 describe("ChatPage", () => {
-  it("renders an L2 channel stream without a Desktop request ID", async () => {
+  it("does not attach an unscoped L2 channel stream to local history", async () => {
     render(<ChatPage />);
 
     await waitFor(() =>
-      expect(screen.getByText("channel L2 live output")).toBeInTheDocument(),
+      expect(screen.queryByText("channel L2 live output")).not.toBeInTheDocument(),
     );
   });
 

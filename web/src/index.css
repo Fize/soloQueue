@@ -553,3 +553,31 @@ html.light .markdown-preview pre code span {
     animation: none !important;
   }
 }
+
+@layer components {
+/* Conversation and composer are separate grid rows, never overlaid.
+   The output owns scrolling; the composer contributes its natural height. */
+.chat-layout {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-layout-with-header {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.chat-output {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.chat-composer {
+  min-width: 0;
+  background: var(--background);
+}
+}

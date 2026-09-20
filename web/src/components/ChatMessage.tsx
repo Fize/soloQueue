@@ -3,12 +3,15 @@ import { User, Sparkles, Copy, Check, RotateCcw, Trash2 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
 import { useState, useMemo, memo } from 'react'
 import { toast } from 'sonner'
-import { getFileUrl } from '@/lib/api'
 import { getModelColorVar } from '@/lib/utils'
-import { useRuntimeStore } from '@/stores/runtimeStore'
+import { runtimeSessionId, useRuntimeStore } from '@/stores/runtimeStore'
 import { useChatStore } from '@/stores/chatStore'
 import { SegmentView, LoadingIndicator } from './chat/SegmentView'
 import { WorkedSegment } from './chat/WorkedSegment'
+import { groupSegments } from './chat/groupSegments'
+import { workedStateKey } from './chat/preserveWorkedStateKeys'
+export type { GroupedWorked, GroupedDelegation } from './chat/groupSegments'
+import { MessageAttachment } from './chat/MessageAttachment'
 import { DelegationGroupView } from './chat/DelegationGroupView'
 import { MessageImageGallery } from './chat/ToolCallSegment'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -20,17 +23,146 @@ export interface ChatMessageProps {
   onUserInteraction?: () => void
   modelName?: string
   sessionId?: string
+  sessionAgentId?: string | null
 }
 
-function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = false, onUserInteraction, modelName, sessionId }: ChatMessageProps) {
+function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = false, onUserInteraction, modelName, sessionId, sessionAgentId }: ChatMessageProps) {
   const { t } = useTranslation()
   const isUser = message.role === 'user'
   const isEmpty = message.segments.length === 0
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const messageRequestId = useChatStore((s) => {
+    const routeSessionId = sessionId || s.activeSessionId
+    const routeRequestId = routeSessionId ? s.routeSessions[routeSessionId]?.requestId : undefined
+    if (isUser) return undefined
+
+    // Recovered virtual messages carry their request identity explicitly. This
+    // supports arbitrary request IDs (including channel UUIDs) without
+    // guessing that every historical `msg-*` assistant ID is live.
+    const embeddedRequestId = (message as ChatMessage & { requestId?: string }).requestId
+    if (embeddedRequestId) return embeddedRequestId
+
+    // Preserve the selected route behavior for older/history messages.
+    if (routeRequestId && message.id === `msg-${routeRequestId}`) {
+      return routeRequestId
+    }
+
+    // A message created by the current stream can predate recovery metadata.
+    // Accept its ID only when the request registry confirms ownership by this
+    // session; historical messages are never inferred from their ID alone.
+    const requestMessagePrefix = 'msg-'
+    if (!message.id.startsWith(requestMessagePrefix) || !routeSessionId) return undefined
+    const candidateRequestId = message.id.slice(requestMessagePrefix.length)
+    const activeRequest = s.activeRequests?.[candidateRequestId]
+    return activeRequest?.sessionId === routeSessionId ? candidateRequestId : undefined
+  })
   const rewindSession = useChatStore((s) => s.rewindSession)
   const deleteSessionMessages = useChatStore((s) => s.deleteSessionMessages)
   const currentSessionId = sessionId || activeSessionId
+  const runtimeStatus = useRuntimeStore((s) => s.status)
+  const recoveredRuntimeOwnership = useMemo(() => {
+    if (isUser || messageRequestId || !currentSessionId || !runtimeStatus) {
+      return { requestId: undefined as string | undefined, segments: message.segments }
+    }
+
+    const requestIDs = new Set(
+      Object.entries(runtimeStatus.sessions ?? {})
+        .filter(([key, runtime]) => runtimeSessionId(key, runtime) === currentSessionId && runtime.request_id)
+        .map(([, runtime]) => runtime.request_id as string),
+    )
+    const streams = Object.values(runtimeStatus.agent_streams ?? {}).filter((stream) => {
+      if (!stream.request_id) return false
+      if (requestIDs.size > 0) return requestIDs.has(stream.request_id)
+      // A channel request can leave its logical session idle while its agent
+      // stream is still processing. The page-owned agent is the remaining
+      // session boundary in that state (not a global stream lookup).
+      if (sessionAgentId) return stream.agent_id === sessionAgentId
+      return currentSessionId === 'l1'
+    })
+    const matches = new Map<string, Map<string, string | undefined>>()
+    for (const stream of streams) {
+      for (const segment of stream.segments) {
+        if (segment.type !== 'tool_call' || !segment.call_id) continue
+        if (message.segments.some((current) => current.type === 'tool_call' && current.callId === segment.call_id)) {
+          const requestMatches = matches.get(segment.call_id) ?? new Map<string, string | undefined>()
+          requestMatches.set(stream.request_id!, segment.agent_instance_id)
+          matches.set(segment.call_id, requestMatches)
+        }
+      }
+    }
+
+    const matchedRequestIDs = new Set([...matches.values()].flatMap((requestMatches) => [...requestMatches.keys()]))
+    if (matchedRequestIDs.size !== 1) {
+      return { requestId: undefined, segments: message.segments }
+    }
+    const requestId = [...matchedRequestIDs][0]
+    const segments = message.segments.map((segment) => {
+      if (segment.type !== 'tool_call' || segment.agentInstanceId) return segment
+      const requestMatches = matches.get(segment.callId)
+      const agentInstanceIds = new Set(requestMatches ? [...requestMatches.values()].filter(Boolean) as string[] : [])
+      return agentInstanceIds.size === 1
+        ? { ...segment, agentInstanceId: [...agentInstanceIds][0] }
+        : segment
+    })
+    return { requestId, segments }
+  }, [currentSessionId, isUser, message, messageRequestId, runtimeStatus, sessionAgentId])
+  const effectiveRequestId = messageRequestId || recoveredRuntimeOwnership.requestId
+  const renderedMessage = useMemo(
+    () => recoveredRuntimeOwnership.segments === message.segments
+      ? message
+      : { ...message, segments: recoveredRuntimeOwnership.segments },
+    [message, recoveredRuntimeOwnership.segments],
+  )
+  const localRequestStatus = useChatStore((s) => {
+    if (!messageRequestId || !currentSessionId) return undefined
+    const request = s.activeRequests?.[messageRequestId]
+    return request?.sessionId === currentSessionId ? request.status : undefined
+  })
+  const liveVirtualMessage = useChatStore((s) => {
+    if (isUser || !currentSessionId || !message.id.startsWith('msg-')) return false
+    const requestId = message.id.slice('msg-'.length)
+    const locallyOwned = Object.values(s.activeRequests).some((request) =>
+      request.requestId === requestId && request.sessionId === currentSessionId,
+    )
+    if (locallyOwned) return true
+    return Object.entries(runtimeStatus?.sessions ?? {}).some(([key, runtime]) =>
+      runtime.request_id === requestId &&
+      runtimeSessionId(key, runtime) === currentSessionId &&
+      runtime.state !== 'idle' && runtime.state !== 'error',
+    )
+  })
+  const routeAgentId = useChatStore((s) => {
+    const route = currentSessionId ? s.routeSessions[currentSessionId] : undefined
+    return route?.requestId === effectiveRequestId ? route?.agentInstanceId : undefined
+  })
+  const runtimeIsRunning = useRuntimeStore((s) => {
+    if (!effectiveRequestId || !currentSessionId) return undefined
+    // QQ and reloaded pages recover requests from runtime snapshots without
+    // registering a locally submitted request. Match both ownership fields:
+    // the runtime map can hold several concurrent requests for one session.
+    const runtime = Object.entries(s.status?.sessions ?? {}).find(([key, request]) =>
+      runtimeSessionId(key, request) === currentSessionId && request.request_id === effectiveRequestId,
+    )?.[1]
+    if (runtime) return runtime.state !== 'idle' && runtime.state !== 'error'
+
+    // Channel requests bypass the browser request registry, so an idle session
+    // without a request ID is not a terminal event for this request. Both pages
+    // already resolve their session's agent when recovering its stream; retain
+    // that ownership even when a snapshot clears the selected browser route.
+    const agentId = sessionAgentId || routeAgentId
+    if (!agentId) return undefined
+    return Object.values(s.status?.agent_streams ?? {}).find((stream) =>
+      stream.agent_id === agentId && stream.request_id === effectiveRequestId,
+    )?.processing
+  })
+  const messageIsRunning = localRequestStatus !== 'queued' && (
+    (runtimeIsRunning ?? !!localRequestStatus) ||
+    // A live renderer creates request-owned virtual messages with `msg-`
+    // IDs before the runtime snapshot arrives. Keep their last worked group
+    // open during that short hand-off window without opening old history.
+    (!effectiveRequestId && isStreaming && liveVirtualMessage)
+  )
   const compact = isDesignMode
   const [confirmAction, setConfirmAction] = useState<'rewind' | 'delete' | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
@@ -39,7 +171,7 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
   // (e.g. parent re-render that didn't change segments) skip the work, and
   // the resulting `grouped` array reference is stable across renders that
   // do not change the structural shape of the segments.
-  const grouped = useMemo(() => groupSegments(message.segments), [message.segments])
+  const grouped = useMemo(() => groupSegments(displaySegments(renderedMessage)), [renderedMessage])
 
   const handleConfirmAction = async () => {
     if (!confirmAction || actionLoading || !currentSessionId || !message.timestamp) return
@@ -127,8 +259,11 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
                       <WorkedSegment
                         key={item.id}
                         group={item}
+                        isStreaming={messageIsRunning}
+                        stateKey={JSON.stringify([currentSessionId, workedStateKey(message, item.id)])}
                         isUser={isUser}
                         onUserInteraction={onUserInteraction}
+                        requestId={effectiveRequestId}
                       />
                     )
                   } else if (item.type === 'delegation_group') {
@@ -137,9 +272,10 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
                         key={item.id}
                         group={item}
                         isUser={isUser}
-                        segments={message.segments}
+                        segments={renderedMessage.segments}
                         isStreaming={isStreaming}
                         onUserInteraction={onUserInteraction}
+                        requestId={effectiveRequestId}
                       />
                     )
                   } else {
@@ -149,9 +285,10 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
                         segment={item.segment}
                         isUser={isUser}
                         segmentIndex={item.index}
-                        segments={message.segments}
+                        segments={renderedMessage.segments}
                         isStreaming={isStreaming}
                         onUserInteraction={onUserInteraction}
+                        requestId={effectiveRequestId}
                       />
                     )
                   }
@@ -159,52 +296,9 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
                 {/* Render uploaded files/images here */}
                 {message.files && message.files.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2 pt-1.5 border-t border-dashed border-border/10">
-                    {message.files.map((file, idx) => {
-                      const isImage = /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(file.name)
-                      if (isImage) {
-                        return (
-                          <div
-                            key={idx}
-                            className="relative group/img max-w-[240px] rounded-lg overflow-hidden border border-border/40"
-                          >
-                            <img
-                              src={getFileUrl(file.path)}
-                              alt={file.name}
-                              className="max-h-[160px] object-contain cursor-pointer hover:opacity-90 transition-opacity"
-                              onClick={() => window.open(getFileUrl(file.path), '_blank')}
-                            />
-                          </div>
-                        )
-                      }
-                      return (
-                        <a
-                          key={idx}
-                          href={getFileUrl(file.path)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={`flex items-center gap-2 p-2 rounded-lg border text-xs max-w-xs transition-colors ${
-                            isUser
-                              ? 'bg-white/10 border-white/20 hover:bg-white/20 text-primary-foreground'
-                              : 'bg-card/50 border-border hover:bg-card text-foreground'
-                          }`}
-                        >
-                          <svg
-                            className="h-4 w-4 shrink-0 opacity-70"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                            />
-                          </svg>
-                          <span className="truncate flex-1 font-medium">{file.name}</span>
-                        </a>
-                      )
-                    })}
+                    {message.files.map((file, idx) => (
+                      <MessageAttachment key={`${file.path}-${idx}`} file={file} />
+                    ))}
                   </div>
                 )}
 
@@ -270,110 +364,10 @@ export const ChatMessageView = memo(
     prev.message === next.message &&
     prev.agentName === next.agentName &&
     prev.isStreaming === next.isStreaming &&
-    prev.onUserInteraction === next.onUserInteraction,
+    prev.onUserInteraction === next.onUserInteraction &&
+    prev.sessionId === next.sessionId &&
+    prev.sessionAgentId === next.sessionAgentId,
 )
-
-export interface GroupedWorkedSegment {
-  segment: ChatMessage['segments'][number]
-  originalIndex: number
-}
-
-export interface GroupedWorked {
-  type: 'worked'
-  id: string
-  segments: GroupedWorkedSegment[]
-  hasToolCalls: boolean
-  isLast: boolean
-}
-
-export interface GroupedDelegation {
-  type: 'delegation_group'
-  id: string
-  segments: GroupedWorkedSegment[]
-}
-
-interface GroupedOther {
-  type: 'other'
-  segment: ChatMessage['segments'][number]
-  index: number
-}
-
-type GroupedItem = GroupedWorked | GroupedDelegation | GroupedOther
-
-function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
-  const grouped: GroupedItem[] = []
-  let currentGroup: GroupedWorkedSegment[] = []
-  let currentDelegationGroup: GroupedWorkedSegment[] = []
-
-  const flushWorked = () => {
-    if (currentGroup.length > 0) {
-      const hasToolCalls = currentGroup.some((s) => s.segment.type === 'tool_call')
-      const firstOriginalIndex = currentGroup[0].originalIndex
-      grouped.push({
-        type: 'worked',
-        id: `worked-${firstOriginalIndex}-${currentGroup.length}`,
-        segments: [...currentGroup],
-        hasToolCalls,
-        isLast: false,
-      })
-      currentGroup = []
-    }
-  }
-
-  const flushDelegation = () => {
-    if (currentDelegationGroup.length > 0) {
-      const firstOriginalIndex = currentDelegationGroup[0].originalIndex
-      grouped.push({
-        type: 'delegation_group',
-        id: `delegation-${firstOriginalIndex}-${currentDelegationGroup.length}`,
-        segments: [...currentDelegationGroup],
-      })
-      currentDelegationGroup = []
-    }
-  }
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]
-
-    if (seg.type === 'thinking' && !seg.text.trim()) {
-      if (i !== segments.length - 1) {
-        continue
-      }
-    }
-
-
-    const isDelegation =
-      seg.type === 'delegation' || 
-      (seg.type === 'tool_call' && (seg.name === 'delegate' || seg.name.startsWith('delegate_') || seg.name === 'request_team_help'))
-
-    if (isDelegation) {
-      flushWorked()
-      currentDelegationGroup.push({ segment: seg, originalIndex: i })
-    } else if (seg.type === 'thinking' || seg.type === 'tool_call' || seg.type === 'compact') {
-      flushDelegation()
-      currentGroup.push({ segment: seg, originalIndex: i })
-    } else {
-      flushWorked()
-      flushDelegation()
-      grouped.push({
-        type: 'other',
-        segment: seg,
-        index: i,
-      })
-    }
-  }
-  flushWorked()
-  flushDelegation()
-
-  for (let i = grouped.length - 1; i >= 0; i--) {
-    if (grouped[i].type === 'worked') {
-      ;(grouped[i] as GroupedWorked).isLast = i === grouped.length - 1
-      break
-    }
-  }
-
-  return grouped
-}
 
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const { t } = useTranslation()
@@ -421,8 +415,21 @@ function copyTextWithDom(text: string) {
   }
 }
 
+function displaySegments(message: ChatMessage): ChatMessage['segments'] {
+  if (message.role !== 'user') return message.segments
+  return message.segments.map((segment) => {
+    if (segment.type !== 'content') return segment
+    // Channel prompts append these annotations for the model, not the transcript.
+    const text = segment.text
+      .replace(/(?:^|\r?\n)\[User uploaded images, processed by visual recognition\]\s*$/g, '')
+      .replace(/(?:^|\r?\n)\[(?:User uploaded files, saved locally:|User uploaded attachments:|Uploaded files:|User has uploaded a file, saved locally at:)[\s\S]*?\]\s*$/g, '')
+      .replace(/(?:^|\r?\n)\[System: The user included [\s\S]*?\]\s*$/g, '')
+    return text === segment.text ? segment : { ...segment, text: text.trimEnd() }
+  })
+}
+
 function extractFullContent(msg: ChatMessage): string {
-  return msg.segments
+  return displaySegments(msg)
     .filter((s: any) => s.type === 'content')
     .map((s: any) => s.text)
     .join('')

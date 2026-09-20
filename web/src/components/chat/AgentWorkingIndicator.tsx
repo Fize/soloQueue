@@ -33,6 +33,8 @@ export interface AgentWorkingIndicatorProps {
   taskLevel?: string | undefined
   /** True while the team is mid-delegation — shows a different label. */
   delegating?: boolean
+  /** The composer owns route badges when this is true. */
+  hideRouteInfo?: boolean
   /** Layout density — design mode uses tighter spacing. */
   compact?: boolean
 }
@@ -61,6 +63,7 @@ function AgentWorkingIndicatorInner({
   modelName,
   taskLevel,
   compact = false,
+  hideRouteInfo = false,
 }: AgentWorkingIndicatorProps) {
   // `taskLevel` and `modelName` are intentionally string-or-undefined:
   //   - undefined  → not processing, no chip
@@ -84,7 +87,7 @@ function AgentWorkingIndicatorInner({
         <span className="animate-led-ping-2 absolute h-2 w-2 rounded-full bg-signal/20" />
       </span>
 
-      {(taskLevel !== undefined || modelName !== undefined) && (
+      {!hideRouteInfo && (taskLevel !== undefined || modelName !== undefined) && (
         <div className="flex items-center gap-1.5 shrink-0">
           {taskTypeIsPending ? (
             <div className="h-[22px] w-[72px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />

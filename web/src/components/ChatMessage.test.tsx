@@ -19,12 +19,19 @@ vi.mock('@/stores/chatStore', () => ({
   useChatStore: (
     selector: (state: {
       activeSessionId: string
+      routeSessions: Record<string, { requestId: string } | undefined>
+      activeRequests?: Record<string, { sessionId: string }>
       rewindSession: typeof mocks.rewindSession
       deleteSessionMessages: typeof mocks.deleteSessionMessages
     }) => unknown,
   ) =>
     selector({
       activeSessionId: 'session-1',
+      routeSessions: { 'session-1': { requestId: 'request-active' } },
+      activeRequests: {
+        'req-background': { sessionId: 'session-1' },
+        '860eb610-a88a-433a-937d-7620d7e84642': { sessionId: 'session-1' },
+      },
       rewindSession: mocks.rewindSession,
       deleteSessionMessages: mocks.deleteSessionMessages,
     }),
@@ -39,7 +46,9 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('./chat/SegmentView', () => ({
-  SegmentView: ({ segment }: { segment: { text?: string } }) => <span>{segment.text}</span>,
+  SegmentView: ({ segment, requestId }: { segment: { text?: string }, requestId?: string }) => (
+    <span data-testid={`segment-${segment.text}`} data-request-id={requestId ?? ''}>{segment.text}</span>
+  ),
   LoadingIndicator: () => <span>loading</span>,
 }))
 
@@ -135,6 +144,89 @@ describe('ChatMessageView copy', () => {
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('common.failedToCopy'))
     expect(mocks.toastSuccess).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatMessageView request-owned streams', () => {
+  it('passes the active request ID only to its virtual assistant message', () => {
+    const current: ChatMessage = {
+      ...message('assistant', 'current delegation'),
+      id: 'msg-request-active',
+    }
+    const { rerender } = render(<ChatMessageView message={current} sessionId="session-1" />)
+    expect(screen.getByTestId('segment-current delegation')).toHaveAttribute('data-request-id', 'request-active')
+
+    rerender(<ChatMessageView message={message('assistant', 'historical delegation')} sessionId="session-1" />)
+    expect(screen.getByTestId('segment-historical delegation')).toHaveAttribute('data-request-id', '')
+  })
+
+  it('passes the identity embedded in a concurrent recovered message', () => {
+    render(
+      <ChatMessageView
+        message={{
+          ...message('assistant', 'background delegation'),
+          id: 'msg-req-background',
+        }}
+        sessionId="session-1"
+      />,
+    )
+
+    expect(screen.getByTestId('segment-background delegation')).toHaveAttribute(
+      'data-request-id',
+      'req-background',
+    )
+  })
+
+  it('passes a UUID request identity embedded in a recovered message', () => {
+    render(
+      <ChatMessageView
+        message={{
+          ...message('assistant', 'uuid delegation'),
+          id: 'msg-860eb610-a88a-433a-937d-7620d7e84642',
+        }}
+        sessionId="session-1"
+      />,
+    )
+
+    expect(screen.getByTestId('segment-uuid delegation')).toHaveAttribute(
+      'data-request-id',
+      '860eb610-a88a-433a-937d-7620d7e84642',
+    )
+  })
+
+  it('uses explicit request metadata for arbitrary channel request IDs', () => {
+    render(
+      <ChatMessageView
+        message={{
+          ...message('assistant', 'channel delegation'),
+          id: 'msg-channel-run-id',
+          requestId: 'channel-run-id',
+        } as ChatMessage & { requestId: string }}
+        sessionId="session-1"
+      />,
+    )
+
+    expect(screen.getByTestId('segment-channel delegation')).toHaveAttribute(
+      'data-request-id',
+      'channel-run-id',
+    )
+  })
+
+  it('does not infer a request from a historical msg-prefixed assistant ID', () => {
+    render(
+      <ChatMessageView
+        message={{
+          ...message('assistant', 'historical prefixed delegation'),
+          id: 'msg-old-history',
+        }}
+        sessionId="session-1"
+      />,
+    )
+
+    expect(screen.getByTestId('segment-historical prefixed delegation')).toHaveAttribute(
+      'data-request-id',
+      '',
+    )
   })
 })
 

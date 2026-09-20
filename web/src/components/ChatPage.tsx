@@ -1,3 +1,4 @@
+import { useWorkedStateKeys } from "@/hooks/useWorkedStateKeys";
 import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
@@ -18,12 +19,12 @@ import {
   FileText,
 } from "lucide-react";
 import { useAgentStore } from "@/stores/agentStore";
-import { useRuntimeStore } from "@/stores/runtimeStore";
+import { runtimeSessionId, useRuntimeStore } from "@/stores/runtimeStore";
 import { useConnectionStore } from "@/stores/connectionStore";
 
 import { cn, pathsMatch } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
-import type { AgentInfo, Project, AgentResponse, SkillInfo } from "@/types";
+import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment } from "@/types";
 import { useResizablePanes } from "@/hooks/useResizablePanes";
 import { SessionInspectorPanel } from "./chat/SessionInspectorPanel";
 import type { PreviewCommentSnapshot } from "@/types/annotation";
@@ -32,7 +33,11 @@ import {
 } from "@/lib/api";
 import { ChatDesignPanel } from "@/components/ChatDesignPanel";
 import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
-import { recoverInFlightMessages } from "@/components/chat/recoverInFlightMessages";
+import {
+  findRequestStream,
+  recoverInFlightMessageStreams,
+} from "@/components/chat/recoverInFlightMessages";
+import type { RequestStreamRecovery } from "@/components/chat/recoverInFlightMessages";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
 
@@ -53,6 +58,7 @@ export function ChatPage() {
   const systemCommandSessions = useChatStore(useShallow((s) => s.systemCommandSessions))
   const delegatingSessions = useChatStore(useShallow((s) => s.delegatingSessions))
   const routeSessions = useChatStore(useShallow((s) => s.routeSessions))
+  const activeRequests = useChatStore(useShallow((s) => s.activeRequests))
   const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false
   const isSystemCommandRunning = activeSessionId ? (systemCommandSessions[activeSessionId] ?? false) : false
   const sessions = useChatStore(useShallow((s) => s.sessions))
@@ -68,10 +74,11 @@ export function ChatPage() {
 
   const { send, cancel } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { contentRef, followOutput, resetFollow, detachFollow, syncFollowState } = useStickToBottom({ scrollRef });
+  const { contentRef, followOutput, resetFollow, detachFollow } = useStickToBottom({ scrollRef });
   const loadingMore = useRef(false);
   const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   const connectionStatus = useRuntimeStore((s) => s.connectionStatus);
+  const runtimeStatus = useRuntimeStore((s) => s.status);
   const sessionRuntime = useRuntimeStore((s) =>
     activeSessionId ? s.status?.sessions?.[activeSessionId] : undefined
   );
@@ -319,7 +326,7 @@ export function ChatPage() {
         provider_id: "",
         group: "",
         is_leader: true,
-        task_level: "",
+	        task_type: "",
         error_count: 0,
         last_error: "",
         pending_delegations: 0,
@@ -358,7 +365,7 @@ export function ChatPage() {
         provider_id: "",
         group: activeGroup,
         is_leader: tmpl.is_leader,
-        task_level: "",
+	        task_type: "",
         error_count: 0,
         last_error: "",
         pending_delegations: 0,
@@ -385,6 +392,62 @@ export function ChatPage() {
     : undefined;
   const stream = useAgentStream(activeAgentInstanceId, liveRequestId);
 
+  // Runtime status can contain one request entry per concurrent L1 turn. The
+  // route map intentionally keeps only the selected route for input metadata,
+  // so recovery must derive its request set from all active runtime entries.
+  const recoveryRequestIDs = useMemo(() => {
+    if (!activeSessionId) return []
+    const ids = new Set<string>()
+
+    for (const request of Object.values(activeRequests ?? {})) {
+      if (request.sessionId === activeSessionId) ids.add(request.requestId)
+    }
+
+    for (const [key, runtime] of Object.entries(runtimeStatus?.sessions ?? {})) {
+      const runtimeSessionID = runtimeSessionId(key, runtime)
+      if (
+        runtimeSessionID === activeSessionId &&
+        runtime.request_id &&
+        ((runtime.state !== "idle" && runtime.state !== "error") || runtime.terminal_code)
+      ) {
+        ids.add(runtime.request_id)
+      }
+    }
+
+    // Keep the persisted route as a fallback during the short interval before
+    // the first runtime snapshot arrives after a renderer reload.
+    if (
+      liveRequestId &&
+      (activeAgentState === "processing" || streaming || delegating)
+    ) {
+      ids.add(liveRequestId)
+    }
+
+    // Streams are request-keyed too. Include a processing stream even if the
+    // session runtime entry has not reached the browser yet.
+    for (const streamState of Object.values(runtimeStatus?.agent_streams ?? {})) {
+      if (
+        (streamState.processing || !!streamState.error) &&
+        streamState.request_id &&
+        !!activeAgentInstanceId &&
+        streamState.agent_id === activeAgentInstanceId
+      ) {
+        ids.add(streamState.request_id)
+      }
+    }
+
+    return [...ids]
+  }, [
+    activeAgentInstanceId,
+    activeAgentState,
+    activeRequests,
+    activeSessionId,
+    delegating,
+    liveRequestId,
+    runtimeStatus,
+    streaming,
+  ])
+
   const prevAgentState = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (activeSessionId && activeAgentState) {
@@ -399,6 +462,18 @@ export function ChatPage() {
     prevAgentState.current = activeAgentState;
   }, [activeSessionId, activeAgentState, loadHistory]);
 
+  const hydratedTerminalRequests = useRef(new Set<string>());
+  useEffect(() => {
+    if (!activeSessionId) return;
+    for (const [key, runtime] of Object.entries(runtimeStatus?.sessions ?? {})) {
+      if (runtimeSessionId(key, runtime) !== activeSessionId || !runtime.request_id || !runtime.terminal_code) continue;
+      const terminalKey = `${activeSessionId}:${runtime.request_id}:${runtime.terminal_code}`;
+      if (hydratedTerminalRequests.current.has(terminalKey)) continue;
+      hydratedTerminalRequests.current.add(terminalKey);
+      loadHistory(activeSessionId);
+    }
+  }, [activeSessionId, loadHistory, runtimeStatus]);
+
   const streamChatSegments = useMemo(() => {
     if (!stream?.segments) return [];
     return stream.segments.map((seg) => {
@@ -408,6 +483,7 @@ export function ChatPage() {
           callId: seg.call_id,
           name: seg.name,
           args: seg.args,
+          agentInstanceId: seg.agent_instance_id || undefined,
           result: seg.result || undefined,
           error: seg.error || undefined,
           durationMs: seg.duration_ms || undefined,
@@ -418,26 +494,89 @@ export function ChatPage() {
     });
   }, [stream]);
 
-  const finalMessages = useMemo(() => {
-    return recoverInFlightMessages(
-      currentMessages,
-      streamChatSegments,
-      activeAgentState === "processing" &&
-        (!liveRequestId || !wsManager.hasChatHandler(liveRequestId)),
-      liveRequestId,
-    );
+  const recoveryStreams = useMemo<RequestStreamRecovery[]>(() => {
+    const runtimeStreams = Object.values(runtimeStatus?.agent_streams ?? {})
+    return recoveryRequestIDs.flatMap((requestId) => {
+      const runtimeRequest = Object.entries(runtimeStatus?.sessions ?? {})
+        .find(([key, runtime]) => runtime.request_id === requestId && runtimeSessionId(key, runtime) === activeSessionId)?.[1]
+      const runtimeStream = findRequestStream(runtimeStreams, activeAgentInstanceId, requestId)
+      if (runtimeStream?.segments.length) {
+        return [{
+          requestId,
+          startedAt: runtimeRequest?.started_at,
+          segments: runtimeStream.segments.map((seg): ChatSegment => {
+            if (seg.type === "tool_call") {
+              return {
+                type: "tool_call" as const,
+                callId: seg.call_id,
+                name: seg.name,
+                args: seg.args,
+                agentInstanceId: seg.agent_instance_id || undefined,
+                result: seg.result || undefined,
+                error: seg.error || undefined,
+                durationMs: seg.duration_ms || undefined,
+                done: seg.done,
+              }
+            }
+            return seg
+          }),
+        }]
+      }
+      if (runtimeStream?.error || runtimeRequest?.terminal_code) {
+        const message = runtimeStream?.error || runtimeRequest?.error ||
+          (runtimeRequest?.terminal_code === "completed" ? "Response completed; loading history…" : `Request ${runtimeRequest?.terminal_code || "ended"}.`)
+        const terminalSegment = runtimeStream?.error || runtimeRequest?.error
+          ? { type: "error" as const, text: message }
+          : { type: "content" as const, text: message }
+        return [{
+          requestId,
+          startedAt: runtimeRequest?.started_at,
+          terminal: true,
+          segments: [terminalSegment],
+        }]
+      }
+      if (requestId === liveRequestId && stream?.segments?.length) {
+        return [{ requestId, segments: streamChatSegments, startedAt: runtimeRequest?.started_at }]
+      }
+      return []
+    })
   }, [
-    currentMessages,
-    activeAgentState,
+    activeAgentInstanceId,
     liveRequestId,
+    recoveryRequestIDs,
+    runtimeStatus,
+    stream,
     streamChatSegments,
-  ]);
+  ])
 
-  const requestActive = (streaming || delegating) && !isSystemCommandRunning;
+  const recoveredMessages = useMemo(() => {
+    return recoverInFlightMessageStreams(
+      currentMessages,
+      recoveryStreams,
+      (requestId) => !wsManager.hasChatHandler(requestId),
+    )
+  }, [currentMessages, recoveryStreams]);
+
+  const finalMessages = useWorkedStateKeys(activeSessionId, recoveredMessages);
+
   const activeRoute = activeSessionId ? routeSessions[activeSessionId] : undefined;
-  const routeResolved = !!activeRoute?.taskLevel && !!activeRoute?.modelId;
-  const inputModelName = requestActive ? (routeResolved ? activeRoute.modelId : "") : undefined;
-  const inputTaskLevel = requestActive ? (routeResolved ? activeRoute.taskLevel : "") : undefined;
+  const selectedRequestId = activeRoute?.requestId || Object.values(activeRequests ?? {}).find((request) => request.sessionId === activeSessionId)?.requestId;
+  const runtimeRequests = activeSessionId
+    ? Object.entries(runtimeStatus?.sessions ?? {})
+      .filter(([key, runtime]) => runtimeSessionId(key, runtime) === activeSessionId)
+      .map(([, runtime]) => runtime)
+    : [];
+  const requestRuntime = selectedRequestId
+    ? runtimeRequests.find((runtime) => runtime.request_id === selectedRequestId)
+    : undefined;
+  const effectiveRequestRuntime = requestRuntime || runtimeRequests.find((runtime) => runtime.state !== "idle" && runtime.state !== "error") || runtimeRequests[0];
+  const runtimeProcessing = runtimeRequests.some((runtime) => runtime.state !== "idle" && runtime.state !== "error");
+  const runtimeDelegating = runtimeRequests.some((runtime) => runtime.delegating);
+  const requestActive = (streaming || delegating || runtimeProcessing || runtimeDelegating) && !isSystemCommandRunning;
+  const inputModelName = requestActive ? (effectiveRequestRuntime?.model_id || activeRoute?.modelId || "") : undefined;
+  const inputTaskLevel = requestActive ? (effectiveRequestRuntime?.task_type || activeRoute?.taskLevel || "") : undefined;
+  const requestContextUsed = effectiveRequestRuntime?.ctxwin_used ?? sessionRuntime?.ctxwin_used ?? activeSession?.ctxwin_used ?? 0;
+  const requestContextLimit = effectiveRequestRuntime?.ctxwin_limit ?? sessionRuntime?.ctxwin_limit ?? activeSession?.ctxwin_limit ?? 0;
 
   const handleSend = async (
     text: string,
@@ -508,7 +647,6 @@ export function ChatPage() {
     let cooldownTimer: ReturnType<typeof setTimeout> | null = null;
     const handleScroll = () => {
       const { scrollTop, scrollHeight } = el;
-      syncFollowState();
 
       const hasMore = activeSessionId ? historyHasMore[activeSessionId] : false;
       const isLoading = activeSessionId
@@ -546,7 +684,6 @@ export function ChatPage() {
     historyHasMore,
     historyLoading,
     loadMoreHistory,
-    syncFollowState,
   ]);
 
   useLayoutEffect(() => {
@@ -639,7 +776,7 @@ export function ChatPage() {
       data-design-layout={designModeActive ? workspaceCapabilities.designLayout : undefined}
     >
       {/* Pane 3: Chat conversation bubble stream */}
-      <div className="flex flex-1 flex-col overflow-hidden h-full bg-background relative">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden h-full bg-background relative">
         {/* Chat header — split into chat section + panel section when inspector is open */}
         <header
           className={cn(
@@ -788,12 +925,12 @@ export function ChatPage() {
         >
           {/* Conversation stream */}
           <div className={cn(
-            "flex flex-col min-w-0 h-full overflow-hidden bg-background",
+            "chat-layout h-full bg-background",
             isResizing ? "transition-none" : "transition-all duration-300",
             designModeActive ? "flex-1 min-w-[320px]" : "flex-1 min-w-0"
           )}>
             {finalMessages.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto bg-background">
+              <div className="row-span-2 min-h-0 flex flex-col items-center justify-center p-6 overflow-y-auto bg-background">
                   <div
                     className={`w-full flex flex-col items-center space-y-8 ${designModeActive ? 'px-2' : 'px-4'} select-none`}
                     style={{ maxWidth: messageMaxWidth }}
@@ -825,10 +962,10 @@ export function ChatPage() {
                       {...sharedInputProps}
                       activeSessionId={activeSessionId || undefined}
                       showL2Selectors={!isL1Session}
-                      ctxwinUsed={sessionRuntime?.ctxwin_used ?? activeSession?.ctxwin_used ?? 0}
-                      ctxwinLimit={sessionRuntime?.ctxwin_limit ?? activeSession?.ctxwin_limit ?? 0}
+                      ctxwinUsed={requestContextUsed}
+                      ctxwinLimit={requestContextLimit}
                       atRootDir={activeSession?.project_path || ""}
-                      processing={streaming || delegating}
+                      processing={requestActive}
                     />
                   </div>
                 </div>
@@ -837,10 +974,8 @@ export function ChatPage() {
               <>
                 <div
                   ref={scrollRef}
-                  className="flex-1 overflow-y-auto p-6"
-                  onScroll={syncFollowState}
-                  onWheel={detachFollow}
-                  onTouchStart={detachFollow}
+                  data-chat-viewport
+                  className="chat-output p-6"
                 >
                   <div
                     ref={contentRef}
@@ -864,6 +999,8 @@ export function ChatPage() {
                         isStreaming={streaming}
                         onUserInteraction={handleUserInteraction}
                         modelName={inputModelName}
+                        sessionId={activeSessionId ?? undefined}
+                        sessionAgentId={activeAgentInstanceId}
                       />
                     ))}
 
@@ -877,7 +1014,7 @@ export function ChatPage() {
                     )}
 
                     {/* Bottom-of-stream working indicator — shows a soft
-                        breathing pill with model + level context while the
+                        breathing light while the
                         agent is actively processing. Mounted at the very
                         end of the stream so it tracks the latest message
                         and stays anchored when auto-scrolling. */}
@@ -886,7 +1023,7 @@ export function ChatPage() {
                         agentName={agentDisplayName}
                         modelName={inputModelName}
                         taskLevel={inputTaskLevel}
-                        delegating={delegating}
+                        delegating={delegating || runtimeDelegating}
                         compact={designModeActive}
                       />
                     )}
@@ -896,16 +1033,18 @@ export function ChatPage() {
                 </div>
 
 
-                <ChatInput
-                  {...sharedInputProps}
-                  activeSessionId={activeSessionId || undefined}
-                  showL2Selectors={!isL1Session}
-                  readOnlySelectors={true}
-                  ctxwinUsed={sessionRuntime?.ctxwin_used ?? activeSession?.ctxwin_used ?? 0}
-                  ctxwinLimit={sessionRuntime?.ctxwin_limit ?? activeSession?.ctxwin_limit ?? 0}
-                  atRootDir={activeSession?.project_path || ""}
-                  processing={streaming || delegating}
-                />
+                <div className="chat-composer" data-chat-composer>
+                  <ChatInput
+                    {...sharedInputProps}
+                    activeSessionId={activeSessionId || undefined}
+                    showL2Selectors={!isL1Session}
+                    readOnlySelectors={true}
+                    ctxwinUsed={requestContextUsed}
+                    ctxwinLimit={requestContextLimit}
+                    atRootDir={activeSession?.project_path || ""}
+                    processing={requestActive}
+                  />
+                </div>
               </>
             )}
           </div>

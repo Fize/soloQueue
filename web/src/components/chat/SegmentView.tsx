@@ -49,6 +49,7 @@ function SegmentViewInner({
   segments,
   isStreaming,
   onUserInteraction,
+  requestId,
 }: {
   segment: ChatMessage['segments'][number]
   isUser?: boolean
@@ -57,6 +58,7 @@ function SegmentViewInner({
   /** True if the parent message is in an actively-streaming session. */
   isStreaming?: boolean
   onUserInteraction?: () => void
+  requestId?: string
 }) {
   const isLastSegment =
     segmentIndex != null && segments != null && segmentIndex === segments.length - 1
@@ -111,6 +113,7 @@ function SegmentViewInner({
             error={segment.error}
             durationMs={segment.durationMs}
             agentInstanceId={segment.agentInstanceId}
+            requestId={requestId}
           />
         )
       }
@@ -131,6 +134,8 @@ function SegmentViewInner({
             result={segment.result}
             error={segment.error}
             durationMs={segment.durationMs}
+            agentInstanceId={segment.agentInstanceId}
+            requestId={requestId}
           />
         )
       }
@@ -142,7 +147,7 @@ function SegmentViewInner({
         />
       )
     case 'delegation':
-      return <SubagentCard segment={segment} />
+      return <SubagentCard segment={segment} requestId={requestId} />
     case 'error':
       return (
         <div
@@ -172,5 +177,6 @@ export const SegmentView = memo(
     prev.segmentIndex === next.segmentIndex &&
     prev.isUser === next.isUser &&
     prev.isStreaming === next.isStreaming &&
-    prev.onUserInteraction === next.onUserInteraction,
+    prev.onUserInteraction === next.onUserInteraction &&
+    prev.requestId === next.requestId,
 )

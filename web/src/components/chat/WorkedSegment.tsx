@@ -1,5 +1,6 @@
 import { useTranslation } from '@/lib/i18n'
-import { useState, useEffect, useRef, memo } from 'react'
+import { useState, useRef, memo } from 'react'
+import { create } from 'zustand'
 import {
   ChevronRight,
   ChevronDown,
@@ -10,7 +11,6 @@ import {
   Bot,
   X,
 } from 'lucide-react'
-import { useChatStore } from '@/stores/chatStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useAgentStream } from '@/hooks/useAgentStream'
@@ -21,39 +21,31 @@ import type { ChatMessage } from '@/types'
 import type { GroupedWorked } from '../ChatMessage'
 import { ToolCallSegment } from './ToolCallSegment'
 
+// Page-lifetime preferences survive chat navigation, but deliberately never go to storage.
+const useWorkedOverrides = create<Record<string, boolean>>(() => ({}))
+
 function WorkedSegmentInner({
   group,
   isUser,
+  isStreaming = false,
+  stateKey,
   onUserInteraction,
+  requestId: _requestId,
 }: {
   group: GroupedWorked
   isUser?: boolean
+  isStreaming?: boolean
+  stateKey: string
   onUserInteraction?: () => void
+  requestId?: string
 }) {
-  const streamingSessions = useChatStore((s) => s.streamingSessions)
-  const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const compact = isDesignMode
 
-  const isDone = !group.isLast || (group.isLast && !streaming)
+  const isDone = !group.isLast || !isStreaming
 
-  const [isOpen, setIsOpen] = useState(!isDone)
-  const hasManuallyToggled = useRef(false)
-
-  // Sync isOpen with isDone only if not manually toggled
-  useEffect(() => {
-    if (!hasManuallyToggled.current) {
-      setIsOpen(!isDone)
-    }
-  }, [isDone])
-
-  // Reset manual toggle when active session changes
-  useEffect(() => {
-    hasManuallyToggled.current = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsOpen(!isDone)
-  }, [activeSessionId, isDone])
+  const manualOpen = useWorkedOverrides((state) => state[stateKey])
+  const isOpen = manualOpen ?? !isDone
 
   const label = 'worked'
 
@@ -71,8 +63,7 @@ function WorkedSegmentInner({
       <summary
         onClick={(e) => {
           e.preventDefault()
-          hasManuallyToggled.current = true
-          setIsOpen(!isOpen)
+          useWorkedOverrides.setState({ [stateKey]: !isOpen })
           onUserInteraction?.()
         }}
         className={`flex items-center gap-1.5 text-xs cursor-pointer transition-colors ${compact ? 'py-0.5' : 'py-1'} text-muted-foreground hover:text-foreground/70`}
@@ -140,13 +131,18 @@ export const WorkedSegment = memo(
   (prev, next) =>
     prev.group === next.group &&
     prev.isUser === next.isUser &&
-    prev.onUserInteraction === next.onUserInteraction,
+    prev.isStreaming === next.isStreaming &&
+    prev.stateKey === next.stateKey &&
+    prev.onUserInteraction === next.onUserInteraction &&
+    prev.requestId === next.requestId,
 )
 
 export function SubagentCard({
   segment,
+  requestId,
 }: {
   segment: Extract<ChatMessage['segments'][number], { type: 'delegation' }>
+  requestId?: string
 }) {
   const { t } = useTranslation()
   const [modalOpen, setModalOpen] = useState(false)
@@ -164,7 +160,7 @@ export function SubagentCard({
     (a) => a.name.toLowerCase().replace(/[\s_]/g, '') === namePart
   )
   const instanceId = matchedAgent?.instance_id || null
-  const agentStream = useAgentStream(instanceId)
+  const agentStream = useAgentStream(instanceId, requestId)
 
   // Clickable whenever the agent is running (to watch live stream) or has
   // finished output (to review results).
