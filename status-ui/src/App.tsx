@@ -43,6 +43,7 @@ interface Segment {
 
 interface AgentStreamState {
   agent_id: string
+  request_id?: string
   processing: boolean
   segments: Segment[]
   iteration: number
@@ -86,6 +87,16 @@ interface RuntimeStatus {
   idle_agents: number
   total_errors: number
   agent_streams: Record<string, AgentStreamState>
+}
+
+/** Select the current stream for an agent from instance/request-keyed state. */
+export function selectAgentStream(
+  streams: Record<string, AgentStreamState> | undefined,
+  agentId: string | null,
+): AgentStreamState | undefined {
+  if (!streams || !agentId) return undefined
+  const matches = Object.values(streams).filter((stream) => stream.agent_id === agentId)
+  return matches.find((stream) => stream.processing) || matches[0]
 }
 
 // ════════════════════════════════════════════════════════════
@@ -205,7 +216,7 @@ export default function App() {
   const idleAgents = runtime?.idle_agents ?? 0
 
   const selectedAgent = agents.find(a => a.instance_id === selectedAgentId)
-  const selectedStream = selectedAgentId ? runtime?.agent_streams?.[selectedAgentId] : undefined
+  const selectedStream = selectAgentStream(runtime?.agent_streams, selectedAgentId)
 
   return (
     <div

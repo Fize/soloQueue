@@ -40,6 +40,19 @@ type serverBlockingCompactor struct {
 	started chan struct{}
 }
 
+func TestLogicalRuntimeSessionIDUsesSnapshotKeys(t *testing.T) {
+	for target, want := range map[string]string{
+		"l1-session":   "l1",
+		"l1":           "l1",
+		"session-1":    "l2:session-1",
+		"l2:session-1": "l2:session-1",
+	} {
+		if got := logicalRuntimeSessionID(target); got != want {
+			t.Fatalf("logicalRuntimeSessionID(%q) = %q, want %q", target, got, want)
+		}
+	}
+}
+
 func (c *serverBlockingCompactor) Compact(ctx context.Context, _ []ctxwin.Message) (string, error) {
 	close(c.started)
 	<-ctx.Done()
@@ -322,17 +335,9 @@ func TestWatchdogTerminalStateIsPublishedBeforeRequestFinalization(t *testing.T)
 	go hub.Run()
 	hub.register <- client
 	<-client.send // initial state
-	if _, err := hub.requests.Reserve("l1", "req-terminal", "client"); err != nil {
-		t.Fatal(err)
-	}
 	reqCtx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-terminal"})
 	stream, err := sess.AskStream(reqCtx, "stall")
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := hub.requests.BindCanceller("req-terminal", func() error {
-		return sess.CancelRun("req-terminal", "test")
-	}); err != nil {
 		t.Fatal(err)
 	}
 	go hub.forwardAgentEvents(client, "req-terminal", func() {}, stream, "l1", "stall")
@@ -907,7 +912,7 @@ func TestL1AllowsConcurrentRequests(t *testing.T) {
 	}
 }
 
-func TestForwardAgentEventsOwnsReservationUntilStreamCloses(t *testing.T) {
+func TestForwardAgentEventsDoesNotOwnRequestFinalization(t *testing.T) {
 	h := NewHub(nil)
 	const (
 		sessionID = "l1"
@@ -932,12 +937,16 @@ func TestForwardAgentEventsOwnsReservationUntilStreamCloses(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for {
 		if _, active := h.requests.GetBySession(sessionID); !active {
-			break
+			t.Fatal("forwarder finalized a request owned by the session lifecycle")
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("reservation was not finalized after stream completion")
+			break
 		}
 		time.Sleep(time.Millisecond)
+	}
+	h.finalizeRequest(sessionID, requestID)
+	if _, active := h.requests.GetBySession(sessionID); active {
+		t.Fatal("central lifecycle finalization did not remove the request")
 	}
 }
 

@@ -159,6 +159,36 @@ type ChannelMetadataStore interface {
 	GetChannelSenderData(targetID, channelType string) (string, error)
 }
 
+// RequestLifecycleHooks lets the runtime observe every request entering a
+// Session without coupling the session package to the server. Adapters only
+// annotate context metadata; the runtime owns reservation and completion.
+type RequestLifecycleHooks struct {
+	OnStart  func(context.Context, string, string) error
+	OnBind   func(string, string, func() error) error
+	OnRoute  func(string, string, RequestRoute)
+	OnCancel func(string, string, string) error
+	OnFinish func(string, string, string, string)
+}
+
+var requestLifecycleDefaults struct {
+	sync.RWMutex
+	hooks RequestLifecycleHooks
+}
+
+// SetDefaultRequestLifecycleHooks applies request ownership to sessions
+// created later, including L2 sessions created by channel adapters.
+func SetDefaultRequestLifecycleHooks(hooks RequestLifecycleHooks) {
+	requestLifecycleDefaults.Lock()
+	requestLifecycleDefaults.hooks = hooks
+	requestLifecycleDefaults.Unlock()
+}
+
+func defaultRequestLifecycleHooks() RequestLifecycleHooks {
+	requestLifecycleDefaults.RLock()
+	defer requestLifecycleDefaults.RUnlock()
+	return requestLifecycleDefaults.hooks
+}
+
 // ─── Session ──────────────────────────────────────────────────────────────
 
 // Session represents a conversation session.
@@ -177,6 +207,7 @@ type Session struct {
 	dispatchManager     *dispatch.Manager
 	dispatchInitErr     error
 	runWatch            *runwatch.Manager
+	requestHooks        RequestLifecycleHooks
 	logger              *logger.Logger       // Session-level logger
 	resourceCloser      func() error         // closes the logger handler owned by this Session
 	metaStore           ChannelMetadataStore // Optional: for persisting channel sender metadata
@@ -365,6 +396,7 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 		pending:          &PendingQueue{},
 		activeCancels:    make(map[string]activeTurnCancel),
 		requestTimeout:   defaultRequestTimeout,
+		requestHooks:     defaultRequestLifecycleHooks(),
 	}
 	if a != nil {
 		s.askStreamHistory = func(ctx context.Context, cw *ctxwin.ContextWindow, prompt string) (<-chan agent.AgentEvent, error) {
@@ -389,6 +421,11 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 			if a != nil && !a.HasTool("inspect_delegation") {
 				if err := a.RegisterTool(toolset.NewInspectDelegationTool()); err != nil {
 					l.Warn(logger.CatTool, "session: register inspect_delegation failed", "err", err.Error())
+				}
+			}
+			if a != nil && !a.HasTool("cancel_delegation") {
+				if err := a.RegisterTool(toolset.NewCancelDelegationTool()); err != nil {
+					l.Warn(logger.CatTool, "session: register cancel_delegation failed", "err", err.Error())
 				}
 			}
 		}
@@ -438,7 +475,7 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 
 func (s *Session) publishRequestRoute(ctx context.Context, a *agent.Agent, result RouteResult) {
 	capture, _ := ctx.Value(requestRouteCaptureKey{}).(*requestRouteCapture)
-	if capture == nil || a == nil {
+	if a == nil {
 		return
 	}
 	route := RequestRoute{
@@ -464,16 +501,48 @@ func (s *Session) publishRequestRoute(ctx context.Context, a *agent.Agent, resul
 	if route.ProviderID == "" {
 		route.ProviderID = a.Def.ProviderID
 	}
-	capture.once.Do(func() {
-		capture.ch <- route
-		close(capture.ch)
-	})
+	s.agentMu.RLock()
+	hooks := s.requestHooks
+	s.agentMu.RUnlock()
+	metadata := telemetry.MetadataFromContext(ctx)
+	if hooks.OnRoute != nil && metadata.RequestID != "" {
+		hooks.OnRoute(s.TargetID, metadata.RequestID, route)
+	}
+	if capture != nil {
+		capture.once.Do(func() {
+			capture.ch <- route
+			close(capture.ch)
+		})
+	}
 }
 
 // SetRunWatch attaches the process-owned supervisor after Session construction
 // so runtime wiring does not create a dependency cycle.
 func (s *Session) SetRunWatch(manager *runwatch.Manager) {
 	s.runWatch = manager
+}
+
+// SetRequestLifecycleHooks configures request ownership callbacks for later
+// asks on this session.
+func (s *Session) SetRequestLifecycleHooks(hooks RequestLifecycleHooks) {
+	s.agentMu.Lock()
+	s.requestHooks = hooks
+	s.agentMu.Unlock()
+}
+
+// CancelRunOwned cancels one request after the runtime owner has verified that
+// the caller controls it. Channel adapters use this path so /cancel cannot
+// affect a browser request sharing the same session.
+func (s *Session) CancelRunOwned(runID, owner, reason string) error {
+	s.agentMu.RLock()
+	hooks := s.requestHooks
+	s.agentMu.RUnlock()
+	if hooks.OnCancel != nil {
+		if err := hooks.OnCancel(s.TargetID, runID, owner); err != nil {
+			return err
+		}
+	}
+	return s.CancelRun(runID, reason)
 }
 
 // SetAgentRebuilder supplies the owner-controlled fresh-generation factory
@@ -1732,6 +1801,22 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
 	ctx = s.withSessionTelemetry(ctx)
 	ctx = s.withDispatchScope(ctx)
+	metadata := telemetry.MetadataFromContext(ctx)
+	requestID := metadata.RequestID
+	s.agentMu.RLock()
+	hooks := s.requestHooks
+	s.agentMu.RUnlock()
+	lifecycleStarted := false
+	terminalMessage := ""
+	finishLifecycle := func(code string) {
+		if lifecycleStarted && hooks.OnFinish != nil {
+			lifecycleStarted = false
+			if code == "" {
+				code = "completed"
+			}
+			hooks.OnFinish(s.TargetID, requestID, code, terminalMessage)
+		}
+	}
 
 	// ── Pre-inFlight slash command intercept (always immediate, never queued) ──
 	switch lowerTrimmed {
@@ -1747,6 +1832,13 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			}
 			return nil, ErrQueued
 		}
+		if requestID != "" && hooks.OnStart != nil {
+			if err := hooks.OnStart(ctx, s.TargetID, requestID); err != nil {
+				s.inFlight.Store(0)
+				return nil, err
+			}
+			lifecycleStarted = true
+		}
 		s.touch()
 		compactBase, compactCancel := context.WithCancelCause(context.WithoutCancel(ctx))
 		compactCtx, runHandle, runID, watchErr := s.beginRunLifecycle(compactBase, "compact")
@@ -1756,6 +1848,20 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			return nil, watchErr
 		}
 		cancelID := s.registerActiveCancel(runID, lifecycleCancel(runHandle, compactCancel))
+		if requestID != "" && hooks.OnBind != nil {
+			if err := hooks.OnBind(s.TargetID, requestID, func() error {
+				return s.CancelRun(runID, "runtime request cancelled")
+			}); err != nil {
+				s.unregisterActiveCancel(cancelID)
+				compactCancel(context.Canceled)
+				if runHandle != nil {
+					runHandle.Complete()
+				}
+				s.inFlight.Store(0)
+				finishLifecycle("error")
+				return nil, err
+			}
+		}
 		// Record the "/compact" prompt in CW + timeline so it survives the
 		// post-completion loadHistory. Without this the user's prompt is
 		// silently dropped from the chat UI.
@@ -1773,16 +1879,23 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			}()
 			defer s.inFlight.Store(0)
 			defer s.touch()
+			terminalCode := ""
+			defer func() { finishLifecycle(terminalCode) }()
 			if summary, err := s.Compact(compactCtx); err != nil {
 				if cause := context.Cause(compactCtx); cause != nil {
+					terminalCode = string(runwatch.CodeOf(cause))
+					terminalMessage = cause.Error()
 					out <- agent.ErrorEvent{Err: cause}
 					return
 				}
+				terminalCode = "error"
+				terminalMessage = err.Error()
 				out <- agent.ErrorEvent{Err: err}
 			} else {
 				if summary == "" {
 					summary = "Context window compacted (no content to summarize)"
 				}
+				terminalCode = "completed"
 				out <- agent.ContentDeltaEvent{Delta: summary}
 				out <- agent.DoneEvent{Content: summary}
 			}
@@ -1882,7 +1995,15 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		if !rejectsBusyQueue(ctx) {
 			s.enqueuePending(ctx, prompt)
 		}
+		finishLifecycle("queued")
 		return nil, ErrQueued
+	}
+	if requestID != "" && hooks.OnStart != nil {
+		if err := hooks.OnStart(ctx, s.TargetID, requestID); err != nil {
+			s.releaseFlight(flightID)
+			return nil, err
+		}
+		lifecycleStarted = true
 	}
 	clientCtx := ctx
 	// Interactive disconnects do not stop background work. Cron's caller owns
@@ -1910,9 +2031,24 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	if watchErr != nil {
 		askCancel(context.Canceled)
 		s.releaseFlight(flightID)
+		finishLifecycle("error")
 		return nil, watchErr
 	}
 	cancelID := s.registerActiveCancel(runID, lifecycleCancel(runHandle, askCancel))
+	if requestID != "" && hooks.OnBind != nil {
+		if err := hooks.OnBind(s.TargetID, requestID, func() error {
+			return s.CancelRun(runID, "runtime request cancelled")
+		}); err != nil {
+			s.unregisterActiveCancel(cancelID)
+			askCancel(context.Canceled)
+			if runHandle != nil {
+				runHandle.Complete()
+			}
+			s.releaseFlight(flightID)
+			finishLifecycle("error")
+			return nil, err
+		}
+	}
 	// Routing, memory recall, the leader LLM, local children, and cross-team
 	// helpers all use this same cancellation root.
 	ctx = askCtx
@@ -1932,6 +2068,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			runHandle.Complete()
 		}
 		s.releaseFlight(flightID)
+		finishLifecycle("error")
 		return nil, errors.New("session: no active agent")
 	}
 	effectiveCW := askAgent.Def.ContextWindow
@@ -2096,6 +2233,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		s.cw.Truncate(cwLenBeforeTurn)
 		s.mu.Unlock()
 		s.releaseFlight(flightID)
+		finishLifecycle("error")
 
 		s.logger.WarnContext(ctx, logger.CatApp, "askstream: agent stream setup failed",
 			"target_id", s.TargetID,
@@ -2121,6 +2259,8 @@ enqueued:
 				runHandle.Complete()
 			}
 		}()
+		terminalCode := ""
+		defer func() { finishLifecycle(terminalCode) }()
 		defer s.releaseFlight(flightID)
 		defer s.touch()
 		defer s.closeTurnDone()
@@ -2266,6 +2406,11 @@ enqueued:
 			if cause == nil {
 				return false
 			}
+			terminalCode = string(runwatch.CodeOf(cause))
+			if terminalCode == "" {
+				terminalCode = "error"
+			}
+			terminalMessage = cause.Error()
 			s.quarantineAgentAfterWatchdog(cause, askAgent, jobHandle)
 			if !preserveCronHistory(cause) {
 				rollbackTurn()
@@ -2319,6 +2464,11 @@ enqueued:
 			errorEvent := false
 			if e, ok := ev.(agent.ErrorEvent); ok {
 				errorEvent = true
+				terminalCode = string(runwatch.CodeOf(e.Err))
+				if terminalCode == "" {
+					terminalCode = "error"
+				}
+				terminalMessage = e.Err.Error()
 				// The agent uses the same request context, so its context error is
 				// another observation of this request's terminal state only when it
 				// matches askCtx. An upstream context error while askCtx is still
@@ -2751,6 +2901,7 @@ type SessionManager struct {
 	idleTimeout      time.Duration // 0 = disabled; for auto-clear idle sessions
 	compactThreshold int           // 0 = disabled; minimum tokens to trigger compact
 	runWatch         *runwatch.Manager
+	requestHooks     RequestLifecycleHooks
 
 	mu      sync.Mutex
 	session *Session
@@ -2798,6 +2949,18 @@ func (m *SessionManager) SetMemoryManager(mm *conversation.Manager) {
 // SetRunWatch wires the process-owned manager into Sessions created later.
 func (m *SessionManager) SetRunWatch(manager *runwatch.Manager) {
 	m.runWatch = manager
+}
+
+// SetRequestLifecycleHooks wires runtime ownership callbacks into the active
+// session and into sessions initialized later.
+func (m *SessionManager) SetRequestLifecycleHooks(hooks RequestLifecycleHooks) {
+	m.mu.Lock()
+	m.requestHooks = hooks
+	s := m.session
+	m.mu.Unlock()
+	if s != nil {
+		s.SetRequestLifecycleHooks(hooks)
+	}
 }
 
 // SetAgentRegistry wires the active-agent registry used for generation
@@ -2926,6 +3089,10 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 		s.Close()
 		return nil, ErrSessionClosed
 	}
+	// Read the hook set while holding the manager lock so a Hub wiring request
+	// racing with initialization cannot publish a session with a stale callback
+	// set. SetRequestLifecycleHooks also updates an already-published session.
+	s.SetRequestLifecycleHooks(m.requestHooks)
 	s.PublishInitialGeneration()
 	m.session = s
 

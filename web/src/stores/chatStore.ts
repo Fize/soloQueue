@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { preserveWorkedStateKeys } from '@/components/chat/preserveWorkedStateKeys'
 import type { ChatSession, ChatMessage, ChatSegment, ChatRouteInfo } from '@/types'
 import { listSessions, createL2Session, deleteL2Session, fetchSessionHistory, rewindSession as apiRewindSession, deleteSessionMessages as apiDeleteSessionMessages } from '@/lib/api'
 import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
@@ -44,6 +45,7 @@ interface ChatState {
   updateRequestStatus: (requestId: string, status: ChatRequestStatus) => void
   updateRequestRoute: (requestId: string, route: ChatRouteInfo) => void
   removeRequest: (requestId: string) => void
+  reconcileRuntimeTerminal: (requestId: string, sessionId: string) => void
   updateAssistantSegment: (sessionId: string, messageId: string, segment: ChatSegment) => void
   appendAssistantContent: (sessionId: string, messageId: string, text: string) => void
   appendAssistantThinking: (sessionId: string, messageId: string, text: string) => void
@@ -300,7 +302,7 @@ export const useChatStore = create<ChatState>((set) => ({
         }
         return {
           sessions: updatedSessions,
-          messages: { ...s.messages, [sessionId]: msgs },
+          messages: { ...s.messages, [sessionId]: preserveWorkedStateKeys(current || [], msgs) },
           historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
           historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
         }
@@ -438,6 +440,37 @@ export const useChatStore = create<ChatState>((set) => ({
       if (!s.activeRequests[requestId]) return s
       const { [requestId]: _removed, ...activeRequests } = s.activeRequests
       return { activeRequests }
+    }),
+  reconcileRuntimeTerminal: (requestId: string, sessionId: string) =>
+    set((s) => {
+      const request = s.activeRequests[requestId]
+      const { [requestId]: _removed, ...activeRequests } = s.activeRequests
+      if (!request || request.sessionId !== sessionId) return s
+
+      const remaining = Object.values(activeRequests).filter((item) => item.sessionId === sessionId)
+      const route = s.routeSessions[sessionId]
+      const routeSessions = { ...s.routeSessions }
+      if (route?.requestId === requestId) {
+        const fallbackRoute = [...remaining].reverse().find((item) => item.route)?.route
+        if (fallbackRoute) routeSessions[sessionId] = fallbackRoute
+        else if (remaining.length === 0) delete routeSessions[sessionId]
+        persistActiveChatRoutes(routeSessions)
+      }
+      const streamingSessions = { ...s.streamingSessions }
+      const delegatingSessions = { ...s.delegatingSessions }
+      const systemCommandSessions = { ...s.systemCommandSessions }
+      if (remaining.length === 0) {
+        streamingSessions[sessionId] = false
+        delegatingSessions[sessionId] = false
+        systemCommandSessions[sessionId] = false
+      }
+      return {
+        activeRequests,
+        routeSessions,
+        streamingSessions,
+        delegatingSessions,
+        systemCommandSessions,
+      }
     }),
 
   updateAssistantSegment: (sessionId: string, messageId: string, segment: ChatSegment) => {

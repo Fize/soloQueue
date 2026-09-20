@@ -65,6 +65,12 @@ func (g *Gateway) Run(ctx context.Context) error {
 }
 func (g *Gateway) dispatch(ctx context.Context, u Update) {
 	if msg, ok := g.normalize(ctx, u); ok {
+		ctx = channel.ContextWithChatMeta(ctx, channel.ChatMeta{
+			Channel:        msg.Channel,
+			AccountID:      msg.AccountID,
+			UserID:         msg.UserID,
+			ConversationID: msg.ConversationID,
+		})
 		g.handler.OnMessage(ctx, msg)
 	}
 }

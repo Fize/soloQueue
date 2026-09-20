@@ -486,3 +486,24 @@ describe('chatStore', () => {
     expect(localStorage.getItem('soloqueue_active_chat_routes')).toBeNull()
   })
 })
+
+it('carries worked presentation identity from only the hydrated session, without replacing history IDs', async () => {
+  const segment = { type: 'thinking', text: 'A uniquely identifiable thought' } as const
+  useChatStore.setState({
+    messages: {
+      l1: [{ id: 'msg-live', role: 'assistant', timestamp: 'client-time', segments: [segment] }],
+      other: [{ id: 'other-live', role: 'assistant', timestamp: 'client-time', segments: [segment] }],
+    },
+  })
+  vi.mocked(fetchSessionHistory).mockResolvedValue({
+    messages: [{ id: 'hist-0', role: 'assistant', timestamp: 'server-time', segments: [segment] }],
+    has_more: false,
+  } as Awaited<ReturnType<typeof fetchSessionHistory>>)
+  await useChatStore.getState().loadHistory('l1')
+  const hydrated = useChatStore.getState().messages.l1[0]
+  expect(hydrated.id).toBe('hist-0')
+  expect(hydrated.timestamp).toBe('server-time')
+  expect(hydrated.workedStateKeys).toEqual({ 'worked-0': JSON.stringify(['msg-live', 'worked-0']) })
+  expect(useChatStore.getState().messages.other[0].workedStateKeys).toBeUndefined()
+  expect(localStorage.getItem('workedStateKeys')).toBeNull()
+})

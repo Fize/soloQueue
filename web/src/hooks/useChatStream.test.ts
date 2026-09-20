@@ -153,6 +153,29 @@ describe('useChatStream', () => {
     ])
   })
 
+  it('keeps a completed silent terminal visible while history reloads', async () => {
+    const originalLoadHistory = useChatStore.getState().loadHistory
+    const loadHistory = vi.fn().mockResolvedValue(undefined)
+    useChatStore.setState({ activeSessionId: 'l2:session-A', messages: {}, loadHistory })
+    const { result } = renderHook(() => useChatStream())
+
+    await act(async () => {
+      await result.current.send('silent completion', undefined, 'l2:session-A')
+    })
+    const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
+
+    act(() => {
+      handler.onRuntimeTerminal?.({ terminal_code: 'completed' })
+    })
+
+    const assistant = useChatStore.getState().messages['l2:session-A'].find((message) => message.role === 'assistant')
+    expect(assistant?.segments).toEqual([
+      { type: 'content', text: 'Response completed; loading history…' },
+    ])
+    expect(loadHistory).toHaveBeenCalledWith('l2:session-A')
+    useChatStore.setState({ loadHistory: originalLoadHistory })
+  })
+
   it('keeps L1 requests independent when one completes or is cancelled', async () => {
     useChatStore.setState({ activeSessionId: 'l1', messages: {}, streamingSessions: {} })
     const { result } = renderHook(() => useChatStream())

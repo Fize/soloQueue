@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -38,7 +37,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		return
 	}
 	sessionID := ref.String()
-	streamStarted := false
 
 	if msg.Prompt == "" {
 		client.sendJSON(WSMessage{
@@ -127,7 +125,14 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	lowerTrimmed := strings.ToLower(trimmed)
 	switch {
 	case lowerTrimmed == "/cancel":
-		_ = sess.CancelCurrent("User requested cancellation")
+		// Cancel the request-owned roots through the same registry used by the
+		// stop button. This keeps concurrent L1 requests isolated.
+		for _, active := range h.requests.GetBySessionAll(sessionID) {
+			if _, owner, cancelErr := h.requests.CancelAndWaitOwned(context.Background(), sessionID, active.RequestID, client.ownerID); owner && cancelErr == nil {
+				h.refreshRequestWatchdog(sessionID, active.RequestID, runwatch.CodeCancelledByUser)
+				h.finalizeRequest(sessionID, active.RequestID)
+			}
+		}
 		client.sendJSON(WSMessage{
 			Type:             "chat_done",
 			RequestID:        msg.RequestID,
@@ -262,42 +267,11 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		}
 	}
 
-	// Reserve request in global ActiveRequestRegistry.
-	// Single-flight sessions (L2 and the default session) are serial, but a
-	// concurrent user message is NOT rejected: it is queued into the session's
-	// pending queue and injected before the agent's next LLM API call.
-	_, err = h.requests.Reserve(sessionID, msg.RequestID, "")
-	if err != nil {
-		if errors.Is(err, ErrSessionBusy) {
-			sess.QueueMessage(finalPrompt)
-			client.sendJSON(WSMessage{
-				Type:      "chat_queued",
-				RequestID: msg.RequestID,
-				SessionID: sessionID,
-				Error:     "session is busy; message queued and will be processed in the current turn",
-			})
-			return
-		}
-		client.sendJSON(WSMessage{
-			Type:      "session_busy",
-			RequestID: msg.RequestID,
-			SessionID: sessionID,
-			Error:     "session is currently busy processing another request",
-		})
-		return
-	}
-	defer func() {
-		if !streamStarted {
-			h.finalizeRequest(sessionID, msg.RequestID)
-		}
-	}()
 	client.sendJSON(WSMessage{
 		Type:      "chat_accepted",
 		RequestID: msg.RequestID,
 		SessionID: sessionID,
 	})
-	h.NextSessionRevision(sessionID)
-	h.Notify()
 
 	// Request lifetime is owned by the session/global registry, not by the
 	// WebSocket connection. A disconnected client merely loses its forwarder.
@@ -307,6 +281,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		RequestID: msg.RequestID,
 		SessionID: sessionID,
 		Origin:    telemetry.OriginDesktop,
+		OwnerID:   client.ownerID,
 	})
 	reqCtx, routeCapture := session.WithRequestRouteCapture(reqCtx)
 	if len(images) > 0 {
@@ -355,14 +330,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		client.removeActiveRequest(msg.RequestID)
 		return
 	}
-	if err := h.requests.BindCanceller(msg.RequestID, func() error {
-		return cancelRequest(sess, msg.RequestID, "User cancelled")
-	}); err != nil {
-		_ = cancelRequest(sess, msg.RequestID, "Request ownership was finalized before binding")
-		client.sendJSON(WSMessage{Type: "chat_error", RequestID: msg.RequestID, SessionID: sessionID, Error: err.Error()})
-		return
-	}
-
 	// Routing is complete before AskStream returns. Send its request-scoped
 	// result before any reasoning/content/tool event can be forwarded.
 	var route *session.RequestRoute
@@ -376,12 +343,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	}
 	routeMessage := buildChatRouteMessage(sess, route, msg.RequestID, msg.SessionID)
 	client.sendJSON(routeMessage)
-	if routeMessage.AgentInstanceID != "" {
-		_ = h.requests.SetRoute(msg.RequestID, routeMessage.AgentInstanceID)
-	}
-	h.refreshRequestWatchdog(msg.SessionID, msg.RequestID, "")
-	h.NextSessionRevision(sessionID)
-	h.Notify()
 
 	// Notify desktop when classification degraded (LLM error, fallback used).
 	if cw := sess.ClassifierWarning(); cw != "" {
@@ -398,7 +359,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	}
 
 	// Consume agent events and forward to client.
-	streamStarted = true
 	forwarderStarted = true
 	go h.forwardAgentEvents(client, msg.RequestID, reqCancel, ch, msg.SessionID, msg.Prompt)
 }
@@ -515,7 +475,7 @@ func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 	}
 	sessionID := ref.String()
 
-	req, owner, err := h.requests.CancelAndWait(context.Background(), sessionID, msg.RequestID)
+	req, owner, err := h.requests.CancelAndWaitOwned(context.Background(), sessionID, msg.RequestID, client.ownerID)
 	if err != nil || !owner {
 		return
 	}
@@ -562,7 +522,6 @@ func cancelRequest(canceller requestCanceller, requestID, reason string) error {
 func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel context.CancelFunc, ch <-chan iface.AgentEvent, sessionID string, prompt string) {
 	defer cancel()
 	defer client.removeActiveRequest(requestID)
-	defer h.finalizeRequest(sessionID, requestID)
 	defer func() {
 		if h.mux != nil && h.mux.l2Store != nil && strings.HasPrefix(sessionID, "l2:") {
 			id := strings.TrimPrefix(sessionID, "l2:")
@@ -844,6 +803,9 @@ func (h *Hub) resolveSession(sessionID string) (*session.Session, error) {
 		if err != nil {
 			return nil, fmt.Errorf("L2 session not found: %s", id)
 		}
+		if h.mux != nil {
+			h.configureRequestLifecycle()
+		}
 		return sess, nil
 	}
 
@@ -851,6 +813,7 @@ func (h *Hub) resolveSession(sessionID string) (*session.Session, error) {
 	if sess == nil {
 		return nil, fmt.Errorf("no active L1 session")
 	}
+	h.configureRequestLifecycle()
 	return sess, nil
 }
 

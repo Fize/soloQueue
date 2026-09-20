@@ -241,7 +241,7 @@ func TestForwardAgentEventsKeepsDelegationStartOutOfAssistantContent(t *testing.
 	}
 done:
 	if len(msgs) != 1 || msgs[0].Type != "delegation_start" {
-		t.Fatalf("delegation frames = %#v, want one delegation_start and no chat_chunk", msgs)
+		t.Fatalf("delegation frames = %#v, want only the structural delegation_start event", msgs)
 	}
 }
 

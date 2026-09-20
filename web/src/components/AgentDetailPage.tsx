@@ -545,8 +545,8 @@ export function AgentDetailPage() {
                               {t('agent.taskLevel')}
                             </dt>
                             <dd className="font-semibold text-foreground">
-                              {agent.task_level
-                                ? t('agent.level', { level: agent.task_level })
+	                              {agent.task_type
+	                                ? t('agent.level', { level: agent.task_type })
                                 : '-'}
                             </dd>
                           </div>

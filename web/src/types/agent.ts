@@ -11,7 +11,7 @@ export interface AgentInfo {
   provider_id: string;
   group: string;
   is_leader: boolean;
-  task_level: string;
+  task_type: string;
   thinking_enabled?: boolean;
   reasoning_effort?: string;
   level_locked?: boolean;
@@ -109,6 +109,7 @@ export type Segment =
       call_id: string;
       name: string;
       args: string;
+      agent_instance_id?: string;
       result: string;
       error: string;
       done: boolean;
@@ -122,16 +123,24 @@ export interface AgentStreamState {
   segments: Segment[];
   iteration: number;
   error?: string;
+  started_at?: string;
 }
 
 export interface SessionRuntimeState {
   session_id: string;
-  request_id?: string;
+	request_id?: string;
+	agent_instance_id?: string;
+	model_id?: string;
+	provider_id?: string;
+	task_type?: string;
   state: 'idle' | 'starting' | 'streaming' | 'delegating' | 'cancelling' | 'error';
   revision: number;
   ctxwin_used: number;
   ctxwin_limit: number;
   delegating: boolean;
+  terminal_code?: string;
+  error?: string;
+  started_at?: string;
 }
 
 export interface RuntimeStatus {

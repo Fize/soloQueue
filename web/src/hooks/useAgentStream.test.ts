@@ -34,11 +34,11 @@ describe('useAgentStream', () => {
     expect(result.current).toBeNull()
   })
 
-  it('returns agent stream state', () => {
+  it('does not select an unscoped agent stream', () => {
     const stream = { agent_id: 'a1', processing: true, segments: [], iteration: 1 }
     mockUseRuntime.mockReturnValue(mockRuntime({ a1: stream }))
     const { result } = renderHook(() => useAgentStream('a1'))
-    expect(result.current).toEqual(stream)
+    expect(result.current).toBeNull()
   })
 
   it('returns null for unknown agent', () => {

@@ -27,7 +27,10 @@ func withChannelTelemetry(ctx context.Context) context.Context {
 		if origin == "qqbot" {
 			origin = telemetry.OriginQQ
 		}
-		return telemetry.WithTelemetryMetadata(ctx, telemetry.Metadata{Origin: origin})
+		metadata := telemetry.MetadataFromContext(ctx)
+		metadata.Origin = origin
+		metadata.OwnerID = ChannelRequestOwner(ctx)
+		return telemetry.WithTelemetryMetadata(ctx, metadata)
 	}
 	return ctx
 }
@@ -39,6 +42,17 @@ type channelAdapterBase struct {
 	registry      *agent.Registry
 	runMu         sync.Mutex
 	channelRuns   []string
+	channelOwners map[string]string
+}
+
+// ChannelRequestOwner returns the stable owner identity used by the request
+// registry for a channel conversation.
+func ChannelRequestOwner(ctx context.Context) string {
+	meta, ok := channel.ChatMetaFromContext(ctx)
+	if !ok {
+		return "channel"
+	}
+	return strings.Join([]string{"channel", meta.Channel, meta.AccountID, meta.ConversationID, meta.UserID}, "\x00")
 }
 
 // SetSupervisorsFn sets the supervisor accessor for reaping child agents on cancel.
@@ -77,11 +91,19 @@ func (b *channelAdapterBase) reapSupervisorChildren(tag string) {
 }
 
 func (b *channelAdapterBase) trackChannelRun(runID string) {
+	b.trackChannelRunOwned(runID, "channel")
+}
+
+func (b *channelAdapterBase) trackChannelRunOwned(runID, owner string) {
 	if runID == "" {
 		return
 	}
 	b.runMu.Lock()
 	b.channelRuns = append(b.channelRuns, runID)
+	if b.channelOwners == nil {
+		b.channelOwners = make(map[string]string)
+	}
+	b.channelOwners[runID] = owner
 	b.runMu.Unlock()
 }
 
@@ -91,17 +113,19 @@ func (b *channelAdapterBase) untrackChannelRun(runID string) {
 	for i := len(b.channelRuns) - 1; i >= 0; i-- {
 		if b.channelRuns[i] == runID {
 			b.channelRuns = append(b.channelRuns[:i], b.channelRuns[i+1:]...)
+			delete(b.channelOwners, runID)
 			return
 		}
 	}
 }
 
-func (b *channelAdapterBase) channelRunsNewestFirst() []string {
+func (b *channelAdapterBase) channelRunsNewestFirst() []struct{ runID, owner string } {
 	b.runMu.Lock()
 	defer b.runMu.Unlock()
-	runs := make([]string, len(b.channelRuns))
+	runs := make([]struct{ runID, owner string }, len(b.channelRuns))
 	for i := range b.channelRuns {
-		runs[i] = b.channelRuns[len(b.channelRuns)-1-i]
+		runID := b.channelRuns[len(b.channelRuns)-1-i]
+		runs[i] = struct{ runID, owner string }{runID: runID, owner: b.channelOwners[runID]}
 	}
 	return runs
 }
@@ -110,6 +134,9 @@ func (b *channelAdapterBase) withChannelRunID(ctx context.Context) (context.Cont
 	runID := effectiveRunID(ctx)
 	metadata := telemetry.MetadataFromContext(ctx)
 	metadata.RunID = runID
+	if metadata.RequestID == "" {
+		metadata.RequestID = runID
+	}
 	return telemetry.WithTelemetryMetadata(ctx, metadata), runID
 }
 
@@ -117,11 +144,11 @@ func (b *channelAdapterBase) withChannelRunID(ctx context.Context) (context.Cont
 // adapter. A shared L1 Session may simultaneously own Web or other channel
 // roots, which must remain untouched.
 func (b *channelAdapterBase) cancelCurrent(sess *Session, reason string) error {
-	for _, runID := range b.channelRunsNewestFirst() {
-		if !sess.hasActiveRun(runID) {
+	for _, run := range b.channelRunsNewestFirst() {
+		if !sess.hasActiveRun(run.runID) {
 			continue
 		}
-		err := sess.CancelRun(runID, reason)
+		err := sess.CancelRunOwned(run.runID, run.owner, reason)
 		if errors.Is(err, ErrNoActiveTask) {
 			// The selected run completed between the liveness check and
 			// cancellation. Continue to the next live owned root.
@@ -330,11 +357,29 @@ func (b *channelAdapterBase) saveUploadedFileToSession(sess *Session, filename s
 	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
 		return "", err
 	}
-	destPath := filepath.Join(downloadsDir, filename)
-	if err := os.WriteFile(destPath, content, 0o644); err != nil {
+	// Channels often reuse a basename (QQ images can all be named "download").
+	// Allocate atomically so prior messages keep their original attachment bytes
+	// and browser URL, including when separate channel requests overlap.
+	name := filepath.Base(strings.TrimSpace(filename))
+	if name == "." || name == string(filepath.Separator) || name == "" {
+		name = "download"
+	}
+	name = strings.ReplaceAll(name, "*", "_")
+	ext := filepath.Ext(name)
+	file, err := os.CreateTemp(downloadsDir, strings.TrimSuffix(name, ext)+"-*"+ext)
+	if err != nil {
 		return "", err
 	}
-	return destPath, nil
+	if _, err := file.Write(content); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(file.Name())
+		return "", err
+	}
+	return file.Name(), nil
 }
 
 // ─── SessionAskAdapter (L1) ──────────────────────────────────────────────────
@@ -435,7 +480,7 @@ func (a *SessionAskAdapter) AskStream(ctx context.Context, prompt string, onInte
 
 	ctx = iface.ContextWithMediaDelivery(ctx, true)
 	ctx, channelRunID := a.withChannelRunID(ctx)
-	a.trackChannelRun(channelRunID)
+	a.trackChannelRunOwned(channelRunID, ChannelRequestOwner(ctx))
 	defer a.untrackChannelRun(channelRunID)
 
 	eventCh, releaseRoute, err := a.askChannelStream(ctx, sess, prompt)
@@ -598,7 +643,7 @@ func (a *L2ChannelAdapter) AskStream(ctx context.Context, prompt string, onInter
 
 	ctx = iface.ContextWithMediaDelivery(ctx, true)
 	ctx, channelRunID := a.withChannelRunID(ctx)
-	a.trackChannelRun(channelRunID)
+	a.trackChannelRunOwned(channelRunID, ChannelRequestOwner(ctx))
 	defer a.untrackChannelRun(channelRunID)
 
 	eventCh, releaseRoute, err := a.askChannelStream(ctx, sess, prompt)
