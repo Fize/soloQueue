@@ -164,7 +164,7 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		}
 	}()
 
-	// Tools: built-in tools (fallback-only for L1) + DelegateTool (async mode: L1 -> L2)
+	// Tools: built-in tools plus DelegateTool (async mode: assistant -> Team)
 	sessionToolsCfg := toolsCfg
 	sessionToolsCfg.WorkDir = b.WorkDir
 	sessionToolsCfg.Logger = sessLog
@@ -209,7 +209,9 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		}
 	}
 
-	allTools := tools.WithFallbackPrefix(baseTools)
+	// Tool availability does not determine routing. The prompt's execution
+	// ownership contract chooses between direct execution and a Team.
+	allTools := baseTools
 
 	// Add inspect_agent tool for L1 to query all agent status
 	inspectTool := tools.NewInspectAgentTool(agent.RegistryInspectQuery(b.RT.AgentRegistry))
@@ -362,8 +364,18 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		}), true, nil
 	}
 
-	dt := tools.NewDelegateTool("L1", 0, delegateResolver, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited,
-		tools.WithAlwaysAsyncDelegation())
+	allowedTeam := func(name string) bool {
+		b.RT.CfgMu.RLock()
+		defer b.RT.CfgMu.RUnlock()
+		for _, leader := range b.RT.AllTemplates {
+			if leader.IsLeader && (strings.EqualFold(leader.ID, strings.TrimSpace(name)) || strings.EqualFold(leader.Name, strings.TrimSpace(name))) {
+				return true
+			}
+		}
+		return false
+	}
+	dt := tools.NewDelegateTool("assistant", 0, delegateResolver, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited,
+		tools.WithAlwaysAsyncDelegation(), tools.WithTargetValidator(allowedTeam))
 	dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if s, ok := b.RT.SkillRegistry.GetSkill(skillID); ok {
 			return s.Instructions, s.Agent, s.Dir, true

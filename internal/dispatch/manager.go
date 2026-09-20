@@ -38,8 +38,9 @@ const (
 )
 
 var (
-	ErrActiveConflict     = errors.New("active dispatch identity has different content")
-	ErrPersistencePending = errors.New("dispatch terminal persistence is pending")
+	ErrActiveConflict      = errors.New("active dispatch identity has different content")
+	ErrPersistencePending  = errors.New("dispatch terminal persistence is pending")
+	ErrDelegationCancelled = errors.New("delegation cancelled")
 )
 
 type terminalIntent struct {
@@ -106,6 +107,8 @@ type Manager struct {
 	records      map[string]Record
 	pending      map[string]terminalIntent
 	checkpointed map[string]time.Time
+	cancellers   map[string]context.CancelCauseFunc
+	cancelled    map[string]bool
 	writeEvent   func(*os.File, []byte) (int, error)
 	writeMeta    func(string, any) error
 }
@@ -122,6 +125,8 @@ func NewManager(timelineRoot, ownerSessionID string) (*Manager, error) {
 		records:      make(map[string]Record),
 		pending:      make(map[string]terminalIntent),
 		checkpointed: make(map[string]time.Time),
+		cancellers:   make(map[string]context.CancelCauseFunc),
+		cancelled:    make(map[string]bool),
 		writeEvent:   (*os.File).Write,
 		writeMeta:    writeAtomicJSON,
 	}
@@ -132,6 +137,61 @@ func NewManager(timelineRoot, ownerSessionID string) (*Manager, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+// RegisterCancel attaches the live execution cancellation boundary to a
+// persisted dispatch after its record has been created.
+func (m *Manager) RegisterCancel(id string, cancel context.CancelCauseFunc) error {
+	if id == "" || cancel == nil {
+		return errors.New("dispatch: cancel id and function are required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.records[id]
+	if !ok {
+		return os.ErrNotExist
+	}
+	if rec.Status != StatusRunning {
+		return fmt.Errorf("dispatch: cannot register cancellation for terminal dispatch %s", id)
+	}
+	m.cancellers[id] = cancel
+	return nil
+}
+
+// Cancel requests cancellation of one dispatch and its descendants. Sibling
+// dispatches and the parent L1 turn remain active.
+func (m *Manager) Cancel(id, reason string) error {
+	m.mu.Lock()
+	rec, ok := m.records[id]
+	if !ok {
+		m.mu.Unlock()
+		return os.ErrNotExist
+	}
+	if rec.Status != StatusRunning {
+		m.mu.Unlock()
+		return fmt.Errorf("dispatch: dispatch %s is already %s", id, rec.Status)
+	}
+	if rec.Phase == "cancelling" {
+		m.mu.Unlock()
+		return nil
+	}
+	cancel := m.cancellers[id]
+	if cancel == nil {
+		m.mu.Unlock()
+		return fmt.Errorf("dispatch: dispatch %s has no live cancellation boundary", id)
+	}
+	m.cancelled[id] = true
+	rec.Revision++
+	rec.Phase = "cancelling"
+	rec.UpdatedAt = time.Now().UTC()
+	rec.LastProgressAt = rec.UpdatedAt
+	committed, err := m.appendLocked(id, "cancellation_requested", map[string]string{"reason": strings.TrimSpace(reason)}, rec)
+	if committed {
+		m.records[id] = rec
+	}
+	m.mu.Unlock()
+	cancel(fmt.Errorf("delegation cancelled: %s: %w", strings.TrimSpace(reason), ErrDelegationCancelled))
+	return err
 }
 
 func (m *Manager) Begin(in BeginInput) (BeginResult, error) {
@@ -161,7 +221,7 @@ func (m *Manager) Begin(in BeginInput) (BeginResult, error) {
 		existing, ok := m.records[claim.ID]
 		if ok && existing.OwnerSessionID == m.ownerID && existing.Status == StatusRunning {
 			if existing.ContentHash != hash {
-				return BeginResult{}, fmt.Errorf("%w: task %q is already running as %s", ErrActiveConflict, in.TaskName, existing.ID)
+				return BeginResult{}, fmt.Errorf("%w: task %q is already running", ErrActiveConflict, in.TaskName)
 			}
 			return BeginResult{Record: existing, Reused: true}, nil
 		}
@@ -353,6 +413,9 @@ func (m *Manager) Finish(id string, status Status, errValue error) error {
 	if rec.Status != StatusRunning {
 		return nil
 	}
+	if m.cancelled[id] || errors.Is(errValue, ErrDelegationCancelled) {
+		status = StatusInterrupted
+	}
 	rec.Status = status
 	rec.TerminalCode = terminalCode(status, errValue)
 	rec.Revision++
@@ -376,6 +439,8 @@ func (m *Manager) Finish(id string, status Status, errValue error) error {
 	m.records[id] = rec
 	delete(m.pending, id)
 	delete(m.checkpointed, id)
+	delete(m.cancellers, id)
+	delete(m.cancelled, id)
 	claimErr := os.Remove(filepath.Join(m.root, ".active", rec.TaskKey+".json"))
 	return errors.Join(persistErr, claimErr)
 }
@@ -388,6 +453,30 @@ func (m *Manager) Get(id string) (Record, bool) {
 	}
 	rec, ok := m.records[id]
 	return rec, ok
+}
+
+// FindByTaskName returns the newest dispatch with the requested logical task
+// name. Running work is preferred so callers can control the active task
+// without exposing its persistence identifier to an agent.
+func (m *Manager) FindByTaskName(taskName, rootID string) (Record, bool) {
+	taskName = strings.TrimSpace(taskName)
+	if taskName == "" {
+		return Record{}, false
+	}
+	records := m.List()
+	var found Record
+	for _, record := range records {
+		if record.TaskName != taskName || (rootID != "" && record.RootID != rootID) {
+			continue
+		}
+		if !found.CreatedAt.IsZero() && record.Status != StatusRunning {
+			continue
+		}
+		if found.CreatedAt.IsZero() || record.CreatedAt.After(found.CreatedAt) || record.Status == StatusRunning {
+			found = record
+		}
+	}
+	return found, !found.CreatedAt.IsZero()
 }
 
 func (m *Manager) List() []Record {

@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -72,6 +73,46 @@ func TestManagerBeginPersistsAndDeduplicatesActiveWork(t *testing.T) {
 	conflict.Task = "Replace the cache implementation."
 	if _, err := m.Begin(conflict); !errors.Is(err, ErrActiveConflict) {
 		t.Fatalf("changed-content Begin error = %v, want ErrActiveConflict", err)
+	}
+}
+
+func TestManagerCancelInterruptsOnlyTargetDispatch(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := m.Begin(BeginInput{TaskName: "first", Task: "one", Requester: "L1", Executor: "team-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.Begin(BeginInput{TaskName: "second", Task: "two", Requester: "L1", Executor: "team-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCancelled := make(chan error, 1)
+	if err := m.RegisterCancel(first.Record.ID, func(cause error) { firstCancelled <- cause }); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RegisterCancel(second.Record.ID, func(error) { t.Fatal("sibling dispatch was cancelled") }); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Cancel(first.Record.ID, "user changed scope"); err != nil {
+		t.Fatal(err)
+	}
+	if cause := <-firstCancelled; !errors.Is(cause, ErrDelegationCancelled) {
+		t.Fatalf("cancel cause = %v, want ErrDelegationCancelled", cause)
+	}
+	if got, _ := m.Get(first.Record.ID); got.Phase != "cancelling" {
+		t.Fatalf("phase = %q, want cancelling", got.Phase)
+	}
+	if err := m.Finish(first.Record.ID, StatusFailed, context.Canceled); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.Get(first.Record.ID); got.Status != StatusInterrupted {
+		t.Fatalf("status = %q, want interrupted", got.Status)
+	}
+	if got, _ := m.Get(second.Record.ID); got.Status != StatusRunning {
+		t.Fatalf("sibling status = %q, want running", got.Status)
 	}
 }
 

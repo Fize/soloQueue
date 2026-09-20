@@ -1154,10 +1154,10 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 	})
 	if len(peerLeaders) > 0 {
 		b.WriteString("# Peer Teams (Cross-Team Collaboration)\n\n")
-		b.WriteString("## MANDATORY Delegation Chain\n\n")
+		b.WriteString("## Delegation Order\n\n")
 		b.WriteString("You MUST follow this exact priority chain, in order, without skipping levels:\n\n")
 		b.WriteString("1. **Your Team Workers (FIRST)** — Delegate ALL sub-tasks that match a worker's domain. This is non-negotiable. Self-executing worker-level work is FORBIDDEN.\n\n")
-		b.WriteString("2. **Peer Teams (SECOND)** — If NO team worker can handle the sub-task, you MUST check all peer teams listed below. If a peer team's domain matches, you MUST call `delegate(target, task_name, task, context)`. The framework records this lateral call as peer help. Skipping peer teams and going directly to self-execution is FORBIDDEN.\n\n")
+		b.WriteString("2. **Peer Teams (SECOND)** — If NO team worker can handle the sub-task, you MUST check all peer teams listed below. If a peer team's domain matches, you MUST call `delegate(target, task_name, task, context)`. Skipping peer teams and going directly to self-execution is FORBIDDEN.\n\n")
 		b.WriteString("3. **Self-execute (LAST RESORT)** — Only when BOTH team workers AND all peer teams are unsuitable. Self-execution is a delegation failure. Minimize it.\n\n")
 		b.WriteString("Every delegate call MUST include a concise, stable `task_name`. Use `inspect_delegation` to answer status or progress questions; never create another delegate call merely to check existing work.\n\n")
 		b.WriteString("## Available Peer Teams\n\n")
@@ -1173,7 +1173,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString("- Peer help is for SUB-TASKS within your current task. Do NOT outsource the entire task.\n")
 		b.WriteString("- Provide clear, self-contained context when delegating to peers.\n")
 		b.WriteString("- Do NOT form delegation loops (system enforced, auto-rejected).\n")
-		b.WriteString("- If a peer team is unreachable, report to the orchestrator with details.\n\n")
+		b.WriteString("- If a peer team is unreachable, report the blocker to the caller with details.\n\n")
 	}
 
 	// 2c. MCP Servers

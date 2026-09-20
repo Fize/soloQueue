@@ -107,9 +107,8 @@ type TurnTerminator interface {
 
 // ─── FallbackTool wrapper ───────────────────────────────────────────────────
 
-// FallbackTool wraps a Tool and prepends a fallback-only prefix to its
-// Description, signaling to the LLM that this tool should only be used when
-// no delegate_* tool is available. All other methods delegate to the inner Tool.
+// FallbackTool wraps a Tool and prepends a routing-aware prefix to its
+// Description. All other methods delegate to the inner Tool.
 //
 // AsyncTool is handled by the agent layer, so FallbackTool only needs to implement the base Tool.
 type FallbackTool struct {
@@ -117,9 +116,8 @@ type FallbackTool struct {
 	desc string
 }
 
-// WithFallbackPrefix wraps each tool in tools with a fallback-only prefix.
-// Used by L1 (Session) agent to discourage direct tool usage when delegation
-// is available. L2/L3 agents should NOT use this wrapper.
+// WithFallbackPrefix retains compatibility for callers that want a routing hint
+// in tool descriptions. Routing remains conditional on an actual Team match.
 func WithFallbackPrefix(tools []Tool) []Tool {
 	out := make([]Tool, len(tools))
 	for i, t := range tools {
@@ -129,7 +127,7 @@ func WithFallbackPrefix(tools []Tool) []Tool {
 		}
 		out[i] = &FallbackTool{
 			Tool: t,
-			desc: "[!!! DO NOT USE — protocol violation — call delegate_* instead !!!] " + t.Description(),
+			desc: "Use this tool when the assistant is the selected executor. If a matching Team has already been selected, delegate instead. " + t.Description(),
 		}
 	}
 	return out

@@ -27,7 +27,7 @@ func TestBuildRoutingTable_WithLeaders(t *testing.T) {
 func TestBuildRoutingTable_Empty(t *testing.T) {
 	result := buildRoutingTable(nil, nil)
 
-	if !strings.Contains(result, "No Team Leaders") {
+	if !strings.Contains(result, "No matching teams") {
 		t.Errorf("empty leaders should show fallback message, got: %q", result)
 	}
 }

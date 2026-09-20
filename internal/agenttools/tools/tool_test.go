@@ -12,7 +12,7 @@ func TestWithFallbackPrefixPreservesRequiredTerminalTool(t *testing.T) {
 		t.Fatalf("required terminal tool was wrapped: %#v", wrapped)
 	}
 	if strings.Contains(wrapped[0].Description(), "DO NOT USE") {
-		t.Fatalf("required terminal tool was marked fallback-only: %q", wrapped[0].Description())
+		t.Fatalf("required terminal tool was marked with an absolute routing prohibition: %q", wrapped[0].Description())
 	}
 	if _, ok := wrapped[0].(TurnTerminator); !ok {
 		t.Fatal("terminal-tool semantics were not preserved")

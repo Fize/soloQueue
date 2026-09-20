@@ -322,9 +322,6 @@ func (a *Agent) execToolsWithAsyncState(
 		}
 
 		results[i] = formatDelegationStarted(tc)
-		if action.DispatchID != "" {
-			results[i] += "\nDispatch ID: " + action.DispatchID
-		}
 
 		targetInstanceID := ""
 		type instanceIDer interface {

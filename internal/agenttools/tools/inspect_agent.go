@@ -11,21 +11,21 @@ import (
 
 // AgentStatus is a per-agent status entry for inspect_agent output.
 type AgentStatus struct {
-	InstanceID   string `json:"instance_id"`
-	TemplateID   string `json:"template_id"`
+	InstanceID   string `json:"-"` // Internal lookup key; never expose to the model.
+	TemplateID   string `json:"-"` // Internal lookup key; never expose to the model.
 	TemplateName string `json:"template_name"`
 	State        string `json:"state"`
-	Prompt       string `json:"prompt,omitempty"`
+	Prompt       string `json:"-"` // System prompts can contain internal instructions.
 	Iteration    int    `json:"iteration"`
 	CurrentTool  string `json:"current_tool,omitempty"`
 	Elapsed      string `json:"elapsed"`
 	ErrorCount   int    `json:"error_count"`
-	LastError    string `json:"last_error,omitempty"`
+	LastError    string `json:"-"` // Errors may contain internal paths or identifiers.
 }
 
 // TeamStatus groups agent statuses by template.
 type TeamStatus struct {
-	TemplateID   string        `json:"template_id"`
+	TemplateID   string        `json:"-"` // Internal lookup key; never expose to the model.
 	TemplateName string        `json:"template_name"`
 	Agents       []AgentStatus `json:"agents"`
 }
@@ -83,7 +83,7 @@ func (t *InspectAgentTool) Execute(ctx context.Context, args string) (result str
 
 	output, err := t.queryFn(ctx, p.AgentID, p.Template)
 	if err != nil {
-		return fmt.Sprintf(`{"error": "%s"}`, err.Error()), nil
+		return `{"error":"agent status unavailable"}`, nil
 	}
 
 	b, err := json.Marshal(output)
@@ -98,23 +98,18 @@ type inspectArgs struct {
 	Template string `json:"template,omitempty"`
 }
 
-const inspectAgentDesc = `Query agent status and progress. Supports three modes:
-- No arguments: returns status for all managed agents grouped by template.
-- template="name": returns status for agents matching the given template (fuzzy match on template ID or name).
-- agent_id="uuid": returns detailed status for a single agent instance.
+const inspectAgentDesc = `Query agent status and progress. Supports two modes:
+- No arguments: returns status for all managed agents grouped by team.
+- template="name": returns status for agents matching the given team or role name.
 
-Returns JSON with agent state, current prompt, iteration, tool, elapsed time, and error counts.`
+Returns concise JSON with team name, state, current tool, elapsed time, and error counts.`
 
 const inspectAgentParams = `{
   "type": "object",
   "properties": {
-    "agent_id": {
-      "type": "string",
-      "description": "Instance ID (UUID) of a specific agent to inspect"
-    },
     "template": {
       "type": "string",
-      "description": "Template name or ID to filter agents by (fuzzy match)"
+      "description": "Team or role name to filter agents by"
     }
   },
   "additionalProperties": false
