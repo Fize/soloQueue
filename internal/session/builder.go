@@ -280,6 +280,21 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 
 	// Inject unified delegate tool for L1 agent
 	delegateResolver := func(ctx context.Context, name, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
+		// Resolve the prompt-visible display name to the same canonical ID used by
+		// the validator, registry and template lookup. This keeps legacy display
+		// names working without creating a second target-resolution rule.
+		b.RT.CfgMu.RLock()
+		refs := make([]agent.TargetRef, 0, len(b.RT.AllTemplates))
+		for _, leader := range b.RT.AllTemplates {
+			if leader.IsLeader {
+				refs = append(refs, agent.TargetRef{ID: agent.CanonicalTargetID(leader), DisplayName: leader.Name, Kind: agent.TargetLeader, Group: leader.Group, Description: leader.Description})
+			}
+		}
+		b.RT.CfgMu.RUnlock()
+		if ref, ok := agent.ResolveTarget(name, refs); ok {
+			name = ref.ID
+		}
+
 		if loc, ok := b.RT.AgentRegistry.LocateIdleInWorkDir(name, workDir); ok {
 			return loc, false, nil
 		}
@@ -367,12 +382,14 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 	allowedTeam := func(name string) bool {
 		b.RT.CfgMu.RLock()
 		defer b.RT.CfgMu.RUnlock()
+		refs := make([]agent.TargetRef, 0, len(b.RT.AllTemplates))
 		for _, leader := range b.RT.AllTemplates {
-			if leader.IsLeader && (strings.EqualFold(leader.ID, strings.TrimSpace(name)) || strings.EqualFold(leader.Name, strings.TrimSpace(name))) {
-				return true
+			if leader.IsLeader {
+				refs = append(refs, agent.TargetRef{ID: agent.CanonicalTargetID(leader), DisplayName: leader.Name, Kind: agent.TargetLeader, Group: leader.Group, Description: leader.Description})
 			}
 		}
-		return false
+		_, ok := agent.ResolveTarget(name, refs)
+		return ok
 	}
 	dt := tools.NewDelegateTool("assistant", 0, delegateResolver, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited,
 		tools.WithAlwaysAsyncDelegation(), tools.WithTargetValidator(allowedTeam))

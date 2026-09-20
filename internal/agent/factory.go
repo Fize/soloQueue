@@ -113,7 +113,7 @@ type DefaultFactory struct {
 	log            *logger.Logger
 	resolveModel   ModelResolver               // nil = skip model validation (tests)
 	templates      map[string]AgentTemplate    // Full templates indexed by ID, used by buildL2SystemPrompt to find sub-agent descriptions
-	groups         map[string]prompt.GroupFile // Group information, used to inject team context into L2 prompts
+	groups         map[string]prompt.GroupFile // Group information, used for team-scoped Skill access
 	mcpManager     *mcp.Manager                // MCP server manager (nil = MCP disabled)
 	exploreDir     string                      // exploration artifact directory (platform-appropriate)
 	teamstore      *store.Store                // DB-backed team/agent store (nil = disabled)
@@ -181,8 +181,7 @@ func WithTemplates(templates []AgentTemplate) FactoryOption {
 	}
 }
 
-// WithGroups sets the group configuration map for L2 system prompt building.
-// buildL2SystemPrompt uses this to inject team context into L2 leaders.
+// WithGroups sets the group configuration map used for team-scoped Skill access.
 func WithGroups(groups map[string]prompt.GroupFile) FactoryOption {
 	return func(f *DefaultFactory) {
 		f.groups = groups
@@ -556,12 +555,6 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	hasPermanentMemory := memoryAccess != nil
 	if tmpl.IsLeader {
 		finalPrompt = buildL2SystemPrompt(tmpl, templates, groups, planDir, effectiveWorkDir, exploreDir, projRes.agents, hasPermanentMemory)
-		if tmpl.Group != "" && toolsCfg.CronStore != nil && toolsCfg.CronScheduler != nil && !iface.IsCronExecution(ctx) {
-			finalPrompt += "\n# Cron Jobs\n\n" +
-				"You may manage cron jobs only for your own team. Use create_cron_job for new jobs, " +
-				"list_cron_jobs to find IDs, update_cron_job to change or pause jobs, and delete_cron_job to remove jobs. " +
-				"A new job always requires a user-facing title, a task_type (general, engineering, or research), schedule, and instruction.\n"
-		}
 	} else {
 		finalPrompt = buildL3SystemPrompt(tmpl, groups, planDir, effectiveWorkDir, exploreDir)
 	}
@@ -619,13 +612,9 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	agentToolsCfg := toolsCfg
 	agentToolsCfg.WorkDir = effectiveWorkDir
 	agentToolsCfg.PlanDir = planDir
+	// Cron management belongs to the L1 session. Factory-created L2/L3 agents
+	// must not receive a scheduling scope or the manage_cron tool.
 	agentToolsCfg.CronScope = tools.CronAccessScope{}
-	if tmpl.IsLeader && tmpl.Group != "" && !iface.IsCronExecution(ctx) {
-		agentToolsCfg.CronScope = tools.CronAccessScope{
-			Mode:  tools.CronAccessTeam,
-			Owner: tmpl.Group,
-		}
-	}
 	allTools = tools.BuildBase(agentToolsCfg)
 	allTools = append(allTools, tools.BuildMemory(agentToolsCfg, memoryAccess)...)
 
@@ -665,34 +654,48 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		if tmpl.Group == "" {
 			workDirPolicy = tools.WorkDirExplicitOrInherited
 		}
+		visibleTargets := append(VisibleWorkerTargets(templates, tmpl, projRes.agents), VisibleLeaderTargets(templates, tmpl)...)
 
 		delegateResolver := func(ctx context.Context, targetName, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
-			if loc, ok := f.registry.LocateIdleInWorkDir(targetName, effectiveWorkDir); ok {
+			dynamicWorker := tools.DynamicWorkerRequested(ctx)
+			if ref, ok := ResolveTarget(targetName, visibleTargets); ok {
+				targetName = ref.ID
+			} else if !dynamicWorker {
+				return nil, false, fmt.Errorf("target %q is not visible to leader %q", targetName, tmpl.ID)
+			}
+
+			if dynamicWorker {
+				if _, ok := ResolveTarget(targetName, visibleTargets); ok {
+					return nil, false, fmt.Errorf("dynamic target %q conflicts with an existing visible target", targetName)
+				}
+			} else if loc, ok := f.registry.LocateIdleInWorkDir(targetName, effectiveWorkDir); ok {
 				return loc, false, nil
 			}
 
-			if peerTmpl, ok := findLeaderTemplate(templates, targetName); ok && peerTmpl.ID != tmpl.ID {
-				child, _, err := f.CreateWithOptions(ctx, peerTmpl, effectiveWorkDir, CreateOptions{MemoryPolicy: MemoryDisabled})
-				if err != nil {
-					return nil, false, fmt.Errorf("spawn peer leader %q: %w", targetName, err)
-				}
-				peerSv := NewSupervisor(child, f, f.log)
-				peerSv.WireSpawnFns(templatesSlice(templates))
-				peerSv.SetGroup(peerTmpl.Group)
-				return NewSelfReapableAdapter(child, peerSv), true, nil
-			}
-
-			for _, peer := range visibleWorkers(templates, tmpl, projRes.agents) {
-				if strings.EqualFold(peer.ID, targetName) {
-					freshTmpl, ok := f.ResolveTemplate(ctx, peer.ID)
-					if !ok {
-						freshTmpl = peer
-					}
-					child, _, err := f.Create(ctx, freshTmpl, workDir)
+			if !dynamicWorker {
+				if peerTmpl, ok := findLeaderTemplate(templates, targetName); ok && peerTmpl.ID != tmpl.ID {
+					child, _, err := f.CreateWithOptions(ctx, peerTmpl, effectiveWorkDir, CreateOptions{MemoryPolicy: MemoryDisabled})
 					if err != nil {
-						return nil, false, err
+						return nil, false, fmt.Errorf("spawn peer leader %q: %w", targetName, err)
 					}
-					return &LocatableAdapter{Agent: child}, true, nil
+					peerSv := NewSupervisor(child, f, f.log)
+					peerSv.WireSpawnFns(templatesSlice(templates))
+					peerSv.SetGroup(peerTmpl.Group)
+					return NewSelfReapableAdapter(child, peerSv), true, nil
+				}
+
+				for _, peer := range visibleWorkers(templates, tmpl, projRes.agents) {
+					if strings.EqualFold(CanonicalTargetID(peer), targetName) {
+						freshTmpl, ok := f.ResolveTemplate(ctx, peer.ID)
+						if !ok {
+							freshTmpl = peer
+						}
+						child, _, err := f.Create(ctx, freshTmpl, workDir)
+						if err != nil {
+							return nil, false, err
+						}
+						return &LocatableAdapter{Agent: child}, true, nil
+					}
 				}
 			}
 
@@ -763,12 +766,17 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		}
 
 		var delegateOpts []tools.DelegateToolOption
+		delegateOpts = append(delegateOpts, tools.WithTargetValidator(func(raw string) bool {
+			_, ok := ResolveTarget(raw, visibleTargets)
+			return ok
+		}))
+		delegateOpts = append(delegateOpts, tools.WithDynamicWorkers())
 		if tmpl.Group == "" {
 			delegateOpts = append(delegateOpts, tools.WithAlwaysAsyncDelegation())
 		} else {
 			delegateOpts = append(delegateOpts, tools.WithPeerTarget(func(target string) bool {
-				peer, ok := findLeaderTemplate(templates, target)
-				return ok && peer.ID != tmpl.ID
+				ref, ok := ResolveTarget(target, visibleTargets)
+				return ok && ref.Kind == TargetLeader && ref.ID != CanonicalTargetID(tmpl)
 			}))
 		}
 		dt := tools.NewDelegateTool(tmpl.ID, 25*time.Minute, delegateResolver, f.registry, f.log, workDirPolicy, delegateOpts...)
@@ -976,8 +984,12 @@ func LoadAgentTemplates(agentsDir string) ([]AgentTemplate, error) {
 	var templates []AgentTemplate
 	for _, af := range agentFiles {
 		fm := af.Frontmatter
+		id := strings.TrimSpace(fm.ID)
+		if id == "" {
+			id = fm.Name
+		}
 		tmpl := AgentTemplate{
-			ID:            strings.ToLower(fm.Name),
+			ID:            strings.ToLower(id),
 			Name:          fm.Name,
 			Description:   fm.Description,
 			SystemPrompt:  af.Body,
@@ -1068,9 +1080,9 @@ func templatesSlice(templates map[string]AgentTemplate) []AgentTemplate {
 // buildL2SystemPrompt builds a three-segment System Prompt for the L2 Supervisor.
 //
 // Segment 1 (User Defined Area): User's business Role + System Prompt
-// Segment 2 (Dynamic Capability Area): Team Context + Same-Group Agents Directory + MCP Servers
-// Segment 3 (Framework Mandatory Area): Immutable underlying contract
-func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, groups map[string]prompt.GroupFile, planDir, workDir, exploreDir string, projectAgents []AgentTemplate, hasPermanentMemory bool) string {
+// Segment 2 (Dynamic Capability Area): Same-Group Agents Directory + MCP Servers
+// Segment 3 (Framework Mandatory Area): Immutable underlying contract, emitted before dynamic catalogs for stable prompt prefixes.
+func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate, _ map[string]prompt.GroupFile, planDir, workDir, exploreDir string, projectAgents []AgentTemplate, hasPermanentMemory bool) string {
 	var b strings.Builder
 
 	// ── Identity ──────────────────────────────────────────
@@ -1090,100 +1102,19 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString("\n\n")
 	}
 
-	// ── Segment 2: Dynamic Capability Area ──────────────────────────────
-	// 2a. Working Directory (Static instructions for 100% prompt cache hit rate)
+	// ── Stable identity and framework prefix ─────────────────────────────
+	// Keep the immutable contract before the dynamic target catalogs so repeated
+	// turns can reuse the largest stable prompt prefix.
 	b.WriteString("# Working Directory\n\nAll file and tool operations execute in the current working directory (CWD) by default. Relative file paths and shell commands operate natively in this directory. If needed, you can use `pwd` or directory inspection commands to verify the absolute path.\n\n")
 
-	// 2b. Team Context (from group file body)
-	if tmpl.Group != "" {
-		if gf, ok := groups[tmpl.Group]; ok {
-			if gf.Body != "" {
-				b.WriteString("# Team Context\n\n")
-				b.WriteString(gf.Body)
-				b.WriteString("\n\n")
-			}
-		}
-	}
+	// Inject the supervisor-specific executor policy. The dynamic worker and
+	// visible-target sections below provide data only; they do not redefine it.
+	b.WriteString(prompt.L2ExecutionOwnershipPolicy)
+	b.WriteString("\n\n")
+	b.WriteString(prompt.MemoryUsePolicy)
+	b.WriteString("\n\n")
 
-	// 2b. Same-group Agents Directory (excluding the leader itself) + merged project-level agents
-	mergedWorkers := make(map[string]AgentTemplate)
-	for id, t := range templates {
-		if id == tmpl.ID {
-			continue
-		}
-		if tmpl.Group != "" && t.Group == tmpl.Group {
-			mergedWorkers[id] = t
-		}
-	}
-	// Project-level agents override global agents with the same ID
-	for _, t := range projectAgents {
-		if t.ID == tmpl.ID {
-			continue
-		}
-		mergedWorkers[t.ID] = t
-	}
-	if len(mergedWorkers) > 0 {
-		b.WriteString("# Available Workers\n\n")
-		b.WriteString("You can delegate tasks to the following workers:\n\n")
-		workerIDs := make([]string, 0, len(mergedWorkers))
-		for id := range mergedWorkers {
-			workerIDs = append(workerIDs, id)
-		}
-		sort.Strings(workerIDs)
-		for _, id := range workerIDs {
-			peer := mergedWorkers[id]
-			desc := peer.Description
-			if desc == "" {
-				desc = "no description"
-			}
-			fmt.Fprintf(&b, "- **%s**: %s\n", peer.Name, desc)
-		}
-		b.WriteString("\n")
-	}
-
-	// 2b-peer. Peer Teams (cross-team collaboration)
-	// List other team leaders so the L2 knows who it can ask for help.
-	peerLeaders := make([]AgentTemplate, 0)
-	for _, t := range templates {
-		if t.IsLeader && t.ID != tmpl.ID {
-			peerLeaders = append(peerLeaders, t)
-		}
-	}
-	sort.Slice(peerLeaders, func(i, j int) bool {
-		return peerLeaders[i].ID < peerLeaders[j].ID
-	})
-	if len(peerLeaders) > 0 {
-		b.WriteString("# Peer Teams (Cross-Team Collaboration)\n\n")
-		b.WriteString("## Delegation Order\n\n")
-		b.WriteString("You MUST follow this exact priority chain, in order, without skipping levels:\n\n")
-		b.WriteString("1. **Your Team Workers (FIRST)** — Delegate ALL sub-tasks that match a worker's domain. This is non-negotiable. Self-executing worker-level work is FORBIDDEN.\n\n")
-		b.WriteString("2. **Peer Teams (SECOND)** — If NO team worker can handle the sub-task, you MUST check all peer teams listed below. If a peer team's domain matches, you MUST call `delegate(target, task_name, task, context)`. Skipping peer teams and going directly to self-execution is FORBIDDEN.\n\n")
-		b.WriteString("3. **Self-execute (LAST RESORT)** — Only when BOTH team workers AND all peer teams are unsuitable. Self-execution is a delegation failure. Minimize it.\n\n")
-		b.WriteString("Every delegate call MUST include a concise, stable `task_name`. Use `inspect_delegation` to answer status or progress questions; never create another delegate call merely to check existing work.\n\n")
-		b.WriteString("## Available Peer Teams\n\n")
-		for _, peer := range peerLeaders {
-			desc := peer.Description
-			if desc == "" {
-				desc = "no description"
-			}
-			fmt.Fprintf(&b, "- **%s**: %s\n", peer.Name, desc)
-		}
-		b.WriteString("\n")
-		b.WriteString("## Rules\n")
-		b.WriteString("- Peer help is for SUB-TASKS within your current task. Do NOT outsource the entire task.\n")
-		b.WriteString("- Provide clear, self-contained context when delegating to peers.\n")
-		b.WriteString("- Do NOT form delegation loops (system enforced, auto-rejected).\n")
-		b.WriteString("- If a peer team is unreachable, report the blocker to the caller with details.\n\n")
-	}
-
-	// 2c. MCP Servers
-	if len(tmpl.MCPServers) > 0 {
-		b.WriteString("# Available MCP Servers\n\n")
-		for _, name := range tmpl.MCPServers {
-			fmt.Fprintf(&b, "- %s\n", name)
-		}
-		b.WriteString("\n")
-	}
+	var dynamic strings.Builder
 
 	// ── Segment 3: Framework Mandatory Area ──────────────────────────────
 	b.WriteString(prompt.EnvSection(workDir, exploreDir, false, false))
@@ -1193,6 +1124,7 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString("\n\n")
 	}
 	b.WriteString(strings.ReplaceAll(prompt.SharedAgentRules, "{{EXPLORE_DIR}}", exploreDir))
+	b.WriteString(prompt.L2SkillExecutionContract)
 	b.WriteString(strings.ReplaceAll(prompt.L2EnforcedDirectivesPart1, "{{PLAN_DIR}}", planDir))
 	if planDir != "" {
 		planSection := strings.ReplaceAll(prompt.L2EnforcedPlanSection, "{{PLAN_DIR}}", planDir)
@@ -1205,6 +1137,80 @@ func buildL2SystemPrompt(tmpl AgentTemplate, templates map[string]AgentTemplate,
 		b.WriteString(prompt.LSPToolAwarenessSection)
 	}
 
+	// Same-group Agents Directory (excluding the leader itself) + merged project-level agents
+	mergedWorkers := make(map[string]AgentTemplate)
+	for id, t := range templates {
+		if id == tmpl.ID || t.IsLeader {
+			continue
+		}
+		if tmpl.Group != "" && t.Group == tmpl.Group {
+			mergedWorkers[CanonicalTargetID(t)] = t
+		}
+	}
+	// Project-level agents override global agents with the same ID
+	for _, t := range projectAgents {
+		if t.ID == tmpl.ID || t.IsLeader {
+			continue
+		}
+		mergedWorkers[CanonicalTargetID(t)] = t
+	}
+	if len(mergedWorkers) > 0 {
+		dynamic.WriteString("# Available Workers\n\n")
+		dynamic.WriteString("You can delegate tasks to the following workers:\n\n")
+		workerIDs := make([]string, 0, len(mergedWorkers))
+		for id := range mergedWorkers {
+			workerIDs = append(workerIDs, id)
+		}
+		sort.Strings(workerIDs)
+		for _, id := range workerIDs {
+			peer := mergedWorkers[id]
+			desc := peer.Description
+			if desc == "" {
+				desc = "no description"
+			}
+			fmt.Fprintf(&dynamic, "- **%s** (target=%s): %s\n", peer.Name, CanonicalTargetID(peer), desc)
+		}
+		dynamic.WriteString("\n")
+	}
+
+	// 2b-peer. Peer Teams (cross-team collaboration)
+	// List other team leaders so the L2 knows who it can ask for help.
+	peerLeaders := make([]AgentTemplate, 0)
+	for _, t := range templates {
+		if t.IsLeader && t.ID != tmpl.ID && (tmpl.Group == "" || !strings.EqualFold(t.Group, tmpl.Group)) {
+			peerLeaders = append(peerLeaders, t)
+		}
+	}
+	sort.Slice(peerLeaders, func(i, j int) bool {
+		return peerLeaders[i].ID < peerLeaders[j].ID
+	})
+	if len(peerLeaders) > 0 {
+		dynamic.WriteString("# Peer Teams (Cross-Team Collaboration)\n\n")
+		dynamic.WriteString("Use the canonical target IDs below in delegate calls. Use inspect_delegation for progress or detail questions; do not dispatch a new task only to check status.\n\n")
+		dynamic.WriteString("## Available Peer Teams\n\n")
+		for _, peer := range peerLeaders {
+			desc := peer.Description
+			if desc == "" {
+				desc = "no description"
+			}
+			fmt.Fprintf(&dynamic, "- **%s** (target=%s): %s\n", peer.Name, CanonicalTargetID(peer), desc)
+		}
+		dynamic.WriteString("\n")
+		dynamic.WriteString("## Rules\n")
+		dynamic.WriteString("- Peer help is for SUB-TASKS within your current task. Do NOT outsource the entire task.\n")
+		dynamic.WriteString("- Do NOT form delegation loops (system enforced, auto-rejected).\n")
+		dynamic.WriteString("- If a peer team is unreachable, report the blocker to the caller with details.\n\n")
+	}
+
+	// 2c. MCP Servers
+	if len(tmpl.MCPServers) > 0 {
+		dynamic.WriteString("# Available MCP Servers\n\n")
+		for _, name := range tmpl.MCPServers {
+			fmt.Fprintf(&dynamic, "- %s\n", name)
+		}
+		dynamic.WriteString("\n")
+	}
+	b.WriteString(dynamic.String())
 	return b.String()
 }
 

@@ -239,6 +239,27 @@ func TestDelegateToolSchemaRequiresTaskNameAndDoesNotExposeAsync(t *testing.T) {
 	if !slices.Contains(schema.Required, "task_name") {
 		t.Fatalf("required = %v, want task_name", schema.Required)
 	}
+	for _, field := range []string{"dynamic_worker", "parallel_tasks", "efficiency_reason"} {
+		if _, ok := schema.Properties[field]; !ok {
+			t.Fatalf("delegate schema must expose %s", field)
+		}
+	}
+}
+
+func TestDelegateToolDynamicWorkerRequiresExplicitEfficiencyPlan(t *testing.T) {
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		return dispatchTestTarget{}, false, nil
+	}
+	ctx := iface.ContextWithWorkDir(context.Background(), t.TempDir())
+	plain := NewDelegateTool("leader", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited)
+	if _, err := plain.Execute(ctx, `{"target":"dynamic-1","task_name":"parallel-check","task":"check","dynamic_worker":true,"parallel_tasks":["a","b"],"efficiency_reason":"parallel"}`); err == nil || !strings.Contains(err.Error(), "not enabled") {
+		t.Fatalf("plain delegate should reject dynamic worker: %v", err)
+	}
+
+	dynamic := NewDelegateTool("leader", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited, WithDynamicWorkers())
+	if _, err := dynamic.Execute(ctx, `{"target":"dynamic-1","task_name":"parallel-check","task":"check","dynamic_worker":true,"parallel_tasks":["a"],"efficiency_reason":"parallel"}`); err == nil || !strings.Contains(err.Error(), "at least two") {
+		t.Fatalf("dynamic delegate should require two independent tasks: %v", err)
+	}
 }
 
 func TestDelegateToolPersistsPeerHelpLifecycle(t *testing.T) {

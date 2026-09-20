@@ -13,6 +13,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent/llmtypes"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/cron"
 	sqlitedb "github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
@@ -29,6 +30,7 @@ func TestLoadAgentTemplates_ValidDir(t *testing.T) {
 
 	// agent1.md - valid leader
 	agent1 := `---
+id: dev-lead
 name: dev
 description: Dev agent
 model: gpt-4
@@ -80,7 +82,7 @@ invalid yaml
 	found := map[string]bool{}
 	for _, tmpl := range templates {
 		found[tmpl.ID] = true
-		if tmpl.ID == "dev" {
+		if tmpl.ID == "dev-lead" {
 			if !tmpl.IsLeader {
 				t.Error("dev should have is_leader=true")
 			}
@@ -92,7 +94,7 @@ invalid yaml
 		}
 	}
 
-	if !found["dev"] || !found["test"] {
+	if !found["dev-lead"] || !found["test"] {
 		t.Error("missing expected templates")
 	}
 }
@@ -211,10 +213,13 @@ func TestDefaultFactory_MemoryCapabilityOnlyForL2Leader(t *testing.T) {
 		t.Fatal(err)
 	}
 	memoryEngine := memoryengine.New(shared.DB, &shared.WMu, nil, nil, log)
+	cronStore := cron.NewDBStore(shared)
+	cronScheduler := cron.NewScheduler(cronStore, nil, log)
+	defer cronScheduler.Stop()
 	factory := NewDefaultFactory(
 		NewRegistry(log),
 		&agenttest.FakeLLM{Responses: []string{"ok", "ok"}},
-		tools.Config{MemoryEngine: memoryEngine},
+		tools.Config{MemoryEngine: memoryEngine, CronStore: cronStore, CronScheduler: cronScheduler},
 		log,
 		WithTeamStore(teamStore),
 		WithMemoryEngine(memoryEngine),
@@ -230,6 +235,9 @@ func TestDefaultFactory_MemoryCapabilityOnlyForL2Leader(t *testing.T) {
 	defer leader.Stop(time.Second)
 	if !leader.HasTool("Remember") || !leader.HasTool("RecallMemory") {
 		t.Fatal("L2 leader did not receive its bound memory tools")
+	}
+	if leader.HasTool("manage_cron") {
+		t.Fatal("L2 leader must not receive scheduling tools")
 	}
 
 	worker, cw, err := factory.Create(context.Background(), AgentTemplate{
@@ -714,6 +722,36 @@ func TestL2EnforcedDirectives_ContainsClarificationRule(t *testing.T) {
 	}
 }
 
+func TestBuildL2SystemPrompt_ExcludesTeamContextBody(t *testing.T) {
+	leader := AgentTemplate{
+		ID:       "investlab-leader",
+		Name:     "InvestLab Leader",
+		IsLeader: true,
+		Group:    "InvestLab",
+	}
+	worker := AgentTemplate{
+		ID:          "researcher",
+		Name:        "Researcher",
+		Description: "Research worker",
+		Group:       "InvestLab",
+	}
+	groups := map[string]prompt.GroupFile{
+		"InvestLab": {Body: "team body must not be injected into the L2 prompt"},
+	}
+
+	got := buildL2SystemPrompt(leader, map[string]AgentTemplate{
+		leader.ID: leader,
+		worker.ID: worker,
+	}, groups, "", "/work", "/explore", nil, false)
+
+	if strings.Contains(got, "# Team Context") || strings.Contains(got, "team body must not be injected") {
+		t.Fatal("L2 prompt must not inject the Team Context body")
+	}
+	if !strings.Contains(got, "# Available Workers") || !strings.Contains(got, "Researcher") {
+		t.Fatal("removing Team Context must not remove the dynamic Worker catalog")
+	}
+}
+
 func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 	devTmpl := AgentTemplate{
 		ID:           "dev",
@@ -834,21 +872,38 @@ func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
 }
 
 func TestL2L3Directives_ContainSkillUseRules(t *testing.T) {
-	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "Skill Use for Delegating Agents") {
-		t.Error("prompt.L2EnforcedDirectivesPart1 should contain the delegating-agent Skill section")
+	if !strings.Contains(prompt.L2SkillExecutionContract, "SKILL STEP") {
+		t.Error("L2 Skill contract should contain the upstream-step mode")
 	}
-	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "do not invent skill IDs") || !strings.Contains(prompt.L2EnforcedDirectivesPart1, "preserve explicit user-requested Skill IDs") {
+	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "Use the delegation policy for target choice") {
+		t.Error("prompt.L2EnforcedDirectivesPart1 should reference the shared delegation policy")
+	}
+	if !strings.Contains(prompt.L2SkillExecutionContract, "Never invent a Skill ID") || !strings.Contains(prompt.L2SkillExecutionContract, "preserve the exact step marker") {
 		t.Error("L2 delegation must avoid invented Skill IDs while preserving explicit user requirements")
 	}
-	if !strings.Contains(prompt.L3EnforcedDirectives, "Skill Use for Receiving Agents") {
-		t.Error("prompt.L3EnforcedDirectives should contain the receiving-agent Skill section")
+	if !strings.Contains(prompt.L3EnforcedDirectives, "Skill Execution for Workers") {
+		t.Error("prompt.L3EnforcedDirectives should contain the worker Skill section")
 	}
-	if !strings.Contains(prompt.L3EnforcedDirectives, "standalone") {
-		t.Error("prompt.L3EnforcedDirectives should classify standalone tasks")
+	if strings.Contains(prompt.L3EnforcedDirectives, "SKILL STEP") {
+		t.Error("worker Skill directives must not classify upstream Skill steps")
 	}
 }
 
-func TestL2L3Directives_KeepSkillLifecycleWithAssistant(t *testing.T) {
+func TestBuildSystemPromptsSkillInjectionBoundaries(t *testing.T) {
+	l2 := buildL2SystemPrompt(AgentTemplate{ID: "leader", Name: "Leader", IsLeader: true}, nil, nil, "/plan", "/work", "/explore", nil, false)
+	l3 := buildL3SystemPrompt(AgentTemplate{ID: "worker", Name: "Worker"}, nil, "/plan", "/work", "/explore")
+	if !strings.Contains(l2, "visible Worker from your own Team") || !strings.Contains(l2, "visible peer Team") || !strings.Contains(l2, "dynamic Worker only when no suitable Worker or peer Team exists") {
+		t.Error("L2 prompt should receive the supervisor target-order policy")
+	}
+	if !strings.Contains(l2, "SKILL STEP") || !strings.Contains(l2, "This is step N of the <skill> SOP") {
+		t.Error("L2 prompt should receive upstream Skill-step instructions")
+	}
+	if strings.Contains(l3, "SKILL STEP") || strings.Contains(l3, "This is step N of the <skill> SOP") {
+		t.Error("L3 prompt must not receive supervisor-only upstream Skill-step classification")
+	}
+}
+
+func TestL2L3Directives_OmitSkillManagement(t *testing.T) {
 	checks := []struct {
 		name string
 		text string
@@ -858,17 +913,20 @@ func TestL2L3Directives_KeepSkillLifecycleWithAssistant(t *testing.T) {
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
-			if !strings.Contains(check.text, "Do not search, install, update, or uninstall Skills with ClawHub") {
-				t.Errorf("%s directives should forbid Skill lifecycle management", check.name)
-			}
-			if !strings.Contains(check.text, "report its Skill ID") {
-				t.Errorf("%s directives should route missing Skills to the caller", check.name)
+			for _, forbidden := range []string{
+				"# Skill Management",
+				"Use ClawHub directly for Skill search, installation, update, or removal",
+				"report its Skill ID",
+			} {
+				if strings.Contains(check.text, forbidden) {
+					t.Errorf("%s directives must not contain Skill management rule %q", check.name, forbidden)
+				}
 			}
 		})
 	}
 }
 
-func TestBuildL2L3SystemPrompts_IncludeSkillLifecycleBoundary(t *testing.T) {
+func TestBuildL2L3SystemPrompts_OmitSkillManagementRules(t *testing.T) {
 	l2 := buildL2SystemPrompt(
 		AgentTemplate{ID: "leader", Name: "Leader", IsLeader: true, Group: "team"},
 		nil,
@@ -888,11 +946,14 @@ func TestBuildL2L3SystemPrompts_IncludeSkillLifecycleBoundary(t *testing.T) {
 	)
 	for name, got := range map[string]string{"L2": l2, "L3": l3} {
 		t.Run(name, func(t *testing.T) {
-			if !strings.Contains(got, "Do not search, install, update, or uninstall Skills with ClawHub") {
-				t.Errorf("%s system prompt should include lifecycle boundary", name)
-			}
-			if !strings.Contains(got, "report its Skill ID and requirement to the caller") {
-				t.Errorf("%s system prompt should route missing Skills to the caller", name)
+			for _, forbidden := range []string{
+				"# Skill Management",
+				"Use ClawHub directly for Skill search, installation, update, or removal",
+				"report its Skill ID and requirement to the caller",
+			} {
+				if strings.Contains(got, forbidden) {
+					t.Errorf("%s system prompt must not contain Skill management rule %q", name, forbidden)
+				}
 			}
 		})
 	}
@@ -1024,6 +1085,13 @@ func TestBuildL2SystemPrompt_DeterministicCapabilityOrder(t *testing.T) {
 			Group:       "other",
 		},
 		"leader": leader,
+		"same-group-peer": {
+			ID:          "same-group-peer",
+			Name:        "Same Group Peer",
+			Description: "must stay hidden from this supervisor",
+			IsLeader:    true,
+			Group:       "core",
+		},
 		"worker-a": {
 			ID:          "worker-a",
 			Name:        "Alpha Worker",
@@ -1056,8 +1124,8 @@ func TestBuildL2SystemPrompt_DeterministicCapabilityOrder(t *testing.T) {
 		}
 	}
 
-	alphaWorker := strings.Index(baseline, "- **Alpha Worker**: alpha")
-	zetaWorker := strings.Index(baseline, "- **Project Zeta Worker**: project override")
+	alphaWorker := strings.Index(baseline, "- **Alpha Worker** (target=worker-a): alpha")
+	zetaWorker := strings.Index(baseline, "- **Project Zeta Worker** (target=worker-z): project override")
 	if alphaWorker == -1 || zetaWorker == -1 || alphaWorker >= zetaWorker {
 		t.Errorf("workers are not ordered by ID: alpha=%d zeta=%d", alphaWorker, zetaWorker)
 	}
@@ -1065,10 +1133,40 @@ func TestBuildL2SystemPrompt_DeterministicCapabilityOrder(t *testing.T) {
 		t.Error("project-level worker should override the global worker with the same ID")
 	}
 
-	alphaPeer := strings.Index(baseline, "- **Alpha Peer**: alpha peer")
-	zetaPeer := strings.Index(baseline, "- **Zeta Peer**: zeta peer")
+	alphaPeer := strings.Index(baseline, "- **Alpha Peer** (target=peer-a): alpha peer")
+	zetaPeer := strings.Index(baseline, "- **Zeta Peer** (target=peer-z): zeta peer")
 	if alphaPeer == -1 || zetaPeer == -1 || alphaPeer >= zetaPeer {
 		t.Errorf("peer leaders are not ordered by ID: alpha=%d zeta=%d", alphaPeer, zetaPeer)
+	}
+	if strings.Contains(baseline, "Same Group Peer") {
+		t.Error("same-team leader should not be visible as a peer Team")
+	}
+}
+
+func TestBuildL2SystemPrompt_StableFrameworkPrefixPrecedesDynamicCatalog(t *testing.T) {
+	leader := AgentTemplate{ID: "leader", Name: "Leader", IsLeader: true, Group: "core"}
+	withWorker := map[string]AgentTemplate{
+		"leader": leader,
+		"worker": {ID: "worker", Name: "Worker", Description: "first description", Group: "core"},
+	}
+	changedWorker := map[string]AgentTemplate{
+		"leader": leader,
+		"worker": {ID: "worker", Name: "Worker", Description: "changed description", Group: "core"},
+	}
+	first := buildL2SystemPrompt(leader, withWorker, nil, "/plan", "/work", "/explore", nil, false)
+	second := buildL2SystemPrompt(leader, changedWorker, nil, "/plan", "/work", "/explore", nil, false)
+	marker := "# Available Workers\n"
+	firstMarker := strings.Index(first, marker)
+	secondMarker := strings.Index(second, marker)
+	if firstMarker < 0 || secondMarker < 0 {
+		t.Fatal("expected dynamic worker catalog in both prompts")
+	}
+	framework := strings.Index(first, "========================================\nEXECUTION RULES")
+	if framework < 0 || framework > firstMarker {
+		t.Fatalf("framework contract should precede dynamic worker catalog: framework=%d workers=%d", framework, firstMarker)
+	}
+	if first[:firstMarker] != second[:secondMarker] {
+		t.Fatal("changing dynamic worker metadata should not change the stable prompt prefix")
 	}
 }
 
@@ -1173,8 +1271,8 @@ func TestBuildL2SystemPrompt_PermanentMemory(t *testing.T) {
 
 	prompt := buildL2SystemPrompt(devTmpl, templates, groups, "/plan", "/workdir", "/explore", nil, true)
 
-	if !strings.Contains(prompt, "Long-Term Memory") {
-		t.Error("L2 prompt should contain Long-Term Memory section when permanent memory is enabled")
+	if !strings.Contains(prompt, "Memory Tools") {
+		t.Error("L2 prompt should contain memory tools when permanent memory is enabled")
 	}
 	if !strings.Contains(prompt, "RecallMemory") {
 		t.Error("L2 prompt should mention RecallMemory tool")
@@ -1182,11 +1280,22 @@ func TestBuildL2SystemPrompt_PermanentMemory(t *testing.T) {
 	if !strings.Contains(prompt, "Remember") {
 		t.Error("L2 prompt should mention Remember tool")
 	}
-	if !strings.Contains(prompt, "when the task explicitly references earlier work") {
+	if !strings.Contains(prompt, "Use recalled memory only when prior context materially helps") {
 		t.Error("L2 prompt should describe selective memory recall")
 	}
 	if strings.Contains(prompt, "ALWAYS call first") || strings.Contains(prompt, "EVERY non-trivial task") {
 		t.Error("L2 prompt should not require memory recall for every task")
+	}
+}
+
+func TestBuildL2SystemPrompt_DoesNotAdvertiseScheduling(t *testing.T) {
+	devTmpl := AgentTemplate{ID: "dev", Name: "Dev", IsLeader: true, Group: "DevOps"}
+	prompt := buildL2SystemPrompt(devTmpl, map[string]AgentTemplate{"dev": devTmpl}, nil, "/plan", "/workdir", "/explore", nil, false)
+
+	for _, forbidden := range []string{"# Cron Jobs", "create_cron_job", "list_cron_jobs", "update_cron_job", "delete_cron_job"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("L2 prompt must not advertise scheduling capability %q", forbidden)
+		}
 	}
 }
 
@@ -1846,7 +1955,7 @@ func TestCreateSkillForkAgent_UsesEffectiveWorkDir(t *testing.T) {
 	}
 }
 
-func TestCreateSkillForkAgent_ContainsSkillLifecycleBoundary(t *testing.T) {
+func TestCreateSkillForkAgent_ContainsSkillManagementRules(t *testing.T) {
 	workDir := t.TempDir()
 	log, err := logger.System(workDir, logger.WithConsole(false))
 	if err != nil {
@@ -1874,8 +1983,8 @@ func TestCreateSkillForkAgent_ContainsSkillLifecycleBoundary(t *testing.T) {
 	if !ok {
 		t.Fatalf("fork locatable type = %T, want *LocatableAdapter", loc)
 	}
-	if !strings.Contains(child.Agent.Def.SystemPrompt, "Do not search, install, update, or uninstall Skills with ClawHub") {
-		t.Fatal("Skill Fork prompt should forbid Skill lifecycle management")
+	if !strings.Contains(child.Agent.Def.SystemPrompt, "Use ClawHub directly for Skill search, installation, update, or removal") {
+		t.Fatal("Skill Fork prompt should keep Skill management with the assistant")
 	}
 	if !strings.Contains(child.Agent.Def.SystemPrompt, "report its Skill ID") {
 		t.Fatal("Skill Fork prompt should route missing Skills to the caller")

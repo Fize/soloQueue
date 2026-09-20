@@ -2134,7 +2134,7 @@ This is the analyzer system prompt.
 	targetLLM := &agenttest.FakeLLM{Responses: []string{"Delegation result"}}
 	f.llm = targetLLM
 
-	args := fmt.Sprintf(`{"target":"analyzer-instance","skill_id":"my-skill","task":"test task","work_dir":%q,"async":false}`, tempDir)
+	args := fmt.Sprintf(`{"target":"analyzer-instance","skill_id":"my-skill","task":"test task","work_dir":%q,"dynamic_worker":true,"parallel_tasks":["inspect source","summarize findings"],"efficiency_reason":"The two read-only subtasks are independent and can run concurrently."}`, tempDir)
 	ctx := iface.ContextWithWorkDir(context.Background(), tempDir)
 	res, err := dt.Execute(ctx, args)
 	if err != nil {
