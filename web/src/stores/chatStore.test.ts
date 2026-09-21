@@ -377,6 +377,7 @@ describe('chatStore', () => {
       messages: [
         {
           id: 'history-user',
+          request_id: 'channel-request',
           role: 'user',
           timestamp: '',
           segments: [{ type: 'content', text: 'persisted prompt' }],
@@ -394,6 +395,39 @@ describe('chatStore', () => {
 
     expect(fetchSessionHistory).toHaveBeenCalledWith(sid, undefined, 30)
     expect(useChatStore.getState().messages[sid][0].id).toBe('history-user')
+    expect(useChatStore.getState().messages[sid][0].requestId).toBe('channel-request')
+  })
+
+  it('preserves request ownership when loading an older history page', async () => {
+    const sid = 'l1'
+    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
+      messages: [{
+        id: 'older-assistant',
+        request_id: 'older-channel-request',
+        role: 'assistant',
+        timestamp: '2026-09-21T10:00:00Z',
+        segments: [{ type: 'content', text: 'older reply' }],
+      }],
+      has_more: false,
+      cursor: null,
+    } as any)
+    useChatStore.setState({
+      messages: { [sid]: [{
+        id: 'current-user',
+        role: 'user',
+        timestamp: '2026-09-21T10:01:00Z',
+        segments: [{ type: 'content', text: 'current prompt' }],
+      }] },
+      historyCursor: { [sid]: 'older-cursor' },
+    })
+
+    await useChatStore.getState().loadMoreHistory(sid)
+
+    expect(fetchSessionHistory).toHaveBeenCalledWith(sid, 'older-cursor', 30)
+    expect(useChatStore.getState().messages[sid][0]).toMatchObject({
+      id: 'older-assistant',
+      requestId: 'older-channel-request',
+    })
   })
 
   it('does not overwrite handler-owned messages while streaming', async () => {

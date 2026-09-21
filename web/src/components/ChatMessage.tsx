@@ -40,7 +40,7 @@ function ChatMessageViewInner({ message, agentName = 'Assistant', isStreaming = 
     // Recovered virtual messages carry their request identity explicitly. This
     // supports arbitrary request IDs (including channel UUIDs) without
     // guessing that every historical `msg-*` assistant ID is live.
-    const embeddedRequestId = (message as ChatMessage & { requestId?: string }).requestId
+    const embeddedRequestId = message.requestId
     if (embeddedRequestId) return embeddedRequestId
 
     // Preserve the selected route behavior for older/history messages.

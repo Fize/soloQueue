@@ -266,6 +266,7 @@ export const useChatStore = create<ChatState>((set) => ({
       const data = await fetchSessionHistory(sessionId, undefined, PAGE_SIZE)
       const msgs: ChatMessage[] = data.messages.map((hm: SessionHistoryMessage) => ({
         id: hm.id,
+        requestId: hm.request_id,
         role: hm.role as 'user' | 'assistant',
         segments: hm.segments.map(convertHistorySegment),
         timestamp: hm.timestamp,
@@ -343,6 +344,7 @@ export const useChatStore = create<ChatState>((set) => ({
       const data = await fetchSessionHistory(sessionId, cursor, PAGE_SIZE)
       const olderMsgs: ChatMessage[] = data.messages.map((hm: SessionHistoryMessage) => ({
         id: hm.id,
+        requestId: hm.request_id,
         role: hm.role as 'user' | 'assistant',
         segments: hm.segments.map(convertHistorySegment),
         timestamp: hm.timestamp,

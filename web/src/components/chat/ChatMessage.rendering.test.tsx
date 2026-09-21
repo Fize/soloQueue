@@ -206,25 +206,144 @@ describe('runtime-owned worked lifecycle', () => {
   })
 })
 
-it('keeps empty thinking manually collapsed when a tool is appended', () => {
+it('renders the initial empty thinking as worked and preserves its manual state when work arrives', () => {
   state.activeRequests['empty-thinking'] = { sessionId: 'l1', status: 'streaming' }
   const emptyThinking: ChatMessage['segments'][number] = { type: 'thinking', text: '' }
   const { container, rerender } = render(<ChatMessageView message={assistant('empty-thinking', [emptyThinking])} sessionId="l1" />)
+  expect(container.querySelectorAll('details')).toHaveLength(1)
   expect(worked(container).open).toBe(true)
+  expect(groupSegments([emptyThinking])).toMatchObject([
+    { type: 'worked', id: 'worked-0', segments: [{ originalIndex: 0 }] },
+  ])
   fireEvent.click(screen.getByText('worked'))
   expect(worked(container).open).toBe(false)
   rerender(<ChatMessageView message={assistant('empty-thinking', [emptyThinking, { type: 'tool_call', name: 'read_file', callId: 'empty-tool', args: '{}', done: false }])} sessionId="l1" />)
+  expect(container.querySelectorAll('details')).toHaveLength(1)
   expect(worked(container).open).toBe(false)
+  expect(groupSegments([emptyThinking, { type: 'tool_call', name: 'read_file', callId: 'empty-tool', args: '{}', done: false }])).toMatchObject([
+    { type: 'worked', id: 'worked-0', segments: [{ originalIndex: 1 }] },
+  ])
+})
+
+it('hides an empty thinking placeholder when the turn contains only content', () => {
+  const groups = groupSegments([
+    { type: 'thinking', text: '' },
+    { type: 'content', text: 'Answer' },
+  ])
+  expect(groups).toEqual([
+    { type: 'other', segment: { type: 'content', text: 'Answer' }, index: 1 },
+  ])
 })
 
 it.each([
   { type: 'content', text: 'Answer' },
   { type: 'tool_call', name: 'delegate', callId: 'delegate-empty', args: '{}', done: false },
-] satisfies ChatMessage['segments'])('does not create an empty worked block before $type', (segment) => {
+] satisfies ChatMessage['segments'])('anchors later work to the initial empty thinking across $type', (segment) => {
   const groups = groupSegments([{ type: 'thinking', text: '' }, segment, thinking])
   expect(groups).toHaveLength(2)
-  expect(groups[0].type).not.toBe('worked')
-  expect(groups[1]).toMatchObject({ type: 'worked', id: 'worked-2' })
+  expect(groups.find((group) => group.type === 'worked')).toMatchObject({
+    type: 'worked',
+    id: 'worked-0',
+    segments: [{ originalIndex: 2 }],
+  })
+})
+
+it('keeps interleaved work and content in arrival order inside one assistant message', () => {
+  const segments = [
+    { type: 'thinking', text: 'First thought' },
+    { type: 'content', text: 'First answer. ' },
+    { type: 'tool_call', name: 'read_file', callId: 'interleaved-tool', args: '{}', done: true },
+    { type: 'thinking', text: 'Second thought' },
+    { type: 'content', text: 'Second answer.' },
+  ] satisfies ChatMessage['segments']
+
+  const groups = groupSegments(segments)
+  expect(groups).toHaveLength(4)
+  expect(groups[0]).toMatchObject({
+    type: 'worked',
+    id: 'worked-0',
+    isLast: false,
+    segments: [{ originalIndex: 0 }],
+  })
+  expect(groups[1]).toMatchObject({
+    type: 'other',
+    index: 1,
+    segment: { type: 'content', text: 'First answer. ' },
+  })
+  expect(groups[2]).toMatchObject({
+    type: 'worked',
+    id: 'worked-2',
+    isLast: false,
+    segments: [{ originalIndex: 2 }, { originalIndex: 3 }],
+  })
+  expect(groups[3]).toMatchObject({
+    type: 'other',
+    index: 4,
+    segment: { type: 'content', text: 'Second answer.' },
+  })
+
+  const { container } = render(
+    <ChatMessageView message={assistant('interleaved-stream', segments)} sessionId="l1" />,
+  )
+  expect(container.querySelectorAll('details')).toHaveLength(2)
+  const firstAnswer = screen.getByText('First answer.')
+  const secondWorked = container.querySelectorAll('details')[1]
+  const secondAnswer = screen.getByText('Second answer.')
+  expect(firstAnswer.compareDocumentPosition(secondWorked) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(secondWorked.compareDocumentPosition(secondAnswer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+it('keeps delegation segments on their original sides of intervening content', () => {
+  const groups = groupSegments([
+    { type: 'delegation', agentName: 'first', task: 'one', status: 'completed' },
+    { type: 'content', text: 'Interim answer' },
+    { type: 'tool_call', name: 'delegate', callId: 'second', args: '{}', done: true },
+  ])
+
+  expect(groups).toHaveLength(3)
+  expect(groups[0]).toMatchObject({
+    type: 'delegation_group',
+    id: 'delegation-0',
+    segments: [{ originalIndex: 0 }],
+  })
+  expect(groups[1]).toMatchObject({
+    type: 'other',
+    segment: { type: 'content', text: 'Interim answer' },
+  })
+  expect(groups[2]).toMatchObject({
+    type: 'delegation_group',
+    id: 'delegation-2',
+    segments: [{ originalIndex: 2 }],
+  })
+})
+
+it('does not merge adjacent content or delegation segments', () => {
+  const groups = groupSegments([
+    { type: 'content', text: 'A' },
+    { type: 'content', text: 'B' },
+    { type: 'tool_call', name: 'delegate', callId: 'delegate-a', args: '{}', done: true },
+    { type: 'tool_call', name: 'delegate', callId: 'delegate-b', args: '{}', done: false },
+  ])
+  expect(groups.map((group) => group.type)).toEqual([
+    'other', 'other', 'delegation_group', 'delegation_group',
+  ])
+  expect(groups.map((group) => group.type === 'other' ? group.index : group.id)).toEqual([
+    0, 1, 'delegation-2', 'delegation-3',
+  ])
+})
+
+it('renders work received after formal content below that content and keeps it open while running', () => {
+  state.activeRequests['post-content-work'] = { sessionId: 'l1', status: 'streaming' }
+  const { container } = render(<ChatMessageView message={assistant('post-content-work', [
+    { type: 'content', text: '先给正式回复' },
+    { type: 'thinking', text: '随后继续核实' },
+    { type: 'tool_call', name: 'read_file', callId: 'after-content', args: '{}', done: false },
+  ])} sessionId="l1" />)
+
+  const answer = screen.getByText('先给正式回复')
+  const laterWorked = worked(container)
+  expect(answer.compareDocumentPosition(laterWorked) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(laterWorked.open).toBe(true)
 })
 
 describe('channel attachment presentation', () => {
@@ -249,7 +368,7 @@ it('previews extensionless historical image attachments after decoding and retai
 })
 
 describe('worked block lifecycle', () => {
-  it('opens only the request-owned running message and closes when its group or request ends', () => {
+  it('keeps the request-owned worked block open across content and closes when ownership ends', () => {
     state.activeRequests['live-l1'] = { sessionId: 'l1', status: 'streaming' }
     const { container, rerender } = render(<ChatMessageView message={assistant('live-l1')} sessionId="l1" />)
     expect(worked(container).open).toBe(true)
@@ -315,10 +434,11 @@ it('identifies images by saved path even when display name lacks the extension',
   expect(screen.getByRole('img', { name: 'download' })).toBeVisible()
 })
 
-it('opens only the final running worked group while prior groups stay closed', () => {
+it('closes completed work before content and opens later work below it', () => {
   state.activeRequests['two-groups'] = { sessionId: 'session-2', status: 'streaming' }
   const { container } = render(<ChatMessageView message={assistant('two-groups', [thinking, { type: 'content', text: 'Progress' }, thinking])} sessionId="session-2" isStreaming />)
   const groups = container.querySelectorAll('details')
+  expect(groups).toHaveLength(2)
   expect(groups[0].open).toBe(false)
   expect(groups[1].open).toBe(true)
 })

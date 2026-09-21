@@ -174,6 +174,82 @@ describe('websocket', () => {
     expect(useChatStore.getState().routeSessions.l1).toBeUndefined()
   })
 
+  it('cleans up a terminal external handler before the same request id starts again', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_accepted',
+      origin: 'channel',
+      request_id: 'req-reused-external',
+      session_id: 'l1',
+      prompt: '第一次渠道消息',
+      timestamp: '2026-09-21T10:24:00.000Z',
+    })
+    expect(wsManager.hasChatHandler('req-reused-external')).toBe(true)
+
+    const terminalRuntime = (revision: number, sessionId = 'l1') => ({
+      phase: 'idle',
+      prompt_tokens: 0,
+      output_tokens: 0,
+      cache_hit_tokens: 0,
+      cache_miss_tokens: 0,
+      context_pct: 0,
+      current_tokens: 0,
+      max_tokens: 0,
+      current_iter: 0,
+      content_deltas: 0,
+      active_delegations: 0,
+      total_agents: 1,
+      running_agents: 0,
+      idle_agents: 1,
+      total_errors: 0,
+      http_addr: ':8765',
+      agent_streams: {},
+      sessions: {
+        [`${sessionId}:req-reused-external`]: {
+          session_id: sessionId,
+          request_id: 'req-reused-external',
+          state: 'idle',
+          terminal_code: 'completed',
+          revision,
+          ctxwin_used: 0,
+          ctxwin_limit: 0,
+          delegating: false,
+        },
+      },
+    })
+
+    simulateMessage({ type: 'state', runtime: terminalRuntime(1, 'l2:wrong') })
+    expect(wsManager.hasChatHandler('req-reused-external')).toBe(true)
+
+    simulateMessage({ type: 'state', runtime: terminalRuntime(1) })
+    expect(wsManager.hasChatHandler('req-reused-external')).toBe(false)
+
+    useChatStore.setState({ messages: { l1: [] } })
+    simulateMessage({
+      type: 'chat_accepted',
+      origin: 'channel',
+      request_id: 'req-reused-external',
+      session_id: 'l1',
+      prompt: '第二次渠道消息',
+      timestamp: '2026-09-21T10:25:00.000Z',
+    })
+    expect(wsManager.hasChatHandler('req-reused-external')).toBe(true)
+    expect(useChatStore.getState().messages.l1?.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+    ])
+    expect(useChatStore.getState().messages.l1?.[0].segments[0]).toMatchObject({
+      type: 'content',
+      text: '第二次渠道消息',
+    })
+
+    simulateMessage({ type: 'state', runtime: terminalRuntime(2) })
+    expect(wsManager.hasChatHandler('req-reused-external')).toBe(false)
+  })
+
   it('does not reuse route metadata from a different runtime request', async () => {
     useChatStore.setState({
       routeSessions: {
@@ -473,6 +549,338 @@ describe('websocket', () => {
     simulateMessage(accepted)
 
     expect(onAccepted).toHaveBeenCalledWith(accepted)
+  })
+
+  it('hydrates an unowned channel stream into the active chat store', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_accepted',
+      origin: 'channel',
+      request_id: 'req-channel',
+      session_id: 'l1',
+      prompt: '来自 QQ 的消息',
+    })
+    simulateMessage({
+      type: 'chat_route',
+      origin: 'channel',
+      request_id: 'req-channel',
+      session_id: 'l1',
+      task_type: 'general',
+      model_id: 'channel-model',
+    })
+    simulateMessage({
+      type: 'chat_chunk',
+      origin: 'channel',
+      request_id: 'req-channel',
+      session_id: 'l1',
+      delta: '实时回复',
+    })
+
+    const beforeDone = useChatStore.getState().messages.l1 || []
+    expect(beforeDone.map((message) => message.role)).toEqual(['user', 'assistant'])
+    expect(beforeDone[0].segments[0]).toMatchObject({ type: 'content', text: '来自 QQ 的消息' })
+    expect(beforeDone[1].segments[0]).toMatchObject({ type: 'content', text: '实时回复' })
+    expect(useChatStore.getState().routeSessions.l1).toMatchObject({
+      requestId: 'req-channel',
+      modelId: 'channel-model',
+    })
+
+    simulateMessage({
+      type: 'chat_done',
+      origin: 'channel',
+      request_id: 'req-channel',
+      session_id: 'l1',
+    })
+    expect(useChatStore.getState().activeRequests['req-channel']).toBeUndefined()
+    expect(useChatStore.getState().streamingSessions.l1).toBe(false)
+
+    simulateMessage({
+      type: 'chat_accepted',
+      origin: 'channel',
+      request_id: 'req-channel-final',
+      session_id: 'l1',
+      prompt: '第二条消息',
+    })
+    simulateMessage({
+      type: 'chat_done',
+      origin: 'channel',
+      request_id: 'req-channel-final',
+      session_id: 'l1',
+      content: '未错过的终结内容',
+    })
+    const finalMessages = useChatStore.getState().messages.l1 || []
+    expect(finalMessages.at(-1)?.segments[0]).toMatchObject({
+      type: 'content',
+      text: '未错过的终结内容',
+    })
+  })
+
+  it('does not invent a user message when a channel chunk arrives without an accepted prompt', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_chunk',
+      origin: 'channel',
+      request_id: 'req-channel-recovery',
+      session_id: 'l1',
+      delta: '恢复中的实时回复',
+    })
+
+    const messages = useChatStore.getState().messages.l1 || []
+    expect(messages.map((message) => message.role)).toEqual(['assistant'])
+    expect(messages[0].segments[0]).toMatchObject({
+      type: 'content',
+      text: '恢复中的实时回复',
+    })
+  })
+
+  it('continues a hydrated channel turn in its existing assistant message', async () => {
+    useChatStore.setState({
+      messages: {
+        l1: [
+          {
+            id: 'hist-user',
+            requestId: 'req-hydrated-channel',
+            role: 'user',
+            segments: [{ type: 'content', text: '分析万华化学持仓' }],
+            timestamp: '2026-09-21T04:00:39.487Z',
+          },
+          {
+            id: 'hist-assistant',
+            requestId: 'req-hydrated-channel',
+            role: 'assistant',
+            segments: [{ type: 'content', text: '先说事实。' }],
+            timestamp: '2026-09-21T04:00:46.719Z',
+          },
+        ],
+      },
+    })
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'tool_start',
+      origin: 'channel',
+      request_id: 'req-hydrated-channel',
+      session_id: 'l1',
+      timestamp: '2026-09-21T04:00:39.500Z',
+      call_id: 'delegate-call',
+      name: 'delegate',
+      args: '{"target":"ray dalio"}',
+    })
+
+    const messages = useChatStore.getState().messages.l1 || []
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toMatchObject({ id: 'channel-user-req-hydrated-channel', role: 'user' })
+    expect(messages[1]).toMatchObject({
+      id: 'msg-req-hydrated-channel',
+      role: 'assistant',
+      segments: [
+        { type: 'content', text: '先说事实。' },
+        { type: 'tool_call', callId: 'delegate-call', name: 'delegate', done: false },
+      ],
+    })
+  })
+
+  it('resumes a delayed channel turn at its original position without duplicating messages', async () => {
+    useChatStore.setState({
+      messages: {
+        l1: [
+          {
+            id: 'hist-old-user',
+            role: 'user',
+            segments: [{ type: 'content', text: '旧渠道请求' }],
+            timestamp: '2026-09-21T10:24:00.000Z',
+          },
+          {
+            id: 'msg-req-delayed-channel',
+            role: 'assistant',
+            segments: [{ type: 'content', text: '旧回复片段' }],
+            timestamp: '2026-09-21T10:24:00.000Z',
+          },
+          {
+            id: 'hist-new-user',
+            role: 'user',
+            segments: [{ type: 'content', text: '新请求' }],
+            timestamp: '2026-09-21T10:32:00.000Z',
+          },
+          {
+            id: 'hist-new-assistant',
+            role: 'assistant',
+            segments: [{ type: 'content', text: '新回复' }],
+            timestamp: '2026-09-21T10:32:00.000Z',
+          },
+        ],
+      },
+    })
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_chunk',
+      origin: 'channel',
+      request_id: 'req-delayed-channel',
+      session_id: 'l1',
+      timestamp: '2026-09-21T10:24:00.000Z',
+      delta: '，继续输出',
+    })
+    simulateMessage({
+      type: 'chat_done',
+      origin: 'channel',
+      request_id: 'req-delayed-channel',
+      session_id: 'l1',
+      timestamp: '2026-09-21T10:24:00.000Z',
+      content: '旧回复片段，继续输出',
+    })
+
+    const messages = useChatStore.getState().messages.l1 || []
+    expect(messages.map((message) => message.id)).toEqual([
+      'hist-old-user',
+      'msg-req-delayed-channel',
+      'hist-new-user',
+      'hist-new-assistant',
+    ])
+    expect(messages[1].segments).toEqual([
+      { type: 'content', text: '旧回复片段，继续输出' },
+    ])
+    expect(messages[0].timestamp).toBe('2026-09-21T10:24:00.000Z')
+    expect(messages[1].timestamp).toBe('2026-09-21T10:24:00.000Z')
+  })
+
+  it('does not merge a delayed channel request into a nearby unrelated turn', async () => {
+    useChatStore.setState({
+      messages: {
+        l1: [
+          {
+            id: 'new-user',
+            role: 'user',
+            segments: [{ type: 'content', text: '半秒后的新请求' }],
+            timestamp: '2026-09-21T10:24:00.500Z',
+          },
+          {
+            id: 'new-assistant',
+            role: 'assistant',
+            segments: [{ type: 'content', text: '新请求的回复' }],
+            timestamp: '2026-09-21T10:24:00.500Z',
+          },
+        ],
+      },
+    })
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_chunk',
+      origin: 'channel',
+      request_id: 'old',
+      session_id: 'l1',
+      timestamp: '2026-09-21T10:24:00.000Z',
+      delta: '旧请求迟到的回复',
+    })
+
+    const messages = useChatStore.getState().messages.l1 || []
+    expect(messages.map((message) => message.id)).toEqual([
+      'msg-old',
+      'new-user',
+      'new-assistant',
+    ])
+    expect(messages[0].segments).toEqual([{ type: 'content', text: '旧请求迟到的回复' }])
+    expect(messages[2].segments).toEqual([{ type: 'content', text: '新请求的回复' }])
+  })
+
+  it('inserts a delayed channel assistant before later user turns', async () => {
+    useChatStore.setState({
+      messages: {
+        l1: [
+          {
+            id: 'hist-new-user',
+            role: 'user',
+            segments: [{ type: 'content', text: '新请求' }],
+            timestamp: '2026-09-21T10:32:00.000Z',
+          },
+          {
+            id: 'hist-new-assistant',
+            role: 'assistant',
+            segments: [{ type: 'content', text: '新回复' }],
+            timestamp: '2026-09-21T10:32:00.000Z',
+          },
+        ],
+      },
+    })
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_chunk',
+      origin: 'channel',
+      request_id: 'req-delayed-insert',
+      session_id: 'l1',
+      timestamp: '2026-09-21T10:24:00.000Z',
+      delta: '迟到的旧回复',
+    })
+
+    const messages = useChatStore.getState().messages.l1 || []
+    expect(messages.map((message) => message.id)).toEqual([
+      'msg-req-delayed-insert',
+      'hist-new-user',
+      'hist-new-assistant',
+    ])
+    expect(messages[0]).toMatchObject({
+      role: 'assistant',
+      timestamp: '2026-09-21T10:24:00.000Z',
+      segments: [{ type: 'content', text: '迟到的旧回复' }],
+    })
+  })
+
+  it('rejects frames that do not match an external channel handler owner', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_accepted',
+      origin: 'channel',
+      request_id: 'req-owned-channel',
+      session_id: 'l1',
+      prompt: '真实渠道消息',
+      timestamp: '2026-09-21T10:24:00.000Z',
+    })
+    simulateMessage({
+      type: 'chat_chunk',
+      origin: 'channel',
+      request_id: 'req-owned-channel',
+      session_id: 'l2:wrong',
+      delta: '错误会话',
+    })
+    simulateMessage({
+      type: 'chat_chunk',
+      request_id: 'req-owned-channel',
+      session_id: 'l1',
+      delta: '缺少来源',
+    })
+    simulateMessage({
+      type: 'chat_chunk',
+      origin: 'browser',
+      request_id: 'req-owned-channel',
+      session_id: 'l1',
+      delta: '错误来源',
+    })
+    simulateMessage({
+      type: 'chat_chunk',
+      origin: 'channel',
+      request_id: 'req-owned-channel',
+      session_id: 'l1',
+      delta: '正确回复',
+    })
+
+    const messages = useChatStore.getState().messages.l1 || []
+    expect(messages).toHaveLength(2)
+    expect(messages[1].segments).toEqual([{ type: 'content', text: '正确回复' }])
   })
 
   it('reports chat_send as unsent when the socket is not open', () => {
