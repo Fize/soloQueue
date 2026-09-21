@@ -61,6 +61,7 @@ class WebSocketManager {
   private cachedStreams: Record<string, AgentStreamState> = {}
   private streamTimestamps: Record<string, number> = {}
   private chatHandlers: Map<string, ChatHandler> = new Map()
+  private externalChatOwners = new Map<string, { sessionId: string; origin: 'channel' }>()
   // A transient close can drop chat events while handlers remain registered
   // during the reconnect grace period. Mark those requests so the UI can
   // hydrate from the authoritative runtime snapshot until a fresh event is
@@ -135,6 +136,7 @@ class WebSocketManager {
         const handlerCloseTimer = setTimeout(() => {
           this.chatHandlers.forEach((h) => h.onClose?.(closeCode, true))
           this.chatHandlers.clear()
+          this.externalChatOwners.clear()
           this.chatHandlersNeedRecovery.clear()
         }, 8000)
         // Store so connect() can clear it on successful reconnect.
@@ -143,6 +145,7 @@ class WebSocketManager {
         this.setStatus('disconnected')
         this.chatHandlers.forEach((h) => h.onClose?.(closeCode, true))
         this.chatHandlers.clear()
+        this.externalChatOwners.clear()
         this.chatHandlersNeedRecovery.clear()
       }
     }
@@ -171,6 +174,7 @@ class WebSocketManager {
     this.setStatus('disconnected')
     this.chatHandlers.forEach((h) => h.onClose?.())
     this.chatHandlers.clear()
+    this.externalChatOwners.clear()
     this.chatHandlersNeedRecovery.clear()
     this.reconciledTerminals.clear()
     this.pendingMessages = []
@@ -179,10 +183,21 @@ class WebSocketManager {
   /** Register a chat handler for a specific request_id. */
   registerChat(requestId: string, handler: ChatHandler) {
     this.chatHandlers.set(requestId, handler)
+    this.externalChatOwners.delete(requestId)
     this.chatHandlersNeedRecovery.delete(requestId)
+    this.clearReconciledTerminals(requestId)
+  }
+
+  private clearReconciledTerminals(requestId: string) {
     this.reconciledTerminals.forEach((key) => {
       if (key.startsWith(`${requestId}:`)) this.reconciledTerminals.delete(key)
     })
+  }
+
+  private clearChatRegistration(requestId: string) {
+    this.chatHandlers.delete(requestId)
+    this.externalChatOwners.delete(requestId)
+    this.chatHandlersNeedRecovery.delete(requestId)
   }
 
   /** Whether this renderer owns the live stream handler for a request. */
@@ -192,8 +207,7 @@ class WebSocketManager {
 
   /** Unregister a chat handler. */
   unregisterChat(requestId: string) {
-    this.chatHandlers.delete(requestId)
-    this.chatHandlersNeedRecovery.delete(requestId)
+    this.clearChatRegistration(requestId)
   }
 
   private markChatHandlerProgress(requestId: string) {
@@ -216,7 +230,9 @@ class WebSocketManager {
     }
 
     const chat = useChatStore.getState()
+    const externalOwner = this.externalChatOwners.get(requestId)
     chat.reconcileRuntimeTerminal(requestId, sessionId)
+    if (externalOwner?.sessionId === sessionId) this.clearChatRegistration(requestId)
     void chat.loadHistory(sessionId)
   }
 
@@ -269,38 +285,73 @@ class WebSocketManager {
   }
 
   private dispatch(msg: WSMessage) {
+    const frame = msg as WSMessage & { request_id?: string; session_id?: string; origin?: string }
+    const externalOwner = frame.request_id
+      ? this.externalChatOwners.get(frame.request_id)
+      : undefined
+    if (externalOwner && (
+      frame.origin !== externalOwner.origin
+      || frame.session_id !== externalOwner.sessionId
+    )) {
+      return
+    }
+
     // Chat streaming messages — route to request handler.
     switch (msg.type) {
       case 'chat_accepted': {
         const h = this.chatHandlers.get(msg.request_id)
-        h?.onAccepted?.(msg)
+        if (h) {
+          h.onAccepted?.(msg)
+        } else if (this.registerExternalChannelChat(msg)) {
+          this.chatHandlers.get(msg.request_id)?.onAccepted?.(msg)
+        }
         return
       }
       case 'chat_route': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         h?.onRoute?.(msg)
         return
       }
       case 'chat_chunk': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onChunk?.(msg.delta)
         return
       }
       case 'reasoning_chunk': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onReasoning?.(msg.delta)
         return
       }
       case 'tool_start': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onToolStart?.({ call_id: msg.call_id, name: msg.name, args: msg.args, target_agent_id: msg.target_agent_id })
         return
       }
       case 'tool_done': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onToolDone?.({
           call_id: msg.call_id,
@@ -312,31 +363,51 @@ class WebSocketManager {
         return
       }
       case 'chat_done': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onDone?.({ content: msg.content, reasoning_content: msg.reasoning_content })
         return
       }
       case 'chat_error': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onError?.(msg.error)
         return
       }
       case 'chat_queued': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onQueued?.({ error: msg.error })
         return
       }
       case 'delegation_start': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onDelegationStart?.({ num_tasks: msg.num_tasks })
         return
       }
       case 'delegation_done': {
-        const h = this.chatHandlers.get(msg.request_id)
+        let h = this.chatHandlers.get(msg.request_id)
+        if (!h) {
+          this.registerExternalChannelChat(msg)
+          h = this.chatHandlers.get(msg.request_id)
+        }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onDelegationDone?.({
           target_agent_id: msg.target_agent_id,
@@ -510,6 +581,182 @@ class WebSocketManager {
       delete this.cachedStreams[keys[i]]
       delete this.streamTimestamps[keys[i]]
     }
+  }
+
+  /**
+   * Channel requests do not have a browser-owned chat handler. Mirror them
+   * into the same store primitives used by useChatStream so QQ/WeChat/Telegram
+   * output is visible immediately instead of only after history hydration.
+   */
+  private registerExternalChannelChat(msg: WSMessage): boolean {
+    const raw = msg as WSMessage & { origin?: string; prompt?: string; timestamp?: string }
+    const requestId = (raw as { request_id?: string }).request_id
+    const sessionId = (raw as { session_id?: string }).session_id
+    if (raw.origin !== 'channel' || !requestId || !sessionId) return false
+    if (this.chatHandlers.has(requestId)) return true
+
+    const sid = sessionId
+    const rawTimestamp = typeof raw.timestamp === 'string' ? raw.timestamp : ''
+    const parsedTimestamp = Date.parse(rawTimestamp)
+    const hasRequestTimestamp = Number.isFinite(parsedTimestamp)
+    const requestStartedAt = hasRequestTimestamp ? parsedTimestamp : Date.now()
+    const requestTimestamp = hasRequestTimestamp
+      ? rawTimestamp
+      : new Date(requestStartedAt).toISOString()
+    const assistantId = `msg-${requestId}`
+    const userId = `channel-user-${requestId}`
+    const acceptedPrompt = msg.type === 'chat_accepted' && typeof raw.prompt === 'string'
+      ? raw.prompt
+      : ''
+    useChatStore.setState((state) => {
+      const current = [...(state.messages[sid] || [])]
+      let userIndex = current.findIndex((message) => (
+        message.role === 'user' && (message.id === userId || message.requestId === requestId)
+      ))
+      let assistantIndex = current.findIndex((message) => (
+        message.role === 'assistant' && (message.id === assistantId || message.requestId === requestId)
+      ))
+
+      // A reload may hydrate the active turn with history-only IDs before the
+      // first live channel frame arrives. Adopt that turn so every later frame
+      // updates the same top-level assistant message.
+      if (userIndex >= 0) current[userIndex] = { ...current[userIndex], id: userId }
+      if (assistantIndex >= 0) current[assistantIndex] = { ...current[assistantIndex], id: assistantId }
+
+      if (userIndex < 0 && acceptedPrompt.trim().length > 0) {
+        const firstLaterUserIndex = current.findIndex((message) => {
+          if (message.role !== 'user') return false
+          const timestamp = Date.parse(message.timestamp)
+          return Number.isFinite(timestamp) && timestamp > requestStartedAt
+        })
+        userIndex = firstLaterUserIndex < 0 ? current.length : firstLaterUserIndex
+        current.splice(userIndex, 0, {
+          id: userId,
+          requestId,
+          role: 'user',
+          segments: [{ type: 'content', text: acceptedPrompt }],
+          timestamp: requestTimestamp,
+        })
+        if (assistantIndex >= userIndex) assistantIndex++
+      }
+
+      if (assistantIndex < 0) {
+        let insertionIndex = userIndex >= 0 ? userIndex + 1 : current.length
+        if (userIndex < 0) {
+          const firstLaterUserIndex = current.findIndex((message) => {
+            if (message.role !== 'user') return false
+            const timestamp = Date.parse(message.timestamp)
+            return Number.isFinite(timestamp) && timestamp > requestStartedAt
+          })
+          if (firstLaterUserIndex >= 0) insertionIndex = firstLaterUserIndex
+        }
+        current.splice(insertionIndex, 0, {
+          id: assistantId,
+          requestId,
+          role: 'assistant',
+          segments: [],
+          timestamp: requestTimestamp,
+        })
+      }
+
+      return { messages: { ...state.messages, [sid]: current } }
+    })
+    const store = useChatStore.getState()
+    const existingAssistant = store.messages[sid]?.find((message) => (
+      message.id === assistantId && message.role === 'assistant'
+    ))
+    let streamedContent = existingAssistant?.segments
+      .filter((segment) => segment.type === 'content')
+      .map((segment) => segment.text)
+      .join('') || ''
+    const route = { requestId, sessionId: sid, taskLevel: '', modelId: '' }
+    if (!store.activeRequests[requestId]) store.registerRequest(requestId, sid, route)
+    store.setRoute(route)
+    store.setStreaming(true, sid)
+
+    const finish = () => {
+      const current = useChatStore.getState()
+      current.removeRequest(requestId)
+      const remaining = Object.values(useChatStore.getState().activeRequests).some(
+        (request) => request.sessionId === sid,
+      )
+      if (!remaining) {
+        current.setStreaming(false, sid)
+        current.setDelegating(false, sid)
+        current.setSystemCommandRunning(false, sid)
+        current.clearRoute(sid, requestId)
+      }
+      this.unregisterChat(requestId)
+    }
+
+    const handler: ChatHandler = {
+      onAccepted: () => useChatStore.getState().updateRequestStatus(requestId, 'streaming'),
+      onRoute: (data) => {
+        const next = {
+          requestId: data.request_id,
+          sessionId: data.session_id,
+          taskLevel: data.task_type,
+          modelId: data.model_id,
+          providerId: data.provider_id,
+          agentInstanceId: data.agent_instance_id,
+        }
+        const current = useChatStore.getState()
+        current.updateRequestRoute(requestId, next)
+        current.setRoute(next)
+      },
+      onChunk: (delta) => {
+        streamedContent += delta
+        useChatStore.getState().appendAssistantContent(sid, assistantId, delta)
+      },
+      onReasoning: (delta) => useChatStore.getState().appendAssistantThinking(sid, assistantId, delta),
+      onToolStart: (data) => useChatStore.getState().updateAssistantSegment(sid, assistantId, {
+        type: 'tool_call',
+        callId: data.call_id,
+        name: data.name,
+        args: data.args,
+        done: false,
+        agentInstanceId: data.target_agent_id,
+      }),
+      onToolDone: (data) => useChatStore.getState().updateToolCallResult(
+        sid,
+        data.call_id,
+        data.result,
+        data.error || undefined,
+        data.duration_ms || undefined,
+      ),
+      onDone: ({ content }) => {
+        // A browser can connect after the first deltas were emitted. Use the
+        // terminal content as a gap filler without duplicating already mirrored
+        // text when the complete delta stream was received.
+        if (content && content !== streamedContent) {
+          const suffix = content.startsWith(streamedContent)
+            ? content.slice(streamedContent.length)
+            : streamedContent
+              ? ''
+              : content
+          if (suffix) useChatStore.getState().appendAssistantContent(sid, assistantId, suffix)
+        }
+        finish()
+      },
+      onError: (error) => {
+        useChatStore.getState().failAssistantMessage(sid, assistantId, error)
+        finish()
+      },
+      onDelegationStart: () => {
+        useChatStore.getState().setDelegating(true, sid)
+        useChatStore.getState().updateRequestStatus(requestId, 'streaming')
+      },
+      onDelegationDone: (data) => {
+        const current = useChatStore.getState()
+        current.setDelegating(false, sid)
+        current.completeLastDelegation(sid, data.target_agent_id, data.duration_ms, data.result_content)
+      },
+      onClose: () => finish(),
+    }
+    this.clearReconciledTerminals(requestId)
+    this.chatHandlers.set(requestId, handler)
+    this.externalChatOwners.set(requestId, { sessionId: sid, origin: 'channel' })
+    return true
   }
 }
 

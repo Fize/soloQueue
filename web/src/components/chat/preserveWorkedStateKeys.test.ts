@@ -26,10 +26,12 @@ describe('preserveWorkedStateKeys', () => {
     ])
   })
 
-  it('preserves different worked groups in one live reply independently', () => {
+  it('preserves one worked preference across content boundaries during history hydration', () => {
     const live = message('msg-live', [tool('a'), { type: 'content', text: 'Progress' }, tool('b')])
-    const result = preserveWorkedStateKeys([live], [message('hist-1', [tool('b')])])[0]
-    expect(workedStateKey(result, 'worked-0')).toBe(workedStateKey(live, 'worked-2'))
+    const first = preserveWorkedStateKeys([live], [message('hist-1', [tool('b')])])[0]
+    const second = preserveWorkedStateKeys([first], [message('hist-2', [tool('b')])])[0]
+    expect(workedStateKey(first, 'worked-0')).toBe(workedStateKey(live, 'worked-2'))
+    expect(workedStateKey(second, 'worked-0')).toBe(workedStateKey(live, 'worked-2'))
   })
 
   it('does not infer identities from repeated reasoning or missing/ambiguous call IDs', () => {

@@ -9,19 +9,23 @@ export interface WSStateMessage {
 }
 
 // Chat streaming messages (server → client)
-export interface WSChatChunk {
+export interface WSChatEnvelope {
+  timestamp?: string;
+}
+
+export interface WSChatChunk extends WSChatEnvelope {
   type: "chat_chunk";
   request_id: string;
   delta: string;
 }
 
-export interface WSReasoningChunk {
+export interface WSReasoningChunk extends WSChatEnvelope {
   type: "reasoning_chunk";
   request_id: string;
   delta: string;
 }
 
-export interface WSChatRoute {
+export interface WSChatRoute extends WSChatEnvelope {
   type: "chat_route";
   request_id: string;
   session_id: string;
@@ -31,13 +35,13 @@ export interface WSChatRoute {
   agent_instance_id?: string;
 }
 
-export interface WSChatAccepted {
+export interface WSChatAccepted extends WSChatEnvelope {
   type: "chat_accepted";
   request_id: string;
   session_id: string;
 }
 
-export interface WSToolStart {
+export interface WSToolStart extends WSChatEnvelope {
   type: "tool_start";
   request_id: string;
   call_id: string;
@@ -46,7 +50,7 @@ export interface WSToolStart {
   target_agent_id?: string;
 }
 
-export interface WSToolDone {
+export interface WSToolDone extends WSChatEnvelope {
   type: "tool_done";
   request_id: string;
   call_id: string;
@@ -56,33 +60,33 @@ export interface WSToolDone {
   duration_ms: number;
 }
 
-export interface WSChatDone {
+export interface WSChatDone extends WSChatEnvelope {
   type: "chat_done";
   request_id: string;
   content: string;
   reasoning_content: string;
 }
 
-export interface WSChatError {
+export interface WSChatError extends WSChatEnvelope {
   type: "chat_error";
   request_id: string;
   error: string;
 }
 
-export interface WSChatQueued {
+export interface WSChatQueued extends WSChatEnvelope {
   type: "chat_queued";
   request_id: string;
   session_id?: string;
   error?: string;
 }
 
-export interface WSDelegationStart {
+export interface WSDelegationStart extends WSChatEnvelope {
   type: "delegation_start";
   request_id: string;
   num_tasks: number;
 }
 
-export interface WSDelegationDone {
+export interface WSDelegationDone extends WSChatEnvelope {
   type: "delegation_done";
   request_id: string;
   target_agent_id: string;
@@ -196,6 +200,8 @@ export interface ChatRouteInfo {
 
 export interface ChatMessage {
   id: string;
+  /** Stable backend request ownership used to reconcile history with live frames. */
+  requestId?: string;
   /** Page-lifetime worked preferences carried through history hydration; never persisted. */
   workedStateKeys?: Record<string, string>;
   role: "user" | "assistant";
@@ -267,6 +273,7 @@ export interface SessionHistorySegment {
 
 export interface SessionHistoryMessage {
   id: string;
+  request_id?: string;
   role: "user" | "assistant";
   segments: SessionHistorySegment[];
   timestamp: string;
