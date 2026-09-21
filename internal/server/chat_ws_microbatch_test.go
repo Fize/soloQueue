@@ -51,6 +51,50 @@ func TestBuildChatRouteMessageUsesEffectivePerAskRoute(t *testing.T) {
 	}
 }
 
+func TestConvertAgentEventIncludesStreamingDeltas(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		event agent.AgentEvent
+		want  string
+	}{
+		{name: "content", event: agent.ContentDeltaEvent{Delta: "answer"}, want: "chat_chunk"},
+		{name: "reasoning", event: agent.ReasoningDeltaEvent{Delta: "thinking"}, want: "reasoning_chunk"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := convertAgentEvent(tc.event, "req-1", "l1")
+			if msg == nil || msg.Type != tc.want || msg.RequestID != "req-1" || msg.SessionID != "l1" || msg.Delta == "" {
+				t.Fatalf("convertAgentEvent() = %#v, want %s delta", msg, tc.want)
+			}
+		})
+	}
+}
+
+func TestChannelRequestMessagesUseStableRequestStartTimestamp(t *testing.T) {
+	startedAt := time.Date(2026, 9, 21, 10, 24, 0, 123456789, time.UTC)
+	requests := NewActiveRequestRegistry()
+	requests.now = func() time.Time { return startedAt }
+	if _, err := requests.Reserve("l1", "req-channel", "channel\x00qq"); err != nil {
+		t.Fatal(err)
+	}
+	requests.now = func() time.Time { return startedAt.Add(8 * time.Minute) }
+	h := &Hub{requests: requests}
+
+	messages := []*WSMessage{
+		{Type: "chat_accepted", RequestID: "req-channel", SessionID: "l1"},
+		{Type: "chat_route", RequestID: "req-channel", SessionID: "l1"},
+		{Type: "chat_chunk", RequestID: "req-channel", SessionID: "l1"},
+	}
+	want := startedAt.Format(time.RFC3339Nano)
+	for _, msg := range messages {
+		if !h.prepareChannelMessage("l1", "req-channel", msg) {
+			t.Fatalf("prepareChannelMessage(%s) rejected a channel request", msg.Type)
+		}
+		if msg.Origin != "channel" || msg.Timestamp != want {
+			t.Fatalf("prepareChannelMessage(%s) = %#v, want channel timestamp %q", msg.Type, msg, want)
+		}
+	}
+}
+
 func TestBuildChatRouteMessageFallsBackToDefinitionModel(t *testing.T) {
 	a := agent.NewAgent(agent.Definition{
 		ID:         "leader",

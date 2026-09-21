@@ -378,6 +378,9 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 		}
 		opts = append(opts, ctxwin.WithTemporalParts(parts))
 	}
+	if msg.RequestID != "" {
+		opts = append(opts, ctxwin.WithRequestID(msg.RequestID))
+	}
 
 	cw.Push(ctxwin.MessageRole(msg.Role), msg.Content, opts...)
 }

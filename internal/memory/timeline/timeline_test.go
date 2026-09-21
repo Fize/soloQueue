@@ -130,6 +130,42 @@ func TestTimelineRoundTripPreservesTimestampExposureAndRawContent(t *testing.T) 
 	}
 }
 
+func TestTimelineRoundTripPreservesRequestID(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	if err := w.AppendMessage(&MessagePayload{
+		Role:      "assistant",
+		Content:   "request-owned reply",
+		RequestID: "req-channel-1",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	segments, _, err := ReadTail(dir, "timeline", 0, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if len(segments) != 1 || len(segments[0].Messages) != 1 {
+		t.Fatalf("segments = %#v, want one message", segments)
+	}
+	if got := segments[0].Messages[0].RequestID; got != "req-channel-1" {
+		t.Fatalf("stored request ID = %q, want req-channel-1", got)
+	}
+
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	ReplayInto(cw, segments)
+	replayed, ok := cw.MessageAt(0)
+	if !ok || replayed.RequestID != "req-channel-1" {
+		t.Fatalf("replayed message = %#v, ok = %v", replayed, ok)
+	}
+}
+
 func TestTimelineRoundTripPreservesAggregatedTemporalParts(t *testing.T) {
 	dir := t.TempDir()
 	w, err := NewWriter(dir, "timeline", 0, 0)

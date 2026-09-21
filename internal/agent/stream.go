@@ -31,6 +31,14 @@ type streamAccumulator struct {
 	usage     llm.Usage
 }
 
+func requestPushOptions(ctx context.Context) []ctxwin.PushOption {
+	requestID := telemetryctx.FromContext(ctx).RequestID
+	if requestID == "" {
+		return nil
+	}
+	return []ctxwin.PushOption{ctxwin.WithRequestID(requestID)}
+}
+
 // processStreamEvents reads LLM events and accumulates response into acc.
 func (a *Agent) processStreamEvents(
 	ctx context.Context,
@@ -642,10 +650,12 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 	}
 
 	// Push assistant(tool_calls) to ContextWindow
-	s.cw.Push(ctxwin.RoleAssistant, acc.content.String(),
+	assistantOpts := requestPushOptions(ctx)
+	assistantOpts = append(assistantOpts,
 		ctxwin.WithReasoningContent(acc.reasoning.String()),
 		ctxwin.WithToolCalls(calls),
 	)
+	s.cw.Push(ctxwin.RoleAssistant, acc.content.String(), assistantOpts...)
 
 	// Check only the async state returned by this exact tool batch. Looking up
 	// by iter is incorrect because every concurrent request starts at iter=0.
@@ -662,11 +672,13 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 		// Push immediate tool results for ALL tools (sync results + delegated calls)
 		for i, tc := range calls {
 			results[i] = dedupeSkillResult(s.cw, tc, results[i])
-			s.cw.Push(ctxwin.RoleTool, results[i],
+			toolOpts := requestPushOptions(ctx)
+			toolOpts = append(toolOpts,
 				ctxwin.WithToolCallID(tc.ID),
 				ctxwin.WithToolName(tc.Function.Name),
 				ctxwin.WithEphemeral(true),
 			)
+			s.cw.Push(ctxwin.RoleTool, results[i], toolOpts...)
 		}
 
 		a.logInfo(ctx, logger.CatLLM, "async delegation started",
@@ -683,11 +695,13 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 	// Sync path: push tool results to ContextWindow
 	for i, tc := range calls {
 		results[i] = dedupeSkillResult(s.cw, tc, results[i])
-		s.cw.Push(ctxwin.RoleTool, results[i],
+		toolOpts := requestPushOptions(ctx)
+		toolOpts = append(toolOpts,
 			ctxwin.WithToolCallID(tc.ID),
 			ctxwin.WithToolName(tc.Function.Name),
 			ctxwin.WithEphemeral(true),
 		)
+		s.cw.Push(ctxwin.RoleTool, results[i], toolOpts...)
 	}
 	return false
 }

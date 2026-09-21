@@ -669,6 +669,7 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 			AgentID:          agentID,
 			ExposeTimestamp:  msg.ExposeTimestamp,
 			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
+			RequestID:        msg.RequestID,
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline append failed",
 				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
@@ -1049,6 +1050,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 			AgentID:          agentID,
 			ExposeTimestamp:  msg.ExposeTimestamp,
 			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
+			RequestID:        msg.RequestID,
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline append failed",
 				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
