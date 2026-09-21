@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -307,6 +308,180 @@ func TestHTTP_SessionHistory_DedupPartialFlush(t *testing.T) {
 	}
 	if dup != 1 {
 		t.Errorf("content rendered %d times, want 1; contents=%q", dup, contents)
+	}
+}
+
+func TestHTTP_SessionHistory_GroupsInterleavedEventsByRequestID(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	events := []string{
+		`{"ts":"2026-09-21T12:00:00Z","type":"message","msg":{"role":"user","content":"request A","request_id":"req-a"}}`,
+		`{"ts":"2026-09-21T12:00:01Z","type":"message","msg":{"role":"assistant","content":"A first","request_id":"req-a"}}`,
+		`{"ts":"2026-09-21T12:00:02Z","type":"message","msg":{"role":"user","content":"request B","request_id":"req-b"}}`,
+		`{"ts":"2026-09-21T12:00:03Z","type":"message","msg":{"role":"assistant","content":"B reply","request_id":"req-b"}}`,
+		`{"ts":"2026-09-21T12:00:04Z","type":"message","msg":{"role":"assistant","content":"A final","reasoning":"A later work","request_id":"req-a"}}`,
+	}
+	if err := os.WriteFile(timelinePath, []byte(strings.Join(events, "\n")+"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Messages []struct {
+			RequestID string `json:"request_id"`
+			Role      string `json:"role"`
+			Segments  []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(resp.Messages) != 4 {
+		t.Fatalf("messages = %#v, want four request-owned rows", resp.Messages)
+	}
+	if resp.Messages[0].RequestID != "req-a" || resp.Messages[1].RequestID != "req-a" ||
+		resp.Messages[2].RequestID != "req-b" || resp.Messages[3].RequestID != "req-b" {
+		t.Fatalf("request IDs = %#v", resp.Messages)
+	}
+	wantA := []struct{ Type, Text string }{{"content", "A first"}, {"thinking", "A later work"}, {"content", "A final"}}
+	gotA := make([]struct{ Type, Text string }, 0, len(resp.Messages[1].Segments))
+	for _, segment := range resp.Messages[1].Segments {
+		gotA = append(gotA, struct{ Type, Text string }{segment.Type, segment.Text})
+	}
+	if !reflect.DeepEqual(gotA, wantA) {
+		t.Fatalf("request A segments = %#v, want %#v", gotA, wantA)
+	}
+}
+
+func TestHTTP_SessionHistory_DeduplicatesInterleavedPartialFlushByRequestID(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	events := []string{
+		`{"ts":"2026-09-21T12:00:00Z","type":"message","msg":{"role":"user","content":"request A","request_id":"req-a"}}`,
+		`{"ts":"2026-09-21T12:00:01Z","type":"message","msg":{"role":"assistant","content":"A work","tool_calls":[{"id":"call-a","type":"function","name":"Read","arguments":"{}"}],"request_id":"req-a"}}`,
+		`{"ts":"2026-09-21T12:00:02Z","type":"message","msg":{"role":"user","content":"request B","request_id":"req-b"}}`,
+		`{"ts":"2026-09-21T12:00:03Z","type":"message","msg":{"role":"assistant","content":"B reply","request_id":"req-b"}}`,
+		`{"ts":"2026-09-21T12:00:04Z","type":"message","msg":{"role":"assistant","content":"A work","request_id":"req-a"}}`,
+	}
+	if err := os.WriteFile(timelinePath, []byte(strings.Join(events, "\n")+"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Messages []struct {
+			RequestID string `json:"request_id"`
+			Segments  []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	var contentCount int
+	for _, message := range resp.Messages {
+		if message.RequestID != "req-a" {
+			continue
+		}
+		for _, segment := range message.Segments {
+			if segment.Type == "content" && segment.Text == "A work" {
+				contentCount++
+			}
+		}
+	}
+	if contentCount != 1 {
+		t.Fatalf("request A content count = %d, want 1; response=%s", contentCount, rec.Body.String())
+	}
+}
+
+func TestHTTP_SessionHistory_ToolResultsStayWithinRequest(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	events := []string{
+		`{"ts":"2026-09-21T12:00:00Z","type":"message","msg":{"role":"user","content":"request A","request_id":"req-a"}}`,
+		`{"ts":"2026-09-21T12:00:01Z","type":"message","msg":{"role":"assistant","tool_calls":[{"id":"shared-call","type":"function","name":"Read","arguments":"{}"}],"request_id":"req-a"}}`,
+		`{"ts":"2026-09-21T12:00:02Z","type":"message","msg":{"role":"user","content":"request B","request_id":"req-b"}}`,
+		`{"ts":"2026-09-21T12:00:03Z","type":"message","msg":{"role":"assistant","tool_calls":[{"id":"shared-call","type":"function","name":"Read","arguments":"{}"}],"request_id":"req-b"}}`,
+		`{"ts":"2026-09-21T12:00:04Z","type":"message","msg":{"role":"tool","content":"B result","tool_call_id":"shared-call","request_id":"req-b"}}`,
+	}
+	if err := os.WriteFile(timelinePath, []byte(strings.Join(events, "\n")+"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Messages []struct {
+			RequestID string `json:"request_id"`
+			Segments  []struct {
+				Type   string `json:"type"`
+				Done   bool   `json:"done"`
+				Result string `json:"result"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	got := map[string]struct {
+		done   bool
+		result string
+	}{}
+	for _, message := range resp.Messages {
+		for _, segment := range message.Segments {
+			if segment.Type == "tool_call" {
+				got[message.RequestID] = struct {
+					done   bool
+					result string
+				}{segment.Done, segment.Result}
+			}
+		}
+	}
+	if got["req-a"].done || got["req-a"].result != "" {
+		t.Fatalf("request A tool was completed by request B: %#v", got)
+	}
+	if !got["req-b"].done || got["req-b"].result != "B result" {
+		t.Fatalf("request B tool result = %#v", got["req-b"])
 	}
 }
 

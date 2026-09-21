@@ -105,6 +105,7 @@ type Message struct {
 	Timestamp        time.Time          // Timestamp when the message was pushed; restored from timeline events during replay
 	ExposeTimestamp  bool               // Restricts LLM-visible temporal context to explicitly eligible input.
 	TemporalParts    []TemporalPart     // Components of one aggregated pending user turn.
+	RequestID        string             // Stable request identity for timeline/UI ownership; never sent to the LLM.
 }
 
 // ─── PushOption ─────────────────────────────────────────────────────────────
@@ -160,6 +161,11 @@ func WithExposeTimestamp(expose bool) PushOption {
 // WithTemporalParts preserves per-message timing inside one aggregated user turn.
 func WithTemporalParts(parts []TemporalPart) PushOption {
 	return func(m *Message) { m.TemporalParts = append([]TemporalPart(nil), parts...) }
+}
+
+// WithRequestID associates a persisted message with the request that produced it.
+func WithRequestID(requestID string) PushOption {
+	return func(m *Message) { m.RequestID = requestID }
 }
 
 // ─── PushHook ───────────────────────────────────────────────────────────────

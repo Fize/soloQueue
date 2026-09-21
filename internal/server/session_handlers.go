@@ -725,6 +725,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 
 	type historyMsg struct {
 		ID        string                   `json:"id"`
+		RequestID string                   `json:"request_id,omitempty"`
 		Role      string                   `json:"role"`
 		Segments  []map[string]interface{} `json:"segments"`
 		Timestamp string                   `json:"timestamp"`
@@ -732,11 +733,12 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type pendingToolCall struct {
-		callID string
-		name   string
-		args   string
-		msgIdx int
-		segIdx int
+		callID    string
+		requestID string
+		name      string
+		args      string
+		msgIdx    int
+		segIdx    int
 	}
 
 	var msgs []historyMsg
@@ -834,7 +836,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 					resultText, ok := parsedResults[ptc.callID]
-					if ok && ptc.msgIdx < len(msgs) && ptc.segIdx < len(msgs[ptc.msgIdx].Segments) {
+					if ok && requestIDsMatch(ptc.requestID, msg.RequestID) && ptc.msgIdx < len(msgs) && ptc.segIdx < len(msgs[ptc.msgIdx].Segments) {
 						msgs[ptc.msgIdx].Segments[ptc.segIdx]["result"] = resultText
 						msgs[ptc.msgIdx].Segments[ptc.segIdx]["done"] = true
 					}
@@ -844,7 +846,8 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			isDuplicate := false
 			if len(msgs) > 0 && msgs[len(msgs)-1].Role == "user" {
 				lastMsg := msgs[len(msgs)-1]
-				if len(lastMsg.Segments) == 1 && lastMsg.Segments[0]["type"] == "content" {
+				sameRequest := lastMsg.RequestID == msg.RequestID
+				if sameRequest && len(lastMsg.Segments) == 1 && lastMsg.Segments[0]["type"] == "content" {
 					lastText, _ := lastMsg.Segments[0]["text"].(string)
 					newText := session.StripRecalledMemories(msg.Content)
 					if lastText == newText {
@@ -879,12 +882,29 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			}
 			msgs = append(msgs, historyMsg{
 				ID:        msgID,
+				RequestID: msg.RequestID,
 				Role:      "user",
 				Segments:  segments,
 				Timestamp: msgTimestamp,
 				Files:     attachedFiles,
 			})
 		case "assistant":
+			lastIdx := len(msgs) - 1
+			targetMsgIdx := -1
+			if msg.RequestID != "" {
+				for i := len(msgs) - 1; i >= 0; i-- {
+					if msgs[i].Role == "assistant" && msgs[i].RequestID == msg.RequestID {
+						targetMsgIdx = i
+						break
+					}
+				}
+			} else if lastIdx >= 0 && msgs[lastIdx].Role == "assistant" && msgs[lastIdx].RequestID == "" {
+				// Legacy timelines have no request identity. Preserve their former
+				// consecutive-assistant grouping without allowing new identified
+				// requests to absorb unrelated legacy turns.
+				targetMsgIdx = lastIdx
+			}
+
 			// Dedup: skip duplicate partial-flush events. A cancelled turn can
 			// leave the timeline with the same assistant content written twice:
 			// once by the agent's per-iteration push hook (with tool_calls), and
@@ -897,8 +917,8 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			// content without tool_calls) uniquely identifies a partial-flush
 			// duplicate. Without this guard, a legitimate final reply that
 			// happens to repeat an earlier iteration's text would be dropped.
-			if len(msg.ToolCalls) == 0 && msg.Content != "" && len(msgs) > 0 && msgs[len(msgs)-1].Role == "assistant" {
-				lastMsg := msgs[len(msgs)-1]
+			if len(msg.ToolCalls) == 0 && msg.Content != "" && targetMsgIdx >= 0 {
+				lastMsg := msgs[targetMsgIdx]
 				prevHasToolCall := false
 				for _, seg := range lastMsg.Segments {
 					if seg["type"] == "tool_call" {
@@ -927,11 +947,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 
-			lastIdx := len(msgs) - 1
-			var targetMsgIdx int
-			if lastIdx >= 0 && msgs[lastIdx].Role == "assistant" {
-				targetMsgIdx = lastIdx
-			} else {
+			if targetMsgIdx < 0 {
 				targetMsgIdx = len(msgs)
 			}
 
@@ -945,11 +961,12 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 					"done":    false,
 				})
 				pendingToolCalls = append(pendingToolCalls, pendingToolCall{
-					callID: tc.ID,
-					name:   tc.Name,
-					args:   tc.Arguments,
-					msgIdx: targetMsgIdx,
-					segIdx: segIdx,
+					callID:    tc.ID,
+					requestID: msg.RequestID,
+					name:      tc.Name,
+					args:      tc.Arguments,
+					msgIdx:    targetMsgIdx,
+					segIdx:    segIdx,
 				})
 			}
 			if msg.Content != "" {
@@ -958,12 +975,12 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 					"text": msg.Content,
 				})
 			}
-			// Merge consecutive assistant messages to match streaming behavior.
-			// The streaming frontend creates ONE assistant message per turn.
-			// But the timeline may split assistant events across tool results.
-			if lastIdx >= 0 && msgs[lastIdx].Role == "assistant" {
-				offset := len(msgs[lastIdx].Segments)
-				msgs[lastIdx].Segments = append(msgs[lastIdx].Segments, segments...)
+			// Keep every event from one request in the same assistant message.
+			// Async requests may resume after another turn, so adjacency alone is
+			// not a safe ownership boundary.
+			if targetMsgIdx < len(msgs) {
+				offset := len(msgs[targetMsgIdx].Segments)
+				msgs[targetMsgIdx].Segments = append(msgs[targetMsgIdx].Segments, segments...)
 				// Fix segIdx for newly added pending tool calls (they were computed
 				// against local 'segments' but now live inside a longer merged slice).
 				for i := newPendingStart; i < len(pendingToolCalls); i++ {
@@ -972,6 +989,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			} else {
 				msgs = append(msgs, historyMsg{
 					ID:        msgID,
+					RequestID: msg.RequestID,
 					Role:      "assistant",
 					Segments:  segments,
 					Timestamp: msgTimestamp,
@@ -979,7 +997,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			}
 		case "tool":
 			for _, ptc := range pendingToolCalls {
-				if ptc.callID == msg.ToolCallID {
+				if ptc.callID == msg.ToolCallID && requestIDsMatch(ptc.requestID, msg.RequestID) {
 					if ptc.msgIdx < len(msgs) && ptc.segIdx < len(msgs[ptc.msgIdx].Segments) {
 						if isDelegationToolName(ptc.name) && (msg.Content == "" || strings.HasPrefix(msg.Content, "Delegation started:")) {
 							// For delegation tools, the initial tool event is just a startup placeholder.
@@ -1056,6 +1074,12 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 
 func isDelegationToolName(name string) bool {
 	return name == "delegate" || strings.HasPrefix(name, "delegate_")
+}
+
+// requestIDsMatch keeps legacy timeline pairs working while preventing two
+// identified requests that reuse a tool call ID from sharing completion state.
+func requestIDsMatch(left, right string) bool {
+	return left == "" || right == "" || left == right
 }
 
 // parseDelegationResults parses callID→result pairs from a "[Delegation Completed]" message content.

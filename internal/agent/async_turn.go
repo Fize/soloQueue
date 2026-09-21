@@ -714,7 +714,9 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	resultMsg := formatDelegationCompleted(turn.toolCalls, turn.results)
 	if !turn.handoffInitialMutation(turn.callerCtx, func() {
 		if resultMsg != "" {
-			turn.cw.Push(ctxwin.RoleUser, resultMsg, ctxwin.WithEphemeral(true))
+			opts := requestPushOptions(turn.callerCtx)
+			opts = append(opts, ctxwin.WithEphemeral(true))
+			turn.cw.Push(ctxwin.RoleUser, resultMsg, opts...)
 		}
 	}) {
 		a.terminateAsyncTurn(turn)

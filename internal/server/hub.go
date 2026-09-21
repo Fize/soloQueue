@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -42,6 +44,9 @@ type NotificationPayload struct {
 // WSMessage is the envelope for all WebSocket messages sent to clients.
 type WSMessage struct {
 	Type string `json:"type"`
+	// Origin identifies messages mirrored from a non-browser transport. Empty
+	// means the message belongs to the browser request that opened the stream.
+	Origin string `json:"origin,omitempty"`
 
 	// State broadcast fields.
 	Runtime *RuntimeStatusResponse `json:"runtime,omitempty"`
@@ -50,6 +55,7 @@ type WSMessage struct {
 	// Chat streaming fields.
 	RequestID        string               `json:"request_id,omitempty"`
 	SessionID        string               `json:"session_id,omitempty"`
+	Timestamp        string               `json:"timestamp,omitempty"`
 	TaskType         string               `json:"task_type,omitempty"`
 	ModelID          string               `json:"model_id,omitempty"`
 	ProviderID       string               `json:"provider_id,omitempty"`
@@ -172,6 +178,19 @@ func (h *Hub) configureRequestLifecycle() {
 			h.Notify()
 			return nil
 		},
+		OnInput: func(ctx context.Context, sessionID, requestID, prompt string) {
+			logicalSessionID := logicalRuntimeSessionID(sessionID)
+			msg := &WSMessage{
+				Type:      "chat_accepted",
+				RequestID: requestID,
+				SessionID: logicalSessionID,
+				Prompt:    prompt,
+			}
+			if !h.prepareChannelMessage(logicalSessionID, requestID, msg) {
+				return
+			}
+			h.BroadcastMessage(msg)
+		},
 		OnBind: func(sessionID, requestID string, cancel func() error) error {
 			return h.requests.BindCanceller(requestID, cancel)
 		},
@@ -188,9 +207,42 @@ func (h *Hub) configureRequestLifecycle() {
 		OnRoute: func(sessionID, requestID string, route session.RequestRoute) {
 			_ = h.requests.SetRouteMetadata(requestID, route.ModelID, route.ProviderID, route.TaskType, route.AgentInstanceID)
 			logicalSessionID := logicalRuntimeSessionID(sessionID)
+			msg := &WSMessage{
+				Type:            "chat_route",
+				RequestID:       requestID,
+				SessionID:       logicalSessionID,
+				TaskType:        route.TaskType,
+				ModelID:         route.ModelID,
+				ProviderID:      route.ProviderID,
+				AgentInstanceID: route.AgentInstanceID,
+			}
+			if h.prepareChannelMessage(logicalSessionID, requestID, msg) {
+				h.BroadcastMessage(msg)
+			}
 			h.refreshRequestWatchdog(logicalSessionID, requestID, "")
 			h.NextSessionRevision(logicalSessionID)
 			h.Notify()
+		},
+		OnEvent: func(ctx context.Context, sessionID, requestID string, ev agent.AgentEvent) {
+			logicalSessionID := logicalRuntimeSessionID(sessionID)
+			wsMsg := convertAgentEvent(ev, requestID, logicalSessionID)
+			if wsMsg == nil {
+				return
+			}
+			if !h.prepareChannelMessage(logicalSessionID, requestID, wsMsg) {
+				return
+			}
+			if wsMsg.Type == "delegation_start" {
+				_ = h.requests.SetDelegating(requestID, true)
+				h.NextSessionRevision(logicalSessionID)
+				h.Notify()
+			}
+			if wsMsg.Type == "delegation_done" {
+				_ = h.requests.SetDelegating(requestID, false)
+				h.NextSessionRevision(logicalSessionID)
+				h.Notify()
+			}
+			h.BroadcastMessage(wsMsg)
 		},
 		OnFinish: func(sessionID, requestID, terminal, message string) {
 			if terminal == "" {
@@ -212,6 +264,31 @@ func (h *Hub) configureRequestLifecycle() {
 			}
 		}
 	}
+}
+
+func (h *Hub) channelRequest(sessionID, requestID string) (ActiveRequest, bool) {
+	if h == nil || h.requests == nil || requestID == "" {
+		return ActiveRequest{}, false
+	}
+	req, err := h.requests.Validate(sessionID, requestID)
+	if err != nil {
+		return ActiveRequest{}, false
+	}
+	owner := req.OwnerClientID
+	return req, owner == "channel" || strings.HasPrefix(owner, "channel\x00")
+}
+
+func (h *Hub) prepareChannelMessage(sessionID, requestID string, msg *WSMessage) bool {
+	if msg == nil {
+		return false
+	}
+	req, ok := h.channelRequest(sessionID, requestID)
+	if !ok {
+		return false
+	}
+	msg.Origin = "channel"
+	msg.Timestamp = req.StartedAt.UTC().Format(time.RFC3339Nano)
+	return true
 }
 
 func logicalRuntimeSessionID(targetID string) string {

@@ -86,14 +86,18 @@ func temporalExposureFromContext(ctx context.Context) (temporalExposure, bool) {
 }
 
 func inputPushOptions(ctx context.Context) []ctxwin.PushOption {
+	var opts []ctxwin.PushOption
+	if requestID := telemetry.MetadataFromContext(ctx).RequestID; requestID != "" {
+		opts = append(opts, ctxwin.WithRequestID(requestID))
+	}
 	metadata, ok := temporalExposureFromContext(ctx)
 	if !ok {
-		return nil
+		return opts
 	}
-	return []ctxwin.PushOption{
+	return append(opts,
 		ctxwin.WithTimestamp(metadata.receivedAt),
 		ctxwin.WithExposeTimestamp(true),
-	}
+	)
 }
 
 func (s *Session) enqueuePending(ctx context.Context, prompt string) {
@@ -163,9 +167,17 @@ type ChannelMetadataStore interface {
 // Session without coupling the session package to the server. Adapters only
 // annotate context metadata; the runtime owns reservation and completion.
 type RequestLifecycleHooks struct {
-	OnStart  func(context.Context, string, string) error
-	OnBind   func(string, string, func() error) error
-	OnRoute  func(string, string, RequestRoute)
+	OnStart func(context.Context, string, string) error
+	// OnInput observes the accepted user prompt before routing begins. It is
+	// used by transports that do not own a browser WebSocket request to publish
+	// the user message into the shared live stream.
+	OnInput func(context.Context, string, string, string)
+	OnBind  func(string, string, func() error) error
+	OnRoute func(string, string, RequestRoute)
+	// OnEvent observes normalized AgentEvents before they are delivered to the
+	// request consumer. The consumer remains responsible for draining the
+	// stream; this hook only mirrors the event to shared observers.
+	OnEvent  func(context.Context, string, string, agent.AgentEvent)
 	OnCancel func(string, string, string) error
 	OnFinish func(string, string, string, string)
 }
@@ -1839,6 +1851,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			}
 			lifecycleStarted = true
 		}
+		if requestID != "" && hooks.OnInput != nil {
+			hooks.OnInput(ctx, s.TargetID, requestID, prompt)
+		}
 		s.touch()
 		compactBase, compactCancel := context.WithCancelCause(context.WithoutCancel(ctx))
 		compactCtx, runHandle, runID, watchErr := s.beginRunLifecycle(compactBase, "compact")
@@ -2004,6 +2019,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			return nil, err
 		}
 		lifecycleStarted = true
+	}
+	if requestID != "" && hooks.OnInput != nil {
+		hooks.OnInput(ctx, s.TargetID, requestID, prompt)
 	}
 	clientCtx := ctx
 	// Interactive disconnects do not stop background work. Cron's caller owns
@@ -2356,6 +2374,7 @@ enqueued:
 					Content:          pending,
 					ReasoningContent: accReasoning.String(),
 					AgentID:          askAgent.InstanceID,
+					RequestID:        telemetry.MetadataFromContext(ctx).RequestID,
 				})
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial assistant content flushed to timeline",
 					"target_id", s.TargetID,
@@ -2491,6 +2510,12 @@ enqueued:
 				)
 			}
 			s.applyWatchdogEvent(runHandle, ev)
+			s.agentMu.RLock()
+			hooks := s.requestHooks
+			s.agentMu.RUnlock()
+			if hooks.OnEvent != nil && requestID != "" {
+				hooks.OnEvent(ctx, s.TargetID, requestID, ev)
+			}
 			if sourceTerminal {
 				if shouldExposeTerminal(context.Cause(askCtx)) {
 					emitTerminalError(ev.(agent.ErrorEvent).Err)
@@ -2558,6 +2583,9 @@ enqueued:
 			if finalContent != "" {
 				s.mu.Lock()
 				opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
+				if requestID := telemetry.MetadataFromContext(ctx).RequestID; requestID != "" {
+					opts = append(opts, ctxwin.WithRequestID(requestID))
+				}
 				s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
 				// Track what we just pushed so the partial-flush defer can skip duplicates.
 				lastPushedContent = finalContent

@@ -217,17 +217,23 @@ func TestSessionAskStreamLifecycleHooksApplyToEveryOrigin(t *testing.T) {
 			a := startAgent(t, fake)
 			s := NewSession("lifecycle", "team", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
 
-			var starts, binds, routes, finishes atomic.Int32
+			var starts, inputs, events, binds, routes, finishes atomic.Int32
+			var inputPrompt atomic.Value
 			s.SetRequestLifecycleHooks(RequestLifecycleHooks{
 				OnStart: func(context.Context, string, string) error {
 					starts.Add(1)
 					return nil
+				},
+				OnInput: func(_ context.Context, _, _, prompt string) {
+					inputs.Add(1)
+					inputPrompt.Store(prompt)
 				},
 				OnBind: func(string, string, func() error) error {
 					binds.Add(1)
 					return nil
 				},
 				OnRoute:  func(string, string, RequestRoute) { routes.Add(1) },
+				OnEvent:  func(context.Context, string, string, agent.AgentEvent) { events.Add(1) },
 				OnFinish: func(string, string, string, string) { finishes.Add(1) },
 			})
 
@@ -245,6 +251,15 @@ func TestSessionAskStreamLifecycleHooksApplyToEveryOrigin(t *testing.T) {
 
 			if got := starts.Load(); got != 1 {
 				t.Fatalf("OnStart calls = %d, want 1", got)
+			}
+			if got := inputs.Load(); got != 1 {
+				t.Fatalf("OnInput calls = %d, want 1", got)
+			}
+			if got := inputPrompt.Load(); got != "hello" {
+				t.Fatalf("OnInput prompt = %v, want hello", got)
+			}
+			if got := events.Load(); got == 0 {
+				t.Fatal("OnEvent was not called")
 			}
 			if got := binds.Load(); got != 1 {
 				t.Fatalf("OnBind calls = %d, want 1", got)

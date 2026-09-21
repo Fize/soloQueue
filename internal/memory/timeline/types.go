@@ -66,6 +66,7 @@ type MessagePayload struct {
 	Timestamp        string                `json:"ts,omitempty"`               // Original message timestamp (RFC3339Nano)
 	ExposeTimestamp  bool                  `json:"expose_timestamp,omitempty"` // Allows replay to restore LLM-visible temporal context.
 	TemporalParts    []TemporalPartPayload `json:"temporal_parts,omitempty"`
+	RequestID        string                `json:"request_id,omitempty"`
 }
 
 // ─── ControlPayload ─────────────────────────────────────────────────────────
