@@ -5,11 +5,32 @@ import { listProviderRemoteModels } from '@/lib/api/config-api'
 
 function parseHeadersJson(json: string): Record<string, string> {
   try {
-    return JSON.parse(json)
+    const parsed = JSON.parse(json)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Headers must be a JSON object')
+    }
+    return parsed as Record<string, string>
   } catch (e) {
+    if (e instanceof Error && e.message === 'Headers must be a JSON object') throw e
     // eslint-disable-next-line preserve-caught-error
     throw new Error('Headers must be valid JSON object: ' + (e as Error).message)
   }
+}
+
+export function validateProviderForm(
+  form: Partial<LLMProvider>,
+  headersJson: string,
+): { fieldErrors: Record<string, string>; formError?: string } {
+  const fieldErrors: Record<string, string> = {}
+  if (!String(form.id || '').trim()) fieldErrors.id = 'Provider ID is required.'
+  if (!String(form.name || '').trim()) fieldErrors.name = 'Display name is required.'
+  if (!String(form.baseUrl || '').trim()) fieldErrors.baseUrl = 'API base URL is required.'
+  try {
+    parseHeadersJson(headersJson)
+  } catch (error) {
+    fieldErrors.headers = (error as Error).message
+  }
+  return { fieldErrors }
 }
 
 export function normalizeProviderTimeoutMs(value: number | undefined): number {
@@ -73,6 +94,9 @@ export function LLMSection({
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(null)
   const [providerForm, setProviderForm] = useState<Partial<LLMProvider>>({})
   const [providerHeadersJson, setProviderHeadersJson] = useState('{}')
+  const [providerFieldErrors, setProviderFieldErrors] = useState<Record<string, string>>({})
+  const [providerError, setProviderError] = useState<string | null>(null)
+  const [isSavingProvider, setIsSavingProvider] = useState(false)
   const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({})
 
   // Model form state
@@ -118,6 +142,8 @@ export function LLMSection({
   }, [modelForm.providerId])
 
   const startAddProvider = () => {
+    setProviderFieldErrors({})
+    setProviderError(null)
     setIsAddingProvider(true)
     setEditingProvider(null)
     setProviderForm({
@@ -135,6 +161,8 @@ export function LLMSection({
   }
 
   const startEditProvider = (p: LLMProvider) => {
+    setProviderFieldErrors({})
+    setProviderError(null)
     setEditingProvider(p)
     setIsAddingProvider(false)
     setProviderForm({ ...p })
@@ -144,10 +172,23 @@ export function LLMSection({
   const cancelProviderForm = () => {
     setIsAddingProvider(false)
     setEditingProvider(null)
+    setProviderFieldErrors({})
+    setProviderError(null)
   }
 
   const saveProviderForm = async () => {
-    const headers = parseHeadersJson(providerHeadersJson)
+    const validation = validateProviderForm(providerForm, providerHeadersJson)
+    setProviderFieldErrors(validation.fieldErrors)
+    setProviderError(null)
+    if (Object.keys(validation.fieldErrors).length > 0) return
+
+    let headers: Record<string, string>
+    try {
+      headers = parseHeadersJson(providerHeadersJson)
+    } catch (error) {
+      setProviderError((error as Error).message)
+      return
+    }
 
     const payload: LLMProvider = {
       id: providerForm.id || '',
@@ -162,14 +203,20 @@ export function LLMSection({
       headers,
     }
 
-    if (isAddingProvider) {
-      await onCreateProvider(payload)
-    } else if (editingProvider) {
-      await onUpdateProvider(editingProvider.id, payload)
+    setIsSavingProvider(true)
+    try {
+      if (isAddingProvider) {
+        await onCreateProvider(payload)
+      } else if (editingProvider) {
+        await onUpdateProvider(editingProvider.id, payload)
+      }
+      setIsAddingProvider(false)
+      setEditingProvider(null)
+    } catch (error) {
+      setProviderError((error as Error).message || t('config.llmProviderSaveFailed'))
+    } finally {
+      setIsSavingProvider(false)
     }
-
-    setIsAddingProvider(false)
-    setEditingProvider(null)
   }
 
   const startAddModel = () => {
@@ -358,6 +405,11 @@ export function LLMSection({
                   ? t('config.llmAddProviderDesc')
                   : t('config.llmEditProviderDesc')}
               </DialogDescription>
+              {providerError && (
+                <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {providerError}
+                </div>
+              )}
             </DialogHeader>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
@@ -367,6 +419,7 @@ export function LLMSection({
                 <Input
                   value={providerForm.id || ''}
                   disabled={!!editingProvider}
+                  error={providerFieldErrors.id}
                   placeholder={t('config.llmProviderIdPlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, id: e.target.value })}
                 />
@@ -375,6 +428,7 @@ export function LLMSection({
                 <label className="text-xs font-semibold text-muted-foreground">{t('config.llmDisplayName')}</label>
                 <Input
                   value={providerForm.name || ''}
+                  error={providerFieldErrors.name}
                   placeholder={t('config.llmDisplayNamePlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
                 />
@@ -383,6 +437,7 @@ export function LLMSection({
                 <label className="text-xs font-semibold text-muted-foreground">{t('config.llmApiBaseUrl')}</label>
                 <Input
                   value={providerForm.baseUrl || ''}
+                  error={providerFieldErrors.baseUrl}
                   placeholder={t('config.llmApiBaseUrlPlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, baseUrl: e.target.value })}
                 />
@@ -442,6 +497,7 @@ export function LLMSection({
                 <h5 className="text-xs font-semibold text-foreground mb-2">{t('config.llmCustomHeaders')}</h5>
                 <Textarea
                   value={providerHeadersJson}
+                  error={providerFieldErrors.headers}
                   onChange={(e) => setProviderHeadersJson(e.target.value)}
                   placeholder={t('config.llmCustomHeadersPlaceholder')}
                   className="font-mono text-xs min-h-[80px]"
@@ -451,8 +507,10 @@ export function LLMSection({
             </div>
 
             <DialogFooter>
-              <Button size="sm" onClick={saveProviderForm}>
-                {isAddingProvider ? t('config.llmCreateProvider') : t('config.llmUpdateProvider')}
+              <Button size="sm" onClick={saveProviderForm} disabled={isSavingProvider}>
+                {isSavingProvider
+                  ? t('config.llmSavingProvider')
+                  : isAddingProvider ? t('config.llmCreateProvider') : t('config.llmUpdateProvider')}
               </Button>
               <Button variant="outline" size="sm" onClick={cancelProviderForm}>
                 {t('common.cancel')}

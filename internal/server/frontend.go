@@ -4,8 +4,24 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 )
+
+// isStaticAssetPath distinguishes browser resource requests from SPA
+// navigation. Missing JS/CSS must remain a 404; serving index.html for those
+// requests makes the browser report misleading MIME and module errors.
+func isStaticAssetPath(requestPath string) bool {
+	clean := path.Clean("/" + strings.TrimPrefix(requestPath, "/"))
+	return strings.HasPrefix(clean, "/assets/") ||
+		strings.HasSuffix(clean, ".js") ||
+		strings.HasSuffix(clean, ".css") ||
+		strings.HasSuffix(clean, ".map") ||
+		strings.HasSuffix(clean, ".ico") ||
+		strings.HasSuffix(clean, ".png") ||
+		strings.HasSuffix(clean, ".svg") ||
+		strings.HasSuffix(clean, ".webmanifest")
+}
 
 // NewWebHandler serves only the embedded Web Console. It intentionally has no
 // runtime/database dependencies, which makes `soloqueue web` safe to use as a
@@ -28,6 +44,10 @@ func NewWebHandler(webFS fs.FS, backendURL string) http.Handler {
 				files.ServeHTTP(w, r)
 				return
 			}
+		}
+		if isStaticAssetPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
 		}
 		r.URL.Path = "/"
 		files.ServeHTTP(w, r)

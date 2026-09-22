@@ -58,10 +58,10 @@ export function useChatStream() {
       selectedElement?: any,
       activeDesignFile?: string,
       hasDrawings?: boolean
-    ) => {
+    ): Promise<boolean> => {
       const state = useChatStore.getState()
       const sid = sessionIdOverride || state.activeSessionId
-      if (!sid || !prompt.trim()) return
+      if (!sid || !prompt.trim()) return false
 
       if (new TextEncoder().encode(prompt).byteLength > MAX_CHAT_PROMPT_BYTES) {
         const now = new Date().toISOString()
@@ -80,7 +80,7 @@ export function useChatStream() {
           ],
           timestamp: now,
         })
-        return
+        return false
       }
 
       const activeForSession = Object.values(state.activeRequests).filter(
@@ -148,7 +148,7 @@ export function useChatStream() {
           ],
           timestamp: new Date().toISOString(),
         })
-        return
+        return false
       }
 
       const initialRoute = {
@@ -335,13 +335,14 @@ export function useChatStream() {
       const sent = wsManager.send(chatMessage)
       if (!sent) {
         handler.onError?.('Message was not sent because the connection is unavailable.')
-        return
+        return false
       }
       ackTimer = setTimeout(() => {
         if (!accepted) {
           handler.onError?.('Message was not acknowledged by the server.')
         }
       }, 10_000)
+      return true
     },
     [
       addMessage,
