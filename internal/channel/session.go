@@ -32,10 +32,11 @@ type PendingMedia = OutboundMedia
 
 // AskStreamResult contains the result of a streaming session request.
 type AskStreamResult struct {
-	Content          string
-	ReasoningContent string
-	ImageURLs        []string
-	MediaList        []PendingMedia
+	Content           string
+	ReasoningContent  string
+	ImageURLs         []string
+	MediaList         []PendingMedia
+	ClassifierWarning string
 }
 
 // OnIntermediateFunc receives assistant content emitted before a tool call.

@@ -332,10 +332,11 @@ func (b *channelAdapterBase) consumeAskStreamEventsWithDelegation(
 	}
 
 	return &channel.AskStreamResult{
-		Content:          finalContent,
-		ReasoningContent: reasoningContent,
-		ImageURLs:        imageURLs,
-		MediaList:        mediaList,
+		Content:           finalContent,
+		ReasoningContent:  reasoningContent,
+		ImageURLs:         imageURLs,
+		MediaList:         mediaList,
+		ClassifierWarning: sess.ClassifierWarning(),
 	}, nil
 }
 
