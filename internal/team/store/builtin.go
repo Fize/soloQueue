@@ -180,7 +180,7 @@ var builtinTeams = []BuiltinTeamSpec{
 		ID:          "engineering",
 		Name:        "engineering",
 		DisplayName: "Engineering Team",
-		Description: "Engineering group responsible for architecture design, fullstack development, and quality assurance. Explorer discovers, Editor implements, Tester validates.",
+		Description: "Software engineering team responsible for coding and software delivery across frontend, backend, mobile, desktop, CLI, libraries, scripts, and developer tooling. Covers code reading and explanation, read-only investigation and troubleshooting, architecture and technical design, feature development, bug fixes, refactoring, performance and security improvements, code review, testing, dependencies, build and configuration, CI/CD, deployment troubleshooting, and technical documentation. Handles small changes and standalone investigations as well as complete projects.",
 		Agents: []BuiltinAgentSpec{
 			{
 				ID:           "andrej karpathy",

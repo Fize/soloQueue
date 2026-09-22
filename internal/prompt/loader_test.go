@@ -87,7 +87,7 @@ func TestBuildPrompt_Integration(t *testing.T) {
 	os.WriteFile(filepath.Join(globalDir, "user.md"), []byte("Test User"), 0o644)
 
 	leaders := []LeaderInfo{
-		{ID: "dev", Name: "dev", Description: "Development Engineer", Group: "DevOps"},
+		{ID: "dev", Name: "dev", Description: "Private leader responsibilities", Group: "DevOps", GroupDescription: "Software engineering and code investigation"},
 	}
 
 	result, err := cfg.BuildPrompt(leaders, nil, "", "", "/home/user/.soloqueue/plan", nil)
@@ -108,8 +108,11 @@ func TestBuildPrompt_Integration(t *testing.T) {
 	if !contains(result, "<rules>") {
 		t.Error("missing <rules> tag")
 	}
-	if !contains(result, "Team: dev (target=dev): Development Engineer") {
-		t.Error("missing leader in routing table")
+	if !contains(result, "Team: dev (target=dev): Software engineering and code investigation") {
+		t.Error("missing team capability in routing table")
+	}
+	if contains(result, "Private leader responsibilities") {
+		t.Error("leader description leaked into the assembled prompt")
 	}
 	if !contains(result, "Test User") {
 		t.Error("missing user context")

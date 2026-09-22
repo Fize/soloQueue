@@ -413,6 +413,23 @@ func TestBuiltinTeamInstallStatusesAndRepair(t *testing.T) {
 		t.Fatalf("install results = %+v", results)
 	}
 
+	team, err := store.GetTeamByName(ctx, "engineering")
+	if err != nil {
+		t.Fatalf("GetTeamByName engineering: %v", err)
+	}
+	if team.Description != views[0].Spec.Description {
+		t.Fatal("installed team description differs from the built-in catalog")
+	}
+	for _, capability := range []string{"code reading", "read-only investigation", "small changes", "CI/CD", "security", "technical documentation"} {
+		if !strings.Contains(strings.ToLower(team.Description), strings.ToLower(capability)) {
+			t.Errorf("built-in engineering description missing %q", capability)
+		}
+	}
+	team.Description = "Custom engineering capabilities"
+	if err := store.UpdateTeam(ctx, "engineering", team); err != nil {
+		t.Fatalf("UpdateTeam engineering: %v", err)
+	}
+
 	explorer, err := store.GetAgentByName(ctx, "explorer")
 	if err != nil {
 		t.Fatalf("GetAgentByName explorer: %v", err)
@@ -454,6 +471,13 @@ func TestBuiltinTeamInstallStatusesAndRepair(t *testing.T) {
 	}
 	if results[0].CreatedTeam || len(results[0].CreatedAgents) != 0 {
 		t.Fatalf("idempotent results = %+v", results)
+	}
+	team, err = store.GetTeamByName(ctx, "engineering")
+	if err != nil {
+		t.Fatalf("GetTeamByName engineering after reinstall: %v", err)
+	}
+	if team.Description != "Custom engineering capabilities" {
+		t.Fatal("reinstall overwrote the existing team description")
 	}
 }
 

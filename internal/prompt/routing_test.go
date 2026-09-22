@@ -7,8 +7,8 @@ import (
 
 func TestBuildRoutingTable_WithLeaders(t *testing.T) {
 	leaders := []LeaderInfo{
-		{ID: "dev", Name: "dev", Description: "Full-stack developer", Group: "DevOps"},
-		{ID: "editor-in-chief", Name: "EditorInChief", Description: "Editor-in-chief, responsible for content planning", Group: "NovelCreationTeam"},
+		{ID: "dev", Name: "dev", Description: "Dev leader internals", Group: "DevOps", GroupDescription: "Full-stack developer"},
+		{ID: "editor-in-chief", Name: "EditorInChief", Description: "Editorial leader internals", Group: "NovelCreationTeam", GroupDescription: "Novel writing and content planning"},
 	}
 
 	result := buildRoutingTable(leaders, nil)
@@ -16,7 +16,7 @@ func TestBuildRoutingTable_WithLeaders(t *testing.T) {
 	if !strings.Contains(result, "Team: dev (target=dev): Full-stack developer") {
 		t.Error("missing dev leader entry")
 	}
-	if !strings.Contains(result, "Team: EditorInChief (target=editor-in-chief): Editor-in-chief, responsible for content planning") {
+	if !strings.Contains(result, "Team: EditorInChief (target=editor-in-chief): Novel writing and content planning") {
 		t.Error("missing EditorInChief leader entry")
 	}
 	if !strings.Contains(result, "Full-stack developer") {
@@ -24,21 +24,35 @@ func TestBuildRoutingTable_WithLeaders(t *testing.T) {
 	}
 }
 
-func TestBuildRoutingTable_DoesNotInjectGroupBody(t *testing.T) {
-	result := buildRoutingTable([]LeaderInfo{{
-		ID:               "dev",
-		Name:             "Dev",
-		Description:      "Code implementation",
-		Group:            "Engineering",
-		GroupDescription: "Long team handbook that belongs only in the L2 team context.",
-	}}, map[string]GroupFile{
-		"Engineering": {Body: "Long team handbook that belongs only in the L2 team context."},
-	})
-	if !strings.Contains(result, "Code implementation") {
-		t.Fatal("routing table omitted the leader description")
-	}
-	if strings.Contains(result, "Long team handbook") {
-		t.Fatal("routing table injected the group body into L1")
+func TestBuildRoutingTable_UsesOnlyTeamDescription(t *testing.T) {
+	for _, tc := range []struct {
+		name, group, description string
+	}{
+		{"team", "Engineering", "Code reading, investigation, and implementation"},
+		{"missing description", "Engineering", ""},
+		{"blank description", "Engineering", " \t\n"},
+		{"no group", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := buildRoutingTable([]LeaderInfo{{
+				ID: " CANONICAL-LEAD ", Name: "Display Name",
+				Description: "Private leader responsibilities",
+				Group:       tc.group, GroupDescription: tc.description,
+			}}, nil)
+			if tc.description != "" && !strings.Contains(result, tc.description) {
+				t.Fatal("routing table omitted the team description")
+			}
+			if strings.Contains(result, "Private leader responsibilities") {
+				t.Fatal("routing table exposed the leader description")
+			}
+			if !strings.Contains(result, "Team: Display Name (target=canonical-lead)") ||
+				!strings.Contains(result, `delegate(target="canonical-lead"`) {
+				t.Fatal("routing table changed the display label or canonical delegation target")
+			}
+			if strings.Contains(result, `work_dir="..."`) != (tc.group != "") {
+				t.Fatal("routing table changed group workspace semantics")
+			}
+		})
 	}
 }
 
@@ -57,8 +71,8 @@ func TestBuildRoutingTable_NoGroup(t *testing.T) {
 
 	result := buildRoutingTable(leaders, nil)
 
-	if !strings.Contains(result, "assistant (target=assistant): General assistant") {
-		t.Errorf("leader without group should not show parentheses, got: %q", result)
+	if !strings.Contains(result, "assistant (target=assistant):") {
+		t.Errorf("leader without group should retain its target, got: %q", result)
 	}
 }
 
