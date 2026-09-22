@@ -49,3 +49,23 @@ func TestLLMClassifierFailureDoesNotCancelSessionRoot(t *testing.T) {
 	}
 	root.Complete()
 }
+
+func TestLLMClassifierPreservesMalformedResponseForDiagnostics(t *testing.T) {
+	classifier := NewLLMClassifier(
+		&agenttest.FakeLLM{Responses: []string{"based on the request, this is engineering"}},
+		"provider",
+		"model",
+	)
+
+	_, err := classifier.Classify(context.Background(), ClassifyInput{Text: "inspect the router"}, nil)
+	if err == nil {
+		t.Fatal("Classify() error = nil, want malformed response error")
+	}
+	responseErr, ok := err.(*classifierResponseError)
+	if !ok {
+		t.Fatalf("error type = %T, want *classifierResponseError", err)
+	}
+	if responseErr.Content != "based on the request, this is engineering" {
+		t.Fatalf("response content = %q", responseErr.Content)
+	}
+}

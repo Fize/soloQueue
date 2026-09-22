@@ -54,7 +54,7 @@ func TestLocalClassifierOnlyShortCircuitsStrongEvidence(t *testing.T) {
 	}
 }
 
-func TestDefaultClassifierReportsLLMFallbackWarning(t *testing.T) {
+func TestDefaultClassifierFallsBackAfterLLMFailure(t *testing.T) {
 	classifier := NewDefaultClassifier(
 		ClassifierConfig{EnableLocal: false, EnableLLM: true},
 		&agenttest.FakeLLM{Err: errors.New("provider timeout")},
@@ -64,8 +64,5 @@ func TestDefaultClassifierReportsLLMFallbackWarning(t *testing.T) {
 	result := classifier.Classify(context.Background(), ClassifyInput{Text: "continue", PreviousTaskType: tasktype.Engineering}, nil)
 	if result.TaskType != tasktype.Engineering || result.Source != SourcePreviousFallback {
 		t.Fatalf("fallback = %+v, want previous engineering fallback", result)
-	}
-	if result.Warning == "" {
-		t.Fatal("fallback warning is empty")
 	}
 }

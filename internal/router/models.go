@@ -19,9 +19,6 @@ type ClassificationResult struct {
 	TaskType   tasktype.TaskType
 	Source     ClassificationSource
 	ReasonCode string
-	// Warning is set when semantic classification failed and a safe fallback
-	// was used. It is surfaced to the caller without blocking the request.
-	Warning string
 }
 
 type ClassifierConfig struct {

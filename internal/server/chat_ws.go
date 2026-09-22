@@ -344,20 +344,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	routeMessage := buildChatRouteMessage(sess, route, msg.RequestID, msg.SessionID)
 	client.sendJSON(routeMessage)
 
-	// Notify desktop when classification degraded (LLM error, fallback used).
-	if cw := sess.ClassifierWarning(); cw != "" {
-		client.sendJSON(WSMessage{
-			Type: "notification",
-			Notification: &NotificationPayload{
-				Category:  "classifier",
-				Level:     "warning",
-				Title:     "Task classification degraded",
-				Body:      cw,
-				Timestamp: time.Now().UTC().Format(time.RFC3339),
-			},
-		})
-	}
-
 	// Consume agent events and forward to client.
 	forwarderStarted = true
 	go h.forwardAgentEvents(client, msg.RequestID, reqCancel, ch, msg.SessionID, msg.Prompt)
