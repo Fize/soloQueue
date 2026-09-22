@@ -2,10 +2,13 @@ package router
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/llm/supervised"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
@@ -26,4 +29,23 @@ func TestLLMClassifierAllowsModerateProviderLatency(t *testing.T) {
 	if got != tasktype.Engineering {
 		t.Fatalf("Classify() = %q, want %q", got, tasktype.Engineering)
 	}
+}
+
+func TestLLMClassifierFailureDoesNotCancelSessionRoot(t *testing.T) {
+	manager := runwatch.NewManager(runwatch.Policy{ScanInterval: time.Hour})
+	defer manager.Close()
+	ctx, root, err := manager.Start(context.Background(), runwatch.Metadata{RunID: "classifier-root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := supervised.New(&agenttest.FakeLLM{Err: errors.New("classifier unavailable")}, manager)
+	classifier := NewLLMClassifier(client, "provider", "model")
+
+	if _, err := classifier.Classify(ctx, ClassifyInput{Text: "continue"}, nil); err == nil {
+		t.Fatal("Classify() error = nil, want provider failure")
+	}
+	if _, ok := root.Snapshot(); !ok {
+		t.Fatal("classifier failure terminated the session root")
+	}
+	root.Complete()
 }

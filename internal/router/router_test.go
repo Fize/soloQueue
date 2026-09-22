@@ -1,8 +1,11 @@
 package router
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
@@ -48,5 +51,21 @@ func TestLocalClassifierOnlyShortCircuitsStrongEvidence(t *testing.T) {
 		if got.Matched != tt.matched || got.TaskType != tt.want {
 			t.Errorf("Classify(%q) = %+v, want matched=%v type=%s", tt.input, got, tt.matched, tt.want)
 		}
+	}
+}
+
+func TestDefaultClassifierReportsLLMFallbackWarning(t *testing.T) {
+	classifier := NewDefaultClassifier(
+		ClassifierConfig{EnableLocal: false, EnableLLM: true},
+		&agenttest.FakeLLM{Err: errors.New("provider timeout")},
+		"provider", "model", nil,
+	)
+
+	result := classifier.Classify(context.Background(), ClassifyInput{Text: "continue", PreviousTaskType: tasktype.Engineering}, nil)
+	if result.TaskType != tasktype.Engineering || result.Source != SourcePreviousFallback {
+		t.Fatalf("fallback = %+v, want previous engineering fallback", result)
+	}
+	if result.Warning == "" {
+		t.Fatal("fallback warning is empty")
 	}
 }

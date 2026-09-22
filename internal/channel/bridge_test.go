@@ -18,6 +18,8 @@ type fakeSession struct {
 
 type busySession struct{ fakeSession }
 
+type warningSession struct{ fakeSession }
+
 type attachmentSession struct {
 	fakeSession
 	files []ctxwin.FileAttachment
@@ -54,6 +56,11 @@ func (*busySession) AskStream(context.Context, string, OnIntermediateFunc) (*Ask
 	return nil, ErrSessionBusy
 }
 
+func (s *warningSession) AskStream(_ context.Context, prompt string, _ OnIntermediateFunc) (*AskStreamResult, error) {
+	s.prompt = prompt
+	return &AskStreamResult{Content: "reply", ClassifierWarning: "Task classification degraded: provider timeout"}, nil
+}
+
 func (s *fakeSession) AskStream(_ context.Context, prompt string, _ OnIntermediateFunc) (*AskStreamResult, error) {
 	s.prompt = prompt
 	if s.askErr != nil {
@@ -70,10 +77,12 @@ func (*fakeSession) SetChannelSenderData(string, []byte, func(context.Context, s
 type fakeSender struct {
 	message Message
 	text    string
+	texts   []string
 }
 
 func (s *fakeSender) SendText(_ context.Context, msg Message, text string) error {
 	s.message, s.text = msg, text
+	s.texts = append(s.texts, text)
 	return nil
 }
 
@@ -113,6 +122,20 @@ func TestTextBridgePreservesOpaqueReplyToken(t *testing.T) {
 	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "hello", ReplyToken: "opaque"})
 	if sess.prompt != "hello" || sender.text != "reply" || sender.message.ReplyToken != "opaque" {
 		t.Fatalf("session=%q sender=%#v", sess.prompt, sender)
+	}
+}
+
+func TestTextBridgeForwardsClassifierWarningBeforeReply(t *testing.T) {
+	log, err := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &fakeSender{}
+	bridge := NewTextBridge(&warningSession{}, sender, log, "1.0.0", false, nil)
+	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "hello"})
+
+	if len(sender.texts) != 2 || sender.texts[0] != "Task classification degraded: provider timeout" || sender.texts[1] != "reply" {
+		t.Fatalf("channel replies = %#v, want warning followed by reply", sender.texts)
 	}
 }
 

@@ -331,6 +331,9 @@ func (b *SessionBridge) OnQQMessage(ctx context.Context, msg QQMessage) {
 	// Determine what to send:
 	// - If content is non-empty, send content only (not reasoning/tool calls)
 	// - If content is empty but reasoning is non-empty, send reasoning as fallback
+	if strings.TrimSpace(result.ClassifierWarning) != "" {
+		b.sendReply(ctx, msg, MsgTypeText, result.ClassifierWarning)
+	}
 	reply := result.Content
 	if reply == "" && result.ReasoningContent != "" {
 		reply = result.ReasoningContent

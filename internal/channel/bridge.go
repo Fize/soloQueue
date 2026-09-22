@@ -133,6 +133,9 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 		return
 	}
 	if result != nil {
+		if strings.TrimSpace(result.ClassifierWarning) != "" {
+			b.send(ctx, msg, result.ClassifierWarning)
+		}
 		if len(result.MediaList) > 0 {
 			mediaSender, ok := b.sender.(MediaSender)
 			if !ok {

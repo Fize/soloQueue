@@ -558,6 +558,9 @@ func TestConsumeAskStreamEvents_Basic(t *testing.T) {
 	ag := startAgent(t, &agenttest.FakeLLM{Responses: []string{"ok"}})
 	sess := NewSession("consume-basic", "team", ag, nil, nil, testLog)
 	t.Cleanup(func() { sess.Close() })
+	sess.lastLevelMu.Lock()
+	sess.lastRouteResult.ClassifierWarning = "Task classification degraded: provider timeout"
+	sess.lastLevelMu.Unlock()
 
 	ch := make(chan iface.AgentEvent, 4)
 	ch <- agent.ContentDeltaEvent{Delta: "hello"}
@@ -571,6 +574,9 @@ func TestConsumeAskStreamEvents_Basic(t *testing.T) {
 	}
 	if result.Content != "hello world" {
 		t.Errorf("Content = %q, want 'hello world'", result.Content)
+	}
+	if result.ClassifierWarning == "" {
+		t.Fatal("ClassifierWarning is empty")
 	}
 }
 

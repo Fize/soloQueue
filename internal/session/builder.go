@@ -818,7 +818,7 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 			Level:             decision.TaskType.String(),
 			ContextWindow:     decision.ContextWindow,
 			Vision:            decision.Vision,
-			ClassifierWarning: "",
+			ClassifierWarning: decision.Classification.Warning,
 		}, nil
 	}
 }

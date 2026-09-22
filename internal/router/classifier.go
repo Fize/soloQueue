@@ -48,6 +48,12 @@ func (c *DefaultClassifier) Classify(ctx context.Context, input ClassifyInput, h
 	if c.config.EnableLLM && c.llm != nil {
 		if t, err := c.llm.Classify(ctx, input, history); err == nil {
 			return ClassificationResult{TaskType: t, Source: SourceLLM, ReasonCode: "llm"}
+		} else {
+			warning := "Task classification degraded: " + err.Error()
+			if input.PreviousTaskType.Valid() {
+				return ClassificationResult{TaskType: input.PreviousTaskType, Source: SourcePreviousFallback, ReasonCode: "previous", Warning: warning}
+			}
+			return ClassificationResult{TaskType: tasktype.General, Source: SourceDefaultFallback, ReasonCode: "general", Warning: warning}
 		}
 	}
 	if input.PreviousTaskType.Valid() {

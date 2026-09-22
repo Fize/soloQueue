@@ -2409,7 +2409,7 @@ enqueued:
 			eventCount++
 		}
 		terminalErrorForCause := func(cause error) error {
-			if errors.Is(cause, context.DeadlineExceeded) {
+			if s.requestTimeout > 0 && errors.Is(cause, context.DeadlineExceeded) {
 				return deadlineError
 			}
 			return cause

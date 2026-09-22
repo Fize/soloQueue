@@ -10,6 +10,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
@@ -42,7 +43,17 @@ func (c *LLMClassifier) Classify(ctx context.Context, input ClassifyInput, histo
 	c.mu.RLock()
 	providerID, model := c.providerID, c.model
 	c.mu.RUnlock()
-	classCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	operationCtx := ctx
+	var operation *runwatch.Handle
+	if parent := runwatch.HandleFromContext(ctx); parent != nil {
+		var err error
+		operationCtx, operation, err = parent.BeginLocalOperation(ctx, runwatch.KindModel, fmt.Sprintf("classifier:%d", time.Now().UnixNano()), runwatch.Policy{})
+		if err != nil {
+			return tasktype.Unknown, err
+		}
+		defer operation.Complete()
+	}
+	classCtx, cancel := context.WithTimeout(operationCtx, 5*time.Second)
 	defer cancel()
 
 	messages := []agent.LLMMessage{{Role: "system", Content: llmClassifierSystemPrompt}}
