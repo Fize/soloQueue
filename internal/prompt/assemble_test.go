@@ -369,7 +369,7 @@ func TestAssembleWithXML_ExplorationArtifactsAbsolutePaths(t *testing.T) {
 }
 
 func TestAssembledContractsDoNotOverrideRoutingOrReadOnlyWork(t *testing.T) {
-	routing := buildRoutingTable([]LeaderInfo{{Name: "research-lead", Group: "research", Description: "Domain research"}}, nil)
+	routing := buildRoutingTable([]LeaderInfo{{Name: "research-lead", Group: "research", GroupDescription: "Domain research"}}, nil)
 	got := assembleWithXML("soul", "", "/memory", "/memory", routing, DefaultRules, "/plans", "/work", "/explore", nil, nil)
 	for _, obsolete := range []string{"YOU MUST DELEGATE", "every task goes to one of these teams", "ONLY DEFAULT ACTION FOR ANY USER TASK", "NEVER pass skill IDs", "Never pass skill IDs", "At the start of a session, or", "PLAN_ID:", "work_dir will cause the delegation to fail"} {
 		if strings.Contains(got, obsolete) {

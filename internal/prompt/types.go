@@ -1,14 +1,14 @@
 package prompt
 
 // LeaderInfo describes an available Team Leader.
-// The main agent only needs to know what each team can do (Description),
+// The main agent only needs to know what each team can do (GroupDescription),
 // not what tools they have — tools are implementation details managed internally.
 type LeaderInfo struct {
 	ID               string // canonical target ID used in delegate(target=...)
 	Name             string // e.g. "dev"
-	Description      string // e.g. "Full-stack developer, responsible for frontend/backend development"
+	Description      string // Leader role description; not exposed in the main agent routing table
 	Group            string // e.g. "DevOps"
-	GroupDescription string // Group description (from group file body)
+	GroupDescription string // Team capabilities exposed to the main agent (from group file body)
 }
 
 // SoulNeededError is returned when soul.md is missing.
