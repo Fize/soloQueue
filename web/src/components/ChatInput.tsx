@@ -21,7 +21,7 @@ export interface ChatInputProps {
     group?: string,
     projectPath?: string,
     selectedElement?: any
-  ) => void
+  ) => boolean | void | Promise<boolean | void>
   onCancel: () => void
   streaming: boolean
   delegating: boolean
@@ -34,6 +34,9 @@ export interface ChatInputProps {
   groups?: string[]
   projects?: Project[]
   teamProjectsMap?: Record<string, Project[]>
+  groupsLoading?: boolean
+  groupsError?: string | null
+  onRetryGroups?: () => void
   selectedGroup?: string
   selectedProjectPath?: string
   onGroupChange?: (group: string) => void
@@ -68,6 +71,9 @@ export function ChatInput({
   groups = [],
   projects = [],
   teamProjectsMap = {},
+  groupsLoading = false,
+  groupsError = null,
+  onRetryGroups,
   selectedGroup = '',
   selectedProjectPath = '',
   onGroupChange,
@@ -425,7 +431,7 @@ export function ChatInput({
     })
   }, [])
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     const rawText = inputRef.current?.value.trim() || ''
 
     // Block sending if there are uploads in progress
@@ -437,6 +443,23 @@ export function ChatInput({
       .map((att) => ({ name: att.name, path: att.path! }))
 
     if ((!rawText && uploadedFiles.length === 0) || disabled) return
+
+    // A new L2 conversation needs a concrete team. Keep the draft intact
+    // while team data is still loading or unavailable.
+    if (showL2Selectors && !activeSessionId) {
+      if (groupsLoading) {
+        toast.info(t('chat.teamLoading'))
+        return
+      }
+      if (groupsError) {
+        toast.error(groupsError)
+        return
+      }
+      if (!selectedGroup) {
+        toast.error(t('chat.teamRequired'))
+        return
+      }
+    }
 
     // Intercept /cancel immediately while streaming — don't queue
     if (rawText.toLowerCase() === '/cancel' && (streaming || processing)) {
@@ -478,13 +501,15 @@ export function ChatInput({
       html_hint: selectedTarget.htmlHint
     } : undefined
 
-    onSend(
+    const accepted = await onSend(
       finalPrompt,
       uploadedFiles.length > 0 ? uploadedFiles : undefined,
       selectedGroup || undefined,
       selectedProjectPath || undefined,
       selectedElement
     )
+
+    if (accepted === false) return
 
     if (inputRef.current) inputRef.current.value = ''
     setInputValue('')
@@ -496,7 +521,7 @@ export function ChatInput({
 
     // Reset height
     if (inputRef.current) inputRef.current.style.height = 'auto'
-  }, [disabled, onSend, onCancel, streaming, processing, attachments, selectedGroup, selectedProjectPath, atMentions])
+  }, [activeSessionId, disabled, groupsError, groupsLoading, onSend, onCancel, processing, selectedGroup, selectedProjectPath, selectedTarget, showL2Selectors, streaming, t, attachments, atMentions])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
@@ -685,6 +710,22 @@ export function ChatInput({
                 )}
                 {showL2Selectors && (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground select-none overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5 flex-1 min-w-0">
+                    {groupsLoading && (
+                      <span className="shrink-0 text-[11px] text-muted-foreground/70">{t('chat.teamLoading')}</span>
+                    )}
+                    {!groupsLoading && groupsError && (
+                      <span className="flex shrink-0 items-center gap-1 text-[11px] text-destructive">
+                        <span>{t('chat.teamLoadFailed')}</span>
+                        {onRetryGroups && (
+                          <button type="button" className="underline underline-offset-2 cursor-pointer" onClick={onRetryGroups}>
+                            {t('chat.retry')}
+                          </button>
+                        )}
+                      </span>
+                    )}
+                    {!groupsLoading && !groupsError && groups.length === 0 && (
+                      <span className="shrink-0 text-[11px] text-muted-foreground/70">{t('chat.noTeams')}</span>
+                    )}
                     {/* L2 Group Select */}
                     <div className="relative shrink-0" ref={groupRef}>
                       <button

@@ -508,6 +508,10 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 					return
 				}
 			}
+			if isStaticAssetPath("/" + path) {
+				http.NotFound(w, r)
+				return
+			}
 			r.URL.Path = "/"
 			statusFileServer.ServeHTTP(w, r)
 			return
@@ -526,6 +530,10 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 				webFileServer.ServeHTTP(w, r)
 				return
 			}
+		}
+		if isStaticAssetPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
 		}
 		r.URL.Path = "/"
 		webFileServer.ServeHTTP(w, r)

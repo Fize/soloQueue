@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, lazy, Suspense } from 'react'
+import { useEffect, useRef, useCallback, lazy, Suspense, Component, type ErrorInfo, type ReactNode } from 'react'
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { PanelRightOpen, Loader2 } from 'lucide-react'
@@ -67,6 +67,37 @@ function RouteFallback() {
       <span className="text-sm text-muted-foreground font-mono">Loading…</span>
     </div>
   )
+}
+
+class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Failed to load application route:', error, info)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 bg-background px-6 text-center" role="alert">
+          <p className="text-sm text-foreground">This page could not be loaded.</p>
+          <p className="text-xs text-muted-foreground">The latest app files may not be available yet.</p>
+          <button
+            type="button"
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted cursor-pointer"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }
 
 const LAST_ROUTE_KEY = 'soloqueue_last_route'
@@ -260,8 +291,9 @@ function App() {
 
             {/* Routes */}
             <div className="flex-1 min-h-0 overflow-hidden">
-              <Suspense fallback={<RouteFallback />}>
-                <Routes>
+              <RouteErrorBoundary>
+                <Suspense fallback={<RouteFallback />}>
+                  <Routes>
                   <Route path="/" element={<Navigate to={getLastRoute()} replace />} />
                   <Route path="/new-chat" element={<Navigate to="/chat" replace />} />
                   <Route path="/assistant" element={<AssistantPage />} />
@@ -295,8 +327,9 @@ function App() {
                     <Route path="stats" element={<StatsTab />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </Suspense>
+                  </Routes>
+                </Suspense>
+              </RouteErrorBoundary>
             </div>
           </main>
         </div>

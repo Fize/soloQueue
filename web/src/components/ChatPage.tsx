@@ -40,6 +40,7 @@ import {
 import type { RequestStreamRecovery } from "@/components/chat/recoverInFlightMessages";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
+import { toast } from "sonner";
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -135,6 +136,9 @@ export function ChatPage() {
 
   // L2 redesign states
   const [l2Groups, setL2Groups] = useState<string[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [groupsReloadKey, setGroupsReloadKey] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
   const [teamProjectsMap, setTeamProjectsMap] = useState<
     Record<string, Project[]>
@@ -152,6 +156,9 @@ export function ChatPage() {
   // until the user navigates away and back.
   useEffect(() => {
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setGroupsLoading(true);
+    setGroupsError(null);
     async function loadInitialData() {
       try {
         const [groupNames, projs, teamsData, skillsResp, agentsResp] = await Promise.all([
@@ -165,6 +172,7 @@ export function ChatPage() {
         if (!active) return;
 
         setL2Groups(groupNames);
+        setGroupsLoading(false);
         setProjects(projs);
         setSkills(skillsResp.skills || []);
         setRegisteredAgents(agentsResp);
@@ -189,13 +197,19 @@ export function ChatPage() {
         setTeamProjectsMap(groupProjects);
       } catch (err) {
         console.error("Failed to load welcome screen options:", err);
+        if (active) {
+          setL2Groups([]);
+          setTeamProjectsMap({});
+          setGroupsError(t('chat.teamLoadFailed'));
+          setGroupsLoading(false);
+        }
       }
     }
     loadInitialData();
     return () => {
       active = false;
     };
-  }, [backendRunning]);
+  }, [backendRunning, groupsReloadKey, t]);
 
   const agentsData = useAgentStore((state) => state.agents);
   const teamsData = useAgentStore((state) => state.teams);
@@ -584,9 +598,13 @@ export function ChatPage() {
     group?: string,
     projectPath?: string,
     selectedElement?: any,
-  ) => {
+  ): Promise<boolean> => {
     resetFollow();
     let targetSessionId = activeSessionId || undefined;
+
+    // Every L2 session needs an explicit team. Keep the composer draft when
+    // a caller tries to submit before that context is available.
+    if (!activeSessionId && !isL1Session && !group) return false;
 
     if (!isL1Session && group) {
       if (!activeSessionId) {
@@ -595,6 +613,9 @@ export function ChatPage() {
         if (newId) {
           targetSessionId = newId;
           navigate(`/chat/${newId}`);
+        } else {
+          toast.error(t('chat.sessionCreateFailed'));
+          return false;
         }
       } else if (currentMessages.length === 0 && activeSession) {
         // Session exists but no messages — recreate if context changed
@@ -609,6 +630,9 @@ export function ChatPage() {
             }
             targetSessionId = newId;
             navigate(`/chat/${newId}`);
+          } else {
+            toast.error(t('chat.sessionCreateFailed'));
+            return false;
           }
         }
       }
@@ -618,7 +642,7 @@ export function ChatPage() {
       ? designContextRef.current
       : { activeDesignFile: undefined, hasDrawings: false };
 
-    await send(
+    const accepted = await send(
       text,
       files,
       targetSessionId,
@@ -626,7 +650,8 @@ export function ChatPage() {
       activeDesignFile,
       hasDrawings,
     );
-    setDesignSelectedTarget(null);
+    if (accepted !== false) setDesignSelectedTarget(null);
+    return accepted !== false;
   };
 
 
@@ -722,6 +747,9 @@ export function ChatPage() {
     delegating,
     disabled: delegating || connectionStatus !== "connected",
     groups: l2Groups,
+    groupsLoading,
+    groupsError,
+    onRetryGroups: () => setGroupsReloadKey((value) => value + 1),
     projects,
     teamProjectsMap,
     selectedGroup,
