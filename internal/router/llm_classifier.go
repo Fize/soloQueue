@@ -29,6 +29,15 @@ type LLMClassifier struct {
 	model      string
 }
 
+type classifierResponseError struct {
+	Content      string
+	FinishReason string
+	Err          error
+}
+
+func (e *classifierResponseError) Error() string { return e.Err.Error() }
+func (e *classifierResponseError) Unwrap() error { return e.Err }
+
 func NewLLMClassifier(client agent.LLMClient, providerID, model string) *LLMClassifier {
 	return &LLMClassifier{client: client, providerID: providerID, model: model}
 }
@@ -76,10 +85,13 @@ func (c *LLMClassifier) Classify(ctx context.Context, input ClassifyInput, histo
 	}
 	content := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(resp.Content), "```json"), "```"))
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return tasktype.Unknown, err
+		return tasktype.Unknown, &classifierResponseError{Content: content, FinishReason: string(resp.FinishReason), Err: err}
 	}
 	if !result.TaskType.Valid() {
-		return tasktype.Unknown, fmt.Errorf("invalid task type %q", result.TaskType)
+		return tasktype.Unknown, &classifierResponseError{
+			Content: content, FinishReason: string(resp.FinishReason),
+			Err: fmt.Errorf("invalid task type %q", result.TaskType),
+		}
 	}
 	return result.TaskType, nil
 }

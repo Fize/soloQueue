@@ -810,15 +810,14 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 		}
 
 		return RouteResult{
-			ProviderID:        decision.ProviderID,
-			ModelID:           decision.ModelID,
-			ThinkingEnabled:   decision.ThinkingEnabled,
-			ReasoningEffort:   decision.ReasoningEffort,
-			ThinkingType:      decision.ThinkingType,
-			Level:             decision.TaskType.String(),
-			ContextWindow:     decision.ContextWindow,
-			Vision:            decision.Vision,
-			ClassifierWarning: decision.Classification.Warning,
+			ProviderID:      decision.ProviderID,
+			ModelID:         decision.ModelID,
+			ThinkingEnabled: decision.ThinkingEnabled,
+			ReasoningEffort: decision.ReasoningEffort,
+			ThinkingType:    decision.ThinkingType,
+			Level:           decision.TaskType.String(),
+			ContextWindow:   decision.ContextWindow,
+			Vision:          decision.Vision,
 		}, nil
 	}
 }
