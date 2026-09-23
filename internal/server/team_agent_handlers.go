@@ -361,6 +361,19 @@ func (m *Mux) handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
 func (m *Mux) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 
 	name := chi.URLParam(r, "name")
+	agents, err := m.teamstore.ListAgentsByTeam(r.Context(), name)
+	if err != nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(agents) > 0 {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "team has agents; remove or reassign them before deleting the team"})
+		return
+	}
+	if m.configSvc != nil && teamHasChannelBinding(m.configSvc.Get(), name) {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "team has channel bindings; unbind them before deleting the team"})
+		return
+	}
 	if err := m.teamstore.DeleteTeam(r.Context(), name); err != nil {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
@@ -494,6 +507,9 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
+	previous := *existing
+	previous.Channels = cloneStringMap(existing.Channels)
+	previous.MCPServers = append([]string(nil), existing.MCPServers...)
 
 	var req updateAgentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -526,8 +542,10 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	if req.NotifyChannel != nil {
 		existing.NotifyChannel = *req.NotifyChannel
 	}
-	if req.Channels != nil && existing.Channels["telegram"] == "" && existing.NotifyChannel == "telegram" {
-		existing.NotifyChannel = ""
+	if req.Channels != nil && existing.NotifyChannel != "" {
+		if _, ok := existing.Channels[existing.NotifyChannel]; !ok {
+			existing.NotifyChannel = ""
+		}
 	}
 	var telegramBots []config.TelegramBotConfig
 	if req.Channels != nil || req.TeamName != nil {
@@ -543,6 +561,9 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := m.saveTelegramBinding(telegramBots); err != nil {
+		if rollbackErr := m.teamstore.UpdateAgent(r.Context(), name, &previous); rollbackErr != nil && m.log != nil {
+			m.log.Warn("failed to roll back agent after channel binding save failure", "agent", name, "err", rollbackErr.Error())
+		}
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -583,4 +604,15 @@ func (m *Mux) maybeRebuildPrompt(w http.ResponseWriter) {
 			}
 		}
 	}
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }

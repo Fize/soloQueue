@@ -60,7 +60,6 @@ func (m *Mux) prepareTelegramBinding(ctx context.Context, owner, oldID, newID, t
 	for i := range bots {
 		previous := bots[i]
 		if bots[i].ID == oldID && oldID != newID {
-			bots[i].Enabled = false
 			bots[i].BindType, bots[i].BindAgent = "l1", ""
 		}
 		if bots[i].ID == newID {

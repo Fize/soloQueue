@@ -385,7 +385,7 @@ export function ProfileTab() {
       if (wechatChannel) channels.wechat = wechatChannel
       if (telegramChannel) channels.telegram = telegramChannel
       await updateAgentProfile('main', {
-        channels: Object.keys(channels).length > 0 ? channels : null,
+        channels,
         notify_channel: notifyChannel || null,
       })
       await fetchProfile()

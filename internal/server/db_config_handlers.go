@@ -399,6 +399,27 @@ func (m *Mux) handleUpdateQQBotsConfig(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	for i := range cfg {
+		bindType, bindAgent, err := m.normalizeChannelBinding(cfg[i].BindType, cfg[i].BindAgent)
+		if err != nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("QQ bot %q: %v", cfg[i].ID, err)})
+			return
+		}
+		cfg[i].BindType, cfg[i].BindAgent = bindType, bindAgent
+	}
+	currentQQ := m.configSvc.Get().QQBots
+	keptQQ := make(map[string]struct{}, len(cfg))
+	for _, bot := range cfg {
+		keptQQ[bot.ID] = struct{}{}
+	}
+	for _, bot := range currentQQ {
+		if _, ok := keptQQ[bot.ID]; !ok {
+			if err := m.clearChannelReferences(r.Context(), "qq", bot.ID); err != nil {
+				m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+		}
+	}
 	if err := m.configSvc.UpdateQQBots(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -468,6 +489,14 @@ func (m *Mux) handleUpdateTelegramBotsConfig(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+	for i := range cfg {
+		bindType, bindAgent, err := m.normalizeChannelBinding(cfg[i].BindType, cfg[i].BindAgent)
+		if err != nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Telegram bot %q: %v", cfg[i].ID, err)})
+			return
+		}
+		cfg[i].BindType, cfg[i].BindAgent = bindType, bindAgent
 	}
 	if err := m.configSvc.UpdateTelegramBots(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -584,6 +613,10 @@ func (m *Mux) handleDeleteTelegramBotConfig(w http.ResponseWriter, r *http.Reque
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "telegram account not found"})
 		return
 	}
+	if err := m.clearChannelReferences(r.Context(), "telegram", id); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	if err := m.configSvc.UpdateTelegramBots(filtered); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -654,9 +687,27 @@ func (m *Mux) handleUpdateWechatBotsConfig(w http.ResponseWriter, r *http.Reques
 		existing[bot.ID] = bot
 	}
 	for i := range cfg {
+		bindType, bindAgent, err := m.normalizeChannelBinding(cfg[i].BindType, cfg[i].BindAgent)
+		if err != nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("WeChat account %q: %v", cfg[i].ID, err)})
+			return
+		}
+		cfg[i].BindType, cfg[i].BindAgent = bindType, bindAgent
 		if previous, ok := existing[cfg[i].ID]; ok {
 			cfg[i].BotToken = previous.BotToken
 			cfg[i].BotID = previous.BotID
+		}
+	}
+	keptWechat := make(map[string]struct{}, len(cfg))
+	for _, bot := range cfg {
+		keptWechat[bot.ID] = struct{}{}
+	}
+	for _, bot := range m.configSvc.Get().WechatBots {
+		if _, ok := keptWechat[bot.ID]; !ok {
+			if err := m.clearChannelReferences(r.Context(), "wechat", bot.ID); err != nil {
+				m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
 		}
 	}
 	if err := m.configSvc.UpdateWechatBots(cfg); err != nil {
@@ -693,6 +744,10 @@ func (m *Mux) handleDeleteWechatBotConfig(w http.ResponseWriter, r *http.Request
 	}
 	if len(filtered) == len(bots) {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "wechat account not found"})
+		return
+	}
+	if err := m.clearChannelReferences(r.Context(), "wechat", accountID); err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	if err := m.configSvc.UpdateWechatBots(filtered); err != nil {

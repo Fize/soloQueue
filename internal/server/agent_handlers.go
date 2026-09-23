@@ -547,7 +547,11 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 			Channels      map[string]string `yaml:"channels"`
 			NotifyChannel string            `yaml:"notify_channel"`
 		}
+		var previousChannels []byte
+		previousChannelsExists := false
 		if data, err := os.ReadFile(chPath); err == nil {
+			previousChannels = append([]byte(nil), data...)
+			previousChannelsExists = true
 			yaml.Unmarshal(data, &l1ch)
 		}
 		if l1ch.Channels == nil {
@@ -560,8 +564,10 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 		if req.NotifyChannel != nil {
 			l1ch.NotifyChannel = *req.NotifyChannel
 		}
-		if req.Channels != nil && l1ch.Channels["telegram"] == "" && l1ch.NotifyChannel == "telegram" {
-			l1ch.NotifyChannel = ""
+		if req.Channels != nil && l1ch.NotifyChannel != "" {
+			if _, ok := l1ch.Channels[l1ch.NotifyChannel]; !ok {
+				l1ch.NotifyChannel = ""
+			}
 		}
 		var telegramBots []config.TelegramBotConfig
 		if req.Channels != nil {
@@ -586,6 +592,11 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := m.saveTelegramBinding(telegramBots); err != nil {
+			if previousChannelsExists {
+				_ = os.WriteFile(chPath, previousChannels, 0644)
+			} else {
+				_ = os.Remove(chPath)
+			}
 			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -760,6 +771,11 @@ func (m *Mux) handleUpdateAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.NotifyChannel != nil {
 		af.Frontmatter.NotifyChannel = *req.NotifyChannel
+	}
+	if req.Channels != nil && af.Frontmatter.NotifyChannel != "" {
+		if _, ok := af.Frontmatter.Channels[af.Frontmatter.NotifyChannel]; !ok {
+			af.Frontmatter.NotifyChannel = ""
+		}
 	}
 
 	// Serialize back to .md file
