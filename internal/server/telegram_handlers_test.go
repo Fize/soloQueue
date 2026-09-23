@@ -143,12 +143,12 @@ func TestTelegramBindingSaveAndUnbind(t *testing.T) {
 		t.Fatal("agent binding or notification not cleared")
 	}
 	b := cfg.Get().TelegramBots[1]
-	if b.Enabled || b.BindAgent != "" {
-		t.Fatal("unbound bot remained enabled or retained target")
+	if !b.Enabled || b.BindAgent != "" {
+		t.Fatal("unbound bot was disabled or retained target")
 	}
 	put("/api/agents/main/profile", `{"channels":{}}`, http.StatusOK)
-	if cfg.Get().TelegramBots[0].Enabled {
-		t.Fatal("unbound L1 bot remained enabled")
+	if !cfg.Get().TelegramBots[0].Enabled {
+		t.Fatal("unbound L1 bot was disabled")
 	}
 	put("/api/agents/main/profile", `{"channels":{"telegram":"b"}}`, http.StatusOK)
 	b = cfg.Get().TelegramBots[1]
