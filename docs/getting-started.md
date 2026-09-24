@@ -56,6 +56,14 @@ pnpm dev
 
 The Vite dev server proxies `/api` and `/ws` requests to `http://localhost:8765`.
 
+### Connecting a Local Web Console to a Remote Core
+
+You can keep the Web Console on your computer and connect it to a Core running elsewhere. Start the standalone local Web Console (`soloqueue web`; default address: `http://127.0.0.1:57648`), then go to **Settings → Connection**, select **Remote**, enter a browser-reachable Core URL (for example, `https://core.example.com`), and save. The connection choice is stored in this browser. The Core must already be running and reachable from the browser.
+
+For a Core reachable only on the remote machine's loopback interface, use an SSH tunnel, then enter `http://127.0.0.1:57689` as the Remote URL. For a Core behind a reverse proxy, use its HTTPS URL and configure the proxy to forward `/api` and WebSocket traffic at `/ws`.
+
+The Core has no built-in authentication. Do not expose it directly to the public internet; use an SSH tunnel or a secured reverse proxy with TLS and authentication. If you need to create the SSH tunnel manually, forward local port `57689` to `127.0.0.1:57689` on the Core host.
+
 ### 4. Build Targets
 
 | Command | Output |
@@ -73,26 +81,13 @@ The Vite dev server proxies `/api` and `/ws` requests to `http://localhost:8765`
 
 ### Managing Skills
 
-SoloQueue reads installed global skills from `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and hot-reloads their `SKILL.md` definitions when skill directories or recognized entrypoints change. Agents running in a project also load compatible project skills from `<project>/.claude/skills/` when they are created. Set `SOLOQUEUE_WORK_DIR` to change the SoloQueue work directory. Skill installation and updates use the external ClawHub CLI:
-
-```bash
-SOLOQUEUE_HOME="${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}"
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills search "calendar"
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills inspect @owner/slug
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills install @owner/slug
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills list
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update @owner/slug
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills update --all
-clawhub --workdir "$SOLOQUEUE_HOME" --dir skills uninstall slug
-```
-
-The assistant only consults ClawHub when a Skill is actually needed. Skill search and lifecycle operations are performed directly by L1; L2/L3 only use installed Skills and report missing Skill IDs to L1. Mutating operations still require explicit intent.
+Open **Skills** in the Web Console to inspect installed skills. SoloQueue loads global skills from `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and compatible project skills from `<project>/.claude/skills/`. Skill installation and updates are not available in the Web Console; see the [Reference Manual](reference.md) for the ClawHub workflow.
 
 ### 1. Model Provider Setup
-Open **Settings → Models** in the UI to confirm an enabled provider and model. The default configuration uses DeepSeek with key read from `DEEPSEEK_API_KEY`. Route format follows `provider:model` (e.g., `deepseek:deepseek-v4-flash-thinking`).
+Use **Settings → Models** in the Web Console to configure a provider, API key, model, and task routes. The default configuration uses DeepSeek and reads its key from `DEEPSEEK_API_KEY`. Route values use `provider:model` format.
 
 ### 2. Registering a Project
-Open **Settings → Projects**, add a repository using its absolute filesystem path, and assign a short name. The project path defines the execution scope for file and shell operations.
+Open **Settings → Projects**, add a repository using its absolute filesystem path, and assign a short name. The selected path becomes the project's default working directory; it is not a security sandbox.
 
 ### 3. Creating a Session
 Navigate to **Chat**, select the registered project, and submit a prompt:
@@ -103,6 +98,36 @@ Inspect README.md and list the build commands. Do not modify files.
 ### 4. Tool Execution Safety
 SoloQueue does not create a sandbox. In a configured Docker container or VM, that environment provides the isolation boundary. When run directly on the host, tools execute with the SoloQueue process's permissions. Shell blocklists reject configured commands, WebFetch blocks private addresses, and file, path, size, and timeout limits are applied by the tool layer.
 
+### Advanced: Configure `settings.yaml`
+
+The active configuration file is `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/settings.yaml`; SoloQueue creates it on first start. You can edit it directly, and valid file changes are detected automatically. Omitted fields use built-in defaults, while configured lists such as `providers` and `models` replace the corresponding default lists.
+
+For example, add an OpenAI-compatible provider and model, then route tasks to that model:
+
+```yaml
+providers:
+  - id: my-provider
+    name: My Provider
+    base_url: https://api.example.com/v1
+    api_key_env: MY_PROVIDER_API_KEY
+    enabled: true
+    is_default: true
+
+models:
+  - id: my-model
+    provider_id: my-provider
+    name: My Model
+    context_window: 32768
+    enabled: true
+
+model_routes:
+  general: my-provider:my-model
+  engineering: my-provider:my-model
+  research: my-provider:my-model
+```
+
+Set `MY_PROVIDER_API_KEY` in the environment before starting SoloQueue. Prefer environment variables to storing API keys directly in YAML. See the [Configuration Reference](reference.md) for all supported fields.
+
 ---
 
 ## Service Boundary
@@ -110,13 +135,3 @@ SoloQueue does not create a sandbox. In a configured Docker container or VM, tha
 Native `serve` and `start` commands bind to `127.0.0.1` by default. Use
 `--host` to select another listening address. The Docker image passes
 `--host 0.0.0.0` so Docker can publish its default port `57689`.
-
----
-
-## Troubleshooting
-
-- **Blank Web UI**: Run `make build-assets` and `make build`, then restart the server.
-- **Port In Use**: Specify a different port using `./soloqueue serve --port 8765`.
-- **No Model Response**: Verify provider API key, check `model_routes` mapping, and inspect server logs.
-- **Listening address**: Use `--host` to select the address for `serve` or `start`.
-- **Tool Blocked**: Inspect `settings.yaml` under the `tools` section for shell blocklist or file/path policy restrictions.
