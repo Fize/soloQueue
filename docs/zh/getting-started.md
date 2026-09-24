@@ -2,17 +2,13 @@
 
 [English](../getting-started.md) | 简体中文
 
-本指南涵盖环境前置条件、源码构建、首次运行配置、本地开发及故障排查。
+本指南涵盖源码构建、首次运行配置、本地开发及远程 Core 连接。
 
 ---
 
 ## 前置条件
 
-- **Go**：1.25.8 或兼容的 1.25 版本。
-- **Node.js 与 pnpm**：已安装 Node.js 及 `pnpm`。
-- **Git**。
-- **API Key**：至少一个已启用的 LLM Provider API Key（如 `DEEPSEEK_API_KEY`）。
-- **可选 Skills CLI**：需要管理技能时，安装 [ClawHub](https://github.com/openclaw/clawhub)。
+从源码构建需要 Go 1.25.8、Node.js、`pnpm` 和 Make。API Key 可在首次启动后通过 Web Console 配置。
 
 ---
 

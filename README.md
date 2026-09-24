@@ -7,7 +7,7 @@
 <p align="center">
   <a href="README.md">English</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
-  <a href="docs/README.md">Documentation</a>
+  <a href="#documentation">Documentation</a>
 </p>
 
 <p align="center">
@@ -22,18 +22,17 @@ SoloQueue has been running on my personal computer for a long time. It is lightw
 
 ## Quick Start
 
-You will need Go 1.25, Node.js, `pnpm`, Git, and a DeepSeek API key:
+Building from source requires Go 1.25.8, Node.js, `pnpm`, and Make:
 
 ```bash
 git clone https://github.com/Fize/soloQueue.git
 cd soloQueue
 
 make build
-export DEEPSEEK_API_KEY="your-api-key"
 ./soloqueue start
 ```
 
-Open <http://127.0.0.1:57689>, configure a model, and add a project directory to get started.
+Open <http://127.0.0.1:57689>, configure a model, and add a project directory to get started. You can enter the provider API key in the Web Console.
 
 For other model providers, Docker deployment, and troubleshooting, see the [Getting Started guide](docs/getting-started.md).
 
@@ -43,8 +42,12 @@ SoloQueue listens on `127.0.0.1` by default. Its tools inherit the system permis
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md): installation, setup, and first use
-- [Reference](docs/reference.md): configuration, commands, and data management
+- [Getting Started](docs/getting-started.md)
+- [Reference](docs/reference.md)
+- [Architecture](docs/architecture.md)
+- [Task Routing](docs/routing.md)
+- [Agent Execution](docs/agent.md)
+- [Context and Memory](docs/context-and-memory.md)
 
 ## License
 
