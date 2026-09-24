@@ -2,17 +2,13 @@
 
 English | [简体中文](zh/getting-started.md)
 
-This guide covers prerequisites, building from source, first-run configuration, local development, and troubleshooting.
+This guide covers building from source, first-run setup, local development, and connecting a local Web Console to a remote Core.
 
 ---
 
 ## Prerequisites
 
-- **Go**: 1.25.8 or compatible 1.25 release.
-- **Node.js & pnpm**: Node.js environment with `pnpm` installed.
-- **Git**.
-- **API Key**: At least one enabled LLM provider API key (e.g., `DEEPSEEK_API_KEY`).
-- **Optional Skills CLI**: Install [ClawHub](https://github.com/openclaw/clawhub) if you want to manage skills from the command line.
+Building from source requires Go 1.25.8, Node.js, `pnpm`, and Make. You can configure a provider API key in the Web Console after the first launch.
 
 ---
 

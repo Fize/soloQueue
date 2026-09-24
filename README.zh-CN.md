@@ -7,7 +7,7 @@
 <p align="center">
   <a href="README.md">English</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
-  <a href="docs/zh/README.md">文档</a>
+  <a href="#文档">文档</a>
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@ SoloQueue 已在我的个人电脑上长期运行。它轻量、易于部署和�
 
 ## 快速开始
 
-准备好 Go 1.25、Node.js、`pnpm`、Git 和 DeepSeek API Key：
+源码构建需要 Go 1.25.8、Node.js、`pnpm` 和 Make：
 
 ```bash
 git clone https://github.com/Fize/soloQueue.git
@@ -42,8 +42,12 @@ SoloQueue 默认仅监听 `127.0.0.1`。工具会继承 SoloQueue 进程的系�
 
 ## 文档
 
-- [快速入门](docs/zh/getting-started.md)：完成安装、配置与首次使用
-- [参考手册](docs/zh/reference.md)：查阅配置、命令与数据管理方式
+- [快速入门](docs/zh/getting-started.md)
+- [参考手册](docs/zh/reference.md)
+- [架构](docs/zh/architecture.md)
+- [任务路由](docs/zh/routing.md)
+- [Agent 执行](docs/zh/agent.md)
+- [上下文与记忆](docs/zh/context-and-memory.md)
 
 ## 许可证
 
