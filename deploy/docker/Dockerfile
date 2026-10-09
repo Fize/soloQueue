@@ -1,17 +1,17 @@
-FROM node:22-alpine AS web-build
+FROM node:24-alpine AS web-build
 
 WORKDIR /src/web
-RUN corepack enable
+RUN npm install --global pnpm@11.13.1
 COPY web/package.json web/pnpm-lock.yaml ./
 COPY web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web ./
 RUN pnpm build
 
-FROM node:22-alpine AS status-build
+FROM node:24-alpine AS status-build
 
 WORKDIR /src/status-ui
-RUN corepack enable
+RUN npm install --global pnpm@11.13.1
 COPY status-ui/package.json status-ui/pnpm-lock.yaml ./
 COPY status-ui/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -23,15 +23,19 @@ FROM golang:1.25-bookworm AS go-build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . ./
+# Keep these inputs in sync with release.py's image fingerprint.
+COPY cmd ./cmd
+COPY internal ./internal
 COPY --from=web-build /src/web/dist ./web/dist
 COPY --from=status-build /src/status-ui/dist ./status-ui/dist
+ARG VERSION=dev
 RUN mkdir -p internal/assets/dist \
     && cp -r web/dist internal/assets/dist/web \
     && cp -r status-ui/dist internal/assets/dist/status \
-    && go build -ldflags="-s -w" -o /out/soloqueue ./cmd/soloqueue
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/soloqueue ./cmd/soloqueue \
+    && test "$(/out/soloqueue version)" = "$VERSION"
 
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

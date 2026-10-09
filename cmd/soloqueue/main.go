@@ -9,7 +9,8 @@ import (
 	"github.com/xiaobaitu/soloqueue/cmd/soloqueue/cli"
 )
 
-const version = "0.1.0"
+// Release builds override this with -ldflags "-X main.version=...".
+var version = "dev"
 
 func main() {
 	if err := rootCmd().Execute(); err != nil {
