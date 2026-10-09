@@ -27,6 +27,37 @@ func writeYAML(t *testing.T, path string, v any) {
 	}
 }
 
+func writeYAMLAtomically(t *testing.T, path string, v any) {
+	t.Helper()
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal yaml: %v", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		t.Fatalf("write yaml temp file: %v", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatalf("replace yaml file: %v", err)
+	}
+}
+
+func waitForWatchToSettle(t *testing.T, committed <-chan Settings, acceptedLevel string) {
+	t.Helper()
+	timer := time.NewTimer(200 * time.Millisecond)
+	defer timer.Stop()
+	for {
+		select {
+		case got := <-committed:
+			if got.Log.Level != acceptedLevel {
+				t.Fatalf("unexpected accepted candidate before rejection = %q", got.Log.Level)
+			}
+		case <-timer.C:
+			return
+		}
+	}
+}
+
 func TestSettingsSerializationOmitsSimulation(t *testing.T) {
 	settings := DefaultSettings()
 	jsonData, err := json.Marshal(settings)
@@ -672,7 +703,7 @@ func TestLoaderWatchPublishesAcceptedCandidateBeforePostCommitNotification(t *te
 	}
 	defer loader.StopWatch()
 
-	writeYAML(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
+	writeYAMLAtomically(t, path, map[string]any{"log": map[string]any{"level": "debug"}})
 	select {
 	case got := <-committed:
 		if got.Log.Level != "debug" {
@@ -681,8 +712,9 @@ func TestLoaderWatchPublishesAcceptedCandidateBeforePostCommitNotification(t *te
 	case <-time.After(2 * time.Second):
 		t.Fatal("accepted candidate did not trigger post-commit notification")
 	}
+	waitForWatchToSettle(t, committed, "debug")
 
-	writeYAML(t, path, map[string]any{"log": map[string]any{"level": "invalid"}})
+	writeYAMLAtomically(t, path, map[string]any{"log": map[string]any{"level": "invalid"}})
 	select {
 	case <-errorsSeen:
 	case <-time.After(2 * time.Second):
