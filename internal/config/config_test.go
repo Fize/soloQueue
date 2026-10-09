@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -369,14 +370,25 @@ func TestLoader_Set_Concurrent(t *testing.T) {
 	}
 	_ = loader.Load()
 
+	var wg sync.WaitGroup
+	errCh := make(chan error, 10)
 	for i := 0; i < 10; i++ {
+		wg.Add(1)
 		go func(level string) {
-			loader.Set(func(s *Settings) {
+			defer wg.Done()
+			_, err := loader.Set(func(s *Settings) {
 				s.Log.Level = level
 			})
+			errCh <- err
 		}(string(rune('a' + i)))
 	}
-	time.Sleep(100 * time.Millisecond)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Errorf("concurrent set: %v", err)
+		}
+	}
 
 	settings := loader.Get()
 	if settings.Log.Level == "" {
