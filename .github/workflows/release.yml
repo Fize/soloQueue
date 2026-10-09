@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# Serialize releases so concurrent versions cannot race while retagging images.
+concurrency:
+  group: release
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Validate release tag
+        id: meta
+        run: python3 .github/scripts/release.py metadata
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+      - name: Install pnpm
+        run: npm install --global pnpm@11.13.1
+      - name: Test release decisions
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+      - name: Test and build both embedded browser UIs
+        run: make build-assets
+      - name: Test Go packages
+        run: go test ./...
+      - name: Build release archives
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          for target in darwin/arm64 darwin/amd64 linux/amd64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            name="soloqueue_${VERSION}_${os}_${arch}"
+            mkdir -p "build/$name"
+            GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags="-s -w -X main.version=$VERSION" -o "build/$name/soloqueue" ./cmd/soloqueue
+            tar -czf "release/$name.tar.gz" -C "build/$name" soloqueue
+          done
+          build/soloqueue_"${VERSION}"_linux_amd64/soloqueue version | grep -Fx "$VERSION"
+          (cd release && sha256sum ./*.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: binaries
+          path: release/*
+          if-no-files-found: error
+
+  image:
+    needs: binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ${{ needs.binaries.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Look up image by build inputs
+        id: cached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/release.py image
+      - name: Build missing or changed image
+        if: steps.cached.outputs.build == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: VERSION=${{ needs.binaries.outputs.version }}
+          tags: ${{ env.IMAGE }}:${{ steps.cached.outputs.cache_tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.binaries.outputs.version }}
+      - name: Tag version and stable alias
+        env:
+          CACHE_TAG: ${{ steps.cached.outputs.cache_tag }}
+          DIGEST: ${{ steps.cached.outputs.digest }}
+          PRERELEASE: ${{ needs.binaries.outputs.prerelease }}
+          BUILD: ${{ steps.cached.outputs.build }}
+        run: |
+          set -euo pipefail
+          source="$IMAGE:$CACHE_TAG"
+          if [ -n "$DIGEST" ]; then source="$IMAGE@$DIGEST"; fi
+          tags=(--tag "$IMAGE:$GITHUB_REF_NAME")
+          if [ "$PRERELEASE" = false ]; then tags+=(--tag "$IMAGE:latest"); fi
+          docker buildx imagetools create --prefer-index=false "${tags[@]}" "$source"
+          # An unchanged image keeps the ORIGINAL binary version and OCI revision.
+          # New standalone binary archives always carry the current release version.
+          echo "Image: $IMAGE:$GITHUB_REF_NAME; rebuilt: $BUILD" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$BUILD" = false ]; then
+            echo "Unchanged build inputs: reused $DIGEST. Embedded version and OCI labels retain the original build version." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    needs: [binaries, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: binaries
+          path: release
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PRERELEASE: ${{ needs.binaries.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          # Listing fails on authentication/network errors, unlike a blind view-or-create.
+          existing=$(gh api "repos/$GH_REPO/releases" --paginate --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
+          if [ -z "$existing" ]; then
+            flags=(--verify-tag --generate-notes --title "$GITHUB_REF_NAME")
+            if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+            gh release create "$GITHUB_REF_NAME" "${flags[@]}" release/*
+          else
+            gh release upload "$GITHUB_REF_NAME" release/* --clobber
+          fi
