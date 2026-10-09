@@ -272,15 +272,21 @@ func TestTelemetryClient_RecordsFailedCall(t *testing.T) {
 func waitForMetrics(t *testing.T, database *db.DB, want int) []db.LLMCallMetric {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
+	var lastErr error
 	for time.Now().Before(deadline) {
 		rows, err := database.ListLLMCallMetrics(context.Background(), time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 		if err != nil {
-			t.Fatalf("ListLLMCallMetrics: %v", err)
+			lastErr = err
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 		if len(rows) >= want {
 			return rows
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if lastErr != nil {
+		t.Fatalf("timed out waiting for %d metrics: last query error: %v", want, lastErr)
 	}
 	t.Fatalf("timed out waiting for %d metrics", want)
 	return nil
