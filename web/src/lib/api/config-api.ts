@@ -54,11 +54,41 @@ export async function updateProvider(id: string, data: LLMProvider): Promise<LLM
 }
 
 export async function deleteProvider(id: string): Promise<void> {
-  await request(`/config/providers/${id}`, { method: 'DELETE' })
+  await request(`/config/providers/${id}`, {
+    method: 'DELETE',
+    headers: id === 'chatgpt' ? { 'X-SoloQueue-Account-Mutation': '1' } : undefined,
+  })
 }
 
 export async function listProviderRemoteModels(id: string): Promise<string[]> {
   return request<string[]>(`/config/providers/${id}/remote-models`)
+}
+
+export interface ChatGPTConnectionStatus {
+  connected: boolean
+  email?: string
+}
+
+export async function getChatGPTStatus(): Promise<ChatGPTConnectionStatus> {
+  return request<ChatGPTConnectionStatus>('/config/providers/chatgpt/chatgpt/status')
+}
+
+export async function startChatGPTLogin(): Promise<{ authorizationUrl: string }> {
+  return request('/config/providers/chatgpt/chatgpt/login', {
+    method: 'POST',
+    headers: { 'X-SoloQueue-Account-Mutation': '1' },
+  })
+}
+
+export async function listChatGPTModels(): Promise<Array<{ id: string; name: string }>> {
+  return request<Array<{ id: string; name: string }>>('/config/providers/chatgpt/chatgpt/models')
+}
+
+export async function logoutChatGPT(): Promise<{ connected: false; remoteRevocationConfirmed: boolean; error?: string }> {
+  return request('/config/providers/chatgpt/chatgpt/logout', {
+    method: 'POST',
+    headers: { 'X-SoloQueue-Account-Mutation': '1' },
+  })
 }
 
 export async function listModels(options?: RequestInit): Promise<LLMModel[]> {

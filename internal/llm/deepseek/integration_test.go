@@ -268,3 +268,4 @@ func TestIntegration_ChatStream_Cancellation(t *testing.T) {
 		t.Error("expected at least one delta before cancel")
 	}
 	t.Logf("received %d deltas before cancel", deltaCount)
+}
