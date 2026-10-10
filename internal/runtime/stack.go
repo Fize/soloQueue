@@ -32,6 +32,7 @@ import (
 
 // Stack holds runtime dependencies, initialized once by Build to avoid duplication.
 type Stack struct {
+	workDir             string
 	CfgMu               sync.RWMutex
 	LLMClient           agent.LLMClient
 	FastModelProviderID string // fast/classifier model provider, used by persona reflection
@@ -333,7 +334,7 @@ func (s *Stack) OnSettingsChange(settings config.Settings) error {
 		if !prov.Enabled {
 			continue
 		}
-		client, err := BuildLLMClient(&prov, s.Log)
+		client, err := buildLLMClientAt(&prov, s.Log, s.workDir)
 		if err != nil {
 			return fmt.Errorf("failed to rebuild LLM client for provider %q: %w", prov.ID, err)
 		}

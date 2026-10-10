@@ -22,6 +22,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/llm/chatgpt"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	llmsupervised "github.com/xiaobaitu/soloqueue/internal/llm/supervised"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
@@ -95,8 +96,15 @@ func Build(workDir string, cfg *config.GlobalService, log *logger.Logger) (*Stac
 	return rt, nil
 }
 
-// BuildLLMClient creates a DeepSeek LLM client from provider configuration.
+// BuildLLMClient creates the configured provider client.
 func BuildLLMClient(provider *config.LLMProvider, log *logger.Logger) (agent.LLMClient, error) {
+	if provider != nil && provider.ID == "chatgpt" {
+		workDir, err := config.DefaultWorkDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve ChatGPT credential directory: %w", err)
+		}
+		return buildChatGPTClient(provider, workDir)
+	}
 	apiKey := provider.ResolveAPIKey()
 	if apiKey == "" {
 		log.Warn(logger.CatApp, "LLM API key not set", "env", provider.APIKeyEnv)
@@ -118,6 +126,21 @@ func BuildLLMClient(provider *config.LLMProvider, log *logger.Logger) (agent.LLM
 		},
 		Log: log,
 	})
+}
+
+func buildLLMClientAt(provider *config.LLMProvider, log *logger.Logger, workDir string) (agent.LLMClient, error) {
+	if provider != nil && provider.ID == "chatgpt" {
+		return buildChatGPTClient(provider, workDir)
+	}
+	return BuildLLMClient(provider, log)
+}
+
+func buildChatGPTClient(provider *config.LLMProvider, workDir string) (agent.LLMClient, error) {
+	account, err := chatgpt.ForWorkDir(workDir)
+	if err != nil {
+		return nil, err
+	}
+	return chatgpt.NewClient(account, provider.TimeoutMs), nil
 }
 
 // BuildModelResolver creates a ModelResolver that validates agent model IDs
@@ -262,7 +285,7 @@ func (bc *buildContext) buildLLMClient() error {
 			continue
 		}
 
-		client, err := BuildLLMClient(&prov, bc.log)
+		client, err := buildLLMClientAt(&prov, bc.log, bc.workDir)
 		if err != nil {
 			return fmt.Errorf("build llm client for provider %q: %w", prov.ID, err)
 		}
@@ -294,6 +317,7 @@ func (bc *buildContext) initSharedDB() error {
 
 func (bc *buildContext) assembleStack() *Stack {
 	return &Stack{
+		workDir:             bc.workDir,
 		Settings:            bc.cfg,
 		LLMClient:           bc.llmClient,
 		FastModelProviderID: bc.fastModelProviderID,

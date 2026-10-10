@@ -10,7 +10,7 @@ import (
 
 func TestNewWebHandlerReturns404ForMissingAssetsAndFallbackForNavigation(t *testing.T) {
 	webFS := fstest.MapFS{
-		"index.html": &fstest.MapFile{Data: []byte("<html>app</html>")},
+		"index.html":    &fstest.MapFile{Data: []byte("<html>app</html>")},
 		"assets/app.js": &fstest.MapFile{Data: []byte("console.log('ok')")},
 	}
 	h := NewWebHandler(webFS, "http://127.0.0.1:57689")

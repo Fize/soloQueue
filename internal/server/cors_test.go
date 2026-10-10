@@ -52,7 +52,7 @@ func TestHTTP_LoopbackCORSPreflight(t *testing.T) {
 	if got := rec.Header().Get("Access-Control-Allow-Methods"); got == "" {
 		t.Fatal("missing allow methods")
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, Accept" {
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, Accept, X-SoloQueue-Account-Mutation" {
 		t.Fatalf("allow headers = %q", got)
 	}
 }
@@ -74,6 +74,33 @@ func TestHTTP_NonLoopbackCORSIsDelegated(t *testing.T) {
 	}
 	if got := rec.Header().Get("Vary"); got != "Origin" {
 		t.Fatalf("vary = %q, want Origin", got)
+	}
+}
+
+func TestHTTP_ChatGPTMutationPreflightAllowsLoopbackOnly(t *testing.T) {
+	mux := NewMux(t.TempDir(), nil)
+	defer mux.Close()
+	for _, tc := range []struct {
+		origin      string
+		wantStatus  int
+		wantAllowed bool
+	}{
+		{origin: "http://localhost:5173", wantStatus: http.StatusNoContent, wantAllowed: true},
+		{origin: "https://evil.example", wantStatus: http.StatusMethodNotAllowed, wantAllowed: false},
+	} {
+		req := httptest.NewRequest(http.MethodOptions, "/api/config/providers/chatgpt/chatgpt/logout", nil)
+		req.Header.Set("Origin", tc.origin)
+		req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+		req.Header.Set("Access-Control-Request-Headers", "x-soloqueue-account-mutation")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != tc.wantStatus {
+			t.Fatalf("origin %s status = %d, want %d", tc.origin, rec.Code, tc.wantStatus)
+		}
+		allowed := rec.Header().Get("Access-Control-Allow-Origin") != ""
+		if allowed != tc.wantAllowed {
+			t.Fatalf("origin %s allowed = %v", tc.origin, allowed)
+		}
 	}
 }
 

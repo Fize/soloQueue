@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -19,6 +21,7 @@ import (
 	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm/chatgpt"
 )
 
 // ─── LLM Providers ───────────────────────────────────────────────────────────
@@ -103,13 +106,37 @@ func (m *Mux) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var revokeWarning error
+	if id == "chatgpt" {
+		if r.Header.Get("X-SoloQueue-Account-Mutation") != "1" {
+			m.writeJSON(w, http.StatusForbidden, map[string]string{"error": "same-origin account confirmation is required"})
+			return
+		}
+		if m.chatGPTAccount == nil {
+			m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "ChatGPT account manager is unavailable"})
+			return
+		}
+		if err := m.chatGPTAccount.Logout(r.Context()); err != nil {
+			if errors.Is(err, chatgpt.ErrLocalCredentialClear) {
+				m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not clear local ChatGPT credentials."})
+				return
+			}
+			revokeWarning = err
+		}
+	}
+
 	if err := m.configSvc.DeleteProvider(id); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	m.triggerOnConfigChange()
-	m.writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+	result := map[string]any{"deleted": id}
+	if revokeWarning != nil {
+		result["remoteRevocationConfirmed"] = false
+		result["warning"] = "Local credentials were cleared; remote revocation could not be confirmed."
+	}
+	m.writeJSON(w, http.StatusOK, result)
 }
 
 // GET /api/config/providers/{id}/remote-models
@@ -134,6 +161,23 @@ func (m *Mux) handleListProviderRemoteModels(w http.ResponseWriter, r *http.Requ
 	}
 	if provider == nil {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+	if id == "chatgpt" {
+		if m.chatGPTAccount == nil {
+			m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "ChatGPT account manager is unavailable"})
+			return
+		}
+		models, err := m.chatGPTAccount.Models(r.Context())
+		if err != nil {
+			m.writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		ids := make([]string, 0, len(models))
+		for _, model := range models {
+			ids = append(ids, model.ID)
+		}
+		m.writeJSON(w, http.StatusOK, ids)
 		return
 	}
 
@@ -196,6 +240,113 @@ func (m *Mux) handleListProviderRemoteModels(w http.ResponseWriter, r *http.Requ
 
 	sort.Strings(modelIDs)
 	m.writeJSON(w, http.StatusOK, modelIDs)
+}
+
+func (m *Mux) handleChatGPTStatus(w http.ResponseWriter, r *http.Request) {
+	if chi.URLParam(r, "id") != "chatgpt" {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+	if m.chatGPTAccount == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "ChatGPT account manager is unavailable"})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, m.chatGPTAccount.Status())
+}
+
+func (m *Mux) handleChatGPTModels(w http.ResponseWriter, r *http.Request) {
+	if chi.URLParam(r, "id") != "chatgpt" {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+	if m.chatGPTAccount == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "ChatGPT account manager is unavailable"})
+		return
+	}
+	models, err := m.chatGPTAccount.Models(r.Context())
+	if err != nil {
+		m.writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, models)
+}
+
+func (m *Mux) handleChatGPTLogin(w http.ResponseWriter, r *http.Request) {
+	if chi.URLParam(r, "id") != "chatgpt" {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+	if r.Header.Get("X-SoloQueue-Account-Mutation") != "1" {
+		m.writeJSON(w, http.StatusForbidden, map[string]string{"error": "same-origin account confirmation is required"})
+		return
+	}
+	if m.chatGPTAccount == nil || m.runtimeMetrics == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "ChatGPT sign-in requires the local runtime listener"})
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "cross-site") {
+		m.writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-site ChatGPT sign-in is not allowed"})
+		return
+	}
+	host, port, err := net.SplitHostPort(m.runtimeMetrics.HTTPAddr)
+	if err != nil || host != "127.0.0.1" || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "ChatGPT sign-in requires a loopback runtime listener"})
+		return
+	}
+	redirectURI := "http://127.0.0.1:" + port + "/auth/callback"
+	authURL, err := m.chatGPTAccount.StartLogin(redirectURI)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]string{"authorizationUrl": authURL})
+}
+
+func (m *Mux) handleChatGPTLogout(w http.ResponseWriter, r *http.Request) {
+	if chi.URLParam(r, "id") != "chatgpt" {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+	if m.chatGPTAccount == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "ChatGPT account manager is unavailable"})
+		return
+	}
+	if r.Header.Get("X-SoloQueue-Account-Mutation") != "1" {
+		m.writeJSON(w, http.StatusForbidden, map[string]string{"error": "same-origin account confirmation is required"})
+		return
+	}
+	err := m.chatGPTAccount.Logout(r.Context())
+	if err != nil {
+		if errors.Is(err, chatgpt.ErrLocalCredentialClear) {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not clear local ChatGPT credentials."})
+			return
+		}
+		m.writeJSON(w, http.StatusOK, map[string]any{"connected": false, "remoteRevocationConfirmed": false, "error": "Local credentials were cleared; remote revocation could not be confirmed."})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, map[string]any{"connected": false, "remoteRevocationConfirmed": true})
+}
+
+func (m *Mux) handleChatGPTCallback(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if m.chatGPTAccount == nil {
+		http.Error(w, "ChatGPT sign-in is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if r.URL.Query().Get("error") != "" {
+		_ = m.chatGPTAccount.Complete(r.Context(), r.URL.Query().Get("state"), "", r.URL.Query().Get("client_id"))
+		http.Error(w, "ChatGPT sign-in was not completed. Return to SoloQueue Settings and try again.", http.StatusBadRequest)
+		return
+	}
+	if err := m.chatGPTAccount.Complete(r.Context(), r.URL.Query().Get("state"), r.URL.Query().Get("code"), r.URL.Query().Get("client_id")); err != nil {
+		http.Error(w, "ChatGPT sign-in failed. Return to SoloQueue Settings and try again.", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>ChatGPT connected</title><p>ChatGPT is connected to SoloQueue. You can close this tab and return to Settings.</p>`)
 }
 
 // ─── LLM Models ──────────────────────────────────────────────────────────────

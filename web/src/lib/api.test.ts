@@ -14,12 +14,16 @@ import {
   updateMCPConfig,
   getFileUrl,
   listFiles,
+  startChatGPTLogin,
+  deleteProvider,
 } from './api'
 
 beforeEach(() => {
   // vitest 4: use spyOn to mock global fetch
   vi.spyOn(globalThis, 'fetch').mockReset()
   useConnectionStore.setState({
+    mode: 'local',
+    remoteUrl: '',
     backendReady: true,
     backendStatus: { running: true, pid: null, uptime: 0 },
   })
@@ -89,6 +93,29 @@ describe('api', () => {
       mockTextResponse('[server]\nport = 8765')
       const toml = await getConfigToml()
       expect(toml).toContain('port')
+    })
+
+    it('starts ChatGPT login through the configured backend with the mutation header', async () => {
+      useConnectionStore.setState({ mode: 'remote', remoteUrl: 'https://backend.example' })
+      mockResponse({ authorizationUrl: 'https://auth.openai.com/authorize' })
+      await expect(startChatGPTLogin()).resolves.toEqual({
+        authorizationUrl: 'https://auth.openai.com/authorize',
+      })
+      const [target, init] = vi.mocked(fetch).mock.calls[0]
+      expect(target).toBe('https://backend.example/api/config/providers/chatgpt/chatgpt/login')
+      expect(init).toEqual(expect.objectContaining({ method: 'POST' }))
+      expect(new Headers((init as RequestInit).headers).get('X-SoloQueue-Account-Mutation')).toBe(
+        '1'
+      )
+    })
+
+    it('confirms credential cleanup when deleting the ChatGPT provider', async () => {
+      mockResponse({ deleted: 'chatgpt' })
+      await deleteProvider('chatgpt')
+      const [, init] = vi.mocked(fetch).mock.calls[0]
+      expect(new Headers((init as RequestInit).headers).get('X-SoloQueue-Account-Mutation')).toBe(
+        '1'
+      )
     })
   })
 

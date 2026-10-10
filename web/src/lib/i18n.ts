@@ -259,6 +259,9 @@ export const translations = {
       llmAddProviderTitle: 'Add LLM Provider',
       llmEditProviderTitle: 'Edit Provider: {{name}}',
       llmAddProviderDesc: 'Configure a new LLM provider with API connection settings.',
+      llmUseChatGPTSubscription: 'Use a ChatGPT subscription',
+      llmChatGPTSubscriptionDesc:
+        'Add ChatGPT as a provider using your subscription account. You can sign in after creating it.',
       llmEditProviderDesc: 'Update the API connection settings for this provider.',
       llmProviderId: 'ID (unique slug)',
       llmProviderIdPlaceholder: 'e.g. deepseek',
@@ -1222,6 +1225,8 @@ export const translations = {
       llmAddProviderTitle: '添加大模型提供商',
       llmEditProviderTitle: '编辑提供商: {{name}}',
       llmAddProviderDesc: '配置大模型提供商的 API 连接信息。',
+      llmUseChatGPTSubscription: '使用 ChatGPT 订阅账号添加',
+      llmChatGPTSubscriptionDesc: '使用 ChatGPT 订阅账号添加为 Provider。创建后可在 Provider 列表中登录授权。',
       llmEditProviderDesc: '更新该提供商 of API 连接信息。',
       llmProviderId: 'ID (唯一标识)',
       llmProviderIdPlaceholder: '例如 deepseek',

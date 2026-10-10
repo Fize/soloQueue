@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Database, Plus, Settings, X, Eye, EyeOff, ChevronDown, Loader2 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
-import { listProviderRemoteModels } from '@/lib/api/config-api'
+import { getChatGPTStatus, listChatGPTModels, listProviderRemoteModels, logoutChatGPT, startChatGPTLogin } from '@/lib/api/config-api'
 
 function parseHeadersJson(json: string): Record<string, string> {
   try {
@@ -20,11 +20,13 @@ function parseHeadersJson(json: string): Record<string, string> {
 export function validateProviderForm(
   form: Partial<LLMProvider>,
   headersJson: string,
+  useChatGPTSubscription = false,
 ): { fieldErrors: Record<string, string>; formError?: string } {
   const fieldErrors: Record<string, string> = {}
   if (!String(form.id || '').trim()) fieldErrors.id = 'Provider ID is required.'
+  if (form.id === 'chatgpt' && !useChatGPTSubscription) fieldErrors.id = 'The "chatgpt" ID is reserved for subscription sign-in.'
   if (!String(form.name || '').trim()) fieldErrors.name = 'Display name is required.'
-  if (!String(form.baseUrl || '').trim()) fieldErrors.baseUrl = 'API base URL is required.'
+  if (!useChatGPTSubscription && !String(form.baseUrl || '').trim()) fieldErrors.baseUrl = 'API base URL is required.'
   try {
     parseHeadersJson(headersJson)
   } catch (error) {
@@ -97,7 +99,16 @@ export function LLMSection({
   const [providerFieldErrors, setProviderFieldErrors] = useState<Record<string, string>>({})
   const [providerError, setProviderError] = useState<string | null>(null)
   const [isSavingProvider, setIsSavingProvider] = useState(false)
+  const [useChatGPTSubscription, setUseChatGPTSubscription] = useState(false)
+  const [standardProviderDraft, setStandardProviderDraft] = useState<Partial<LLMProvider> | null>(null)
+  const [standardHeadersDraft, setStandardHeadersDraft] = useState<string | null>(null)
   const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({})
+  const [chatGPTConnected, setChatGPTConnected] = useState(false)
+  const [chatGPTEmail, setChatGPTEmail] = useState('')
+  const [chatGPTError, setChatGPTError] = useState<string | null>(null)
+  const [chatGPTBusy, setChatGPTBusy] = useState(false)
+  const hasChatGPTProvider = providers.some((provider) => provider.id === 'chatgpt')
+  const isChatGPTSubscription = useChatGPTSubscription || editingProvider?.id === 'chatgpt'
 
   // Model form state
   const [isAddingModel, setIsAddingModel] = useState(false)
@@ -108,10 +119,67 @@ export function LLMSection({
     thinking: { enabled: false, reasoningEffort: 'medium' },
   })
   const [remoteModels, setRemoteModels] = useState<string[]>([])
+  const [remoteModelNames, setRemoteModelNames] = useState<Record<string, string>>({})
   const [isLoadingRemoteModels, setIsLoadingRemoteModels] = useState(false)
   const [remoteModelsError, setRemoteModelsError] = useState<string | null>(null)
   const [isComboboxOpen, setIsComboboxOpen] = useState(false)
 
+  useEffect(() => {
+    if (!hasChatGPTProvider) return
+    let active = true
+    let inFlight = false
+    const refresh = async () => {
+      if (!active || inFlight) return
+      inFlight = true
+      try {
+        const status = await getChatGPTStatus()
+        if (!active) return
+        setChatGPTConnected(status.connected)
+        setChatGPTEmail(status.connected ? status.email || '' : '')
+      } catch {
+        if (!active) return
+        setChatGPTConnected(false)
+        setChatGPTEmail('')
+      } finally {
+        inFlight = false
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => { void refresh() }, 2500)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [hasChatGPTProvider])
+
+  const connectChatGPT = async () => {
+    const authWindow = window.open('about:blank', '_blank')
+    setChatGPTBusy(true)
+    setChatGPTError(null)
+    try {
+      if (authWindow) authWindow.opener = null
+      const { authorizationUrl } = await startChatGPTLogin()
+      if (authWindow) authWindow.location.href = authorizationUrl
+      else window.location.assign(authorizationUrl)
+    } catch (error) {
+      authWindow?.close()
+      setChatGPTError((error as Error).message || 'Could not start ChatGPT sign-in')
+    } finally {
+      setChatGPTBusy(false)
+    }
+  }
+
+  const disconnectChatGPT = async () => {
+    setChatGPTBusy(true)
+    setChatGPTError(null)
+    try {
+      const result = await logoutChatGPT()
+      setChatGPTConnected(false)
+      setChatGPTEmail('')
+      if (!result.remoteRevocationConfirmed) setChatGPTError(result.error || 'Local sign-out succeeded, but remote revocation was not confirmed.')
+    } catch (error) {
+      setChatGPTError((error as Error).message || 'Could not sign out of ChatGPT')
+    } finally {
+      setChatGPTBusy(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -128,8 +196,19 @@ export function LLMSection({
       setIsLoadingRemoteModels(true)
       setRemoteModelsError(null)
       try {
-        const data = await listProviderRemoteModels(providerId)
-        if (active) setRemoteModels(data || [])
+        if (providerId === 'chatgpt') {
+          const data = await listChatGPTModels()
+          if (active) {
+            setRemoteModels(data.map((model) => model.id))
+            setRemoteModelNames(Object.fromEntries(data.map((model) => [model.id, model.name])))
+          }
+        } else {
+          const data = await listProviderRemoteModels(providerId)
+          if (active) {
+            setRemoteModels(data || [])
+            setRemoteModelNames({})
+          }
+        }
       } catch (err) {
         if (active) setRemoteModelsError((err as Error).message)
       } finally {
@@ -146,6 +225,9 @@ export function LLMSection({
     setProviderError(null)
     setIsAddingProvider(true)
     setEditingProvider(null)
+    setUseChatGPTSubscription(false)
+    setStandardProviderDraft(null)
+    setStandardHeadersDraft(null)
     setProviderForm({
       id: '',
       name: '',
@@ -165,6 +247,7 @@ export function LLMSection({
     setProviderError(null)
     setEditingProvider(p)
     setIsAddingProvider(false)
+    setUseChatGPTSubscription(p.id === 'chatgpt')
     setProviderForm({ ...p })
     setProviderHeadersJson(JSON.stringify(p.headers || {}, null, 2))
   }
@@ -174,10 +257,13 @@ export function LLMSection({
     setEditingProvider(null)
     setProviderFieldErrors({})
     setProviderError(null)
+    setUseChatGPTSubscription(false)
+    setStandardProviderDraft(null)
+    setStandardHeadersDraft(null)
   }
 
   const saveProviderForm = async () => {
-    const validation = validateProviderForm(providerForm, providerHeadersJson)
+    const validation = validateProviderForm(providerForm, providerHeadersJson, isChatGPTSubscription)
     setProviderFieldErrors(validation.fieldErrors)
     setProviderError(null)
     if (Object.keys(validation.fieldErrors).length > 0) return
@@ -190,17 +276,18 @@ export function LLMSection({
       return
     }
 
+    const isChatGPT = isChatGPTSubscription
     const payload: LLMProvider = {
       id: providerForm.id || '',
       name: providerForm.name || '',
-      baseUrl: providerForm.baseUrl || '',
-      apiKey: providerForm.apiKey || '',
-      apiKeyEnv: providerForm.apiKeyEnv || '',
+      baseUrl: isChatGPT ? 'https://api.openai.com/v1' : providerForm.baseUrl || '',
+      apiKey: isChatGPT ? '' : providerForm.apiKey || '',
+      apiKeyEnv: isChatGPT ? '' : providerForm.apiKeyEnv || '',
       enabled: providerForm.enabled ?? true,
       isDefault: providerForm.isDefault ?? false,
       timeoutMs: normalizeProviderTimeoutMs(providerForm.timeoutMs),
       retry: { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2.0 },
-      headers,
+      headers: isChatGPT ? {} : headers,
     }
 
     setIsSavingProvider(true)
@@ -216,6 +303,21 @@ export function LLMSection({
       setProviderError((error as Error).message || t('config.llmProviderSaveFailed'))
     } finally {
       setIsSavingProvider(false)
+    }
+  }
+
+  const toggleChatGPTSubscription = (enabled: boolean) => {
+    setUseChatGPTSubscription(enabled)
+    if (enabled) {
+      setStandardProviderDraft(providerForm)
+      setStandardHeadersDraft(providerHeadersJson)
+      setProviderForm((current) => ({ ...current, id: 'chatgpt', name: 'ChatGPT', baseUrl: 'https://api.openai.com/v1', apiKey: '', apiKeyEnv: '', headers: {} }))
+      setProviderHeadersJson('{}')
+    } else {
+      setProviderForm(standardProviderDraft || { id: '', name: '', baseUrl: '', apiKey: '', apiKeyEnv: '', enabled: true, isDefault: false, timeoutMs: 0, headers: {} })
+      setProviderHeadersJson(standardHeadersDraft || '{}')
+      setStandardProviderDraft(null)
+      setStandardHeadersDraft(null)
     }
   }
 
@@ -387,6 +489,7 @@ export function LLMSection({
             {t('config.llmProvidersDesc')}
           </p>
         </div>
+        {chatGPTError && <p role="alert" className="text-xs text-destructive">{chatGPTError}</p>}
 
         {/* Provider Form (modal dialog) */}
         <Dialog
@@ -402,7 +505,7 @@ export function LLMSection({
               </DialogTitle>
               <DialogDescription>
                 {isAddingProvider
-                  ? t('config.llmAddProviderDesc')
+                  ? useChatGPTSubscription ? t('config.llmChatGPTSubscriptionDesc') : t('config.llmAddProviderDesc')
                   : t('config.llmEditProviderDesc')}
               </DialogDescription>
               {providerError && (
@@ -412,16 +515,22 @@ export function LLMSection({
               )}
             </DialogHeader>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {isAddingProvider && !hasChatGPTProvider && (
+                <label className="sm:col-span-2 flex items-start gap-3 rounded-md border border-border p-3 cursor-pointer">
+                  <input type="checkbox" checked={useChatGPTSubscription} onChange={(e) => toggleChatGPTSubscription(e.target.checked)} className="mt-1 accent-primary" />
+                  <span className="text-xs font-semibold text-foreground">{t('config.llmUseChatGPTSubscription')}</span>
+                </label>
+              )}
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
                   {t('config.llmProviderId')}
                 </label>
                 <Input
                   value={providerForm.id || ''}
-                  disabled={!!editingProvider}
+                  disabled={!!editingProvider || isChatGPTSubscription}
                   error={providerFieldErrors.id}
                   placeholder={t('config.llmProviderIdPlaceholder')}
-                  onChange={(e) => setProviderForm({ ...providerForm, id: e.target.value })}
+                  onChange={(e) => setProviderForm((current) => ({ ...current, id: e.target.value }))}
                 />
               </div>
               <div className="flex flex-col gap-1">
@@ -433,7 +542,7 @@ export function LLMSection({
                   onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
                 />
               </div>
-              <div className="flex flex-col gap-1 sm:col-span-2">
+              {!isChatGPTSubscription && <div className="flex flex-col gap-1 sm:col-span-2">
                 <label className="text-xs font-semibold text-muted-foreground">{t('config.llmApiBaseUrl')}</label>
                 <Input
                   value={providerForm.baseUrl || ''}
@@ -441,8 +550,8 @@ export function LLMSection({
                   placeholder={t('config.llmApiBaseUrlPlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, baseUrl: e.target.value })}
                 />
-              </div>
-              <div className="flex flex-col gap-1">
+              </div>}
+              {!isChatGPTSubscription && <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
                   {t('config.llmApiKeyDirect')}
                 </label>
@@ -452,8 +561,8 @@ export function LLMSection({
                   placeholder={t('config.llmApiKeyDirectPlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, apiKey: e.target.value })}
                 />
-              </div>
-              <div className="flex flex-col gap-1">
+              </div>}
+              {!isChatGPTSubscription && <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
                   {t('config.llmApiKeyEnv')}
                 </label>
@@ -462,7 +571,7 @@ export function LLMSection({
                   placeholder={t('config.llmApiKeyEnvPlaceholder')}
                   onChange={(e) => setProviderForm({ ...providerForm, apiKeyEnv: e.target.value })}
                 />
-              </div>
+              </div>}
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">{t('config.llmTimeoutMs')}</label>
                 <Input
@@ -493,7 +602,7 @@ export function LLMSection({
               </div>
 
               {/* Headers JSON */}
-              <div className="sm:col-span-2 border-t pt-3 mt-1">
+              {!isChatGPTSubscription && <div className="sm:col-span-2 border-t pt-3 mt-1">
                 <h5 className="text-xs font-semibold text-foreground mb-2">{t('config.llmCustomHeaders')}</h5>
                 <Textarea
                   value={providerHeadersJson}
@@ -503,7 +612,7 @@ export function LLMSection({
                   className="font-mono text-xs min-h-[80px]"
                   spellCheck={false}
                 />
-              </div>
+              </div>}
             </div>
 
             <DialogFooter>
@@ -543,7 +652,15 @@ export function LLMSection({
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <button
+                {p.id === 'chatgpt' ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{chatGPTConnected ? `Connected${chatGPTEmail ? ` · ${chatGPTEmail}` : ''}` : 'Not connected'}</span>
+                    <Button size="xs" variant="outline" onClick={() => void connectChatGPT()} disabled={chatGPTBusy}>
+                      {chatGPTConnected ? 'Reconnect' : 'Sign in with ChatGPT'}
+                    </Button>
+                    {chatGPTConnected && <Button size="xs" variant="ghost" onClick={() => void disconnectChatGPT()} disabled={chatGPTBusy}>Sign out</Button>}
+                  </div>
+                ) : <button
                   onClick={() => setShowApiKey((prev) => ({ ...prev, [p.id]: !prev[p.id] }))}
                   className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                   title={showApiKey[p.id] ? t('config.llmHideApiKey') : t('config.llmShowApiKey')}
@@ -553,7 +670,7 @@ export function LLMSection({
                   ) : (
                     <Eye className="h-3.5 w-3.5" />
                   )}
-                </button>
+                </button>}
                 {!p.isDefault && (
                   <button
                     onClick={() => onSetProviderAsDefault(p)}
@@ -725,7 +842,7 @@ export function LLMSection({
                               }}
                               className="w-full text-left flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none hover:bg-muted focus:bg-muted text-foreground transition-colors"
                             >
-                              {model}
+                              {remoteModelNames[model] ? `${remoteModelNames[model]} (${model})` : model}
                             </button>
                           ))
                         })()}

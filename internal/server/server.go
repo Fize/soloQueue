@@ -49,6 +49,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/llm/chatgpt"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
@@ -83,6 +84,7 @@ type Mux struct {
 	webFS             fs.FS
 	statusFS          fs.FS
 	frontendMode      FrontendMode
+	chatGPTAccount    *chatgpt.Manager
 }
 
 // FrontendMode controls which browser bundle is exposed by the API mux.
@@ -264,6 +266,9 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			m.sharedDB,
 		)
 	}
+	if m.workDir != "" {
+		m.chatGPTAccount, _ = chatgpt.ForWorkDir(m.workDir)
+	}
 
 	// Wire config service hot-reload and on-change callback.
 	if m.configSvc != nil {
@@ -314,6 +319,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 
 	// Health check
 	r.Get("/healthz", m.handleHealth)
+	r.Get("/auth/callback", m.handleChatGPTCallback)
 	r.Get("/api/runtime-config", m.handleRuntimeConfig)
 
 	// Live agents status endpoint
@@ -372,6 +378,10 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 				r.Put("/", m.handleUpdateProvider)
 				r.Delete("/", m.handleDeleteProvider)
 				r.Get("/remote-models", m.handleListProviderRemoteModels)
+				r.Get("/chatgpt/status", m.handleChatGPTStatus)
+				r.Get("/chatgpt/models", m.handleChatGPTModels)
+				r.Post("/chatgpt/login", m.handleChatGPTLogin)
+				r.Post("/chatgpt/logout", m.handleChatGPTLogout)
 			})
 		})
 
@@ -604,7 +614,7 @@ func (m *Mux) corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, X-SoloQueue-Account-Mutation")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return
