@@ -134,10 +134,29 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: binaries
           path: release
+      - name: Prepare release notes from changelog
+        env:
+          VERSION: ${{ needs.binaries.outputs.version }}
+        run: |
+          set -euo pipefail
+          heading="## [$VERSION]"
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          awk -v heading="$heading" '
+            $0 == heading || index($0, heading " - ") == 1 { found = 1 }
+            found && /^## \[/ && $0 != heading && index($0, heading " - ") != 1 { exit }
+            found { print }
+          ' CHANGELOG.md > "$notes_file"
+          if [ ! -s "$notes_file" ]; then
+            echo "No changelog entry found for $VERSION" >&2
+            exit 1
+          fi
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -148,9 +167,10 @@ jobs:
           # Listing fails on authentication/network errors, unlike a blind view-or-create.
           existing=$(gh api "repos/$GH_REPO/releases" --paginate --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
           if [ -z "$existing" ]; then
-            flags=(--verify-tag --generate-notes --title "$GITHUB_REF_NAME")
+            flags=(--verify-tag --notes-file "$RUNNER_TEMP/release-notes.md" --title "$GITHUB_REF_NAME")
             if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
             gh release create "$GITHUB_REF_NAME" "${flags[@]}" release/*
           else
             gh release upload "$GITHUB_REF_NAME" release/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
