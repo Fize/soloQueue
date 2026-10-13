@@ -447,6 +447,8 @@ export function AssistantPage() {
             ctxwinUsed={ctxwinUsed}
             ctxwinLimit={ctxwinLimit}
             processing={requestActive}
+            modelName={inputModelName}
+            taskLevel={inputTaskLevel}
             skillNames={filteredSkillNames}
             activeSessionId="l1"
           />

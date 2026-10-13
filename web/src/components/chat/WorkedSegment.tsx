@@ -95,12 +95,11 @@ function WorkedSegmentInner({
         {group.segments.map(({ segment }, idx) => {
           if (segment.type === 'thinking') {
             return (
-              <div
+              <MarkdownPreview
                 key={idx}
+                content={segment.text}
                 className={`text-xs whitespace-pre-wrap leading-relaxed text-muted-foreground/75`}
-              >
-                {segment.text}
-              </div>
+              />
             )
           } else if (segment.type === 'tool_call') {
             return (

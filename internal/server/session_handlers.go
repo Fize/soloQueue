@@ -940,41 +940,70 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			}
 			segments := []map[string]interface{}{}
 			newPendingStart := len(pendingToolCalls) // track new tool calls added in this batch
-			if msg.ReasoningContent != "" {
+			if targetMsgIdx < 0 {
+				targetMsgIdx = len(msgs)
+			}
+			reasoningAdded, contentAdded, toolCallsAdded := false, false, false
+			appendReasoning := func() {
+				if reasoningAdded || msg.ReasoningContent == "" {
+					return
+				}
+				reasoningAdded = true
 				segments = append(segments, map[string]interface{}{
 					"type": "thinking",
 					"text": msg.ReasoningContent,
 				})
 			}
-
-			if targetMsgIdx < 0 {
-				targetMsgIdx = len(msgs)
-			}
-
-			for _, tc := range msg.ToolCalls {
-				segIdx := len(segments)
-				segments = append(segments, map[string]interface{}{
-					"type":    "tool_call",
-					"call_id": tc.ID,
-					"name":    tc.Name,
-					"args":    tc.Arguments,
-					"done":    false,
-				})
-				pendingToolCalls = append(pendingToolCalls, pendingToolCall{
-					callID:    tc.ID,
-					requestID: msg.RequestID,
-					name:      tc.Name,
-					args:      tc.Arguments,
-					msgIdx:    targetMsgIdx,
-					segIdx:    segIdx,
-				})
-			}
-			if msg.Content != "" {
+			appendContent := func() {
+				if contentAdded || msg.Content == "" {
+					return
+				}
+				contentAdded = true
 				segments = append(segments, map[string]interface{}{
 					"type": "content",
 					"text": msg.Content,
 				})
 			}
+			appendToolCalls := func() {
+				if toolCallsAdded {
+					return
+				}
+				toolCallsAdded = true
+				for _, tc := range msg.ToolCalls {
+					segIdx := len(segments)
+					segments = append(segments, map[string]interface{}{
+						"type":    "tool_call",
+						"call_id": tc.ID,
+						"name":    tc.Name,
+						"args":    tc.Arguments,
+						"done":    false,
+					})
+					pendingToolCalls = append(pendingToolCalls, pendingToolCall{
+						callID:    tc.ID,
+						requestID: msg.RequestID,
+						name:      tc.Name,
+						args:      tc.Arguments,
+						msgIdx:    targetMsgIdx,
+						segIdx:    segIdx,
+					})
+				}
+			}
+			for _, part := range msg.SegmentOrder {
+				switch part {
+				case "reasoning":
+					appendReasoning()
+				case "content":
+					appendContent()
+				case "tool_calls":
+					appendToolCalls()
+				}
+			}
+			// Older timeline entries have no explicit order. Their aggregate
+			// fields follow the live model lifecycle: reasoning, streamed content,
+			// then tool execution.
+			appendReasoning()
+			appendContent()
+			appendToolCalls()
 			// Keep every event from one request in the same assistant message.
 			// Async requests may resume after another turn, so adjacency alone is
 			// not a safe ownership boundary.

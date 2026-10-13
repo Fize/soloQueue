@@ -62,6 +62,32 @@ func TestWriter_AppendMessage(t *testing.T) {
 	}
 }
 
+func TestWriter_AppendMessage_RecordsAssistantSegmentOrder(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	defer w.Close()
+
+	if err := w.AppendMessage(&MessagePayload{
+		Role:             "assistant",
+		ReasoningContent: "thinking",
+		Content:          "progress",
+		ToolCalls:        []ToolCallRec{{ID: "call-1", Name: "Bash"}},
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	events := readEventsFromFile(t, timelineFile(dir))
+	if len(events) != 1 || events[0].Message == nil {
+		t.Fatalf("events = %#v, want one message", events)
+	}
+	if got, want := strings.Join(events[0].Message.SegmentOrder, ","), "reasoning,content,tool_calls"; got != want {
+		t.Fatalf("segment order = %q, want %q", got, want)
+	}
+}
+
 func TestWriter_AppendMessage_PreservesArrivalTimestamp(t *testing.T) {
 	dir := t.TempDir()
 	w, err := NewWriter(dir, "timeline", 0, 0)

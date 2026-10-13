@@ -59,6 +59,45 @@ describe("recoverInFlightMessages", () => {
     ]);
   });
 
+  it("preserves a request-owned user prompt while updating its assistant reply", () => {
+    const requestHistory = [
+      {
+        id: "hist-user",
+        role: "user" as const,
+        timestamp: "2026-10-13T15:42:00+08:00",
+        requestId: "req-shared",
+        segments: [{ type: "content" as const, text: "current prompt" }],
+      },
+      {
+        id: "hist-assistant",
+        role: "assistant" as const,
+        timestamp: "2026-10-13T15:42:01+08:00",
+        requestId: "req-shared",
+        segments: [{ type: "thinking" as const, text: "stale reasoning" }],
+      },
+    ];
+    const current = [{ type: "content" as const, text: "current answer" }];
+
+    const recovered = recoverInFlightMessages(
+      requestHistory,
+      current,
+      true,
+      "req-shared",
+    );
+
+    expect(recovered).toHaveLength(2);
+    expect(recovered[0]).toEqual(requestHistory[0]);
+    expect(recovered[1]).toMatchObject({
+      id: "hist-assistant",
+      role: "assistant",
+      requestId: "req-shared",
+      segments: current,
+    });
+    expect(
+      recoverInFlightMessages(recovered, current, true, "req-shared"),
+    ).toEqual(recovered);
+  });
+
   it("never replaces unowned trailing history merely because a new request is active", () => {
     const completed: ChatMessage = { id: "hist-completed", role: "assistant", segments: [{ type: "content", text: "completed reply" }] };
     const result = recoverInFlightMessages([completed], runtimeStream, true, "new-channel-request");

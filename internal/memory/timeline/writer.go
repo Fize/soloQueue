@@ -46,6 +46,17 @@ func (w *Writer) Dir() string { return w.dir }
 // AppendMessage appends a message event.
 func (w *Writer) AppendMessage(msg *MessagePayload) error {
 	evt := newEvent(EventMessage)
+	if msg.Role == "assistant" && len(msg.SegmentOrder) == 0 {
+		if msg.ReasoningContent != "" {
+			msg.SegmentOrder = append(msg.SegmentOrder, "reasoning")
+		}
+		if msg.Content != "" {
+			msg.SegmentOrder = append(msg.SegmentOrder, "content")
+		}
+		if len(msg.ToolCalls) > 0 {
+			msg.SegmentOrder = append(msg.SegmentOrder, "tool_calls")
+		}
+	}
 	// Preserve the timestamp assigned when the message first entered the
 	// context window. This keeps the timeline anchored to arrival time instead
 	// of replacing it with a later persistence time (for example, when a
