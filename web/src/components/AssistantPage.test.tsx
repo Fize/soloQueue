@@ -1,11 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AssistantPage } from "./AssistantPage";
 
 const mocks = vi.hoisted(() => ({
   loadHistory: vi.fn(),
   loadMoreHistory: vi.fn().mockResolvedValue(undefined),
   setActiveSession: vi.fn(),
+  chatInputProps: {} as { modelName?: string; taskLevel?: string },
+  agentWorkingProps: {} as { modelName?: string; taskLevel?: string },
 }));
 
 const chatStoreState = {
@@ -84,14 +86,50 @@ vi.mock("@/components/ChatMessage", () => ({
 }));
 
 vi.mock("@/components/ChatInput", () => ({
-  ChatInput: () => <div />,
+  ChatInput: (props: typeof mocks.chatInputProps) => {
+    mocks.chatInputProps = props;
+    return <div data-testid="chat-input" />;
+  },
 }));
 
 vi.mock("@/components/chat/AgentWorkingIndicator", () => ({
-  AgentWorkingIndicator: () => <div />,
+  AgentWorkingIndicator: (props: typeof mocks.agentWorkingProps) => {
+    mocks.agentWorkingProps = props;
+    return <div data-testid="working-indicator" />;
+  },
 }));
 
+beforeEach(() => {
+  mocks.chatInputProps = {};
+  mocks.agentWorkingProps = {};
+  chatStoreState.streamingSessions = {};
+  chatStoreState.routeSessions = {};
+});
+
 describe("AssistantPage", () => {
+  it("passes L1 request metadata through the shared input and working indicator", async () => {
+    chatStoreState.streamingSessions = { l1: true };
+    chatStoreState.routeSessions = {
+      l1: {
+        requestId: "req-l1",
+        modelId: "l1-model",
+        taskLevel: "general",
+      },
+    };
+
+    render(<AssistantPage />);
+
+    await screen.findByTestId("working-indicator");
+    expect(mocks.agentWorkingProps).toMatchObject({
+      modelName: "l1-model",
+      taskLevel: "general",
+    });
+    expect(mocks.chatInputProps).toMatchObject({
+      modelName: "l1-model",
+      taskLevel: "general",
+    });
+  });
+
   it("does not attach an unscoped L1 channel stream to local history", async () => {
     render(<AssistantPage />);
 

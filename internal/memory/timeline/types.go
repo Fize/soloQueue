@@ -60,6 +60,7 @@ type MessagePayload struct {
 	Name             string                `json:"name,omitempty"`             // Tool name (role=tool)
 	ToolCallID       string                `json:"tool_call_id,omitempty"`     // Tool call ID (role=tool)
 	ToolCalls        []ToolCallRec         `json:"tool_calls,omitempty"`       // tool_calls when role is assistant
+	SegmentOrder     []string              `json:"segment_order,omitempty"`    // Visible assistant field order for history replay
 	Files            []FileAttachment      `json:"files,omitempty"`            // Attached files metadata (role=user)
 	IsEphemeral      bool                  `json:"ephemeral,omitempty"`        // Marks verbose tool output
 	AgentID          string                `json:"agent_id,omitempty"`         // Reserved for multi-agent systems

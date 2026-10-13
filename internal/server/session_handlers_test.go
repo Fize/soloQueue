@@ -311,6 +311,94 @@ func TestHTTP_SessionHistory_DedupPartialFlush(t *testing.T) {
 	}
 }
 
+func TestHTTP_SessionHistory_PreservesLiveAssistantSegmentOrder(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	event := `{"ts":"2026-10-13T15:42:00+08:00","type":"message","msg":{"role":"assistant","content":"I will inspect the repository.","reasoning":"Checking the request.","tool_calls":[{"id":"call-1","type":"function","name":"Bash","arguments":"{\"cmd\":\"git status\"}"}],"request_id":"req-order"}}`
+	if err := os.WriteFile(timelinePath, []byte(event+"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Messages []struct {
+			Segments []struct {
+				Type string `json:"type"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("messages = %#v, want one", resp.Messages)
+	}
+	got := make([]string, 0, len(resp.Messages[0].Segments))
+	for _, segment := range resp.Messages[0].Segments {
+		got = append(got, segment.Type)
+	}
+	want := []string{"thinking", "content", "tool_call"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("segment order = %v, want live order %v", got, want)
+	}
+}
+
+func TestHTTP_SessionHistory_UsesRecordedAssistantSegmentOrder(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	event := `{"ts":"2026-10-13T15:42:00+08:00","type":"message","msg":{"role":"assistant","content":"Final note.","reasoning":"Checking.","tool_calls":[{"id":"call-1","type":"function","name":"Bash","arguments":"{}"}],"segment_order":["reasoning","tool_calls","content"],"request_id":"req-recorded-order"}}`
+	if err := os.WriteFile(timelinePath, []byte(event+"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Messages []struct {
+			Segments []struct {
+				Type string `json:"type"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("messages = %#v, want one", resp.Messages)
+	}
+	got := make([]string, 0, len(resp.Messages[0].Segments))
+	for _, segment := range resp.Messages[0].Segments {
+		got = append(got, segment.Type)
+	}
+	want := []string{"thinking", "tool_call", "content"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("segment order = %v, want recorded order %v", got, want)
+	}
+}
+
 func TestHTTP_SessionHistory_GroupsInterleavedEventsByRequestID(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))

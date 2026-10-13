@@ -154,7 +154,8 @@ export function recoverInFlightMessages(
   // snapshot. This keeps recovery idempotent across reconnects and renders.
   const existingIndex = currentMessages.findIndex((message) =>
     message.id === streamMessageId ||
-    (!mixedHistory && (message as RequestOwnedChatMessage).requestId === requestId),
+    (!mixedHistory && message.role === "assistant" &&
+      (message as RequestOwnedChatMessage).requestId === requestId),
   );
   if (existingIndex >= 0) {
     const updated = [...currentMessages];

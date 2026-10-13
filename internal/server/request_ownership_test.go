@@ -46,6 +46,7 @@ func TestLogicalRuntimeSessionIDUsesSnapshotKeys(t *testing.T) {
 		"l1":           "l1",
 		"session-1":    "l2:session-1",
 		"l2:session-1": "l2:session-1",
+		"l2-bd1049bb-7977-4575-affe-bc7d665fb32a-session": "l2:bd1049bb-7977-4575-affe-bc7d665fb32a",
 	} {
 		if got := logicalRuntimeSessionID(target); got != want {
 			t.Fatalf("logicalRuntimeSessionID(%q) = %q, want %q", target, got, want)

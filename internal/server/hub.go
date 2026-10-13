@@ -298,6 +298,9 @@ func logicalRuntimeSessionID(targetID string) string {
 	if len(targetID) >= 3 && targetID[:3] == "l2:" {
 		return targetID
 	}
+	if strings.HasPrefix(targetID, "l2-") && strings.HasSuffix(targetID, "-session") {
+		return "l2:" + strings.TrimSuffix(strings.TrimPrefix(targetID, "l2-"), "-session")
+	}
 	return "l2:" + targetID
 }
 

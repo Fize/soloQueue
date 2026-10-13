@@ -19,7 +19,10 @@ const mocks = vi.hoisted(() => ({
       projectPath?: string,
       selectedElement?: unknown,
     ) => Promise<void>;
+    modelName?: string;
+    taskLevel?: string;
   },
+  agentWorkingProps: {} as { modelName?: string; taskLevel?: string },
   setInspectorPanelWidth: vi.fn(),
   runtimeStoreState: {
     connectionStatus: "connected",
@@ -166,7 +169,12 @@ vi.mock("@/components/ChatInput", () => ({
     return <div data-testid="chat-input" />;
   },
 }));
-vi.mock("@/components/chat/AgentWorkingIndicator", () => ({ AgentWorkingIndicator: () => <div /> }));
+vi.mock("@/components/chat/AgentWorkingIndicator", () => ({
+  AgentWorkingIndicator: (props: typeof mocks.agentWorkingProps) => {
+    mocks.agentWorkingProps = props;
+    return <div data-testid="working-indicator" />;
+  },
+}));
 vi.mock("./chat/SessionInspectorPanel", () => ({ SessionInspectorPanel: () => <div /> }));
 vi.mock("@/components/ChatDesignPanel", () => ({
   ChatDesignPanel: (props: {
@@ -192,11 +200,44 @@ beforeEach(() => {
   });
   mocks.chatStreamSend.mockClear();
   mocks.chatInputProps = {};
+  mocks.agentWorkingProps = {};
   mocks.designPanelProps = {};
+  chatStoreState.messages["channel-l2"] = [];
+  chatStoreState.streamingSessions = {};
+  chatStoreState.routeSessions = {};
   setViewport(1024, 768);
 });
 
 describe("ChatPage", () => {
+  it("passes Team request metadata through the shared input and working indicator", async () => {
+    chatStoreState.messages["channel-l2"] = [{
+      id: "user-1",
+      role: "user",
+      timestamp: "2026-10-13T15:42:00+08:00",
+      segments: [{ type: "content", text: "current prompt" }],
+    }];
+    chatStoreState.streamingSessions = { "channel-l2": true };
+    chatStoreState.routeSessions = {
+      "channel-l2": {
+        requestId: "req-team",
+        modelId: "team-model",
+        taskLevel: "engineering",
+      },
+    };
+
+    render(<ChatPage />);
+
+    await screen.findByTestId("working-indicator");
+    expect(mocks.agentWorkingProps).toMatchObject({
+      modelName: "team-model",
+      taskLevel: "engineering",
+    });
+    expect(mocks.chatInputProps).toMatchObject({
+      modelName: "team-model",
+      taskLevel: "engineering",
+    });
+  });
+
   it("does not attach an unscoped L2 channel stream to local history", async () => {
     render(<ChatPage />);
 

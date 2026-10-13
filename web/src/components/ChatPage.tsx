@@ -994,6 +994,8 @@ export function ChatPage() {
                       ctxwinLimit={requestContextLimit}
                       atRootDir={activeSession?.project_path || ""}
                       processing={requestActive}
+                      modelName={inputModelName}
+                      taskLevel={inputTaskLevel}
                     />
                   </div>
                 </div>
@@ -1071,6 +1073,8 @@ export function ChatPage() {
                     ctxwinLimit={requestContextLimit}
                     atRootDir={activeSession?.project_path || ""}
                     processing={requestActive}
+                    modelName={inputModelName}
+                    taskLevel={inputTaskLevel}
                   />
                 </div>
               </>
