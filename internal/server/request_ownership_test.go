@@ -123,7 +123,8 @@ func TestProjectLiveWatchdogUsesRunWatchSnapshot(t *testing.T) {
 // ─── Request Ownership Validation Tests (Phase 2) ─────────────────────────────
 
 func TestRequestSessionMismatch_CancelValidation(t *testing.T) {
-	h := NewHub(nil)
+	runtimeMetrics := &RuntimeMetrics{agentStreams: make(map[string]*AgentStreamState)}
+	h := NewHub(&Mux{runtimeMetrics: runtimeMetrics, sessionMgr: session.NewSessionManager(nil, nil)})
 	client := &Client{
 		send: make(chan []byte, 10),
 	}
@@ -136,6 +137,10 @@ func TestRequestSessionMismatch_CancelValidation(t *testing.T) {
 	if err := h.requests.BindCanceller("req-active", func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
+	if err := h.requests.SetRouteMetadata("req-active", "", "", "", "agent-1"); err != nil {
+		t.Fatal(err)
+	}
+	runtimeMetrics.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-active", Delta: "partial"})
 
 	// Attempt cancel with mismatched request ID
 	msg := &ClientMessage{
@@ -182,6 +187,10 @@ func TestRequestSessionMismatch_CancelValidation(t *testing.T) {
 
 	if !confirmed || !done {
 		t.Errorf("valid cancel failed to produce chat_cancel_confirmed and chat_done envelopes with SessionID")
+	}
+	stream := runtimeMetrics.AgentStreams()["agent-1\x00req-active"]
+	if stream == nil || stream.Processing || stream.Error != "Task cancelled." {
+		t.Fatalf("cancelled runtime stream = %#v, want terminal cancellation state", stream)
 	}
 }
 

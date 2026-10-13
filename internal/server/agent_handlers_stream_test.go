@@ -50,6 +50,33 @@ func TestRuntimeMetricsPopulatesAgentStreamStartedAt(t *testing.T) {
 	}
 }
 
+func TestRuntimeMetricsTerminalizesCancelledRequestStream(t *testing.T) {
+	rm := &RuntimeMetrics{
+		agentStreams: make(map[string]*AgentStreamState),
+		agentCancels: make(map[string]func()),
+	}
+	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-cancelled", Delta: "partial"})
+
+	rm.TerminalizeAgentStream("agent-1", "req-cancelled", "Task cancelled.")
+
+	stream := rm.AgentStreams()["agent-1\x00req-cancelled"]
+	if stream == nil {
+		t.Fatal("cancelled request stream is missing")
+	}
+	if stream.Processing {
+		t.Fatal("cancelled request stream is still processing")
+	}
+	if stream.Error != "Task cancelled." {
+		t.Fatalf("cancelled request error = %q, want Task cancelled.", stream.Error)
+	}
+
+	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-cancelled", Delta: "late"})
+	stream = rm.AgentStreams()["agent-1\x00req-cancelled"]
+	if stream.Processing || stream.Error != "Task cancelled." || len(stream.Segments) != 1 {
+		t.Fatalf("late event resurrected cancelled runtime stream: %#v", stream)
+	}
+}
+
 func containsJSONField(payload []byte, field string) bool {
 	var decoded map[string]any
 	if err := json.Unmarshal(payload, &decoded); err != nil {

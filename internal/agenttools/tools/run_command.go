@@ -9,10 +9,12 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
-	"syscall"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
+
+const runCommandWaitDelay = 250 * time.Millisecond
 
 func (e *Executor) RunCommand(ctx context.Context, cmd string, opts RunCommandOptions) (RunCommandResult, error) {
 
@@ -28,12 +30,10 @@ func (e *Executor) RunCommand(ctx context.Context, cmd string, opts RunCommandOp
 	}
 
 	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
-	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	configureRuntimeProcess(c)
+	c.WaitDelay = runCommandWaitDelay
 	c.Cancel = func() error {
-		if c.Process != nil && c.Process.Pid > 0 {
-			return syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
+		return killRuntimeProcess(c)
 	}
 	if opts.WorkingDirectory != "" {
 		wd := opts.WorkingDirectory
@@ -59,6 +59,9 @@ func (e *Executor) RunCommand(ctx context.Context, cmd string, opts RunCommandOp
 	c.Stderr = &limitedWriterExec{w: &stderr, cap: maxOut}
 
 	err := c.Run()
+	if errors.Is(err, exec.ErrWaitDelay) && c.ProcessState != nil && c.ProcessState.Success() {
+		err = nil
+	}
 
 	res := RunCommandResult{
 		Stdout: stdout.Bytes(),

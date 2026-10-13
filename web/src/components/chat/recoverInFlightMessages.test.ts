@@ -59,6 +59,38 @@ describe("recoverInFlightMessages", () => {
     ]);
   });
 
+  it("inserts an unmatched recovered reply before a later user message", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "original-user",
+        role: "user",
+        timestamp: "2026-10-13T18:14:34+08:00",
+        segments: [{ type: "content", text: "continue unfinished work" }],
+      },
+      {
+        id: "follow-up-user",
+        role: "user",
+        timestamp: "2026-10-13T18:20:37+08:00",
+        segments: [{ type: "content", text: "why is it stuck" }],
+      },
+    ];
+
+    const recovered = recoverInFlightMessages(
+      messages,
+      [{ type: "thinking", text: "old request progress" }],
+      true,
+      "req-old",
+      "2026-10-13T18:14:39+08:00",
+    );
+
+    expect(recovered.map((message) => message.id)).toEqual([
+      "original-user",
+      "msg-req-old",
+      "follow-up-user",
+    ]);
+    expect(recovered[1].timestamp).toBe("2026-10-13T18:14:39+08:00");
+  });
+
   it("preserves a request-owned user prompt while updating its assistant reply", () => {
     const requestHistory = [
       {

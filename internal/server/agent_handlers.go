@@ -119,6 +119,7 @@ type AgentStreamState struct {
 	Iteration  int       `json:"iteration"`
 	Error      string    `json:"error,omitempty"`
 	StartedAt  time.Time `json:"started_at,omitempty"`
+	terminal   bool
 }
 
 // StartAgentWatch subscribes to an agent's Watch() and starts a goroutine that
@@ -217,6 +218,10 @@ func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, gene
 			StartedAt: time.Now(),
 		}
 		rm.agentStreams[streamKey] = s
+	}
+	if s.terminal {
+		rm.agentStreamsMu.Unlock()
+		return
 	}
 
 	if !s.Processing {
@@ -317,6 +322,28 @@ func agentStreamKey(instanceID, requestID string) string {
 		return instanceID
 	}
 	return instanceID + "\x00" + requestID
+}
+
+// TerminalizeAgentStream pins request-owned runtime state when cancellation
+// isolates a generation before its blocked job can emit a terminal event.
+func (rm *RuntimeMetrics) TerminalizeAgentStream(instanceID, requestID, message string) {
+	if rm == nil || instanceID == "" || requestID == "" {
+		return
+	}
+	rm.agentStreamsMu.Lock()
+	stream := rm.agentStreams[agentStreamKey(instanceID, requestID)]
+	if stream == nil {
+		rm.agentStreamsMu.Unlock()
+		return
+	}
+	stream.Processing = false
+	stream.Error = message
+	stream.terminal = true
+	notify := rm.onChange
+	rm.agentStreamsMu.Unlock()
+	if notify != nil {
+		notify()
+	}
 }
 
 // AgentStreams returns a snapshot of all agents' stream states.
