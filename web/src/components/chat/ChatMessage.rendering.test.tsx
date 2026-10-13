@@ -317,19 +317,45 @@ it('keeps delegation segments on their original sides of intervening content', (
   })
 })
 
-it('does not merge adjacent content or delegation segments', () => {
-  const groups = groupSegments([
+it('keeps adjacent content separate and merges adjacent delegation segments', () => {
+  const segments: ChatMessage['segments'] = [
     { type: 'content', text: 'A' },
     { type: 'content', text: 'B' },
     { type: 'tool_call', name: 'delegate', callId: 'delegate-a', args: '{}', done: true },
     { type: 'tool_call', name: 'delegate', callId: 'delegate-b', args: '{}', done: false },
-  ])
+  ]
+  const groups = groupSegments(segments)
+
   expect(groups.map((group) => group.type)).toEqual([
-    'other', 'other', 'delegation_group', 'delegation_group',
+    'other', 'other', 'delegation_group',
   ])
   expect(groups.map((group) => group.type === 'other' ? group.index : group.id)).toEqual([
-    0, 1, 'delegation-2', 'delegation-3',
+    0, 1, 'delegation-2',
   ])
+  expect(groups[2]).toMatchObject({
+    type: 'delegation_group',
+    segments: [{ originalIndex: 2 }, { originalIndex: 3 }],
+  })
+
+  render(<ChatMessageView message={assistant('adjacent-delegations', segments)} sessionId="l1" />)
+  expect(screen.getByRole('button', { name: 'Delegated 2 tasks...' })).toBeInTheDocument()
+})
+
+it.each([
+  ['thinking', { type: 'thinking', text: 'Checking results' }],
+  ['ordinary tool call', { type: 'tool_call', name: 'read_file', callId: 'read', args: '{}', done: true }],
+] satisfies [string, ChatMessage['segments'][number]][])('keeps delegation groups separate across %s', (_label, boundary) => {
+  const groups = groupSegments([
+    { type: 'delegation', agentName: 'first', task: 'one', status: 'completed' },
+    boundary,
+    { type: 'delegation', agentName: 'second', task: 'two', status: 'completed' },
+  ])
+
+  expect(groups.map((group) => group.type)).toEqual([
+    'delegation_group', 'worked', 'delegation_group',
+  ])
+  expect(groups[0]).toMatchObject({ segments: [{ originalIndex: 0 }] })
+  expect(groups[2]).toMatchObject({ segments: [{ originalIndex: 2 }] })
 })
 
 it('renders work received after formal content below that content and keeps it open while running', () => {

@@ -39,8 +39,9 @@ function isDelegation(segment: ChatMessage['segments'][number]): boolean {
 
 /**
  * Preserve the event stream's order inside one assistant message. Only
- * adjacent thinking/tool events share a worked container; the events inside
- * that container remain separate, and every boundary starts a new item.
+ * adjacent thinking/tool events share a worked container, and adjacent
+ * delegation events share a delegation container. The events inside each
+ * container remain separate, and every boundary starts a new item.
  */
 export function groupSegments(segments: ChatMessage['segments']): GroupedItem[] {
   const groups: GroupedItem[] = []
@@ -55,11 +56,19 @@ export function groupSegments(segments: ChatMessage['segments']): GroupedItem[] 
     }
 
     if (isDelegation(segment)) {
-      groups.push({
-        type: 'delegation_group',
-        id: `delegation-${index}`,
-        segments: [{ segment, originalIndex: index }],
-      })
+      const previous = groups.at(-1)
+      const previousSegment = previous?.type === 'delegation_group'
+        ? previous.segments.at(-1)
+        : undefined
+      if (previous?.type === 'delegation_group' && previousSegment?.originalIndex === index - 1) {
+        previous.segments.push({ segment, originalIndex: index })
+      } else {
+        groups.push({
+          type: 'delegation_group',
+          id: `delegation-${index}`,
+          segments: [{ segment, originalIndex: index }],
+        })
+      }
       continue
     }
 
