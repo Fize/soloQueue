@@ -61,6 +61,13 @@ type rejectBusyQueueKey struct{}
 
 type temporalExposureKey struct{}
 
+type compactionReasonKey struct{}
+
+const (
+	compactionReasonAuto        = "auto_compact"
+	compactionReasonUserCommand = "user_command"
+)
+
 type temporalExposure struct {
 	receivedAt time.Time
 }
@@ -83,6 +90,13 @@ func withTemporalExposure(ctx context.Context, receivedAt time.Time) context.Con
 func temporalExposureFromContext(ctx context.Context) (temporalExposure, bool) {
 	value, ok := ctx.Value(temporalExposureKey{}).(temporalExposure)
 	return value, ok && !value.receivedAt.IsZero()
+}
+
+func compactionReason(ctx context.Context) string {
+	if reason, ok := ctx.Value(compactionReasonKey{}).(string); ok && reason != "" {
+		return reason
+	}
+	return compactionReasonAuto
 }
 
 func inputPushOptions(ctx context.Context) []ctxwin.PushOption {
@@ -1494,6 +1508,7 @@ func (s *Session) Clear() error {
 // into a condensed representation using the compactor. Unlike Clear,
 // it preserves the recent context and does NOT save to conversation.
 func (s *Session) Compact(ctx context.Context) (string, error) {
+	ctx = context.WithValue(ctx, compactionReasonKey{}, compactionReasonUserCommand)
 	compactCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 

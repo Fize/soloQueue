@@ -37,10 +37,59 @@ type blockingSessionCompactor struct {
 	started chan struct{}
 }
 
+type staticSessionCompactor struct {
+	summary string
+}
+
+func (c *staticSessionCompactor) Compact(context.Context, []ctxwin.Message) (string, error) {
+	return c.summary, nil
+}
+
 func (c *blockingSessionCompactor) Compact(ctx context.Context, _ []ctxwin.Message) (string, error) {
 	close(c.started)
 	<-ctx.Done()
 	return "", context.Cause(ctx)
+}
+
+func TestSessionCompactPersistsUserCommandReason(t *testing.T) {
+	dir := t.TempDir()
+	tw, err := timeline.NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatalf("timeline.NewWriter: %v", err)
+	}
+	t.Cleanup(func() { _ = tw.Close() })
+
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer(),
+		ctxwin.WithCompactor(&staticSessionCompactor{summary: "manual summary"}),
+		ctxwin.WithSummaryHook(func(ctx context.Context, _ []ctxwin.SummarySegment, finalSummary string) {
+			if err := tw.AppendControl(&timeline.ControlPayload{
+				Action:  "summary",
+				Reason:  compactionReason(ctx),
+				Content: finalSummary,
+			}); err != nil {
+				t.Errorf("AppendControl: %v", err)
+			}
+		}),
+	)
+	cw.SetReplayMode(true)
+	cw.Push(ctxwin.RoleSystem, "system")
+	cw.SetReplayMode(false)
+	cw.Push(ctxwin.RoleUser, "user message")
+	s := NewSession("session-1", "default", nil, cw, tw, nil)
+
+	if _, err := s.Compact(context.Background()); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	events, err := timeline.ReadFileEvents(timelineLatestFile(dir))
+	if err != nil {
+		t.Fatalf("ReadFileEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Control == nil {
+		t.Fatalf("events = %#v, want one control event", events)
+	}
+	if got := events[0].Control.Reason; got != "user_command" {
+		t.Fatalf("summary reason = %q, want user_command", got)
+	}
 }
 
 func (c *sessionFakeClock) Now() time.Time {

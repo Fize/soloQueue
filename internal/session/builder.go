@@ -566,7 +566,7 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		if finalClean != "" {
 			if err := tl.AppendControl(&timeline.ControlPayload{
 				Action:  "summary",
-				Reason:  "auto_compact",
+				Reason:  compactionReason(ctx),
 				Content: finalClean,
 			}); err != nil {
 				sessLog.Error(logger.CatActor, "timeline summary append failed",
@@ -1004,13 +1004,13 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	}
 
 	// Summary hook (timeline-only, no memory writes).
-	summaryHook := func(_ context.Context, _ []ctxwin.SummarySegment, finalSummary string) {
+	summaryHook := func(ctx context.Context, _ []ctxwin.SummarySegment, finalSummary string) {
 		if finalSummary == "" {
 			return
 		}
 		if err := tl.AppendControl(&timeline.ControlPayload{
 			Action:  "summary",
-			Reason:  "auto_compact",
+			Reason:  compactionReason(ctx),
 			Content: finalSummary,
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline summary append failed",
@@ -1218,13 +1218,13 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	}
 
 	// Summary hook (timeline-only).
-	summaryHook := func(_ context.Context, _ []ctxwin.SummarySegment, finalSummary string) {
+	summaryHook := func(ctx context.Context, _ []ctxwin.SummarySegment, finalSummary string) {
 		if finalSummary == "" {
 			return
 		}
 		if err := tl.AppendControl(&timeline.ControlPayload{
 			Action:  "summary",
-			Reason:  "auto_compact",
+			Reason:  compactionReason(ctx),
 			Content: finalSummary,
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline summary append failed",
