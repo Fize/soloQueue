@@ -386,10 +386,14 @@ func WithRequestRouteCapture(ctx context.Context) (context.Context, <-chan Reque
 	return context.WithValue(ctx, requestRouteCaptureKey{}, capture), capture.ch
 }
 
-var quarantineGraceNanos atomic.Int64
+var (
+	quarantineGraceNanos       atomic.Int64
+	userCancellationGraceNanos atomic.Int64
+)
 
 func init() {
 	quarantineGraceNanos.Store(int64(agent.JobWatchdogGrace))
+	userCancellationGraceNanos.Store(int64(500 * time.Millisecond))
 }
 
 // NewSession constructs and starts a session (agent should already have started)
@@ -805,19 +809,24 @@ func (s *Session) WatchdogSnapshot(runID string) (runwatch.Snapshot, bool) {
 	return s.runWatch.Snapshot(runID)
 }
 
-// quarantineAgentAfterWatchdog prevents a non-cooperative job from keeping an
-// Agent mailbox blocked after the request-facing watchdog has terminated.
-// Replacement is owned by the SessionManager/Supervisor; this generation is
-// deliberately never restarted in place because its late goroutine is unsafe.
-func (s *Session) quarantineAgentAfterWatchdog(cause error, a *agent.Agent, job *agent.JobHandle) {
-	if s == nil || a == nil || job == nil || !isWatchdogCause(cause) {
+// recoverAgentAfterCancellation prevents a non-cooperative job from keeping
+// an Agent mailbox blocked after its request has terminated. User cancellation
+// waits for this boundary synchronously so acknowledgement cannot race ahead
+// of either job completion or generation quarantine.
+func (s *Session) recoverAgentAfterCancellation(cause error, a *agent.Agent, job *agent.JobHandle) {
+	if s == nil || a == nil || job == nil || !isRecoverableCancellation(cause) {
 		return
 	}
 	if !job.Fence() {
 		return
 	}
-	go func(a *agent.Agent, job *agent.JobHandle) {
-		timer := time.NewTimer(time.Duration(quarantineGraceNanos.Load()))
+	isUserCancellation := runwatch.CodeOf(cause) == runwatch.CodeCancelledByUser
+	grace := time.Duration(quarantineGraceNanos.Load())
+	if isUserCancellation {
+		grace = time.Duration(userCancellationGraceNanos.Load())
+	}
+	recover := func() {
+		timer := time.NewTimer(grace)
 		defer timer.Stop()
 		select {
 		case <-job.Done():
@@ -829,14 +838,20 @@ func (s *Session) quarantineAgentAfterWatchdog(cause error, a *agent.Agent, job 
 		// in one Agent-owned transition. A simultaneous Done or async yield wins
 		// over this timer and can never quarantine later work.
 		job.QuarantineIfStillBlocking(cause)
-	}(a, job)
+	}
+	if isUserCancellation {
+		recover()
+		return
+	}
+	go recover()
 }
 
-func isWatchdogCause(cause error) bool {
+func isRecoverableCancellation(cause error) bool {
 	switch runwatch.CodeOf(cause) {
 	case runwatch.CodeModelTransportStalled, runwatch.CodeModelFirstProgressStalled,
 		runwatch.CodeModelSemanticStalled, runwatch.CodeToolStalled,
-		runwatch.CodeDelegationOrphaned, runwatch.CodeRootOrphaned:
+		runwatch.CodeDelegationOrphaned, runwatch.CodeRootOrphaned,
+		runwatch.CodeCancelledByUser:
 		return true
 	default:
 		return false
@@ -1279,7 +1294,7 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 		for {
 			select {
 			case <-askCtx.Done():
-				s.quarantineAgentAfterWatchdog(context.Cause(askCtx), a, job)
+				s.recoverAgentAfterCancellation(context.Cause(askCtx), a, job)
 				if cause := context.Cause(askCtx); cause != nil && (!errors.Is(cause, context.Canceled) || runwatch.CodeOf(cause) != "") {
 					select {
 					case out <- agent.ErrorEvent{Err: cause}:
@@ -1295,7 +1310,7 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 				select {
 				case out <- ev:
 				case <-askCtx.Done():
-					s.quarantineAgentAfterWatchdog(context.Cause(askCtx), a, job)
+					s.recoverAgentAfterCancellation(context.Cause(askCtx), a, job)
 					return
 				}
 			}
@@ -2433,7 +2448,7 @@ enqueued:
 				terminalCode = "error"
 			}
 			terminalMessage = cause.Error()
-			s.quarantineAgentAfterWatchdog(cause, askAgent, jobHandle)
+			s.recoverAgentAfterCancellation(cause, askAgent, jobHandle)
 			if !preserveCronHistory(cause) {
 				rollbackTurn()
 			}

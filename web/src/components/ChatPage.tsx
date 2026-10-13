@@ -546,7 +546,7 @@ export function ChatPage() {
       if (runtimeStream?.segments.length) {
         return [{
           requestId,
-          startedAt: runtimeRequest?.started_at,
+          startedAt: runtimeRequest?.started_at || runtimeStream.started_at,
           segments: runtimeStream.segments.map((seg): ChatSegment => {
             if (seg.type === "tool_call") {
               return {
@@ -573,13 +573,13 @@ export function ChatPage() {
           : { type: "content" as const, text: message }
         return [{
           requestId,
-          startedAt: runtimeRequest?.started_at,
+          startedAt: runtimeRequest?.started_at || runtimeStream?.started_at,
           terminal: true,
           segments: [terminalSegment],
         }]
       }
       if (requestId === liveRequestId && stream?.segments?.length) {
-        return [{ requestId, segments: streamChatSegments, startedAt: runtimeRequest?.started_at }]
+        return [{ requestId, segments: streamChatSegments, startedAt: runtimeRequest?.started_at || stream?.started_at }]
       }
       return []
     })

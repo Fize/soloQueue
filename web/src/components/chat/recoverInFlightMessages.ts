@@ -199,16 +199,27 @@ export function recoverInFlightMessages(
   // A trailing history row has no request ownership merely because it is
   // last. Channel streams can arrive before history refresh (or finish out of
   // order), so preserve it unless the exact request/call checks above matched.
-  return [
-    ...currentMessages,
-    {
-      id: streamMessageId,
-      role: "assistant",
-      segments: streamSegments,
-      timestamp: new Date().toISOString(),
-      requestId,
-    } as RequestOwnedChatMessage,
-  ];
+  const recovered = {
+    id: streamMessageId,
+    role: "assistant",
+    segments: streamSegments,
+    timestamp: startedAt || new Date().toISOString(),
+    requestId,
+  } as RequestOwnedChatMessage;
+  const startedAtMs = startedAt ? Date.parse(startedAt) : Number.NaN;
+  if (!Number.isNaN(startedAtMs)) {
+    const laterUserIndex = currentMessages.findIndex((message) => {
+      if (message.role !== "user") return false;
+      const timestamp = Date.parse(message.timestamp);
+      return !Number.isNaN(timestamp) && timestamp > startedAtMs;
+    });
+    if (laterUserIndex >= 0) {
+      const updated = [...currentMessages];
+      updated.splice(laterUserIndex, 0, recovered);
+      return updated;
+    }
+  }
+  return [...currentMessages, recovered];
 }
 
 /**

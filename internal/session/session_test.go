@@ -37,6 +37,20 @@ type blockingSessionCompactor struct {
 	started chan struct{}
 }
 
+type nonCooperativeSessionTool struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (t *nonCooperativeSessionTool) Name() string                { return "blocking" }
+func (t *nonCooperativeSessionTool) Description() string         { return "blocks until released" }
+func (t *nonCooperativeSessionTool) Parameters() json.RawMessage { return json.RawMessage(`{}`) }
+func (t *nonCooperativeSessionTool) Execute(context.Context, string) (string, error) {
+	close(t.started)
+	<-t.release
+	return "released", nil
+}
+
 type staticSessionCompactor struct {
 	summary string
 }
@@ -1663,7 +1677,7 @@ func TestWatchdogTimerDoesNotQuarantineLaterAgentJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.quarantineAgentAfterWatchdog(&runwatch.Cause{Code: runwatch.CodeModelSemanticStalled}, a, firstJob)
+	s.recoverAgentAfterCancellation(&runwatch.Cause{Code: runwatch.CodeModelSemanticStalled}, a, firstJob)
 	time.Sleep(20 * time.Millisecond)
 	if a.State() == agent.StateQuarantined {
 		t.Fatal("watchdog timer quarantined a later request")
@@ -1672,6 +1686,89 @@ func TestWatchdogTimerDoesNotQuarantineLaterAgentJob(t *testing.T) {
 		t.Fatal("second request was not active during quarantine check")
 	}
 	for range second {
+	}
+}
+
+func TestUserCancellationQuarantinesNonCooperativeAgentBeforeReturning(t *testing.T) {
+	oldGrace := userCancellationGraceNanos.Load()
+	userCancellationGraceNanos.Store(int64(5 * time.Millisecond))
+	t.Cleanup(func() { userCancellationGraceNanos.Store(oldGrace) })
+
+	tool := &nonCooperativeSessionTool{started: make(chan struct{}), release: make(chan struct{})}
+	fake := &agenttest.FakeLLM{
+		StreamDeltas: [][]string{{""}},
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+			Index: 0, ID: "call-blocking", Name: tool.Name(), Arguments: `{}`,
+		}}},
+		FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
+	}
+	a := agent.NewAgent(agent.Definition{ID: "user-cancel-agent"}, fake, nil, agent.WithTools(tool))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fresh := agent.NewAgent(
+		agent.Definition{ID: "user-cancel-agent"},
+		&agenttest.FakeLLM{Responses: []string{"fresh reply"}},
+		nil,
+		agent.WithSchedulingPending(),
+	)
+	if err := fresh.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		select {
+		case <-tool.release:
+		default:
+			close(tool.release)
+		}
+		_ = a.Stop(2 * time.Second)
+		_ = fresh.Stop(2 * time.Second)
+	})
+	s := NewSession("s-user-cancel-quarantine", "team", a, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetGenerationRebuilder(func(context.Context) (*agent.Agent, *agent.Supervisor, error) {
+		return fresh, nil, nil
+	})
+
+	stream, err := s.AskStream(context.Background(), "run blocking tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-tool.started:
+	case <-time.After(time.Second):
+		t.Fatal("blocking tool did not start")
+	}
+
+	cancelStarted := time.Now()
+	if err := s.cancelCurrent("user stopped request", true); err != nil {
+		t.Fatalf("cancelCurrent: %v", err)
+	}
+	if elapsed := time.Since(cancelStarted); elapsed >= 100*time.Millisecond {
+		t.Fatalf("user cancellation took %s, want bounded recovery", elapsed)
+	}
+	if got := a.State(); got != agent.StateQuarantined {
+		t.Fatalf("agent state after cancellation = %s, want %s", got, agent.StateQuarantined)
+	}
+
+	close(tool.release)
+	for range stream {
+	}
+
+	next, err := s.AskStream(context.Background(), "answer the next request")
+	if err != nil {
+		t.Fatalf("AskStream after quarantined cancellation: %v", err)
+	}
+	var nextReply string
+	for event := range next {
+		if done, ok := event.(agent.DoneEvent); ok {
+			nextReply = done.Content
+		}
+	}
+	if nextReply != "fresh reply" {
+		t.Fatalf("next reply = %q, want fresh reply", nextReply)
+	}
+	if got := s.CurrentAgent(); got != fresh {
+		t.Fatal("next request did not replace the quarantined agent generation")
 	}
 }
 
