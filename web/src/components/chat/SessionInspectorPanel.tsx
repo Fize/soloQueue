@@ -8,11 +8,15 @@ export function SessionInspectorPanel({
   inspectorTab,
   panelWidth,
   projectPathFallback,
+  selectedPlan,
+  onSelectedPlanChange,
 }: {
   activeSession: any
   inspectorTab: 'files' | 'changes' | 'plan'
   panelWidth: number
   projectPathFallback?: string
+  selectedPlan?: string
+  onSelectedPlanChange?: (path: string) => void
 }) {
   const { t } = useTranslation()
 
@@ -34,7 +38,12 @@ export function SessionInspectorPanel({
             </div>
           )
         ) : inspectorTab === 'plan' ? (
-          <SessionPlanPanel plans={activeSession.plans || []} />
+          <SessionPlanPanel
+            key={activeSession.id}
+            plans={activeSession.plans || []}
+            selectedPlan={selectedPlan}
+            onSelectedPlanChange={onSelectedPlanChange}
+          />
         ) : (
           <SessionChangesPanel sessionId={activeSession.id} />
         )}

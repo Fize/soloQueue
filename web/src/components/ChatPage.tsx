@@ -42,6 +42,20 @@ import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
 import { toast } from "sonner";
 
+type InspectorTab = "files" | "changes" | "plan";
+
+interface InspectorSnapshot {
+  open: boolean;
+  tab: InspectorTab;
+  selectedPlan: string;
+}
+
+const DEFAULT_INSPECTOR_SNAPSHOT: InspectorSnapshot = {
+  open: false,
+  tab: "files",
+  selectedPlan: "",
+};
+
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -87,12 +101,27 @@ export function ChatPage() {
   const { t } = useTranslation();
 
   // macOS Inspector state
-  const [showInspector, setShowInspector] = useState(false);
-  const [inspectorTab, setInspectorTab] = useState<"files" | "changes" | "plan">("files");
+  const [inspectorSnapshots, setInspectorSnapshots] = useState<Record<string, InspectorSnapshot>>({});
+  const inspectorSnapshot = activeSessionId
+    ? (inspectorSnapshots[activeSessionId] ?? DEFAULT_INSPECTOR_SNAPSHOT)
+    : DEFAULT_INSPECTOR_SNAPSHOT;
+  const showInspector = inspectorSnapshot.open;
+  const inspectorTab = inspectorSnapshot.tab;
+
+  const updateInspectorSnapshot = useCallback((patch: Partial<InspectorSnapshot>) => {
+    if (!activeSessionId) return;
+    setInspectorSnapshots((current) => ({
+      ...current,
+      [activeSessionId]: {
+        ...(current[activeSessionId] ?? DEFAULT_INSPECTOR_SNAPSHOT),
+        ...patch,
+      },
+    }));
+  }, [activeSessionId]);
 
   const toggleInspector = (open: boolean) => {
     useRuntimeStore.getState().setInspectorPanelWidth(open ? panelWidth : 0);
-    setShowInspector(open);
+    updateInspectorSnapshot({ open });
   };
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed);
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode);
@@ -129,10 +158,10 @@ export function ChatPage() {
     const wasDesignMode = prevIsDesignModeRef.current;
     prevIsDesignModeRef.current = designModeActive;
     if (wasDesignMode && !designModeActive) {
-      setShowInspector(false);
+      updateInspectorSnapshot({ open: false });
       useRuntimeStore.getState().setInspectorPanelWidth(0);
     }
-  }, [designModeActive]);
+  }, [designModeActive, updateInspectorSnapshot]);
 
   // L2 redesign states
   const [l2Groups, setL2Groups] = useState<string[]>([]);
@@ -262,9 +291,9 @@ export function ChatPage() {
     if (inspectorTab === "plan" && (!activeSession?.plans || activeSession.plans.length === 0)) {
       // Keep the inspector on an available tab when the plan list disappears.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setInspectorTab("files");
+      updateInspectorSnapshot({ tab: "files", selectedPlan: "" });
     }
-  }, [activeSession?.plans, inspectorTab]);
+  }, [activeSession?.plans, inspectorTab, updateInspectorSnapshot]);
 
   // Sync selectors from active session when session changes
   useEffect(() => {
@@ -890,7 +919,7 @@ export function ChatPage() {
                 <>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setInspectorTab("files")}
+                      onClick={() => updateInspectorSnapshot({ tab: "files" })}
                       className={cn(
                         "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                         inspectorTab === "files"
@@ -902,7 +931,7 @@ export function ChatPage() {
                       Files
                     </button>
                     <button
-                      onClick={() => setInspectorTab("changes")}
+                      onClick={() => updateInspectorSnapshot({ tab: "changes" })}
                       className={cn(
                         "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                         inspectorTab === "changes"
@@ -915,7 +944,7 @@ export function ChatPage() {
                     </button>
                     {activeSession?.plans && activeSession.plans.length > 0 && (
                       <button
-                        onClick={() => setInspectorTab("plan")}
+                        onClick={() => updateInspectorSnapshot({ tab: "plan" })}
                         className={cn(
                           "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
                           inspectorTab === "plan"
@@ -1131,6 +1160,8 @@ export function ChatPage() {
                       inspectorTab={inspectorTab}
                       panelWidth={panelWidth}
                       projectPathFallback={selectedProjectPath || undefined}
+                      selectedPlan={inspectorSnapshot.selectedPlan}
+                      onSelectedPlanChange={(path) => updateInspectorSnapshot({ selectedPlan: path })}
                     />
                   )}
                 </div>

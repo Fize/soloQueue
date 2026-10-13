@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
 
@@ -36,7 +36,14 @@ const mocks = vi.hoisted(() => ({
     onResizeStart?: unknown;
     onDesignContextChange?: (ctx: { activeDesignFile?: string; hasDrawings: boolean }) => void;
   },
+  inspectorPanelProps: {} as {
+    inspectorTab?: 'files' | 'changes' | 'plan';
+    selectedPlan?: string;
+    onSelectedPlanChange?: (path: string) => void;
+  },
 }));
+
+let routeSessionId = "channel-l2";
 
 const chatStoreState = {
   activeSessionId: "channel-l2",
@@ -66,7 +73,7 @@ const chatStoreState = {
 };
 
 vi.mock("react-router-dom", () => ({
-  useParams: () => ({ sessionId: "channel-l2" }),
+  useParams: () => ({ sessionId: routeSessionId }),
   useNavigate: () => vi.fn(),
 }));
 
@@ -175,7 +182,16 @@ vi.mock("@/components/chat/AgentWorkingIndicator", () => ({
     return <div data-testid="working-indicator" />;
   },
 }));
-vi.mock("./chat/SessionInspectorPanel", () => ({ SessionInspectorPanel: () => <div /> }));
+vi.mock("./chat/SessionInspectorPanel", () => ({
+  SessionInspectorPanel: (props: typeof mocks.inspectorPanelProps) => {
+    mocks.inspectorPanelProps = props;
+    return (
+      <div data-testid="inspector-panel" data-tab={props.inspectorTab} data-plan={props.selectedPlan}>
+        <button onClick={() => props.onSelectedPlanChange?.('/plans/a.md')}>select plan a</button>
+      </div>
+    );
+  },
+}));
 vi.mock("@/components/ChatDesignPanel", () => ({
   ChatDesignPanel: (props: {
     isDesignMode: boolean;
@@ -194,6 +210,7 @@ function setViewport(width: number, height: number) {
 }
 
 beforeEach(() => {
+  routeSessionId = "channel-l2";
   mocks.runtimeStoreState.isDesignMode = false;
   mocks.runtimeStoreState.setDesignMode = vi.fn((enabled: boolean) => {
     mocks.runtimeStoreState.isDesignMode = enabled;
@@ -202,6 +219,26 @@ beforeEach(() => {
   mocks.chatInputProps = {};
   mocks.agentWorkingProps = {};
   mocks.designPanelProps = {};
+  mocks.inspectorPanelProps = {};
+  chatStoreState.activeSessionId = "channel-l2";
+  chatStoreState.sessions = [
+    {
+      id: "channel-l2",
+      group: "team",
+      agent_instance_id: "l2-instance",
+      agent_name: "Channel L2",
+      project_path: "",
+      plans: ['/plans/a.md', '/plans/b.md'],
+    },
+    {
+      id: "channel-other",
+      group: "team",
+      agent_instance_id: "l2-other",
+      agent_name: "Channel Other",
+      project_path: "",
+      plans: ['/plans/other.md'],
+    },
+  ];
   chatStoreState.messages["channel-l2"] = [];
   chatStoreState.streamingSessions = {};
   chatStoreState.routeSessions = {};
@@ -209,6 +246,36 @@ beforeEach(() => {
 });
 
 describe("ChatPage", () => {
+  it("restores inspector open, tab, and selected Plan snapshots per session", async () => {
+    const { rerender } = render(<ChatPage />);
+
+    fireEvent.click(screen.getByTitle('Show Task Status Panel'));
+    fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'select plan a' }));
+    expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-tab', 'plan');
+    expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-plan', '/plans/a.md');
+
+    routeSessionId = 'channel-other';
+    chatStoreState.activeSessionId = 'channel-other';
+    rerender(<ChatPage />);
+    expect(screen.queryByTestId('inspector-panel')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle('Show Task Status Panel'));
+    fireEvent.click(screen.getByRole('button', { name: 'Changes' }));
+    expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-tab', 'changes');
+
+    routeSessionId = 'channel-l2';
+    chatStoreState.activeSessionId = 'channel-l2';
+    rerender(<ChatPage />);
+    expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-tab', 'plan');
+    expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-plan', '/plans/a.md');
+
+    routeSessionId = 'channel-other';
+    chatStoreState.activeSessionId = 'channel-other';
+    rerender(<ChatPage />);
+    expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-tab', 'changes');
+  });
+
   it("passes Team request metadata through the shared input and working indicator", async () => {
     chatStoreState.messages["channel-l2"] = [{
       id: "user-1",
