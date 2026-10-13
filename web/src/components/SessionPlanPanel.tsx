@@ -1,51 +1,159 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2, FileText } from "lucide-react";
-import { readFile, toggleFileCheckbox } from "@/lib/api";
+import { listFiles, readFile, toggleFileCheckbox } from "@/lib/api";
+import type { FileInfo } from "@/types";
 import { MarkdownPreview } from "@/components/ui/markdown-preview";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 
 interface SessionPlanPanelProps {
   plans: string[];
+  selectedPlan?: string;
+  onSelectedPlanChange?: (path: string) => void;
 }
 
-export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
-  const [selectedPlan, setSelectedPlan] = useState<string>(plans[0] || "");
+function parentDirectory(path: string) {
+  const separator = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return separator <= 0 ? path.slice(0, Math.max(separator, 0) + 1) : path.slice(0, separator);
+}
+
+export function SessionPlanPanel({
+  plans,
+  selectedPlan,
+  onSelectedPlanChange,
+}: SessionPlanPanelProps) {
+  const [orderedPlans, setOrderedPlans] = useState<string[]>([]);
+  const [internalSelectedPlan, setInternalSelectedPlan] = useState<string>(selectedPlan || "");
   const [content, setContent] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  const [metadataReady, setMetadataReady] = useState(false);
   const { t } = useTranslation();
-  const effectiveSelectedPlan = plans.includes(selectedPlan) ? selectedPlan : (plans[0] || "");
+  const preferredPlan = selectedPlan ?? internalSelectedPlan;
+  const effectiveSelectedPlan = orderedPlans.includes(preferredPlan)
+    ? preferredPlan
+    : (orderedPlans[0] || "");
   const planRequestRef = useRef(0);
+  const metadataRequestRef = useRef(0);
+  const metadataInitializedRef = useRef(false);
+  const hasLoadedContentRef = useRef(false);
+  const loadingPathRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  const selectedPlanRef = useRef(preferredPlan);
+  const onSelectedPlanChangeRef = useRef(onSelectedPlanChange);
+
+  useEffect(() => {
+    selectedPlanRef.current = preferredPlan;
+    onSelectedPlanChangeRef.current = onSelectedPlanChange;
+  }, [onSelectedPlanChange, preferredPlan]);
+
+  const selectPlan = useCallback((path: string) => {
+    selectedPlanRef.current = path;
+    setInternalSelectedPlan(path);
+    onSelectedPlanChangeRef.current?.(path);
+  }, []);
 
   const loadPlanContent = useCallback(async (path: string, showSpinner = true) => {
+    if (!showSpinner && loadingPathRef.current === path) return;
     const requestId = ++planRequestRef.current;
-    if (showSpinner) setLoading(true);
-    setError("");
+    if (showSpinner) {
+      loadingPathRef.current = path;
+      setLoading(true);
+    }
+    if (showSpinner) setError("");
     try {
       const text = await readFile(path);
-      if (requestId !== planRequestRef.current) return;
+      if (!mountedRef.current || requestId !== planRequestRef.current) return;
+      hasLoadedContentRef.current = true;
+      setError("");
       setContent(text);
     } catch (err) {
-      if (requestId !== planRequestRef.current) return;
-      setError(err instanceof Error ? err.message : t('common.error'));
+      if (!mountedRef.current || requestId !== planRequestRef.current) return;
+      if (showSpinner) {
+        setError(err instanceof Error ? err.message : t('common.error'));
+      }
     } finally {
-      if (showSpinner && requestId === planRequestRef.current) setLoading(false);
+      if (showSpinner && mountedRef.current && requestId === planRequestRef.current) {
+        loadingPathRef.current = null;
+        setLoading(false);
+      }
     }
   }, [t]);
 
   useEffect(() => {
-    if (!effectiveSelectedPlan) {
+    const requestId = ++metadataRequestRef.current;
+    if (plans.length === 0) {
+      planRequestRef.current += 1;
+      loadingPathRef.current = null;
+      metadataInitializedRef.current = false;
+      hasLoadedContentRef.current = false;
+      // An empty update clears only Plan state; the empty-state UI is rendered below.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOrderedPlans([]);
+      setMetadataReady(false);
+      setLoading(false);
+      setError("");
+      if (selectedPlanRef.current) selectPlan("");
+      return;
+    }
+
+    const directories = [...new Set(plans.map(parentDirectory))];
+    Promise.all(directories.map((directory) => listFiles(directory)))
+      .then((groups) => {
+        if (!mountedRef.current || requestId !== metadataRequestRef.current) return;
+        const metadata = new Map<string, FileInfo>();
+        groups.flat().forEach((entry) => metadata.set(entry.path, entry));
+        const sortedPlans = plans
+          .map((path, index) => ({ path, index, modTime: Date.parse(metadata.get(path)?.modTime || '') || 0 }))
+          .sort((a, b) => b.modTime - a.modTime || a.index - b.index)
+          .map(({ path }) => path);
+        const currentPlan = selectedPlanRef.current;
+        const nextPlan = sortedPlans.includes(currentPlan) ? currentPlan : sortedPlans[0];
+        const wasInitialized = metadataInitializedRef.current;
+
+        metadataInitializedRef.current = true;
+        setOrderedPlans(sortedPlans);
+        setMetadataReady(true);
+        if (nextPlan !== currentPlan) {
+          selectPlan(nextPlan);
+        } else if (wasInitialized) {
+          void loadPlanContent(nextPlan, !hasLoadedContentRef.current);
+        }
+      })
+      .catch(() => {
+        if (!mountedRef.current || requestId !== metadataRequestRef.current) return;
+        const currentPlan = selectedPlanRef.current;
+        const nextPlan = plans.includes(currentPlan) ? currentPlan : plans[0];
+        const wasInitialized = metadataInitializedRef.current;
+        metadataInitializedRef.current = true;
+        setOrderedPlans(plans);
+        setMetadataReady(true);
+        if (nextPlan !== currentPlan) {
+          selectPlan(nextPlan);
+        } else if (wasInitialized) {
+          void loadPlanContent(nextPlan, !hasLoadedContentRef.current);
+        }
+      });
+  }, [plans, loadPlanContent, selectPlan]);
+
+  useEffect(() => {
+    if (!metadataReady || !effectiveSelectedPlan) {
       planRequestRef.current += 1
       return
     }
     // Plan content is loaded when the selected plan changes.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPlanContent(effectiveSelectedPlan, true)
-  }, [effectiveSelectedPlan, loadPlanContent]);
+  }, [effectiveSelectedPlan, loadPlanContent, metadataReady]);
 
-  useEffect(() => () => {
-    planRequestRef.current += 1
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      planRequestRef.current += 1;
+      metadataRequestRef.current += 1;
+      loadingPathRef.current = null;
+    };
   }, []);
 
   const handleToggleCheckbox = async (index: number) => {
@@ -85,16 +193,16 @@ export function SessionPlanPanel({ plans }: SessionPlanPanelProps) {
         </div>
 
         {/* Plan Selector tabs if there are multiple plans */}
-        {plans.length > 1 && (
+        {orderedPlans.length > 1 && (
           <div className="flex flex-wrap gap-1.5 mt-2 pt-1 border-t border-border/10 max-h-24 overflow-y-auto">
-            {plans.map((p) => {
+            {orderedPlans.map((p) => {
               const parts = p.split(/[/\\]/);
               const basename = parts[parts.length - 1];
               const isSelected = p === effectiveSelectedPlan;
               return (
                 <button
                   key={p}
-                  onClick={() => setSelectedPlan(p)}
+                  onClick={() => selectPlan(p)}
                   className={cn(
                     "px-2 py-1 rounded text-[11px] font-medium transition-all cursor-pointer border",
                     isSelected
