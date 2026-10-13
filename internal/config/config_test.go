@@ -28,19 +28,24 @@ func writeYAML(t *testing.T, path string, v any) {
 	}
 }
 
+func writeBytesAtomically(t *testing.T, path string, data []byte) {
+	t.Helper()
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatalf("replace file: %v", err)
+	}
+}
+
 func writeYAMLAtomically(t *testing.T, path string, v any) {
 	t.Helper()
 	data, err := yaml.Marshal(v)
 	if err != nil {
 		t.Fatalf("marshal yaml: %v", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		t.Fatalf("write yaml temp file: %v", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		t.Fatalf("replace yaml file: %v", err)
-	}
+	writeBytesAtomically(t, path, data)
 }
 
 func waitForWatchToSettle(t *testing.T, committed <-chan Settings, acceptedLevel string) {
@@ -484,9 +489,7 @@ func TestLoader_Watch_InvalidYAMLReportsErrorAndKeepsLastValidSettings(t *testin
 		return nil
 	})
 
-	if err := os.WriteFile(path, []byte("log: ["), 0o644); err != nil {
-		t.Fatalf("write invalid YAML: %v", err)
-	}
+	writeBytesAtomically(t, path, []byte("log: ["))
 
 	select {
 	case err := <-reloadErrors:
@@ -506,16 +509,19 @@ func TestLoader_Watch_InvalidYAMLReportsErrorAndKeepsLastValidSettings(t *testin
 	case <-time.After(200 * time.Millisecond):
 	}
 
-	writeYAML(t, path, map[string]any{
+	writeYAMLAtomically(t, path, map[string]any{
 		"log": map[string]any{"level": "error"},
 	})
-	select {
-	case <-changed:
-	case <-time.After(2 * time.Second):
-		t.Fatal("onChange not called after valid YAML restored")
-	}
-	if got := loader.Get().Log.Level; got != "error" {
-		t.Fatalf("log level after valid reload = %q, want error", got)
+	deadline := time.After(2 * time.Second)
+	for {
+		if got := loader.Get().Log.Level; got == "error" {
+			break
+		}
+		select {
+		case <-changed:
+		case <-deadline:
+			t.Fatalf("onChange not called after valid YAML restored; log level = %q", loader.Get().Log.Level)
+		}
 	}
 }
 
