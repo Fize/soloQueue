@@ -781,6 +781,12 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 
 	for eventIdx, evt := range events {
 		if evt.EventType == timeline.EventControl && evt.Control != nil && evt.Control.Action == "summary" {
+			// Automatic context compaction is an internal persistence boundary used
+			// to restore the context window. Only summaries produced by an explicit
+			// user command belong in the visible conversation history.
+			if evt.Control.Reason == "auto_compact" {
+				continue
+			}
 			msgID := fmt.Sprintf("hist-%d", len(msgs))
 			msgs = append(msgs, historyMsg{
 				ID:   msgID,

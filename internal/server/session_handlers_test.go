@@ -92,6 +92,86 @@ func TestHTTP_UploadFile(t *testing.T) {
 	}
 }
 
+func TestHTTP_SessionHistory_HidesAutomaticCompactionSummary(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	events := strings.Join([]string{
+		`{"ts":"2026-10-13T17:02:25+08:00","type":"control","ctrl":{"action":"summary","reason":"auto_compact","content":"internal automatic summary"}}`,
+		`{"ts":"2026-10-13T17:02:26+08:00","type":"message","msg":{"role":"user","content":"still visible"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(timelinePath, []byte(events), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "internal automatic summary") {
+		t.Fatalf("automatic compaction leaked into visible history: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "still visible") {
+		t.Fatalf("ordinary history message missing: %s", rec.Body.String())
+	}
+
+	segments, _, err := timeline.ReadTail(timelineDir, "timeline", 0, "")
+	if err != nil {
+		t.Fatalf("ReadTail: %v", err)
+	}
+	if len(segments) != 1 {
+		t.Fatalf("replayed segments = %#v, want the automatic summary boundary", segments)
+	}
+	var replayedSummary bool
+	for _, msg := range segments[0].Messages {
+		if strings.Contains(msg.Content, "internal automatic summary") {
+			replayedSummary = true
+			break
+		}
+	}
+	if !replayedSummary {
+		t.Fatalf("replayed messages = %#v, want automatic summary content", segments[0].Messages)
+	}
+}
+
+func TestHTTP_SessionHistory_ShowsUserCommandCompactionSummary(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	event := `{"ts":"2026-10-13T17:02:25+08:00","type":"control","ctrl":{"action":"summary","reason":"user_command","content":"visible manual summary"}}` + "\n"
+	if err := os.WriteFile(timelinePath, []byte(event), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "visible manual summary") || !strings.Contains(rec.Body.String(), `"type":"compact"`) {
+		t.Fatalf("user-command compaction missing from visible history: %s", rec.Body.String())
+	}
+}
+
 func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
