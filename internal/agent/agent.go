@@ -709,15 +709,52 @@ func (a *Agent) Watch() (<-chan AgentEvent, func()) {
 	return ch, cancel
 }
 
-// emitToWatchers fans out an event to all registered watchers. Non-blocking;
-// slow watchers silently drop events.
+// emitToWatchers never backpressures the primary consumer. Pending-input
+// boundaries are delivery-critical: when full, a watcher drops one older
+// ordinary event to retain the ownership transition.
 func (a *Agent) emitToWatchers(ev AgentEvent) {
-	a.watchMu.RLock()
-	defer a.watchMu.RUnlock()
+	a.watchMu.Lock()
+	defer a.watchMu.Unlock()
+	_, boundary := ev.(PendingInputStartedEvent)
 	for _, s := range a.watchSlots {
 		select {
 		case s.ch <- ev:
 		default:
+			if !boundary {
+				continue
+			}
+			buffered := make([]AgentEvent, 0, cap(s.ch))
+		Drain:
+			for {
+				select {
+				case queued := <-s.ch:
+					buffered = append(buffered, queued)
+				default:
+					break Drain
+				}
+			}
+			drop := -1
+			for i, queued := range buffered {
+				if _, critical := queued.(PendingInputStartedEvent); !critical {
+					drop = i
+					break
+				}
+			}
+			if drop < 0 && len(buffered) > 0 {
+				// A completely boundary-saturated watcher coalesces by replacing
+				// the oldest transition. The latest ownership state stays visible.
+				drop = 0
+			}
+			for i, queued := range buffered {
+				if i != drop {
+					s.ch <- queued
+				}
+			}
+			if drop >= 0 || len(buffered) == 0 {
+				// Cancellation and producers share watchMu, so the channel cannot
+				// close or be refilled before this bounded priority send.
+				s.ch <- ev
+			}
 		}
 	}
 }

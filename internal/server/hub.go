@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -54,6 +55,8 @@ type WSMessage struct {
 
 	// Chat streaming fields.
 	RequestID        string               `json:"request_id,omitempty"`
+	RequestIDs       []string             `json:"request_ids,omitempty"`
+	CancelRequestID  string               `json:"cancel_request_id,omitempty"`
 	SessionID        string               `json:"session_id,omitempty"`
 	Timestamp        string               `json:"timestamp,omitempty"`
 	TaskType         string               `json:"task_type,omitempty"`
@@ -151,6 +154,63 @@ func NewHub(m *Mux) *Hub {
 	return h
 }
 
+type requestGenerationCaptureKey struct{}
+
+var errRequestGenerationCaptureMissing = errors.New("request generation capture missing")
+
+func withRequestGenerationCapture(ctx context.Context) (context.Context, <-chan uint64) {
+	capture := make(chan uint64, 1)
+	return context.WithValue(ctx, requestGenerationCaptureKey{}, capture), capture
+}
+
+func publishRequestGeneration(ctx context.Context, generation uint64) error {
+	capture, ok := ctx.Value(requestGenerationCaptureKey{}).(chan uint64)
+	if !ok {
+		return nil
+	}
+	select {
+	case capture <- generation:
+		return nil
+	default:
+		return errRequestGenerationCaptureMissing
+	}
+}
+
+func takeRequestGeneration(capture <-chan uint64) (uint64, bool) {
+	select {
+	case generation := <-capture:
+		return generation, generation != 0
+	default:
+		return 0, false
+	}
+}
+
+func (h *Hub) reserveLifecycleRequest(ctx context.Context, sessionID, requestID string) error {
+	logicalSessionID := logicalRuntimeSessionID(sessionID)
+	metadata := telemetry.MetadataFromContext(ctx)
+	owner := metadata.OwnerID
+	if owner == "" {
+		if _, ok := channel.ChatMetaFromContext(ctx); ok {
+			owner = session.ChannelRequestOwner(ctx)
+		}
+	}
+	if owner == "" {
+		owner = "runtime"
+	}
+	req, err := h.requests.Reserve(logicalSessionID, requestID, owner)
+	if err != nil {
+		return err
+	}
+	if err := publishRequestGeneration(ctx, req.Generation); err != nil {
+		h.requests.ReleaseQueuedForGeneration(logicalSessionID, req.Generation)
+		h.requests.Finalize(logicalSessionID, requestID)
+		return err
+	}
+	h.NextSessionRevision(logicalSessionID)
+	h.Notify()
+	return nil
+}
+
 // configureRequestLifecycle installs one request-owned runtime truth for every
 // Session entrypoint. Web and channel adapters only provide owner/source
 // metadata; reservation and terminal state are handled here.
@@ -160,23 +220,7 @@ func (h *Hub) configureRequestLifecycle() {
 	}
 	hooks := session.RequestLifecycleHooks{
 		OnStart: func(ctx context.Context, sessionID, requestID string) error {
-			logicalSessionID := logicalRuntimeSessionID(sessionID)
-			metadata := telemetry.MetadataFromContext(ctx)
-			owner := metadata.OwnerID
-			if owner == "" {
-				if _, ok := channel.ChatMetaFromContext(ctx); ok {
-					owner = session.ChannelRequestOwner(ctx)
-				}
-			}
-			if owner == "" {
-				owner = "runtime"
-			}
-			if _, err := h.requests.Reserve(logicalSessionID, requestID, owner); err != nil {
-				return err
-			}
-			h.NextSessionRevision(logicalSessionID)
-			h.Notify()
-			return nil
+			return h.reserveLifecycleRequest(ctx, sessionID, requestID)
 		},
 		OnInput: func(ctx context.Context, sessionID, requestID, prompt string) {
 			logicalSessionID := logicalRuntimeSessionID(sessionID)

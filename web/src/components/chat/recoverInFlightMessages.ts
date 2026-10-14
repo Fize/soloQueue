@@ -51,6 +51,18 @@ export function recoverInFlightMessages(
 
   const streamMessageId = `msg-${requestId}`;
 
+  // Once history has persisted non-empty output for this exact request, it is
+  // authoritative. A terminal runtime stream contains only synthesized state
+  // (for example, cancelled_by_user) and must not replace the saved answer.
+  if (terminal && currentMessages.some((message) =>
+    message.role === "assistant" &&
+    !message.id.startsWith(requestMessagePrefix) &&
+    (message as RequestOwnedChatMessage).requestId === requestId &&
+    message.segments.length > 0
+  )) {
+    return currentMessages;
+  }
+
   // A history API row has no request ID. For text-only streams, require both
   // the exact persisted text and one bounded, unowned candidate in the
   // request's observed time interval. A later unrelated row must not make a

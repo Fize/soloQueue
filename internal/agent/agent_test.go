@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1332,6 +1333,50 @@ func TestAgent_Watch_MultipleWatchers(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("timeout waiting for watch events")
 		}
+	}
+}
+
+func TestAgent_Watch_DeliversPendingInputBoundaryWhenBufferIsFull(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
+	ch, cancel := a.Watch()
+	defer cancel()
+
+	a.emitToWatchers(PendingInputStartedEvent{RequestID: "req-earlier", RequestIDs: []string{"req-earlier"}})
+	for i := 1; i < cap(ch); i++ {
+		a.emitToWatchers(ContentDeltaEvent{Delta: "ordinary"})
+	}
+	a.emitToWatchers(PendingInputStartedEvent{RequestID: "req-queued", RequestIDs: []string{"req-queued"}})
+
+	gotEarlier, gotBoundary := false, false
+	for i := 0; i < cap(ch); i++ {
+		if boundary, ok := (<-ch).(PendingInputStartedEvent); ok {
+			gotEarlier = gotEarlier || boundary.RequestID == "req-earlier"
+			gotBoundary = gotBoundary || boundary.RequestID == "req-queued"
+		}
+	}
+	if !gotEarlier || !gotBoundary {
+		t.Fatalf("delivery boundaries after priority enqueue: earlier=%v queued=%v", gotEarlier, gotBoundary)
+	}
+}
+
+func TestAgent_Watch_CoalescesAllBoundaryBufferToLatestTransition(t *testing.T) {
+	a := NewAgent(Definition{ID: "test"}, &agenttest.FakeLLM{}, nil)
+	ch, cancel := a.Watch()
+	defer cancel()
+
+	for i := 0; i < cap(ch); i++ {
+		a.emitToWatchers(PendingInputStartedEvent{RequestID: fmt.Sprintf("req-%d", i)})
+	}
+	a.emitToWatchers(PendingInputStartedEvent{RequestID: "req-latest"})
+
+	gotLatest := false
+	for i := 0; i < cap(ch); i++ {
+		if boundary, ok := (<-ch).(PendingInputStartedEvent); ok && boundary.RequestID == "req-latest" {
+			gotLatest = true
+		}
+	}
+	if !gotLatest {
+		t.Fatal("latest ownership transition was dropped from an all-boundary buffer")
 	}
 }
 

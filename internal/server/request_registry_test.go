@@ -279,6 +279,66 @@ func TestActiveRequestRegistry_L2RejectsConcurrent(t *testing.T) {
 	}
 }
 
+func TestActiveRequestRegistry_QueuedReservationValidationAndLifecycle(t *testing.T) {
+	reg := NewActiveRequestRegistry()
+	root, err := reg.Reserve("l2:s1", "req-root", "client-1")
+	if err != nil {
+		t.Fatalf("Reserve root failed: %v", err)
+	}
+
+	if err := reg.ReserveQueued("l2:s1", "", root.Generation); !errors.Is(err, ErrInvalidRequestID) {
+		t.Fatalf("empty queued request ID error = %v, want ErrInvalidRequestID", err)
+	}
+	if err := reg.ReserveQueued("l2:s1", "req-root", root.Generation); !errors.Is(err, ErrDuplicateRequestID) {
+		t.Fatalf("root ID reuse error = %v, want ErrDuplicateRequestID", err)
+	}
+	if err := reg.ReserveQueued("l2:s1", "req-queued", root.Generation); err != nil {
+		t.Fatalf("ReserveQueued failed: %v", err)
+	}
+	if err := reg.ReserveQueued("l2:s1", "req-queued", root.Generation); !errors.Is(err, ErrDuplicateRequestID) {
+		t.Fatalf("duplicate queued ID error = %v, want ErrDuplicateRequestID", err)
+	}
+
+	reg.ReleaseQueuedForGeneration("l2:other", root.Generation)
+	if err := reg.ReserveQueued("l2:s1", "req-queued", root.Generation); !errors.Is(err, ErrDuplicateRequestID) {
+		t.Fatalf("cross-session release freed queued ID: %v", err)
+	}
+	reg.ReleaseQueuedForGeneration("l2:s1", root.Generation)
+	if err := reg.ReserveQueued("l2:s1", "req-queued", root.Generation); err != nil {
+		t.Fatalf("queued ID was not reusable after generation release: %v", err)
+	}
+}
+
+func TestActiveRequestRegistry_GenerationPreventsStaleForwarderRelease(t *testing.T) {
+	reg := NewActiveRequestRegistry()
+	oldRoot, err := reg.Reserve("l1", "req-root", "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.ReserveQueued("l1", "req-old-queued", oldRoot.Generation); err != nil {
+		t.Fatal(err)
+	}
+	reg.Finalize("l1", "req-root")
+	newRoot, err := reg.Reserve("l1", "req-root", "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newRoot.Generation == oldRoot.Generation || newRoot.Generation == 0 {
+		t.Fatalf("generations old=%d new=%d, want distinct non-zero tokens", oldRoot.Generation, newRoot.Generation)
+	}
+	if err := reg.ReserveQueued("l1", "req-new-queued", newRoot.Generation); err != nil {
+		t.Fatal(err)
+	}
+
+	reg.ReleaseQueuedForGeneration("l1", oldRoot.Generation)
+	if err := reg.ReserveQueued("l1", "req-old-queued", newRoot.Generation); err != nil {
+		t.Fatalf("old generation reservation was not released: %v", err)
+	}
+	if err := reg.ReserveQueued("l1", "req-new-queued", newRoot.Generation); !errors.Is(err, ErrDuplicateRequestID) {
+		t.Fatalf("stale release removed new generation reservation: %v", err)
+	}
+}
+
 func TestActiveRequestRegistry_L1FinalizeDoesNotAffectOtherL1Requests(t *testing.T) {
 	reg := NewActiveRequestRegistry()
 

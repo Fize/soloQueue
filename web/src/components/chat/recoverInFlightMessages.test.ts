@@ -212,6 +212,23 @@ describe("recoverInFlightMessages", () => {
     expect(recoverInFlightMessageStreams([exact], terminal, () => true)).toEqual([exact]);
   });
 
+  it("does not replace persisted request-owned assistant content with a terminal placeholder", () => {
+    const persisted = {
+      id: "history-root-assistant",
+      role: "assistant" as const,
+      timestamp: "2026-10-14T11:00:01.000Z",
+      requestId: "req-root",
+      segments: [{ type: "content" as const, text: "persisted root answer" }],
+    };
+    const terminal = [{
+      requestId: "req-root",
+      terminal: true,
+      segments: [{ type: "error" as const, text: "cancelled_by_user: Task cancelled." }],
+    }];
+
+    expect(recoverInFlightMessageStreams([persisted], terminal, () => true)).toEqual([persisted]);
+  });
+
   it("matches one prose history row by request start time but keeps ambiguous same text independent", () => {
     const historyRow: ChatMessage = { id: "hist-1", role: "assistant", timestamp: "2026-09-18T10:00:01.000Z", segments: [{ type: "content", text: "same answer" }] };
     const stream: ChatSegment[] = [{ type: "content", text: "same answer" }];

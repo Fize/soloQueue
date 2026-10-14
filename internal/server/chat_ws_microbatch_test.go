@@ -201,7 +201,7 @@ func TestForwardAgentEvents_BatchesContentDeltas(t *testing.T) {
 	done := make(chan struct{})
 	h := &Hub{}
 	go func() {
-		h.forwardAgentEvents(client, "req-test", reqCancel, ch, "l1", "")
+		h.forwardAgentEvents(client, "req-test", 0, reqCancel, ch, "l1", "")
 		close(done)
 	}()
 
@@ -268,7 +268,7 @@ func TestForwardAgentEventsKeepsDelegationStartOutOfAssistantContent(t *testing.
 	ch <- agent.DelegationStartedEvent{Iter: 0, NumTasks: 1}
 	close(ch)
 
-	(&Hub{requests: NewActiveRequestRegistry()}).forwardAgentEvents(client, "req-delegation", reqCancel, ch, "l1", "")
+	(&Hub{requests: NewActiveRequestRegistry()}).forwardAgentEvents(client, "req-delegation", 0, reqCancel, ch, "l1", "")
 
 	var msgs []WSMessage
 	for {
@@ -313,7 +313,7 @@ func TestForwardAgentEvents_FlushesOnStructuralEvent(t *testing.T) {
 	}()
 
 	h := &Hub{}
-	h.forwardAgentEvents(client, "req-test", reqCancel, ch, "l1", "")
+	h.forwardAgentEvents(client, "req-test", 0, reqCancel, ch, "l1", "")
 	_ = time.Millisecond
 
 	var types []string
@@ -361,7 +361,7 @@ func TestForwardAgentEvents_PreservesReasoningContentOrderAcrossMicrobatch(t *te
 	ch <- agent.ToolExecStartEvent{Iter: 0, CallID: "c1", Name: "delegate_team", Args: "{}"}
 	close(ch)
 
-	(&Hub{}).forwardAgentEvents(client, "req-test", reqCancel, ch, "l1", "")
+	(&Hub{}).forwardAgentEvents(client, "req-test", 0, reqCancel, ch, "l1", "")
 
 	var msgs []WSMessage
 	for {

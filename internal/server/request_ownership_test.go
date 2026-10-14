@@ -350,7 +350,11 @@ func TestWatchdogTerminalStateIsPublishedBeforeRequestFinalization(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	go hub.forwardAgentEvents(client, "req-terminal", func() {}, stream, "l1", "stall")
+	active, err := hub.requests.Validate("l1", "req-terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go hub.forwardAgentEvents(client, "req-terminal", active.Generation, func() {}, stream, "l1", "stall")
 	hub.refreshRequestWatchdog("l1", "req-terminal", "")
 	liveDeadline := time.After(2 * time.Second)
 	liveObserved := false
@@ -624,6 +628,394 @@ func TestBusySessionRejection(t *testing.T) {
 
 	// Let the first request finish cleanly.
 	time.Sleep(400 * time.Millisecond)
+}
+
+func TestMissingGenerationCaptureCancelsAndDrainsSuccessfulRun(t *testing.T) {
+	workDir := t.TempDir()
+	log, err := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+
+	// More deltas than Session's 64-event output buffer makes an abandoned
+	// successful stream block deterministically unless handleChatSend drains it.
+	deltas := make([]string, 128)
+	for i := range deltas {
+		deltas[i] = "chunk"
+	}
+	fakeLLM := &agenttest.FakeLLM{StreamDeltas: [][]string{deltas, {"next response"}}}
+	a := agent.NewAgent(
+		agent.Definition{Name: "test-agent"},
+		fakeLLM,
+		log,
+		agent.WithAgentWorkDir(workDir),
+	)
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	mgr := session.NewSessionManager(func(context.Context, string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		return a, cw, nil, nil
+	}, log)
+	if _, err := mgr.Init(context.Background(), "default"); err != nil {
+		t.Fatalf("init manager: %v", err)
+	}
+	defer mgr.Shutdown(time.Second)
+
+	mux := NewMux(workDir, log, WithSessionManager(mgr))
+	defer mux.Close()
+	hub := NewHub(mux)
+	sess := mgr.Session()
+	if sess == nil {
+		t.Fatal("session is nil")
+	}
+
+	finished := make(chan struct{}, 1)
+	// Simulate a lifecycle implementation that accepts the run but violates the
+	// generation-capture contract. OnFinish proves the Session forwarder exited.
+	sess.SetRequestLifecycleHooks(session.RequestLifecycleHooks{
+		OnStart: func(context.Context, string, string) error { return nil },
+		OnFinish: func(string, string, string, string) {
+			select {
+			case finished <- struct{}{}:
+			default:
+			}
+		},
+	})
+	client := &Client{send: make(chan []byte, 16), activeRequests: make(map[string]*activeRequest)}
+	client.addActiveRequest("req-missing-generation", func() {})
+	reqCtx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{
+		RequestID: "req-missing-generation",
+		SessionID: "l1",
+		Origin:    telemetry.OriginDesktop,
+	})
+	ch, err := sess.AskStream(reqCtx, "stream many chunks")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	hub.handleMissingRequestGeneration(client, sess, "req-missing-generation", "l1", ch)
+
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("run did not terminate after generation capture was missing")
+	}
+	if !sess.Idle() {
+		t.Fatal("session remained busy after missing-generation cleanup")
+	}
+	client.mu.Lock()
+	_, stillActive := client.activeRequests["req-missing-generation"]
+	client.mu.Unlock()
+	if stillActive {
+		t.Fatal("missing-generation request remained active on client")
+	}
+	select {
+	case data := <-client.send:
+		var msg WSMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			t.Fatal(err)
+		}
+		if msg.Type != "chat_error" || msg.RequestID != "req-missing-generation" || msg.Error != errRequestGenerationCaptureMissing.Error() {
+			t.Fatalf("missing-generation response = %#v", msg)
+		}
+	default:
+		t.Fatal("missing-generation cleanup did not send chat_error")
+	}
+
+	// A subsequent direct request must be accepted rather than observing the
+	// leaked single-flight lock from the abandoned output stream.
+	next, err := sess.AskStream(context.Background(), "next request")
+	if err != nil {
+		t.Fatalf("next AskStream: %v", err)
+	}
+	for range next {
+	}
+
+	naturallyClosed := make(chan iface.AgentEvent)
+	close(naturallyClosed)
+	if err := cancelAndDrainUnownedRequestStream(sess, "already-finished", naturallyClosed); err != nil {
+		t.Fatalf("naturally closed stream with no active run: %v", err)
+	}
+}
+
+func TestConvertPendingInputStartedEventCarriesQueuedRequestIDs(t *testing.T) {
+	msg := convertAgentEvent(agent.PendingInputStartedEvent{
+		RequestIDs: []string{"req-second", "req-third"},
+	}, "req-first", "l2:session-A")
+	if msg == nil || msg.Type != "chat_queue_started" || msg.RequestID != "req-first" || msg.SessionID != "l2:session-A" {
+		t.Fatalf("message = %#v, want queue-started envelope owned by active request", msg)
+	}
+	if len(msg.RequestIDs) != 2 || msg.RequestIDs[0] != "req-second" || msg.RequestIDs[1] != "req-third" {
+		t.Fatalf("request IDs = %#v, want consumed queued identities", msg.RequestIDs)
+	}
+	if msg.CancelRequestID != "req-first" {
+		t.Fatalf("cancel request ID = %q, want req-first", msg.CancelRequestID)
+	}
+}
+
+func TestForwardAgentEventsMovesSubsequentOutputToLastQueuedRequest(t *testing.T) {
+	client := &Client{
+		send:           make(chan []byte, 8),
+		activeRequests: make(map[string]*activeRequest),
+	}
+	events := make(chan iface.AgentEvent, 4)
+	events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-second"}}
+	events <- agent.ContentDeltaEvent{Delta: "first follow-up"}
+	events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-third"}}
+	events <- agent.DoneEvent{Content: "second follow-up"}
+	close(events)
+
+	registry := NewActiveRequestRegistry()
+	root, err := registry.Reserve("l1", "req-first", "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReserveQueued("l1", "req-second", root.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReserveQueued("l1", "req-third", root.Generation); err != nil {
+		t.Fatal(err)
+	}
+	(&Hub{requests: registry}).forwardAgentEvents(client, "req-first", root.Generation, func() {}, events, "l1", "first")
+
+	want := []struct {
+		typeName        string
+		requestID       string
+		cancelRequestID string
+	}{
+		{typeName: "chat_queue_started", requestID: "req-first", cancelRequestID: "req-first"},
+		{typeName: "chat_chunk", requestID: "req-second"},
+		{typeName: "chat_queue_started", requestID: "req-second", cancelRequestID: "req-first"},
+		{typeName: "chat_done", requestID: "req-third"},
+	}
+	for i, expected := range want {
+		select {
+		case data := <-client.send:
+			var msg WSMessage
+			if err := json.Unmarshal(data, &msg); err != nil {
+				t.Fatal(err)
+			}
+			if msg.Type != expected.typeName || msg.RequestID != expected.requestID {
+				t.Fatalf("message %d = %#v, want type=%s request=%s", i, msg, expected.typeName, expected.requestID)
+			}
+			if msg.CancelRequestID != expected.cancelRequestID {
+				t.Fatalf("message %d cancel request = %q, want %q", i, msg.CancelRequestID, expected.cancelRequestID)
+			}
+		default:
+			t.Fatalf("missing message %d (%s)", i, expected.typeName)
+		}
+	}
+	if err := registry.ReserveQueued("l1", "req-second", root.Generation); err != nil {
+		t.Fatalf("second queued reservation was not released at root completion: %v", err)
+	}
+	if err := registry.ReserveQueued("l1", "req-third", root.Generation); err != nil {
+		t.Fatalf("third queued reservation was not released at root completion: %v", err)
+	}
+}
+
+func TestForwardAgentEventsRetainsQueuedReservationUntilRootEnds(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		terminal agent.AgentEvent
+	}{
+		{name: "normal", terminal: agent.DoneEvent{Content: "done"}},
+		{name: "error", terminal: agent.ErrorEvent{Err: errors.New("failed")}},
+		{name: "cancelled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := NewActiveRequestRegistry()
+			root, err := registry.Reserve("l1", "req-root", "client")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := registry.ReserveQueued("l1", "req-queued", root.Generation); err != nil {
+				t.Fatal(err)
+			}
+			client := &Client{send: make(chan []byte, 4), activeRequests: make(map[string]*activeRequest)}
+			events := make(chan iface.AgentEvent)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				(&Hub{requests: registry}).forwardAgentEvents(client, "req-root", root.Generation, func() {}, events, "l1", "first")
+			}()
+
+			events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-queued"}}
+			<-client.send
+			if err := registry.ReserveQueued("l1", "req-queued", root.Generation); !errors.Is(err, ErrDuplicateRequestID) {
+				t.Fatalf("reservation was reusable after boundary: %v", err)
+			}
+			if tc.terminal != nil {
+				events <- tc.terminal
+				<-client.send
+				if err := registry.ReserveQueued("l1", "req-queued", root.Generation); !errors.Is(err, ErrDuplicateRequestID) {
+					t.Fatalf("reservation was reusable before forwarder exit: %v", err)
+				}
+			}
+			close(events)
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("forwarder did not exit")
+			}
+			if err := registry.ReserveQueued("l1", "req-queued", root.Generation); err != nil {
+				t.Fatalf("reservation was not reusable after root end: %v", err)
+			}
+		})
+	}
+}
+
+func TestStaleForwarderReleasesOnlyItsGenerationAfterRequestIDReuse(t *testing.T) {
+	registry := NewActiveRequestRegistry()
+	hub := &Hub{requests: registry}
+	ctx, capture := withRequestGenerationCapture(telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{OwnerID: "client"}))
+	if err := hub.reserveLifecycleRequest(ctx, "l1", "req-root"); err != nil {
+		t.Fatal(err)
+	}
+	oldGeneration, ok := takeRequestGeneration(capture)
+	if !ok {
+		t.Fatal("OnStart did not capture G1")
+	}
+	if err := registry.ReserveQueued("l1", "req-old-queued", oldGeneration); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{send: make(chan []byte, 2), activeRequests: make(map[string]*activeRequest)}
+	events := make(chan iface.AgentEvent)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hub.forwardAgentEvents(client, "req-root", oldGeneration, func() {}, events, "l1", "first")
+	}()
+
+	registry.Finalize("l1", "req-root")
+	newRoot, err := registry.Reserve("l1", "req-root", "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReserveQueued("l1", "req-new-queued", newRoot.Generation); err != nil {
+		t.Fatal(err)
+	}
+	close(events)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stale forwarder did not exit")
+	}
+
+	if err := registry.ReserveQueued("l1", "req-old-queued", newRoot.Generation); err != nil {
+		t.Fatalf("old generation reservation was not released: %v", err)
+	}
+	if err := registry.ReserveQueued("l1", "req-new-queued", newRoot.Generation); !errors.Is(err, ErrDuplicateRequestID) {
+		t.Fatalf("stale forwarder removed new generation reservation: %v", err)
+	}
+}
+
+func TestSetupFailureCleanupUsesCapturedGenerationOnly(t *testing.T) {
+	registry := NewActiveRequestRegistry()
+	hub := &Hub{requests: registry}
+	ctx, capture := withRequestGenerationCapture(telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{OwnerID: "client"}))
+	if err := hub.reserveLifecycleRequest(ctx, "l1", "req-failed"); err != nil {
+		t.Fatal(err)
+	}
+	failedGeneration, ok := takeRequestGeneration(capture)
+	if !ok {
+		t.Fatal("OnStart did not capture failed generation")
+	}
+	if err := registry.ReserveQueued("l1", "req-failed-queued", failedGeneration); err != nil {
+		t.Fatal(err)
+	}
+	draining, err := registry.Reserve("l1", "req-draining", "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReserveQueued("l1", "req-draining-queued", draining.Generation); err != nil {
+		t.Fatal(err)
+	}
+
+	registry.Finalize("l1", "req-failed")
+	registry.ReleaseQueuedForGeneration("l1", failedGeneration)
+	if err := registry.ReserveQueued("l1", "req-failed-queued", draining.Generation); err != nil {
+		t.Fatalf("failed generation reservation was not released: %v", err)
+	}
+	if err := registry.ReserveQueued("l1", "req-draining-queued", draining.Generation); !errors.Is(err, ErrDuplicateRequestID) {
+		t.Fatalf("exact setup cleanup released another draining generation: %v", err)
+	}
+}
+
+func TestForwardAgentEventsRoutesBuildFailureAfterBoundaryToLastQueuedRequest(t *testing.T) {
+	client := &Client{
+		send:           make(chan []byte, 4),
+		activeRequests: make(map[string]*activeRequest),
+	}
+	events := make(chan iface.AgentEvent, 2)
+	events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-queued"}}
+	events <- agent.ErrorEvent{Err: errors.New("context overflow")}
+	close(events)
+
+	(&Hub{requests: NewActiveRequestRegistry()}).forwardAgentEvents(client, "req-root", 0, func() {}, events, "l2:session-A", "first")
+
+	want := []struct {
+		typeName  string
+		requestID string
+	}{
+		{typeName: "chat_queue_started", requestID: "req-root"},
+		{typeName: "chat_error", requestID: "req-queued"},
+	}
+	for i, expected := range want {
+		data := <-client.send
+		var msg WSMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			t.Fatal(err)
+		}
+		if msg.Type != expected.typeName || msg.RequestID != expected.requestID {
+			t.Fatalf("message %d = %#v, want type=%s request=%s", i, msg, expected.typeName, expected.requestID)
+		}
+	}
+}
+
+func TestQueuedDeliveryBoundaryKeepsRootRequestCancellable(t *testing.T) {
+	registry := NewActiveRequestRegistry()
+	root, err := registry.Reserve("l2:session-A", "req-root", "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReserveQueued("l2:session-A", "req-queued", root.Generation); err != nil {
+		t.Fatal(err)
+	}
+	events := make(chan iface.AgentEvent, 1)
+	if err := registry.BindCanceller("req-root", func() error {
+		close(events)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		ownerID:        "client",
+		send:           make(chan []byte, 2),
+		activeRequests: make(map[string]*activeRequest),
+	}
+	hub := &Hub{requests: registry}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hub.forwardAgentEvents(client, "req-root", root.Generation, func() {}, events, "l2:session-A", "first")
+	}()
+
+	events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-queued"}}
+	select {
+	case <-client.send:
+	case <-time.After(time.Second):
+		t.Fatal("queue boundary was not forwarded")
+	}
+	req, owner, err := registry.CancelAndWaitOwned(context.Background(), "l2:session-A", "req-root", "client")
+	if err != nil || !owner || req.RequestID != "req-root" {
+		t.Fatalf("root cancellation = (%#v, %v, %v), want owned req-root", req, owner, err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("event forwarder did not stop after root cancellation")
+	}
+	if err := registry.ReserveQueued("l2:session-A", "req-queued", root.Generation); err != nil {
+		t.Fatalf("queued reservation was not released after cancellation: %v", err)
+	}
 }
 
 type blockingDelegationTarget struct {
@@ -928,7 +1320,8 @@ func TestForwardAgentEventsDoesNotOwnRequestFinalization(t *testing.T) {
 		sessionID = "l1"
 		requestID = "req-stream"
 	)
-	if _, err := h.requests.Reserve(sessionID, requestID, "client-1"); err != nil {
+	root, err := h.requests.Reserve(sessionID, requestID, "client-1")
+	if err != nil {
 		t.Fatalf("Reserve: %v", err)
 	}
 
@@ -937,7 +1330,7 @@ func TestForwardAgentEventsDoesNotOwnRequestFinalization(t *testing.T) {
 		activeRequests: make(map[string]*activeRequest),
 	}
 	events := make(chan iface.AgentEvent)
-	go h.forwardAgentEvents(client, requestID, func() {}, events, sessionID, "prompt")
+	go h.forwardAgentEvents(client, requestID, root.Generation, func() {}, events, sessionID, "prompt")
 
 	if _, active := h.requests.GetBySession(sessionID); !active {
 		t.Fatal("reservation disappeared before stream completion")

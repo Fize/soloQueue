@@ -25,7 +25,12 @@ export interface ChatHandler {
   }) => void
   onChunk?: (delta: string) => void
   onReasoning?: (delta: string) => void
-  onToolStart?: (data: { call_id: string; name: string; args: string; target_agent_id?: string }) => void
+  onToolStart?: (data: {
+    call_id: string
+    name: string
+    args: string
+    target_agent_id?: string
+  }) => void
   onToolDone?: (data: {
     call_id: string
     name: string
@@ -36,6 +41,12 @@ export interface ChatHandler {
   onDone?: (data: { content: string; reasoning_content: string }) => void
   onError?: (error: string) => void
   onQueued?: (data: { error?: string }) => void
+  onQueueStarted?: (data: {
+    request_ids: string[]
+    active_request_id: string
+    cancel_request_id: string
+    owns_stream: boolean
+  }) => void
   onDelegationStart?: (data: { num_tasks: number }) => void
   onDelegationDone?: (data: {
     target_agent_id: string
@@ -202,7 +213,11 @@ class WebSocketManager {
 
   /** Whether this renderer owns the live stream handler for a request. */
   hasChatHandler(requestId?: string) {
-    return !!requestId && this.chatHandlers.has(requestId) && !this.chatHandlersNeedRecovery.has(requestId)
+    return (
+      !!requestId &&
+      this.chatHandlers.has(requestId) &&
+      !this.chatHandlersNeedRecovery.has(requestId)
+    )
   }
 
   /** Unregister a chat handler. */
@@ -217,7 +232,7 @@ class WebSocketManager {
   private reconcileRuntimeTerminal(
     sessionId: string,
     requestId: string,
-    runtime: NonNullable<RuntimeStatus['sessions']>[string],
+    runtime: NonNullable<RuntimeStatus['sessions']>[string]
   ) {
     const terminalKey = `${requestId}:${sessionId}:${runtime.terminal_code || runtime.state}`
     if (this.reconciledTerminals.has(terminalKey)) return
@@ -289,10 +304,10 @@ class WebSocketManager {
     const externalOwner = frame.request_id
       ? this.externalChatOwners.get(frame.request_id)
       : undefined
-    if (externalOwner && (
-      frame.origin !== externalOwner.origin
-      || frame.session_id !== externalOwner.sessionId
-    )) {
+    if (
+      externalOwner &&
+      (frame.origin !== externalOwner.origin || frame.session_id !== externalOwner.sessionId)
+    ) {
       return
     }
 
@@ -343,7 +358,12 @@ class WebSocketManager {
           h = this.chatHandlers.get(msg.request_id)
         }
         if (h) this.markChatHandlerProgress(msg.request_id)
-        h?.onToolStart?.({ call_id: msg.call_id, name: msg.name, args: msg.args, target_agent_id: msg.target_agent_id })
+        h?.onToolStart?.({
+          call_id: msg.call_id,
+          name: msg.name,
+          args: msg.args,
+          target_agent_id: msg.target_agent_id,
+        })
         return
       }
       case 'tool_done': {
@@ -390,6 +410,23 @@ class WebSocketManager {
         }
         if (h) this.markChatHandlerProgress(msg.request_id)
         h?.onQueued?.({ error: msg.error })
+        return
+      }
+      case 'chat_queue_started': {
+        const activeRequestId = msg.request_ids.at(-1)
+        if (!activeRequestId) return
+        const involvedRequestIds = [msg.request_id, ...msg.request_ids]
+        for (const involvedRequestId of new Set(involvedRequestIds)) {
+          const h = this.chatHandlers.get(involvedRequestId)
+          if (!h) continue
+          this.markChatHandlerProgress(involvedRequestId)
+          h.onQueueStarted?.({
+            request_ids: msg.request_ids,
+            active_request_id: activeRequestId,
+            cancel_request_id: msg.cancel_request_id,
+            owns_stream: involvedRequestId === activeRequestId,
+          })
+        }
         return
       }
       case 'delegation_start': {
@@ -486,13 +523,16 @@ class WebSocketManager {
               if (runtime.request_id) {
                 const existing = chat.routeSessions[sessionId]
                 const runtimeRequestIDs = runtimeSessionIDs.get(sessionId)
-                const currentRouteIsTracked = !!existing?.requestId && !!runtimeRequestIDs?.has(existing.requestId)
-                const currentRouteIsActiveLocally = !!existing?.requestId && !!chat.activeRequests[existing.requestId]
+                const currentRouteIsTracked =
+                  !!existing?.requestId && !!runtimeRequestIDs?.has(existing.requestId)
+                const currentRouteIsActiveLocally =
+                  !!existing?.requestId && !!chat.activeRequests[existing.requestId]
                 // Keep the route already selected by the local sender (or a
                 // persisted route still present in runtime). A second
                 // concurrent runtime entry must not replace it with an older
                 // request merely because Go map iteration order changed.
-                const shouldAdoptRoute = !existing ||
+                const shouldAdoptRoute =
+                  !existing ||
                   existing.requestId === runtime.request_id ||
                   (!currentRouteIsTracked && !currentRouteIsActiveLocally)
                 if (!shouldAdoptRoute) continue
@@ -502,13 +542,20 @@ class WebSocketManager {
                   sessionId,
                   taskLevel: runtime.task_type || (sameRequest ? existing?.taskLevel || '' : ''),
                   modelId: runtime.model_id || (sameRequest ? existing?.modelId || '' : ''),
-                  providerId: runtime.provider_id || (sameRequest ? existing?.providerId : undefined),
-                  agentInstanceId: runtime.agent_instance_id || (sameRequest ? existing?.agentInstanceId : undefined),
+                  providerId:
+                    runtime.provider_id || (sameRequest ? existing?.providerId : undefined),
+                  agentInstanceId:
+                    runtime.agent_instance_id ||
+                    (sameRequest ? existing?.agentInstanceId : undefined),
                 }
                 chat.updateRequestRoute(runtime.request_id, route)
                 chat.setRoute(route)
               }
-            } else if (!hasActiveRequests && !hasActiveRuntimeRequest && (wasActive || chat.routeSessions[sessionId])) {
+            } else if (
+              !hasActiveRequests &&
+              !hasActiveRuntimeRequest &&
+              (wasActive || chat.routeSessions[sessionId])
+            ) {
               chat.setStreaming(false, sessionId)
               chat.setDelegating(false, sessionId)
               const requestId = chat.routeSessions[sessionId]?.requestId
@@ -523,8 +570,17 @@ class WebSocketManager {
           // once instead of leaving handlers and busy indicators stuck.
           for (const [sessionKey, runtime] of Object.entries(accepted)) {
             const sessionId = runtimeSessionId(sessionKey, runtime)
-            if (runtime.request_id || runtime.state !== 'idle' || activeRuntimeSessions.has(sessionId)) continue
+            if (
+              runtime.request_id ||
+              runtime.state !== 'idle' ||
+              activeRuntimeSessions.has(sessionId)
+            )
+              continue
             for (const request of Object.values(chat.activeRequests)) {
+              // A queued request is not represented by the owning run's
+              // runtime entry. It remains valid until an explicit queue
+              // boundary (or queue-specific failure/cancellation) resolves it.
+              if (request.status === 'queued') continue
               if (request.sessionId === sessionId) {
                 this.reconcileRuntimeTerminal(sessionId, request.requestId, runtime)
               }
@@ -605,23 +661,26 @@ class WebSocketManager {
       : new Date(requestStartedAt).toISOString()
     const assistantId = `msg-${requestId}`
     const userId = `channel-user-${requestId}`
-    const acceptedPrompt = msg.type === 'chat_accepted' && typeof raw.prompt === 'string'
-      ? raw.prompt
-      : ''
+    const acceptedPrompt =
+      msg.type === 'chat_accepted' && typeof raw.prompt === 'string' ? raw.prompt : ''
     useChatStore.setState((state) => {
       const current = [...(state.messages[sid] || [])]
-      let userIndex = current.findIndex((message) => (
-        message.role === 'user' && (message.id === userId || message.requestId === requestId)
-      ))
-      let assistantIndex = current.findIndex((message) => (
-        message.role === 'assistant' && (message.id === assistantId || message.requestId === requestId)
-      ))
+      let userIndex = current.findIndex(
+        (message) =>
+          message.role === 'user' && (message.id === userId || message.requestId === requestId)
+      )
+      let assistantIndex = current.findIndex(
+        (message) =>
+          message.role === 'assistant' &&
+          (message.id === assistantId || message.requestId === requestId)
+      )
 
       // A reload may hydrate the active turn with history-only IDs before the
       // first live channel frame arrives. Adopt that turn so every later frame
       // updates the same top-level assistant message.
       if (userIndex >= 0) current[userIndex] = { ...current[userIndex], id: userId }
-      if (assistantIndex >= 0) current[assistantIndex] = { ...current[assistantIndex], id: assistantId }
+      if (assistantIndex >= 0)
+        current[assistantIndex] = { ...current[assistantIndex], id: assistantId }
 
       if (userIndex < 0 && acceptedPrompt.trim().length > 0) {
         const firstLaterUserIndex = current.findIndex((message) => {
@@ -662,13 +721,14 @@ class WebSocketManager {
       return { messages: { ...state.messages, [sid]: current } }
     })
     const store = useChatStore.getState()
-    const existingAssistant = store.messages[sid]?.find((message) => (
-      message.id === assistantId && message.role === 'assistant'
-    ))
-    let streamedContent = existingAssistant?.segments
-      .filter((segment) => segment.type === 'content')
-      .map((segment) => segment.text)
-      .join('') || ''
+    const existingAssistant = store.messages[sid]?.find(
+      (message) => message.id === assistantId && message.role === 'assistant'
+    )
+    let streamedContent =
+      existingAssistant?.segments
+        .filter((segment) => segment.type === 'content')
+        .map((segment) => segment.text)
+        .join('') || ''
     const route = { requestId, sessionId: sid, taskLevel: '', modelId: '' }
     if (!store.activeRequests[requestId]) store.registerRequest(requestId, sid, route)
     store.setRoute(route)
@@ -678,7 +738,7 @@ class WebSocketManager {
       const current = useChatStore.getState()
       current.removeRequest(requestId)
       const remaining = Object.values(useChatStore.getState().activeRequests).some(
-        (request) => request.sessionId === sid,
+        (request) => request.sessionId === sid
       )
       if (!remaining) {
         current.setStreaming(false, sid)
@@ -708,22 +768,27 @@ class WebSocketManager {
         streamedContent += delta
         useChatStore.getState().appendAssistantContent(sid, assistantId, delta)
       },
-      onReasoning: (delta) => useChatStore.getState().appendAssistantThinking(sid, assistantId, delta),
-      onToolStart: (data) => useChatStore.getState().updateAssistantSegment(sid, assistantId, {
-        type: 'tool_call',
-        callId: data.call_id,
-        name: data.name,
-        args: data.args,
-        done: false,
-        agentInstanceId: data.target_agent_id,
-      }),
-      onToolDone: (data) => useChatStore.getState().updateToolCallResult(
-        sid,
-        data.call_id,
-        data.result,
-        data.error || undefined,
-        data.duration_ms || undefined,
-      ),
+      onReasoning: (delta) =>
+        useChatStore.getState().appendAssistantThinking(sid, assistantId, delta),
+      onToolStart: (data) =>
+        useChatStore.getState().updateAssistantSegment(sid, assistantId, {
+          type: 'tool_call',
+          callId: data.call_id,
+          name: data.name,
+          args: data.args,
+          done: false,
+          agentInstanceId: data.target_agent_id,
+        }),
+      onToolDone: (data) =>
+        useChatStore
+          .getState()
+          .updateToolCallResult(
+            sid,
+            data.call_id,
+            data.result,
+            data.error || undefined,
+            data.duration_ms || undefined
+          ),
       onDone: ({ content }) => {
         // A browser can connect after the first deltas were emitted. Use the
         // terminal content as a gap filler without duplicating already mirrored
@@ -749,7 +814,12 @@ class WebSocketManager {
       onDelegationDone: (data) => {
         const current = useChatStore.getState()
         current.setDelegating(false, sid)
-        current.completeLastDelegation(sid, data.target_agent_id, data.duration_ms, data.result_content)
+        current.completeLastDelegation(
+          sid,
+          data.target_agent_id,
+          data.duration_ms,
+          data.result_content
+        )
       },
       onClose: () => finish(),
     }

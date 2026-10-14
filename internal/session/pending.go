@@ -9,14 +9,16 @@ import (
 // PendingMessage retains temporal metadata while a busy session delays input.
 type PendingMessage struct {
 	Prompt          string
+	RequestID       string
 	ReceivedAt      time.Time
 	ExposeTimestamp bool
 }
 
 // PendingDrain is the single aggregate user turn produced by Drain.
 type PendingDrain struct {
-	Content string
-	Parts   []PendingMessage
+	Content    string
+	Parts      []PendingMessage
+	RequestIDs []string
 }
 
 // PendingQueue holds user messages that arrived while the session is busy.
@@ -49,11 +51,15 @@ func (q *PendingQueue) Drain() PendingDrain {
 	}
 	parts := append([]PendingMessage(nil), q.msgs...)
 	contents := make([]string, len(parts))
+	requestIDs := make([]string, 0, len(parts))
 	for i, part := range parts {
 		contents[i] = part.Prompt
+		if part.RequestID != "" {
+			requestIDs = append(requestIDs, part.RequestID)
+		}
 	}
 	q.msgs = q.msgs[:0]
-	return PendingDrain{Content: strings.Join(contents, "\n\n"), Parts: parts}
+	return PendingDrain{Content: strings.Join(contents, "\n\n"), Parts: parts, RequestIDs: requestIDs}
 }
 
 // HasPending returns true if there are queued messages.

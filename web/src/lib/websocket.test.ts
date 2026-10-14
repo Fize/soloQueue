@@ -72,6 +72,181 @@ function simulateMessage(data: unknown) {
 }
 
 describe('websocket', () => {
+  it('notifies the active and queued handlers when queued input starts processing', async () => {
+    const first = { onQueueStarted: vi.fn() }
+    const second = { onQueueStarted: vi.fn() }
+    const third = { onQueueStarted: vi.fn() }
+    wsManager.registerChat('req-first', first)
+    wsManager.registerChat('req-second', second)
+    wsManager.registerChat('req-third', third)
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_queue_started',
+      request_id: 'req-first',
+      cancel_request_id: 'req-first',
+      request_ids: ['req-second', 'req-third'],
+      session_id: 'l2:session-A',
+    })
+
+    expect(first.onQueueStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ owns_stream: false })
+    )
+    expect(second.onQueueStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ owns_stream: false })
+    )
+    expect(third.onQueueStarted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        active_request_id: 'req-third',
+        cancel_request_id: 'req-first',
+        owns_stream: true,
+      })
+    )
+  })
+
+  it('keeps the root cancellation identity across consecutive queue boundaries', async () => {
+    const second = { onQueueStarted: vi.fn() }
+    const third = { onQueueStarted: vi.fn() }
+    wsManager.registerChat('req-second', second)
+    wsManager.registerChat('req-third', third)
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_queue_started',
+      request_id: 'req-first',
+      cancel_request_id: 'req-first',
+      request_ids: ['req-second'],
+      session_id: 'l2:session-A',
+    })
+    simulateMessage({
+      type: 'chat_queue_started',
+      request_id: 'req-second',
+      cancel_request_id: 'req-first',
+      request_ids: ['req-third'],
+      session_id: 'l2:session-A',
+    })
+
+    expect(third.onQueueStarted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        active_request_id: 'req-third',
+        cancel_request_id: 'req-first',
+        owns_stream: true,
+      })
+    )
+  })
+
+  it('retains a queued handler across a request-less idle snapshot until processing starts', async () => {
+    const onQueueStarted = vi.fn()
+    const onAccepted = vi.fn(() => {
+      useChatStore.getState().updateRequestStatus('req-queued', 'streaming')
+    })
+    const onQueued = vi.fn(() => {
+      useChatStore.getState().updateRequestStatus('req-queued', 'queued')
+    })
+    const onChunk = vi.fn()
+    const onError = vi.fn()
+    const onDone = vi.fn()
+    const onRuntimeTerminal = vi.fn()
+    useChatStore.setState({
+      activeRequests: {
+        'req-queued': {
+          requestId: 'req-queued',
+          sessionId: 'l2:session-A',
+          status: 'starting',
+        },
+      },
+      streamingSessions: { 'l2:session-A': true },
+    })
+    wsManager.registerChat('req-queued', {
+      onAccepted,
+      onQueued,
+      onQueueStarted,
+      onChunk,
+      onError,
+      onDone,
+      onRuntimeTerminal,
+    })
+    await wsManager.connect()
+    simulateOpen()
+
+    simulateMessage({
+      type: 'chat_accepted',
+      request_id: 'req-queued',
+      session_id: 'l2:session-A',
+    })
+    simulateMessage({
+      type: 'chat_queued',
+      request_id: 'req-queued',
+      session_id: 'l2:session-A',
+      error: 'queued',
+    })
+    expect(onAccepted).toHaveBeenCalledTimes(1)
+    expect(onQueued).toHaveBeenCalledTimes(1)
+    expect(useChatStore.getState().activeRequests['req-queued']?.status).toBe('queued')
+
+    simulateMessage({
+      type: 'state',
+      runtime: {
+        phase: 'idle',
+        prompt_tokens: 0,
+        output_tokens: 0,
+        cache_hit_tokens: 0,
+        cache_miss_tokens: 0,
+        context_pct: 0,
+        current_tokens: 0,
+        max_tokens: 0,
+        current_iter: 0,
+        content_deltas: 0,
+        active_delegations: 0,
+        total_agents: 1,
+        running_agents: 0,
+        idle_agents: 1,
+        total_errors: 0,
+        http_addr: ':8765',
+        agent_streams: {},
+        sessions: {
+          'l2:session-A': {
+            session_id: 'l2:session-A',
+            request_id: '',
+            state: 'idle',
+            terminal_code: 'completed',
+            revision: 1,
+            ctxwin_used: 0,
+            ctxwin_limit: 0,
+            delegating: false,
+          },
+        },
+      },
+    })
+
+    expect(onRuntimeTerminal).not.toHaveBeenCalled()
+    expect(useChatStore.getState().activeRequests['req-queued']?.status).toBe('queued')
+    expect(wsManager.hasChatHandler('req-queued')).toBe(true)
+
+    simulateMessage({
+      type: 'chat_queue_started',
+      request_id: 'req-new-model',
+      cancel_request_id: 'req-new-model',
+      request_ids: ['req-queued'],
+      session_id: 'l2:session-A',
+    })
+    simulateMessage({ type: 'chat_chunk', request_id: 'req-queued', delta: 'follow-up' })
+    simulateMessage({
+      type: 'chat_done',
+      request_id: 'req-queued',
+      content: 'follow-up',
+      reasoning_content: '',
+    })
+
+    expect(onQueueStarted).toHaveBeenCalledTimes(1)
+    expect(onQueueStarted).toHaveBeenCalledWith(expect.objectContaining({ owns_stream: true }))
+    expect(onChunk).toHaveBeenCalledWith('follow-up')
+    expect(onDone).toHaveBeenCalledTimes(1)
+    expect(onError).not.toHaveBeenCalled()
+  })
+
   it('normalizes legacy request-keyed runtime entries to their logical session', async () => {
     await wsManager.connect()
     simulateOpen()
@@ -745,9 +920,7 @@ describe('websocket', () => {
       'hist-new-user',
       'hist-new-assistant',
     ])
-    expect(messages[1].segments).toEqual([
-      { type: 'content', text: '旧回复片段，继续输出' },
-    ])
+    expect(messages[1].segments).toEqual([{ type: 'content', text: '旧回复片段，继续输出' }])
     expect(messages[0].timestamp).toBe('2026-09-21T10:24:00.000Z')
     expect(messages[1].timestamp).toBe('2026-09-21T10:24:00.000Z')
   })
@@ -784,11 +957,7 @@ describe('websocket', () => {
     })
 
     const messages = useChatStore.getState().messages.l1 || []
-    expect(messages.map((message) => message.id)).toEqual([
-      'msg-old',
-      'new-user',
-      'new-assistant',
-    ])
+    expect(messages.map((message) => message.id)).toEqual(['msg-old', 'new-user', 'new-assistant'])
     expect(messages[0].segments).toEqual([{ type: 'content', text: '旧请求迟到的回复' }])
     expect(messages[2].segments).toEqual([{ type: 'content', text: '新请求的回复' }])
   })

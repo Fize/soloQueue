@@ -28,6 +28,47 @@ func TestRuntimeMetricsKeepsConcurrentAgentStreamsByRequest(t *testing.T) {
 	if seen["req-a"] != "first" || seen["req-b"] != "second" {
 		t.Fatalf("request streams = %#v, want independent req-a/req-b snapshots", seen)
 	}
+	if !streams[agentStreamKey("agent-1", "req-a")].Processing || !streams[agentStreamKey("agent-1", "req-b")].Processing {
+		t.Fatalf("concurrent request streams were retired: %#v", streams)
+	}
+}
+
+func TestRuntimeMetricsSwitchesDeliveryOwnershipAtPendingBoundary(t *testing.T) {
+	rm := &RuntimeMetrics{
+		agentStreams: make(map[string]*AgentStreamState),
+		agentCancels: make(map[string]func()),
+	}
+	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-root", Delta: "root output"})
+	rm.updateAgentStream("agent-1", agent.PendingInputStartedEvent{
+		RequestID:         "req-queued",
+		PreviousRequestID: "req-root",
+		RequestIDs:        []string{"req-queued"},
+	})
+	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-queued", Delta: "queued output"})
+
+	streams := rm.AgentStreams()
+	if _, ok := streams[agentStreamKey("agent-1", "req-root")]; ok {
+		t.Fatalf("root runtime stream remained recoverable after delivery moved: %#v", streams)
+	}
+	queued := streams[agentStreamKey("agent-1", "req-queued")]
+	if queued == nil || len(queued.Segments) != 1 || queued.Segments[0].Text != "queued output" {
+		t.Fatalf("queued runtime stream = %#v, want only queued output", queued)
+	}
+
+	rm.updateAgentStream("agent-1", agent.PendingInputStartedEvent{
+		RequestID:         "req-next",
+		PreviousRequestID: "req-queued",
+		RequestIDs:        []string{"req-next"},
+	})
+	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-next", Delta: "next output"})
+	streams = rm.AgentStreams()
+	if _, ok := streams[agentStreamKey("agent-1", "req-queued")]; ok {
+		t.Fatalf("first queued stream remained recoverable after second boundary: %#v", streams)
+	}
+	next := streams[agentStreamKey("agent-1", "req-next")]
+	if next == nil || len(next.Segments) != 1 || next.Segments[0].Text != "next output" {
+		t.Fatalf("next runtime stream = %#v, want only next output", next)
+	}
 }
 
 func TestRuntimeMetricsPopulatesAgentStreamStartedAt(t *testing.T) {

@@ -96,6 +96,106 @@ func TestAttachRequestIDScopesWatcherEvents(t *testing.T) {
 	}
 }
 
+func TestPendingBoundaryBelongsToTheStreamThatDrainedIt(t *testing.T) {
+	firstModelStarted := make(chan struct{})
+	releaseFirstModel := make(chan struct{})
+	var modelCalls atomic.Int32
+	fake := &agenttest.FakeLLM{
+		Responses: []string{"done"},
+		Hook: func(LLMRequest) {
+			if modelCalls.Add(1) == 1 {
+				close(firstModelStarted)
+				<-releaseFirstModel
+			}
+		},
+	}
+	a := startedAgent(t, fake)
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	var pendingReady atomic.Bool
+	cw.SetPendingDrainer(func() ctxwin.PendingInput {
+		if pendingReady.CompareAndSwap(true, false) {
+			return ctxwin.PendingInput{Content: "queued", RequestIDs: []string{"req-queued"}}
+		}
+		return ctxwin.PendingInput{}
+	})
+
+	oldOut := make(chan AgentEvent, 64)
+	go a.runOnceStreamWithHistory(context.Background(), cw, "old delegated", oldOut)
+	select {
+	case <-firstModelStarted:
+	case <-time.After(time.Second):
+		t.Fatal("old stream did not reach the model")
+	}
+
+	pendingReady.Store(true)
+	activeOut := make(chan AgentEvent, 64)
+	go a.runOnceStreamWithHistory(context.Background(), cw, "new active", activeOut)
+
+	select {
+	case event := <-activeOut:
+		started, ok := event.(PendingInputStartedEvent)
+		if !ok || len(started.RequestIDs) != 1 || started.RequestIDs[0] != "req-queued" {
+			t.Fatalf("active stream first event = %#v, want queued boundary", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active stream did not receive queued boundary")
+	}
+	select {
+	case event := <-oldOut:
+		t.Fatalf("old delegated stream stole event %#v", event)
+	default:
+	}
+
+	close(releaseFirstModel)
+	drainEvents(t, activeOut, time.Second)
+	drainEvents(t, oldOut, time.Second)
+}
+
+func TestPendingBoundaryPrecedesBuildMessagesOverflowError(t *testing.T) {
+	fake := &agenttest.FakeLLM{Responses: []string{"must not run"}}
+	a := startedAgent(t, fake)
+	cw := ctxwin.NewContextWindow(0, 0, 0, ctxwin.NewTokenizer())
+	cw.SetPendingDrainer(func() ctxwin.PendingInput {
+		return ctxwin.PendingInput{Content: "queued", RequestIDs: []string{"req-queued"}}
+	})
+
+	out := make(chan AgentEvent, 4)
+	go a.runOnceStreamWithHistory(context.Background(), cw, "active", out)
+	events := drainEvents(t, out, time.Second)
+	if len(events) != 2 {
+		t.Fatalf("events = %#v, want boundary then error", events)
+	}
+	started, ok := events[0].(PendingInputStartedEvent)
+	if !ok || !reflect.DeepEqual(started.RequestIDs, []string{"req-queued"}) {
+		t.Fatalf("first event = %#v, want queued boundary", events[0])
+	}
+	if _, ok := events[1].(ErrorEvent); !ok {
+		t.Fatalf("second event = %#v, want error", events[1])
+	}
+}
+
+func TestPendingBoundarySwitchesSubsequentEventOwnership(t *testing.T) {
+	fake := &agenttest.FakeLLM{Responses: []string{"queued reply"}}
+	a := startedAgent(t, fake)
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	cw.SetPendingDrainer(func() ctxwin.PendingInput {
+		return ctxwin.PendingInput{Content: "queued", RequestIDs: []string{"req-queued"}}
+	})
+	ctx := telemetryctx.WithMetadata(context.Background(), telemetryctx.Metadata{RequestID: "req-root"})
+
+	out := make(chan AgentEvent, 16)
+	go a.runOnceStreamWithHistory(ctx, cw, "root", out)
+	events := drainEvents(t, out, time.Second)
+	if len(events) == 0 {
+		t.Fatal("no events emitted")
+	}
+	for i, event := range events {
+		if got := RequestIDOfEvent(event); got != "req-queued" {
+			t.Fatalf("event %d (%T) request ID = %q, want req-queued", i, event, got)
+		}
+	}
+}
+
 func TestAskStreamWithHistoryTrackedDoesNotAliasLaterRequest(t *testing.T) {
 	fake := &agenttest.FakeLLM{Responses: []string{"first", "second"}, Delay: 50 * time.Millisecond}
 	a := startedAgent(t, fake)

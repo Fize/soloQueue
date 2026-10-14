@@ -490,7 +490,11 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 				"target_id", s.TargetID,
 				"prompt_len", len(pending.Content),
 			)
-			return ctxwin.PendingInput{Content: pending.Content, TemporalParts: parts}
+			return ctxwin.PendingInput{
+				Content:       pending.Content,
+				TemporalParts: parts,
+				RequestIDs:    pending.RequestIDs,
+			}
 		})
 	}
 
@@ -1338,8 +1342,12 @@ func (s *Session) AskIsolatedWithModel(ctx context.Context, prompt string, param
 // QueueMessage enqueues a user message into the pending queue without blocking.
 // The message will be injected into the agent's context window before the next
 // LLM API call, merged with any other pending messages into a single user turn.
-func (s *Session) QueueMessage(prompt string) {
-	s.pending.Enqueue(prompt)
+func (s *Session) QueueMessage(prompt string, requestIDs ...string) {
+	requestID := ""
+	if len(requestIDs) > 0 {
+		requestID = requestIDs[0]
+	}
+	s.pending.EnqueueMessage(PendingMessage{Prompt: prompt, RequestID: requestID})
 	s.logger.InfoContext(context.Background(), logger.CatApp, "message queued via QueueMessage",
 		"target_id", s.TargetID,
 		"prompt_len", len(prompt),
@@ -1969,13 +1977,27 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 			}
 			return nil, ErrQueued
 		}
+		if requestID != "" && hooks.OnStart != nil {
+			if err := hooks.OnStart(ctx, s.TargetID, requestID); err != nil {
+				s.inFlight.Store(0)
+				return nil, err
+			}
+			lifecycleStarted = true
+		}
+		if requestID != "" && hooks.OnInput != nil {
+			hooks.OnInput(ctx, s.TargetID, requestID, prompt)
+		}
 		s.touch()
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
 			defer close(out)
 			defer s.inFlight.Store(0)
 			defer s.touch()
+			terminalCode := "completed"
+			defer func() { finishLifecycle(terminalCode) }()
 			if err := s.Clear(); err != nil {
+				terminalCode = "error"
+				terminalMessage = err.Error()
 				out <- agent.ErrorEvent{Err: err}
 			} else {
 				out <- agent.ContentDeltaEvent{Delta: "Dialogue history cleared and saved to conversation."}
@@ -2313,6 +2335,7 @@ enqueued:
 		var finalReasoning string
 		var gotDone bool
 		var eventCount int
+		deliveryRequestID := requestID
 		var accContent strings.Builder // accumulates streamed content for partial flush on non-normal exit
 		var accReasoning strings.Builder
 		var lastPushedContent string // tracks last content pushed to cw (avoids duplicate partial flush)
@@ -2392,7 +2415,7 @@ enqueued:
 					Content:          pending,
 					ReasoningContent: accReasoning.String(),
 					AgentID:          askAgent.InstanceID,
-					RequestID:        telemetry.MetadataFromContext(ctx).RequestID,
+					RequestID:        deliveryRequestID,
 				})
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial assistant content flushed to timeline",
 					"target_id", s.TargetID,
@@ -2499,6 +2522,9 @@ enqueued:
 			}
 			sourceTerminal := false
 			errorEvent := false
+			if boundary, ok := ev.(agent.PendingInputStartedEvent); ok && boundary.RequestID != "" {
+				deliveryRequestID = boundary.RequestID
+			}
 			if e, ok := ev.(agent.ErrorEvent); ok {
 				errorEvent = true
 				terminalCode = string(runwatch.CodeOf(e.Err))
@@ -2601,8 +2627,8 @@ enqueued:
 			if finalContent != "" {
 				s.mu.Lock()
 				opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
-				if requestID := telemetry.MetadataFromContext(ctx).RequestID; requestID != "" {
-					opts = append(opts, ctxwin.WithRequestID(requestID))
+				if deliveryRequestID != "" {
+					opts = append(opts, ctxwin.WithRequestID(deliveryRequestID))
 				}
 				s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
 				// Track what we just pushed so the partial-flush defer can skip duplicates.
