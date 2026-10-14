@@ -580,3 +580,25 @@ func TestTemporalMetadataDoesNotChangeRawTokenAccounting(t *testing.T) {
 		t.Fatalf("message tokens = %d, want raw-content baseline %d", msg.Tokens, want)
 	}
 }
+
+func TestDrainPendingAssignsAggregateToLastQueuedRequest(t *testing.T) {
+	cw := newTestCW(10000, 1000)
+	cw.SetPendingDrainer(func() PendingInput {
+		return PendingInput{
+			Content:    "first\n\nsecond",
+			RequestIDs: []string{"req-first", "req-second"},
+		}
+	})
+
+	requestIDs := cw.DrainPending()
+	if len(requestIDs) != 2 {
+		t.Fatalf("request IDs = %#v, want two queued identities", requestIDs)
+	}
+	msg, ok := cw.MessageAt(0)
+	if !ok {
+		t.Fatal("pending aggregate was not pushed")
+	}
+	if msg.RequestID != "req-second" {
+		t.Fatalf("pending aggregate request ID = %q, want last queued request req-second", msg.RequestID)
+	}
+}

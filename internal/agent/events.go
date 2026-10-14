@@ -98,6 +98,14 @@ type DelegationCompletedEvent struct {
 	ResultContent   string // L3's full output, for frontend modal display
 }
 
+// PendingInputStartedEvent marks the iteration boundary where one aggregate
+// of queued user inputs has been injected into the next LLM request.
+type PendingInputStartedEvent struct {
+	RequestID         string
+	PreviousRequestID string
+	RequestIDs        []string
+}
+
 // RequestIDOfEvent returns the request identity attached to an AgentEvent.
 // Events emitted by older/direct callers may have no request ID; callers must
 // treat the empty value as an unscoped stream rather than inventing ownership.
@@ -123,6 +131,8 @@ func RequestIDOfEvent(ev AgentEvent) string {
 		return e.RequestID
 	case DelegationCompletedEvent:
 		return e.RequestID
+	case PendingInputStartedEvent:
+		return e.RequestID
 	default:
 		return ""
 	}
@@ -140,6 +150,7 @@ func (DoneEvent) IsAgentEvent()                {}
 func (ErrorEvent) IsAgentEvent()               {}
 func (DelegationStartedEvent) IsAgentEvent()   {}
 func (DelegationCompletedEvent) IsAgentEvent() {}
+func (PendingInputStartedEvent) IsAgentEvent() {}
 
 // --- agent-internal sealed marker ---
 
@@ -153,6 +164,7 @@ func (DoneEvent) agentEvent()                {}
 func (ErrorEvent) agentEvent()               {}
 func (DelegationStartedEvent) agentEvent()   {}
 func (DelegationCompletedEvent) agentEvent() {}
+func (PendingInputStartedEvent) agentEvent() {}
 
 // --- iface.EventConsumer implementation ---
 //
@@ -208,3 +220,8 @@ func (e DelegationStartedEvent) Error() (error, bool)         { return nil, fals
 func (e DelegationCompletedEvent) ContentDelta() (string, bool) { return "", false }
 func (e DelegationCompletedEvent) DoneContent() (string, bool)  { return "", false }
 func (e DelegationCompletedEvent) Error() (error, bool)         { return nil, false }
+
+// PendingInputStartedEvent → none
+func (e PendingInputStartedEvent) ContentDelta() (string, bool) { return "", false }
+func (e PendingInputStartedEvent) DoneContent() (string, bool)  { return "", false }
+func (e PendingInputStartedEvent) Error() (error, bool)         { return nil, false }

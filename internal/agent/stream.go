@@ -147,7 +147,7 @@ func beginModelWatch(ctx context.Context, agentID string, iter int) (context.Con
 type streamStrategy interface {
 	// buildMessages returns the LLM messages for this iteration.
 	// Returns an error for overflow or other pre-flight failures.
-	buildMessages(ctx context.Context, a *Agent, iter int) ([]LLMMessage, error)
+	buildMessages(ctx context.Context, a *Agent, iter int) ([]LLMMessage, []string, error)
 
 	// execTools runs all tool calls and returns per-call results plus the async
 	// turn created by this exact batch, if any.
@@ -255,7 +255,21 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 
 		a.setWorkIter(iter)
 
-		msgs, err := strat.buildMessages(ctx, a, iter)
+		msgs, pendingRequestIDs, err := strat.buildMessages(ctx, a, iter)
+		if len(pendingRequestIDs) > 0 {
+			previousRequestID := telemetryctx.FromContext(ctx).RequestID
+			deliveryRequestID := pendingRequestIDs[len(pendingRequestIDs)-1]
+			metadata := telemetryctx.FromContext(ctx)
+			metadata.RequestID = deliveryRequestID
+			ctx = telemetryctx.WithMetadata(ctx, metadata)
+			if !a.emit(ctx, out, PendingInputStartedEvent{
+				RequestID:         deliveryRequestID,
+				PreviousRequestID: previousRequestID,
+				RequestIDs:        pendingRequestIDs,
+			}) {
+				return
+			}
+		}
 		if err != nil {
 			a.logError(ctx, logger.CatLLM, "build messages failed", err,
 				"iter", iter,
@@ -264,7 +278,6 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			a.emit(ctx, out, ErrorEvent{Err: err})
 			return
 		}
-
 		req := LLMRequest{
 			ProviderID:      a.Def.ProviderID,
 			Model:           a.Def.ModelID,
@@ -493,7 +506,7 @@ func msgTokens(tok *ctxwin.Tokenizer, msg LLMMessage) int {
 	return n
 }
 
-func (s *simpleStrategy) buildMessages(_ context.Context, a *Agent, iter int) ([]LLMMessage, error) {
+func (s *simpleStrategy) buildMessages(_ context.Context, a *Agent, iter int) ([]LLMMessage, []string, error) {
 	if iter == 0 {
 		s.msgs = buildMessages(s.systemPrompt, s.prompt)
 		s.totalTokens = 0
@@ -504,7 +517,7 @@ func (s *simpleStrategy) buildMessages(_ context.Context, a *Agent, iter int) ([
 	if s.totalTokens > s.maxTokens-simpleBufferTokens {
 		s.truncateLargeResults()
 	}
-	return s.msgs, nil
+	return s.msgs, nil, nil
 }
 
 func (s *simpleStrategy) execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) toolExecutionResult {
@@ -610,11 +623,11 @@ type historyStrategy struct {
 	prompt string
 }
 
-func (s *historyStrategy) buildMessages(ctx context.Context, a *Agent, iter int) ([]LLMMessage, error) {
+func (s *historyStrategy) buildMessages(ctx context.Context, a *Agent, iter int) ([]LLMMessage, []string, error) {
 	// Drain pending user messages from the session queue before building
 	// the LLM payload. This injects queued messages at the next natural
 	// break point in the tool loop.
-	s.cw.DrainPending()
+	pendingRequestIDs := s.cw.DrainPending()
 
 	// Overflow hard-limit check: prevent API 400
 	if s.cw.Overflow() {
@@ -628,14 +641,14 @@ func (s *historyStrategy) buildMessages(ctx context.Context, a *Agent, iter int)
 		// or if it still overflows, return the overflow error.
 		if s.cw.Overflow() {
 			current, max, _ := s.cw.TokenUsage()
-			return nil, fmt.Errorf("context overflow: current %d tokens exceed effective limit %d, please start a new session", current, max)
+			return nil, pendingRequestIDs, fmt.Errorf("context overflow: current %d tokens exceed effective limit %d, please start a new session", current, max)
 		}
 	}
 	payload := s.cw.BuildPayload()
 	if tracker := jobTrackerFromContext(ctx); tracker != nil && tracker.systemPrompt != nil && len(payload) > 0 && payload[0].Role == string(ctxwin.RoleSystem) {
 		payload[0].Content = *tracker.systemPrompt
 	}
-	return payloadToLLMMessages(payload), nil
+	return payloadToLLMMessages(payload), pendingRequestIDs, nil
 }
 
 func (s *historyStrategy) execTools(a *Agent, ctx context.Context, iter int, calls []llm.ToolCall, out chan<- AgentEvent) toolExecutionResult {
@@ -880,6 +893,9 @@ func attachRequestID(ctx context.Context, ev AgentEvent) AgentEvent {
 		e.RequestID = requestID
 		return e
 	case DelegationCompletedEvent:
+		e.RequestID = requestID
+		return e
+	case PendingInputStartedEvent:
 		e.RequestID = requestID
 		return e
 	default:

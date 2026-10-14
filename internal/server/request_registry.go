@@ -21,6 +21,7 @@ const (
 var (
 	ErrSessionBusy            = errors.New("session already has an active request")
 	ErrDuplicateRequestID     = errors.New("request ID is already registered")
+	ErrInvalidRequestID       = errors.New("request ID is required")
 	ErrRequestNotFound        = errors.New("request not found")
 	ErrRequestSessionMismatch = errors.New("request does not belong to session")
 	ErrRequestOwnerMismatch   = errors.New("request is owned by another client")
@@ -30,6 +31,7 @@ var (
 type ActiveRequest struct {
 	SessionID          string
 	RequestID          string
+	Generation         uint64
 	AgentInstanceID    string
 	ModelID            string
 	ProviderID         string
@@ -62,15 +64,22 @@ type WatchdogState struct {
 	TerminalCode   string
 }
 
+type queuedRequestReservation struct {
+	SessionID      string
+	RootGeneration uint64
+}
+
 // ActiveRequestRegistry manages all active requests across the server.
 // It is keyed by both session ID and request ID.
 type ActiveRequestRegistry struct {
-	mu          sync.RWMutex
-	bySession   map[string]map[string]*ActiveRequest // sessionID -> requestID -> request
-	byRequest   map[string]*ActiveRequest
-	terminals   map[string]map[string]*ActiveRequest // bounded rebuildable terminal snapshots
-	now         func() time.Time
-	terminalTTL time.Duration
+	mu             sync.RWMutex
+	bySession      map[string]map[string]*ActiveRequest // sessionID -> requestID -> request
+	byRequest      map[string]*ActiveRequest
+	queued         map[string]queuedRequestReservation  // requestID -> owning root generation
+	terminals      map[string]map[string]*ActiveRequest // bounded rebuildable terminal snapshots
+	now            func() time.Time
+	terminalTTL    time.Duration
+	nextGeneration uint64
 }
 
 const maxTerminalTombstones = 128
@@ -81,6 +90,7 @@ func NewActiveRequestRegistry() *ActiveRequestRegistry {
 	return &ActiveRequestRegistry{
 		bySession:   make(map[string]map[string]*ActiveRequest),
 		byRequest:   make(map[string]*ActiveRequest),
+		queued:      make(map[string]queuedRequestReservation),
 		terminals:   make(map[string]map[string]*ActiveRequest),
 		now:         time.Now,
 		terminalTTL: defaultTerminalTombstoneTTL,
@@ -95,6 +105,9 @@ func (r *ActiveRequestRegistry) Reserve(sessionID, requestID, ownerClientID stri
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.trimTerminalsLocked()
+	if requestID == "" {
+		return ActiveRequest{}, ErrInvalidRequestID
+	}
 
 	// L1 sessions allow concurrent requests.
 	// L2 sessions and other sessions are single-flight.
@@ -105,6 +118,9 @@ func (r *ActiveRequestRegistry) Reserve(sessionID, requestID, ownerClientID stri
 		}
 	}
 	if _, exists := r.byRequest[requestID]; exists {
+		return ActiveRequest{}, ErrDuplicateRequestID
+	}
+	if _, exists := r.queued[requestID]; exists {
 		return ActiveRequest{}, ErrDuplicateRequestID
 	}
 	if isL1 {
@@ -125,9 +141,11 @@ func (r *ActiveRequestRegistry) Reserve(sessionID, requestID, ownerClientID stri
 	}
 
 	now := r.now()
+	r.nextGeneration++
 	req := &ActiveRequest{
 		SessionID:      sessionID,
 		RequestID:      requestID,
+		Generation:     r.nextGeneration,
 		OwnerClientID:  ownerClientID,
 		State:          RequestStateStarting,
 		StartedAt:      now,
@@ -141,6 +159,48 @@ func (r *ActiveRequestRegistry) Reserve(sessionID, requestID, ownerClientID stri
 	r.byRequest[requestID] = req
 
 	return r.snapshot(req), nil
+}
+
+// ReserveQueued retains a busy-session request identity without registering a
+// second active request. This keeps queued inputs unique while preserving the
+// single-flight root as the only cancellable lifecycle owner.
+func (r *ActiveRequestRegistry) ReserveQueued(sessionID, requestID string, rootGeneration uint64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if requestID == "" {
+		return ErrInvalidRequestID
+	}
+	var root *ActiveRequest
+	for _, candidate := range r.bySession[sessionID] {
+		if candidate.Generation == rootGeneration {
+			root = candidate
+			break
+		}
+	}
+	if root == nil || root.finalized {
+		return ErrRequestNotFound
+	}
+	if _, exists := r.byRequest[requestID]; exists {
+		return ErrDuplicateRequestID
+	}
+	if _, exists := r.queued[requestID]; exists {
+		return ErrDuplicateRequestID
+	}
+	r.queued[requestID] = queuedRequestReservation{SessionID: sessionID, RootGeneration: rootGeneration}
+	return nil
+}
+
+// ReleaseQueuedForGeneration releases delivery identities only when their
+// owning root generation's forwarder ends. A pending-input boundary starts
+// delivery ownership; it does not make the queued identity reusable.
+func (r *ActiveRequestRegistry) ReleaseQueuedForGeneration(sessionID string, rootGeneration uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for requestID, reservation := range r.queued {
+		if reservation.SessionID == sessionID && reservation.RootGeneration == rootGeneration {
+			delete(r.queued, requestID)
+		}
+	}
 }
 
 // BindCanceller attaches the exact session run only after AskStream has
@@ -533,6 +593,7 @@ func (r *ActiveRequestRegistry) snapshot(req *ActiveRequest) ActiveRequest {
 	return ActiveRequest{
 		SessionID:       req.SessionID,
 		RequestID:       req.RequestID,
+		Generation:      req.Generation,
 		AgentInstanceID: req.AgentInstanceID,
 		ModelID:         req.ModelID,
 		ProviderID:      req.ProviderID,

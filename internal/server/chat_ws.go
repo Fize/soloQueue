@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
@@ -283,6 +285,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		Origin:    telemetry.OriginDesktop,
 		OwnerID:   client.ownerID,
 	})
+	reqCtx, generationCapture := withRequestGenerationCapture(reqCtx)
 	reqCtx, routeCapture := session.WithRequestRouteCapture(reqCtx)
 	if len(images) > 0 {
 		reqCtx = context.WithValue(reqCtx, ctxwin.ImageContextKey, images)
@@ -307,12 +310,29 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 
 	// Call AskStream.
 	ch, askErr := sess.AskStream(reqCtx, finalPrompt)
+	requestGeneration, generationCaptured := takeRequestGeneration(generationCapture)
 	if askErr != nil {
 		if askErr == session.ErrQueued {
 			// AskStream got queued behind an in-flight request (e.g. the L1
 			// session, which the registry permits to be concurrent). Accept
 			// the message into the pending queue instead of rejecting it.
-			sess.QueueMessage(finalPrompt)
+			root, rootOK := h.requests.GetBySession(sessionID)
+			if !rootOK {
+				client.sendJSON(WSMessage{Type: "chat_error", RequestID: msg.RequestID, SessionID: sessionID, Error: ErrRequestNotFound.Error()})
+				client.removeActiveRequest(msg.RequestID)
+				return
+			}
+			if reserveErr := h.requests.ReserveQueued(sessionID, msg.RequestID, root.Generation); reserveErr != nil {
+				client.sendJSON(WSMessage{
+					Type:      "chat_error",
+					RequestID: msg.RequestID,
+					SessionID: sessionID,
+					Error:     reserveErr.Error(),
+				})
+				client.removeActiveRequest(msg.RequestID)
+				return
+			}
+			sess.QueueMessage(finalPrompt, msg.RequestID)
 			client.sendJSON(WSMessage{
 				Type:      "chat_queued",
 				RequestID: msg.RequestID,
@@ -327,7 +347,14 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			RequestID: msg.RequestID,
 			Error:     askErr.Error(),
 		})
+		if generationCaptured {
+			h.requests.ReleaseQueuedForGeneration(sessionID, requestGeneration)
+		}
 		client.removeActiveRequest(msg.RequestID)
+		return
+	}
+	if !generationCaptured {
+		h.handleMissingRequestGeneration(client, sess, msg.RequestID, sessionID, ch)
 		return
 	}
 	// Routing is complete before AskStream returns. Send its request-scoped
@@ -346,7 +373,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 
 	// Consume agent events and forward to client.
 	forwarderStarted = true
-	go h.forwardAgentEvents(client, msg.RequestID, reqCancel, ch, msg.SessionID, msg.Prompt)
+	go h.forwardAgentEvents(client, msg.RequestID, requestGeneration, reqCancel, ch, msg.SessionID, msg.Prompt)
 }
 
 func (h *Hub) finalizeRequest(sessionID, requestID string) {
@@ -503,14 +530,69 @@ func cancelRequest(canceller requestCanceller, requestID, reason string) error {
 	return canceller.CancelRun(requestID, reason)
 }
 
+const unownedRequestStreamDrainTimeout = 2 * time.Second
+
+func (h *Hub) handleMissingRequestGeneration(client *Client, sess *session.Session, requestID, sessionID string, ch <-chan iface.AgentEvent) {
+	if cleanupErr := cancelAndDrainUnownedRequestStream(sess, requestID, ch); cleanupErr != nil && h.mux != nil && h.mux.log != nil {
+		h.mux.log.WarnContext(context.Background(), logger.CatApp, "chat stream cleanup failed after missing generation capture",
+			"session_id", sessionID,
+			"request_id", requestID,
+			"err", cleanupErr.Error(),
+		)
+	}
+	client.sendJSON(WSMessage{Type: "chat_error", RequestID: requestID, SessionID: sessionID, Error: errRequestGenerationCaptureMissing.Error()})
+	client.removeActiveRequest(requestID)
+}
+
+// cancelAndDrainUnownedRequestStream terminates a run that started successfully
+// but cannot be assigned to an immutable request generation. Draining must begin
+// before cancellation because Session's event forwarder owns a bounded output
+// channel and cannot finish while that channel is full.
+func cancelAndDrainUnownedRequestStream(sess *session.Session, requestID string, ch <-chan iface.AgentEvent) error {
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for range ch {
+		}
+	}()
+
+	cancelErr := sess.CancelRun(requestID, "missing request generation capture")
+	if errors.Is(cancelErr, session.ErrNoActiveTask) {
+		// The run may have completed between AskStream returning and cancellation.
+		// A naturally closed stream is still a successful cleanup.
+		cancelErr = nil
+	}
+
+	timer := time.NewTimer(unownedRequestStreamDrainTimeout)
+	defer timer.Stop()
+	select {
+	case <-drained:
+		if cancelErr != nil {
+			return fmt.Errorf("cancel unowned request stream: %w", cancelErr)
+		}
+		return nil
+	case <-timer.C:
+		drainErr := fmt.Errorf("timed out after %s waiting for unowned request stream to close", unownedRequestStreamDrainTimeout)
+		if cancelErr != nil {
+			return errors.Join(fmt.Errorf("cancel unowned request stream: %w", cancelErr), drainErr)
+		}
+		return drainErr
+	}
+}
+
 // ─── Event Forwarding ───────────────────────────────────────────────────────
 
 // forwardAgentEvents reads from the agent event channel and converts each event
 // to a WSMessage pushed directly to the client's send channel.
 // The goroutine exits when the channel closes or the request context is cancelled.
-func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel context.CancelFunc, ch <-chan iface.AgentEvent, sessionID string, prompt string) {
+func (h *Hub) forwardAgentEvents(client *Client, requestID string, requestGeneration uint64, cancel context.CancelFunc, ch <-chan iface.AgentEvent, sessionID string, prompt string) {
 	defer cancel()
 	defer client.removeActiveRequest(requestID)
+	defer func() {
+		if h.requests != nil {
+			h.requests.ReleaseQueuedForGeneration(sessionID, requestGeneration)
+		}
+	}()
 	defer func() {
 		if h.mux != nil && h.mux.l2Store != nil && strings.HasPrefix(sessionID, "l2:") {
 			id := strings.TrimPrefix(sessionID, "l2:")
@@ -531,10 +613,11 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 	// content/reasoning buffers and flushing them in a fixed order would reorder
 	// a reasoning→content transition that occurs within the same 30 ms window.
 	var (
-		pendingDelta strings.Builder
-		pendingType  string
-		flushTimer   *time.Timer
-		flushC       <-chan time.Time
+		pendingDelta      strings.Builder
+		pendingType       string
+		flushTimer        *time.Timer
+		flushC            <-chan time.Time
+		deliveryRequestID = requestID
 	)
 
 	deliveryAttached := true
@@ -542,7 +625,7 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 		if pendingType != "" {
 			if deliveryAttached && !client.sendJSON(WSMessage{
 				Type:      pendingType,
-				RequestID: requestID,
+				RequestID: deliveryRequestID,
 				SessionID: sessionID,
 				Delta:     pendingDelta.String(),
 			}) {
@@ -611,7 +694,7 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 							h.mux.l2Store.SetName(l2ID, title)
 							client.sendJSON(WSMessage{
 								Type:      "session_name",
-								RequestID: requestID,
+								RequestID: deliveryRequestID,
 								SessionID: sessionID,
 								Name:      title,
 							})
@@ -663,7 +746,7 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 								if updatedEntry != nil {
 									client.sendJSON(WSMessage{
 										Type:      "session_plans",
-										RequestID: requestID,
+										RequestID: deliveryRequestID,
 										SessionID: sessionID,
 										Plans:     updatedEntry.Plans,
 									})
@@ -674,9 +757,12 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 				}
 			}
 
-			wsMsg := convertAgentEvent(agEv, requestID, sessionID)
+			wsMsg := convertAgentEvent(agEv, deliveryRequestID, sessionID)
 			if wsMsg == nil {
 				continue
+			}
+			if _, ok := agEv.(agent.PendingInputStartedEvent); ok {
+				wsMsg.CancelRequestID = requestID
 			}
 
 			// Track delegation state for Stop button and global registry.
@@ -695,6 +781,9 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, cancel contex
 
 			if deliveryAttached && !client.sendJSON(*wsMsg) {
 				deliveryAttached = false
+			}
+			if started, ok := agEv.(agent.PendingInputStartedEvent); ok && len(started.RequestIDs) > 0 {
+				deliveryRequestID = started.RequestIDs[len(started.RequestIDs)-1]
 			}
 
 		case <-flushC:
@@ -721,6 +810,15 @@ func convertAgentEvent(ev agent.AgentEvent, requestID, sessionID string) *WSMess
 			RequestID: requestID,
 			SessionID: sessionID,
 			Delta:     e.Delta,
+		}
+
+	case agent.PendingInputStartedEvent:
+		return &WSMessage{
+			Type:            "chat_queue_started",
+			RequestID:       requestID,
+			RequestIDs:      append([]string(nil), e.RequestIDs...),
+			CancelRequestID: requestID,
+			SessionID:       sessionID,
 		}
 
 	case agent.ToolExecStartEvent:

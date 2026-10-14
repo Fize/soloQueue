@@ -29,8 +29,10 @@ export function useChatStream() {
   const {
     activeSessionId,
     addMessage,
+    insertMessageAfterRequest,
     registerRequest,
     updateRequestStatus,
+    updateRequestCancelId,
     updateRequestRoute,
     removeRequest,
     appendAssistantContent,
@@ -83,6 +85,8 @@ export function useChatStream() {
         return false
       }
 
+      const requestId = generateRequestId()
+
       const activeForSession = Object.values(state.activeRequests).filter(
         (request) => request.sessionId === sid
       )
@@ -113,6 +117,7 @@ export function useChatStream() {
         const msgId = `msg-${Date.now()}`
         addMessage(sid, {
           id: msgId,
+          requestId,
           role: 'user',
           segments: [{ type: 'content', text: prompt }],
           timestamp: new Date().toISOString(),
@@ -122,7 +127,6 @@ export function useChatStream() {
 
       const isDesignMode = useRuntimeStore.getState().isDesignMode
 
-      const requestId = generateRequestId()
       const chatMessage = {
         type: 'chat_send' as const,
         request_id: requestId,
@@ -166,15 +170,21 @@ export function useChatStream() {
       // Create the assistant message only after the session produces output.
       // A queued prompt has no assistant response yet, matching Bot behavior.
       let asstId: string | undefined
+      let anchorAssistantToRequest = false
       const ensureAssistantMessage = () => {
         if (!asstId) {
           asstId = `msg-${requestId}`
-          addMessage(sid, {
+          const assistantMessage = {
             id: asstId,
-            role: 'assistant',
+            role: 'assistant' as const,
             segments: [],
             timestamp: new Date().toISOString(),
-          })
+          }
+          if (anchorAssistantToRequest) {
+            insertMessageAfterRequest(sid, requestId, assistantMessage)
+          } else {
+            addMessage(sid, assistantMessage)
+          }
         }
         return asstId
       }
@@ -192,6 +202,7 @@ export function useChatStream() {
 
       let finished = false
       let accepted = false
+      let queueStarted = false
       let ackTimer: ReturnType<typeof setTimeout> | null = null
       const clearAckTimer = () => {
         if (ackTimer !== null) {
@@ -296,8 +307,22 @@ export function useChatStream() {
           // The session is serial: the server accepted the message into its
           // pending queue and will inject it before the agent's next LLM
           // call. Keep only the user message until output is produced.
-          updateRequestStatus(requestId, 'queued')
-          finishRequest()
+          accepted = true
+          clearAckTimer()
+          if (!queueStarted) {
+            updateRequestStatus(requestId, 'queued')
+          }
+        },
+        onQueueStarted: ({ owns_stream, cancel_request_id }) => {
+          if (!owns_stream) {
+            finishRequest()
+            return
+          }
+          queueStarted = true
+          updateRequestStatus(requestId, 'streaming')
+          updateRequestCancelId(requestId, cancel_request_id)
+          anchorAssistantToRequest = true
+          ensureAssistantMessage()
         },
         onError: (error) => {
           failAssistantMessage(sid, ensureAssistantMessage(), error)
@@ -307,9 +332,10 @@ export function useChatStream() {
           if (error) {
             failAssistantMessage(sid, ensureAssistantMessage(), error)
           } else if (!asstId) {
-            const terminalText = terminal_code === 'completed'
-              ? 'Response completed; loading history…'
-              : `Request ${terminal_code || 'ended'}.`
+            const terminalText =
+              terminal_code === 'completed'
+                ? 'Response completed; loading history…'
+                : `Request ${terminal_code || 'ended'}.`
             appendAssistantContent(sid, ensureAssistantMessage(), terminalText)
           }
           finishRequest()
@@ -346,6 +372,7 @@ export function useChatStream() {
     },
     [
       addMessage,
+      insertMessageAfterRequest,
       appendAssistantContent,
       appendAssistantThinking,
       appendAssistantCompact,
@@ -363,6 +390,7 @@ export function useChatStream() {
       clearRoute,
       registerRequest,
       updateRequestStatus,
+      updateRequestCancelId,
       updateRequestRoute,
       removeRequest,
     ]
@@ -373,14 +401,20 @@ export function useChatStream() {
     if (!sid) return
 
     const store = useChatStore.getState()
+    const activeRequest = Object.values(store.activeRequests)
+      .filter((request) => request.sessionId === sid && request.status !== 'queued')
+      .at(-1)
     const requestId =
-      Object.values(store.activeRequests)
-        .filter((request) => request.sessionId === sid)
-        .at(-1)?.requestId || store.routeSessions[sid]?.requestId ||
-      Object.entries(useRuntimeStore.getState().status?.sessions ?? {})
-        .find(([key, runtime]) => runtimeSessionId(key, runtime) === sid && runtime.state !== 'idle' && runtime.state !== 'error')?.[1]
-        ?.request_id
+      activeRequest?.requestId ||
+      store.routeSessions[sid]?.requestId ||
+      Object.entries(useRuntimeStore.getState().status?.sessions ?? {}).find(
+        ([key, runtime]) =>
+          runtimeSessionId(key, runtime) === sid &&
+          runtime.state !== 'idle' &&
+          runtime.state !== 'error'
+      )?.[1]?.request_id
     if (!requestId) return
+    const cancelRequestId = activeRequest?.cancelRequestId || requestId
 
     store.cancelRunningDelegations(sid)
     store.updateRequestStatus(requestId, 'cancelling')
@@ -406,7 +440,7 @@ export function useChatStream() {
 
     wsManager.send({
       type: 'chat_cancel',
-      request_id: requestId,
+      request_id: cancelRequestId,
       session_id: sid,
     })
   }, [activeSessionId])

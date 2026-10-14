@@ -23,12 +23,13 @@ vi.mock('@/stores/chatStore', () => ({
       activeRequests?: Record<string, { sessionId: string }>
       rewindSession: typeof mocks.rewindSession
       deleteSessionMessages: typeof mocks.deleteSessionMessages
-    }) => unknown,
+    }) => unknown
   ) =>
     selector({
       activeSessionId: 'session-1',
       routeSessions: { 'session-1': { requestId: 'request-active' } },
       activeRequests: {
+        'request-active': { sessionId: 'session-1', status: 'streaming' },
         'req-background': { sessionId: 'session-1' },
         '860eb610-a88a-433a-937d-7620d7e84642': { sessionId: 'session-1' },
       },
@@ -46,8 +47,10 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('./chat/SegmentView', () => ({
-  SegmentView: ({ segment, requestId }: { segment: { text?: string }, requestId?: string }) => (
-    <span data-testid={`segment-${segment.text}`} data-request-id={requestId ?? ''}>{segment.text}</span>
+  SegmentView: ({ segment, requestId }: { segment: { text?: string }; requestId?: string }) => (
+    <span data-testid={`segment-${segment.text}`} data-request-id={requestId ?? ''}>
+      {segment.text}
+    </span>
   ),
   LoadingIndicator: () => <span>loading</span>,
 }))
@@ -74,8 +77,12 @@ vi.mock('@/components/ui/confirm-dialog', () => ({
     open ? (
       <div role="dialog" aria-label={title}>
         <p>{message}</p>
-        <button onClick={onConfirm} disabled={loading}>confirm dialog action</button>
-        <button onClick={() => onOpenChange(false)} disabled={loading}>cancel dialog action</button>
+        <button onClick={onConfirm} disabled={loading}>
+          confirm dialog action
+        </button>
+        <button onClick={() => onOpenChange(false)} disabled={loading}>
+          cancel dialog action
+        </button>
       </div>
     ) : null,
 }))
@@ -98,23 +105,26 @@ describe('ChatMessageView copy', () => {
   it.each([
     ['user', 'Copy message', 'exact user text'],
     ['assistant', 'Copy response', 'exact assistant response'],
-  ] as const)('copies %s text through the DOM fallback when Clipboard API is unavailable', async (role, title, text) => {
-    const copiedValues: string[] = []
-    Object.defineProperty(document, 'execCommand', {
-      configurable: true,
-      value: vi.fn(() => {
-        copiedValues.push((document.activeElement as HTMLTextAreaElement).value)
-        return true
-      }),
-    })
+  ] as const)(
+    'copies %s text through the DOM fallback when Clipboard API is unavailable',
+    async (role, title, text) => {
+      const copiedValues: string[] = []
+      Object.defineProperty(document, 'execCommand', {
+        configurable: true,
+        value: vi.fn(() => {
+          copiedValues.push((document.activeElement as HTMLTextAreaElement).value)
+          return true
+        }),
+      })
 
-    render(<ChatMessageView message={message(role, text)} />)
-    fireEvent.click(screen.getByTitle(title))
+      render(<ChatMessageView message={message(role, text)} />)
+      fireEvent.click(screen.getByTitle(title))
 
-    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith('common.copiedSuccess'))
-    expect(copiedValues).toEqual([text])
-    expect(mocks.toastError).not.toHaveBeenCalled()
-  })
+      await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith('common.copiedSuccess'))
+      expect(copiedValues).toEqual([text])
+      expect(mocks.toastError).not.toHaveBeenCalled()
+    }
+  )
 
   it('uses the DOM fallback when Clipboard API rejects', async () => {
     const writeText = vi.fn().mockRejectedValue(new Error('denied'))
@@ -148,16 +158,60 @@ describe('ChatMessageView copy', () => {
 })
 
 describe('ChatMessageView request-owned streams', () => {
+  it('shows loading for a running empty assistant bubble', () => {
+    render(
+      <ChatMessageView
+        message={{
+          id: 'msg-request-active',
+          requestId: 'request-active',
+          role: 'assistant',
+          segments: [],
+          timestamp: '2026-08-31T10:00:00Z',
+        }}
+        sessionId="session-1"
+      />
+    )
+
+    expect(screen.getByText('loading')).toBeInTheDocument()
+  })
+
+  it('keeps an unowned empty assistant bubble hidden', () => {
+    const { container } = render(
+      <ChatMessageView
+        message={{
+          id: 'historical-empty',
+          role: 'assistant',
+          segments: [],
+          timestamp: '2026-08-31T10:00:00Z',
+        }}
+        sessionId="session-1"
+      />
+    )
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('passes the active request ID only to its virtual assistant message', () => {
     const current: ChatMessage = {
       ...message('assistant', 'current delegation'),
       id: 'msg-request-active',
     }
     const { rerender } = render(<ChatMessageView message={current} sessionId="session-1" />)
-    expect(screen.getByTestId('segment-current delegation')).toHaveAttribute('data-request-id', 'request-active')
+    expect(screen.getByTestId('segment-current delegation')).toHaveAttribute(
+      'data-request-id',
+      'request-active'
+    )
 
-    rerender(<ChatMessageView message={message('assistant', 'historical delegation')} sessionId="session-1" />)
-    expect(screen.getByTestId('segment-historical delegation')).toHaveAttribute('data-request-id', '')
+    rerender(
+      <ChatMessageView
+        message={message('assistant', 'historical delegation')}
+        sessionId="session-1"
+      />
+    )
+    expect(screen.getByTestId('segment-historical delegation')).toHaveAttribute(
+      'data-request-id',
+      ''
+    )
   })
 
   it('passes the identity embedded in a concurrent recovered message', () => {
@@ -168,12 +222,12 @@ describe('ChatMessageView request-owned streams', () => {
           id: 'msg-req-background',
         }}
         sessionId="session-1"
-      />,
+      />
     )
 
     expect(screen.getByTestId('segment-background delegation')).toHaveAttribute(
       'data-request-id',
-      'req-background',
+      'req-background'
     )
   })
 
@@ -185,30 +239,32 @@ describe('ChatMessageView request-owned streams', () => {
           id: 'msg-860eb610-a88a-433a-937d-7620d7e84642',
         }}
         sessionId="session-1"
-      />,
+      />
     )
 
     expect(screen.getByTestId('segment-uuid delegation')).toHaveAttribute(
       'data-request-id',
-      '860eb610-a88a-433a-937d-7620d7e84642',
+      '860eb610-a88a-433a-937d-7620d7e84642'
     )
   })
 
   it('uses explicit request metadata for arbitrary channel request IDs', () => {
     render(
       <ChatMessageView
-        message={{
-          ...message('assistant', 'channel delegation'),
-          id: 'msg-channel-run-id',
-          requestId: 'channel-run-id',
-        } as ChatMessage & { requestId: string }}
+        message={
+          {
+            ...message('assistant', 'channel delegation'),
+            id: 'msg-channel-run-id',
+            requestId: 'channel-run-id',
+          } as ChatMessage & { requestId: string }
+        }
         sessionId="session-1"
-      />,
+      />
     )
 
     expect(screen.getByTestId('segment-channel delegation')).toHaveAttribute(
       'data-request-id',
-      'channel-run-id',
+      'channel-run-id'
     )
   })
 
@@ -220,12 +276,12 @@ describe('ChatMessageView request-owned streams', () => {
           id: 'msg-old-history',
         }}
         sessionId="session-1"
-      />,
+      />
     )
 
     expect(screen.getByTestId('segment-historical prefixed delegation')).toHaveAttribute(
       'data-request-id',
-      '',
+      ''
     )
   })
 })
@@ -250,21 +306,24 @@ describe('ChatMessageView destructive actions', () => {
       mutation: mocks.deleteSessionMessages,
       expectedArgs: ['session-1', ['2026-08-31T10:00:00Z']],
     },
-  ])('uses a custom confirmation for $actionTitle and keeps cancel non-destructive', async ({ actionTitle, dialogTitle, mutation, expectedArgs }) => {
-    const nativeConfirm = vi.spyOn(window, 'confirm').mockImplementation(() => {
-      throw new Error('native confirm must not be called')
-    })
-    render(<ChatMessageView message={message('user', 'editable user text')} />)
+  ])(
+    'uses a custom confirmation for $actionTitle and keeps cancel non-destructive',
+    async ({ actionTitle, dialogTitle, mutation, expectedArgs }) => {
+      const nativeConfirm = vi.spyOn(window, 'confirm').mockImplementation(() => {
+        throw new Error('native confirm must not be called')
+      })
+      render(<ChatMessageView message={message('user', 'editable user text')} />)
 
-    fireEvent.click(screen.getByTitle(actionTitle))
-    expect(screen.getByRole('dialog', { name: dialogTitle })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'cancel dialog action' }))
-    expect(mutation).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByTitle(actionTitle))
+      expect(screen.getByRole('dialog', { name: dialogTitle })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'cancel dialog action' }))
+      expect(mutation).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByTitle(actionTitle))
-    fireEvent.click(screen.getByRole('button', { name: 'confirm dialog action' }))
+      fireEvent.click(screen.getByTitle(actionTitle))
+      fireEvent.click(screen.getByRole('button', { name: 'confirm dialog action' }))
 
-    await waitFor(() => expect(mutation).toHaveBeenCalledWith(...expectedArgs))
-    expect(nativeConfirm).not.toHaveBeenCalled()
-  })
+      await waitFor(() => expect(mutation).toHaveBeenCalledWith(...expectedArgs))
+      expect(nativeConfirm).not.toHaveBeenCalled()
+    }
+  )
 })

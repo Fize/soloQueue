@@ -1,13 +1,22 @@
 import { create } from 'zustand'
 import { preserveWorkedStateKeys } from '@/components/chat/preserveWorkedStateKeys'
 import type { ChatSession, ChatMessage, ChatSegment, ChatRouteInfo } from '@/types'
-import { listSessions, createL2Session, deleteL2Session, fetchSessionHistory, rewindSession as apiRewindSession, deleteSessionMessages as apiDeleteSessionMessages } from '@/lib/api'
+import {
+  listSessions,
+  createL2Session,
+  deleteL2Session,
+  fetchSessionHistory,
+  rewindSession as apiRewindSession,
+  deleteSessionMessages as apiDeleteSessionMessages,
+} from '@/lib/api'
 import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
 
 export type ChatRequestStatus = 'starting' | 'streaming' | 'queued' | 'cancelling'
 
 export interface ActiveChatRequest {
   requestId: string
+  /** Transport/root request that owns backend cancellation after queue hand-off. */
+  cancelRequestId?: string
   sessionId: string
   status: ChatRequestStatus
   route?: ChatRouteInfo
@@ -41,8 +50,10 @@ interface ChatState {
   markTitleGenerated: (id: string) => void
 
   addMessage: (sessionId: string, message: ChatMessage) => void
+  insertMessageAfterRequest: (sessionId: string, requestId: string, message: ChatMessage) => void
   registerRequest: (requestId: string, sessionId: string, route?: ChatRouteInfo) => void
   updateRequestStatus: (requestId: string, status: ChatRequestStatus) => void
+  updateRequestCancelId: (requestId: string, cancelRequestId: string) => void
   updateRequestRoute: (requestId: string, route: ChatRouteInfo) => void
   removeRequest: (requestId: string) => void
   reconcileRuntimeTerminal: (requestId: string, sessionId: string) => void
@@ -64,10 +75,15 @@ interface ChatState {
   clearRoute: (sessionId: string, requestId: string) => void
   removeLastEmptyAssistantMessage: (sessionId: string) => void
   addDelegationSegment: (sessionId: string, delegation: { agentName: string; task: string }) => void
-  completeLastDelegation: (sessionId: string, agentName: string, durationMs?: number, resultContent?: string) => void
+  completeLastDelegation: (
+    sessionId: string,
+    agentName: string,
+    durationMs?: number,
+    resultContent?: string
+  ) => void
   cancelRunningDelegations: (sessionId: string) => void
   failAssistantMessage: (sessionId: string, messageId: string, error: string) => void
-  
+
   rewindSession: (sessionId: string, targetTs: string) => Promise<void>
   deleteSessionMessages: (sessionId: string, targetTsList: string[]) => Promise<void>
 }
@@ -95,9 +111,7 @@ function loadActiveChatRoutes(): Record<string, ChatRouteInfo> {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
 
     return Object.fromEntries(
-      Object.entries(parsed).filter(([sessionId, route]) =>
-        isPersistedChatRoute(route, sessionId)
-      )
+      Object.entries(parsed).filter(([sessionId, route]) => isPersistedChatRoute(route, sessionId))
     ) as Record<string, ChatRouteInfo>
   } catch {
     return {}
@@ -317,7 +331,9 @@ export const useChatStore = create<ChatState>((set) => ({
           return {}
         }
         const preservedIds = s.historyPreservedMessageIds[sessionId] || []
-        if (preservedIds.some((messageId) => current?.some((message) => message.id === messageId))) {
+        if (
+          preservedIds.some((messageId) => current?.some((message) => message.id === messageId))
+        ) {
           return {}
         }
         return {
@@ -408,21 +424,61 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
+  insertMessageAfterRequest: (sessionId: string, requestId: string, message: ChatMessage) => {
+    set((s) => {
+      const msgs = [...(s.messages[sessionId] || [])]
+      let anchorIndex = -1
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === 'user' && msgs[i].requestId === requestId) {
+          anchorIndex = i
+          break
+        }
+      }
+      msgs.splice(anchorIndex >= 0 ? anchorIndex + 1 : msgs.length, 0, message)
+      return {
+        messages: {
+          ...s.messages,
+          [sessionId]: msgs,
+        },
+      }
+    })
+  },
+
   registerRequest: (requestId: string, sessionId: string, route?: ChatRouteInfo) =>
     set((s) => ({
       activeRequests: {
         ...s.activeRequests,
-        [requestId]: { requestId, sessionId, status: 'starting', route },
+        [requestId]: {
+          requestId,
+          cancelRequestId: requestId,
+          sessionId,
+          status: 'starting',
+          route,
+        },
       },
     })),
   updateRequestStatus: (requestId: string, status: ChatRequestStatus) =>
     set((s) => {
       const request = s.activeRequests[requestId]
       if (!request) return s
+      if (request.status === 'cancelling' && status !== 'cancelling') {
+        return s
+      }
       return {
         activeRequests: {
           ...s.activeRequests,
           [requestId]: { ...request, status },
+        },
+      }
+    }),
+  updateRequestCancelId: (requestId: string, cancelRequestId: string) =>
+    set((s) => {
+      const request = s.activeRequests[requestId]
+      if (!request) return s
+      return {
+        activeRequests: {
+          ...s.activeRequests,
+          [requestId]: { ...request, cancelRequestId },
         },
       }
     }),
@@ -495,7 +551,9 @@ export const useChatStore = create<ChatState>((set) => ({
       const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
       if (idx === -1) {
         if (text && text.trim()) {
-          console.warn(`[chatStore] Dropping content delta (${text.length} chars) for session ${sid}: no assistant message found`)
+          console.warn(
+            `[chatStore] Dropping content delta (${text.length} chars) for session ${sid}: no assistant message found`
+          )
         }
         return s
       }
@@ -524,7 +582,9 @@ export const useChatStore = create<ChatState>((set) => ({
       const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
       if (idx === -1) {
         if (text && text.trim()) {
-          console.warn(`[chatStore] Dropping thinking delta (${text.length} chars) for session ${sid}: no assistant message found`)
+          console.warn(
+            `[chatStore] Dropping thinking delta (${text.length} chars) for session ${sid}: no assistant message found`
+          )
         }
         return s
       }
@@ -564,7 +624,13 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  updateToolCallResult: (sessionId: string, callId: string, result: string, error?: string, durationMs?: number) => {
+  updateToolCallResult: (
+    sessionId: string,
+    callId: string,
+    result: string,
+    error?: string,
+    durationMs?: number
+  ) => {
     set((s) => {
       const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
@@ -641,12 +707,12 @@ export const useChatStore = create<ChatState>((set) => ({
       return {
         routeSessions,
         sessions: route.agentInstanceId
-        ? s.sessions.map((session) =>
-            session.id === route.sessionId && session.agent_instance_id !== route.agentInstanceId
-              ? { ...session, agent_instance_id: route.agentInstanceId }
-              : session
-          )
-        : s.sessions,
+          ? s.sessions.map((session) =>
+              session.id === route.sessionId && session.agent_instance_id !== route.agentInstanceId
+                ? { ...session, agent_instance_id: route.agentInstanceId }
+                : session
+            )
+          : s.sessions,
       }
     }),
   clearRoute: (sessionId: string, requestId: string) =>
@@ -691,7 +757,12 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  completeLastDelegation: (sessionId: string, agentName: string, durationMs?: number, resultContent?: string) => {
+  completeLastDelegation: (
+    sessionId: string,
+    agentName: string,
+    durationMs?: number,
+    resultContent?: string
+  ) => {
     set((s) => {
       const sid = sessionId
       const msgs = [...(s.messages[sid] || [])]
@@ -744,7 +815,11 @@ export const useChatStore = create<ChatState>((set) => ({
         if (msg.role !== 'assistant') return msg
         let messageChanged = false
         const segments = msg.segments.map((seg) => {
-          if (seg.type === 'tool_call' && (seg.name === 'delegate' || seg.name.startsWith('delegate_')) && !seg.done) {
+          if (
+            seg.type === 'tool_call' &&
+            (seg.name === 'delegate' || seg.name.startsWith('delegate_')) &&
+            !seg.done
+          ) {
             changed = true
             messageChanged = true
             return { ...seg, done: true, error: 'Cancelled by user' }
@@ -831,8 +906,8 @@ export const useChatStore = create<ChatState>((set) => ({
       // Expand targetTsList to include paired assistant messages
       const msgs = useChatStore.getState().messages[sessionId] || []
       const expandedSet = new Set(targetTsList)
-      
-      targetTsList.forEach(ts => {
+
+      targetTsList.forEach((ts) => {
         const idx = msgs.findIndex((m: ChatMessage) => m.timestamp === ts)
         if (idx !== -1 && msgs[idx].role === 'user') {
           // Find subsequent assistant messages until the next user message
@@ -842,7 +917,7 @@ export const useChatStore = create<ChatState>((set) => ({
           }
         }
       })
-      
+
       const expandedTsList = Array.from(expandedSet)
 
       await apiDeleteSessionMessages(sessionId, expandedTsList)

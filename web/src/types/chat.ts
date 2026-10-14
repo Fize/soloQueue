@@ -80,6 +80,14 @@ export interface WSChatQueued extends WSChatEnvelope {
   error?: string;
 }
 
+export interface WSChatQueueStarted extends WSChatEnvelope {
+  type: "chat_queue_started";
+  request_id: string;
+  request_ids: string[];
+  cancel_request_id: string;
+  session_id: string;
+}
+
 export interface WSDelegationStart extends WSChatEnvelope {
   type: "delegation_start";
   request_id: string;
@@ -141,6 +149,7 @@ export type WSMessage =
   | WSChatDone
   | WSChatError
   | WSChatQueued
+  | WSChatQueueStarted
   | WSDelegationStart
   | WSDelegationDone
   | WSSessionName

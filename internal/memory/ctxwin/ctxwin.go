@@ -43,6 +43,7 @@ type TemporalPart struct {
 type PendingInput struct {
 	Content       string
 	TemporalParts []TemporalPart
+	RequestIDs    []string
 }
 
 func truncateTemporalContent(content string, parts []TemporalPart, headRatio, tailRatio float64) (string, []TemporalPart) {
@@ -811,19 +812,23 @@ func (cw *ContextWindow) SetPendingDrainer(fn func() PendingInput) {
 // Called by the agent's tool loop at the top of each iteration, before
 // building messages for the next LLM API call. This ensures queued user
 // messages are injected at the next natural break point.
-func (cw *ContextWindow) DrainPending() {
+func (cw *ContextWindow) DrainPending() []string {
 	if cw.pendingDrain == nil {
-		return
+		return nil
 	}
 	pending := cw.pendingDrain()
 	if pending.Content == "" {
-		return
+		return nil
 	}
 	opts := make([]PushOption, 0, 1)
 	if len(pending.TemporalParts) > 0 {
 		opts = append(opts, WithTemporalParts(pending.TemporalParts))
 	}
+	if len(pending.RequestIDs) > 0 {
+		opts = append(opts, WithRequestID(pending.RequestIDs[len(pending.RequestIDs)-1]))
+	}
 	cw.Push(RoleUser, pending.Content, opts...)
+	return append([]string(nil), pending.RequestIDs...)
 }
 
 // Recalculate recomputes the sum of all message token estimates from scratch.

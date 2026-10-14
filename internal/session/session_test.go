@@ -2412,6 +2412,42 @@ func TestSessionAskStreamWithModelUsesAndClearsOverride(t *testing.T) {
 	}
 }
 
+func TestSessionClearRunsRequestLifecycle(t *testing.T) {
+	s := NewSession("clear-lifecycle", "default", &agent.Agent{}, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, newTestLog(t))
+	started := make(chan string, 1)
+	finished := make(chan string, 1)
+	s.SetRequestLifecycleHooks(RequestLifecycleHooks{
+		OnStart: func(_ context.Context, _, requestID string) error {
+			started <- requestID
+			return nil
+		},
+		OnFinish: func(_, requestID, _, _ string) { finished <- requestID },
+	})
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-clear"})
+	ch, err := s.AskStream(ctx, "/clear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	select {
+	case got := <-started:
+		if got != "req-clear" {
+			t.Fatalf("started request = %q", got)
+		}
+	default:
+		t.Fatal("clear did not start request lifecycle")
+	}
+	select {
+	case got := <-finished:
+		if got != "req-clear" {
+			t.Fatalf("finished request = %q", got)
+		}
+	default:
+		t.Fatal("clear did not finish request lifecycle")
+	}
+}
+
 func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 	fake := &agenttest.FakeLLM{}
 	a := startAgent(t, fake)

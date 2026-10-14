@@ -208,6 +208,11 @@ func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, gene
 		return
 	}
 	requestID := agent.RequestIDOfEvent(ev)
+	if boundary, ok := ev.(agent.PendingInputStartedEvent); ok && boundary.PreviousRequestID != "" {
+		if previous := rm.agentStreams[agentStreamKey(instanceID, boundary.PreviousRequestID)]; previous != nil {
+			previous.Processing = false
+		}
+	}
 	streamKey := agentStreamKey(instanceID, requestID)
 	s := rm.agentStreams[streamKey]
 	if s == nil {
@@ -236,13 +241,12 @@ func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, gene
 			// snapshots when a newer request starts so the runtime payload does
 			// not grow without bound over the lifetime of the Agent instance.
 			for key, other := range rm.agentStreams {
-				if key != streamKey && !other.Processing {
+				if key != streamKey && other.AgentID == instanceID && !other.Processing {
 					delete(rm.agentStreams, key)
 				}
 			}
 		}
 	}
-
 	switch e := ev.(type) {
 	case agent.ContentDeltaEvent:
 		n := len(s.Segments)
