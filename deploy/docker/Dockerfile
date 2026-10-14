@@ -1,4 +1,4 @@
-FROM node:24-alpine AS web-build
+FROM --platform=$BUILDPLATFORM node:24-alpine AS web-build
 
 WORKDIR /src/web
 RUN npm install --global pnpm@11.13.1
@@ -8,7 +8,7 @@ RUN pnpm install --frozen-lockfile
 COPY web ./
 RUN pnpm build
 
-FROM node:24-alpine AS status-build
+FROM --platform=$BUILDPLATFORM node:24-alpine AS status-build
 
 WORKDIR /src/status-ui
 RUN npm install --global pnpm@11.13.1
@@ -18,7 +18,7 @@ RUN pnpm install --frozen-lockfile
 COPY status-ui ./
 RUN pnpm build
 
-FROM golang:1.25-bookworm AS go-build
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS go-build
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -28,12 +28,18 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY --from=web-build /src/web/dist ./web/dist
 COPY --from=status-build /src/status-ui/dist ./status-ui/dist
+ARG TARGETOS
+ARG TARGETARCH
+ARG BUILDOS
+ARG BUILDARCH
 ARG VERSION=dev
 RUN mkdir -p internal/assets/dist \
     && cp -r web/dist internal/assets/dist/web \
     && cp -r status-ui/dist internal/assets/dist/status \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/soloqueue ./cmd/soloqueue \
-    && test "$(/out/soloqueue version)" = "$VERSION"
+    && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/soloqueue ./cmd/soloqueue \
+    && if [ "$TARGETOS/$TARGETARCH" = "$BUILDOS/$BUILDARCH" ]; then test "$(/out/soloqueue version)" = "$VERSION"; fi
+
+FROM golang:1.25-bookworm AS go-runtime
 
 FROM node:24-bookworm-slim
 
@@ -61,7 +67,7 @@ RUN apt-get update \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=go-build /usr/local/go /usr/local/go
+COPY --from=go-runtime /usr/local/go /usr/local/go
 COPY --from=go-build /out/soloqueue /usr/local/bin/soloqueue
 ENV HOME=/root \
     PATH=/usr/local/go/bin:$PATH
