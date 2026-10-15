@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useChatStore } from './chatStore'
-import { fetchSessionHistory, listSessions } from '@/lib/api'
+import {
+  deleteL2Session as apiDeleteL2Session,
+  fetchSessionHistory,
+  listSessions,
+} from '@/lib/api'
+import { useInspectorStateStore } from './inspectorStateStore'
 
 vi.mock('@/lib/api', () => ({
   listSessions: vi.fn(),
@@ -12,7 +17,9 @@ vi.mock('@/lib/api', () => ({
 }))
 
 beforeEach(() => {
+  vi.restoreAllMocks()
   localStorage.clear()
+  useInspectorStateStore.setState({ sessions: {} })
   useChatStore.setState({
     sessions: [],
     activeSessionId: null,
@@ -29,6 +36,7 @@ beforeEach(() => {
     sessionsLoaded: false,
   })
   vi.clearAllMocks()
+  vi.mocked(apiDeleteL2Session).mockResolvedValue(undefined)
 })
 
 describe('chatStore', () => {
@@ -499,6 +507,7 @@ describe('chatStore', () => {
       modelId: 'routed-model',
     }
     localStorage.setItem('soloqueue_active_chat_routes', JSON.stringify({ [sid]: route }))
+    useInspectorStateStore.getState().updateSession(sid, { open: true })
     useChatStore.setState({
       sessions: [{ id: sid, type: 'l2', name: 'Delete test', createdAt: '' }],
       activeSessionId: sid,
@@ -518,6 +527,52 @@ describe('chatStore', () => {
     expect(state.systemCommandSessions[sid]).toBeUndefined()
     expect(state.delegatingSessions[sid]).toBeUndefined()
     expect(localStorage.getItem('soloqueue_active_chat_routes')).toBeNull()
+    expect(useInspectorStateStore.getState().sessions[sid]).toBeUndefined()
+  })
+
+  it('completes chat and Inspector cleanup when route storage removal throws', async () => {
+    const sid = 'l2:delete-storage-failure'
+    const route = {
+      requestId: 'r-storage',
+      sessionId: sid,
+      taskLevel: 'engineering',
+      modelId: 'routed-model',
+    }
+    useInspectorStateStore.getState().updateSession(sid, { open: true })
+    useChatStore.setState({
+      sessions: [{ id: sid, type: 'l2', name: 'Delete test', createdAt: '' }],
+      activeSessionId: sid,
+      messages: { [sid]: [] },
+      routeSessions: { [sid]: route },
+    })
+    const nativeRemoveItem = localStorage.removeItem.bind(localStorage)
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation((key: string) => {
+      if (key === 'soloqueue_active_chat_routes') throw new DOMException('blocked', 'SecurityError')
+      nativeRemoveItem(key)
+    })
+
+    await useChatStore.getState().deleteL2Session(sid)
+
+    expect(useChatStore.getState().sessions).toEqual([])
+    expect(useChatStore.getState().messages[sid]).toBeUndefined()
+    expect(useInspectorStateStore.getState().sessions[sid]).toBeUndefined()
+  })
+
+  it('retains chat and Inspector state when backend deletion fails', async () => {
+    const sid = 'l2:delete-backend-failure'
+    vi.mocked(apiDeleteL2Session).mockRejectedValueOnce(new Error('backend unavailable'))
+    useInspectorStateStore.getState().updateSession(sid, { open: true })
+    useChatStore.setState({
+      sessions: [{ id: sid, type: 'l2', name: 'Keep test', createdAt: '' }],
+      activeSessionId: sid,
+      messages: { [sid]: [] },
+    })
+
+    await useChatStore.getState().deleteL2Session(sid)
+
+    expect(useChatStore.getState().sessions).toHaveLength(1)
+    expect(useChatStore.getState().messages[sid]).toEqual([])
+    expect(useInspectorStateStore.getState().sessions[sid]).toBeDefined()
   })
 })
 

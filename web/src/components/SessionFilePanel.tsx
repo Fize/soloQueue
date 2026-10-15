@@ -20,6 +20,11 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import {
+  INSPECTOR_EXPANDED_DIRECTORIES_MAX,
+  normalizeInspectorRelativePath,
+  useInspectorStateStore,
+} from '@/stores/inspectorStateStore'
 
 interface TreeNode {
   path: string
@@ -59,16 +64,58 @@ function entryIcon(node: TreeNode, isOpen: boolean) {
 const INLINE_THRESHOLD = 450 // min panel width to render preview inline
 
 interface SessionFilePanelProps {
+  sessionId: string
   projectPath: string
   panelWidth?: number
 }
 
-function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanelProps) {
+function resolveProjectPath(
+  projectPath: string,
+  path: string,
+): { absolute: string; relative: string } | null {
+  const normalizedRoot = projectPath.replace(/\\/g, '/').replace(/\/+$/, '') || '/'
+  const slashPath = path.replace(/\\/g, '/')
+  let relativePath = slashPath
+
+  if (slashPath.startsWith('/')) {
+    const rootPrefix = normalizedRoot === '/' ? '/' : `${normalizedRoot}/`
+    if (!slashPath.startsWith(rootPrefix)) return null
+    relativePath = slashPath.slice(rootPrefix.length)
+  }
+
+  const relative = normalizeInspectorRelativePath(relativePath)
+  if (!relative) return null
+  return {
+    absolute: normalizedRoot === '/' ? `/${relative}` : `${normalizedRoot}/${relative}`,
+    relative,
+  }
+}
+
+function fromProjectRelativePath(projectPath: string, path: string | null): string | null {
+  return path ? resolveProjectPath(projectPath, path)?.absolute ?? null : null
+}
+
+function SessionFilePanelInner({ sessionId, projectPath, panelWidth = 0 }: SessionFilePanelProps) {
   const [children, setChildren] = useState<Record<string, TreeNode[]>>({})
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const snapshot = useInspectorStateStore.getState().sessions[sessionId]
+    const restoredDirectories =
+      snapshot?.projectPath === projectPath
+        ? snapshot.expandedDirectories
+            .slice(0, INSPECTOR_EXPANDED_DIRECTORIES_MAX)
+            .map((path) => fromProjectRelativePath(projectPath, path))
+            .filter((path): path is string => path !== null)
+        : []
+    return Object.fromEntries([projectPath, ...restoredDirectories].map((path) => [path, true]))
+  })
   const [loadingNodes, setLoadingNodes] = useState<Record<string, boolean>>({})
   const [modalOpen, setModalOpen] = useState(false)
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const inspectorSnapshot = useInspectorStateStore((state) => state.sessions[sessionId])
+  const updateInspectorSession = useInspectorStateStore((state) => state.updateSession)
+  const selectedPath =
+    inspectorSnapshot?.projectPath === projectPath
+      ? fromProjectRelativePath(projectPath, inspectorSnapshot.selectedFile)
+      : null
   const { t } = useTranslation()
 
   const isInline = panelWidth >= INLINE_THRESHOLD
@@ -78,38 +125,43 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
   }, [])
 
   const deselectFile = useCallback(() => {
-    setSelectedPath(null)
-  }, [])
+    updateInspectorSession(sessionId, { selectedFile: null })
+  }, [sessionId, updateInspectorSession])
 
   const loadNode = useCallback(async (path: string) => {
     setLoadingNodes((prev) => ({ ...prev, [path]: true }))
     try {
       const files = await listFiles(path)
-      const nodes: TreeNode[] = files.map((f: FileInfo) => ({
-        path: f.path,
-        name: f.name,
-        isDir: f.isDir,
-        ext: f.ext,
-        size: f.size,
-      }))
+      const nodes: TreeNode[] = files.flatMap((f: FileInfo) => {
+        const resolved = resolveProjectPath(projectPath, f.path)
+        return resolved
+          ? [{ path: resolved.absolute, name: f.name, isDir: f.isDir, ext: f.ext, size: f.size }]
+          : []
+      })
       setChildren((prev) => ({ ...prev, [path]: nodes }))
     } catch {
       /* file listing failures are shown as an empty node */
     } finally {
       setLoadingNodes((prev) => ({ ...prev, [path]: false }))
     }
-  }, [])
+  }, [projectPath])
 
   // Load root on mount / projectPath change
   useEffect(() => {
     if (!projectPath) return
-    // A project switch resets the tree selection before loading its root.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    deselectFile()
-    setExpanded({ [projectPath]: true })
-    setChildren({})
-    loadNode(projectPath)
-  }, [projectPath, deselectFile, loadNode])
+    updateInspectorSession(sessionId, { projectPath })
+    const snapshot = useInspectorStateStore.getState().sessions[sessionId]
+    const restoredDirectories =
+      snapshot?.projectPath === projectPath
+        ? snapshot.expandedDirectories
+            .slice(0, INSPECTOR_EXPANDED_DIRECTORIES_MAX)
+            .map((path) => fromProjectRelativePath(projectPath, path))
+            .filter((path): path is string => path !== null)
+        : []
+    const pathsToLoad = [projectPath, ...restoredDirectories]
+    // The keyed panel must start fresh API loads when its project identity changes.
+    pathsToLoad.forEach((path) => loadNode(path))
+  }, [projectPath, sessionId, updateInspectorSession, loadNode])
 
   const toggleNode = useCallback(
     async (node: TreeNode) => {
@@ -117,7 +169,9 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
         // Binary files: prevent preview entirely
         if (!isPreviewableExt(node.ext, node.name)) return
 
-        setSelectedPath(node.path)
+        const relativePath = resolveProjectPath(projectPath, node.path)?.relative
+        if (!relativePath) return
+        updateInspectorSession(sessionId, { selectedFile: relativePath })
         if (!isInline) {
           setModalOpen(true)
         }
@@ -126,14 +180,33 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
       // Directory: expand / collapse
       if (expanded[node.path]) {
         setExpanded((prev) => ({ ...prev, [node.path]: false }))
+        const relativePath = resolveProjectPath(projectPath, node.path)?.relative
+        if (!relativePath) return
+        updateInspectorSession(sessionId, {
+          expandedDirectories:
+            useInspectorStateStore
+              .getState()
+              .sessions[sessionId]?.expandedDirectories.filter(
+                (path) => path !== relativePath,
+              ) ?? [],
+        })
         return
       }
       if (!children[node.path]) {
         await loadNode(node.path)
       }
       setExpanded((prev) => ({ ...prev, [node.path]: true }))
+      const relativePath = resolveProjectPath(projectPath, node.path)?.relative
+      if (!relativePath) return
+      const persisted =
+        useInspectorStateStore.getState().sessions[sessionId]?.expandedDirectories ?? []
+      updateInspectorSession(sessionId, {
+        expandedDirectories: persisted.includes(relativePath)
+          ? persisted
+          : [...persisted, relativePath],
+      })
     },
-    [expanded, children, loadNode, isInline]
+    [expanded, children, loadNode, isInline, projectPath, sessionId, updateInspectorSession]
   )
 
   function renderTree(nodes: TreeNode[], depth: number) {

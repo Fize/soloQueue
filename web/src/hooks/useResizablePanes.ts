@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRuntimeStore } from '@/stores/runtimeStore'
+import { clampInspectorPanelWidth } from '@/stores/inspectorStateStore'
 
 const DESIGN_MIN_RATIO = 0.5
 const DESIGN_LEFT_MIN = 320
@@ -8,13 +9,35 @@ const DESIGN_DEFAULT_LEFT_SMALL = 380
 const RESIZE_HANDLE_WIDTH = 4
 const MIN_AREA_WIDTH = 200
 
-export function useResizablePanes(isDesignMode: boolean, activeSessionId: string | null) {
-  const [panelWidth, setPanelWidth] = useState(300)
+export function clampInspectorWidthToContainer(width: number, containerWidth: number): number {
+  const persistedWidth = clampInspectorPanelWidth(width)
+  if (containerWidth <= 0) return persistedWidth
+  const maxWidth = Math.max(
+    MIN_AREA_WIDTH,
+    Math.min(
+      Math.floor(containerWidth * 0.6),
+      containerWidth - MIN_AREA_WIDTH - RESIZE_HANDLE_WIDTH,
+    ),
+  )
+  return Math.max(MIN_AREA_WIDTH, Math.min(persistedWidth, maxWidth))
+}
+
+export function useResizablePanes(
+  isDesignMode: boolean,
+  activeSessionId: string | null,
+  inspectorWidth = 300,
+  onInspectorWidthChange?: (width: number) => void,
+) {
+  const [panelWidth, setPanelWidth] = useState(inspectorWidth)
   const [isResizing, setIsResizing] = useState(false)
+  const [containerWidth, setContainerWidth] = useState(0)
   const splitContainerRef = useRef<HTMLDivElement>(null)
   const resizeDragRef = useRef<{ startX: number; startPanelWidth: number } | null>(null)
   const hasManuallyResized = useRef(false)
   const isDesignModeRef = useRef(isDesignMode)
+  const renderedPanelWidth = isDesignMode
+    ? panelWidth
+    : clampInspectorWidthToContainer(inspectorWidth, containerWidth)
 
   useEffect(() => {
     isDesignModeRef.current = isDesignMode
@@ -22,9 +45,9 @@ export function useResizablePanes(isDesignMode: boolean, activeSessionId: string
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
-    resizeDragRef.current = { startX: e.clientX, startPanelWidth: panelWidth }
+    resizeDragRef.current = { startX: e.clientX, startPanelWidth: renderedPanelWidth }
     setIsResizing(true)
-  }, [panelWidth])
+  }, [renderedPanelWidth])
 
   useEffect(() => {
     if (!isResizing) return
@@ -53,13 +76,12 @@ export function useResizablePanes(isDesignMode: boolean, activeSessionId: string
         const maxRight = Math.max(minRight, rect.width - DESIGN_LEFT_MIN - RESIZE_HANDLE_WIDTH)
         clamped = Math.max(minRight, Math.min(newWidth, maxRight))
       } else {
-        const maxWidth = Math.floor(rect.width * 0.6)
-        clamped = Math.max(
-          MIN_AREA_WIDTH,
-          Math.min(newWidth, rect.width - MIN_AREA_WIDTH, maxWidth),
-        )
+        clamped = clampInspectorWidthToContainer(newWidth, rect.width)
       }
       setPanelWidth(clamped)
+      if (!isDesignModeRef.current) {
+        onInspectorWidthChange?.(clamped)
+      }
       useRuntimeStore.getState().setInspectorPanelWidth(clamped)
       if (clamped !== newWidth) {
         resizeDragRef.current = { startX: e.clientX, startPanelWidth: clamped }
@@ -71,9 +93,8 @@ export function useResizablePanes(isDesignMode: boolean, activeSessionId: string
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizing])
+  }, [isResizing, onInspectorWidthChange])
 
-  const [containerWidth, setContainerWidth] = useState(0)
   useEffect(() => {
     const el = splitContainerRef.current
     if (!el) {
@@ -123,15 +144,15 @@ export function useResizablePanes(isDesignMode: boolean, activeSessionId: string
     const wasDesignMode = prevIsDesignModeRef.current
     prevIsDesignModeRef.current = isDesignMode
     if (wasDesignMode && !isDesignMode) {
-      const DEFAULT_INSPECTOR_WIDTH = 300
       hasManuallyResized.current = false
-      setPanelWidth(DEFAULT_INSPECTOR_WIDTH)
-      useRuntimeStore.getState().setInspectorPanelWidth(DEFAULT_INSPECTOR_WIDTH)
+      useRuntimeStore
+        .getState()
+        .setInspectorPanelWidth(clampInspectorWidthToContainer(inspectorWidth, containerWidth))
     }
-  }, [isDesignMode])
+  }, [isDesignMode, inspectorWidth, containerWidth])
 
   return {
-    panelWidth,
+    panelWidth: renderedPanelWidth,
     isResizing,
     splitContainerRef,
     handleResizeStart,
