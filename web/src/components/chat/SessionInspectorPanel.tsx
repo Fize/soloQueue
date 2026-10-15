@@ -29,6 +29,8 @@ export function SessionInspectorPanel({
         {inspectorTab === 'files' ? (
           activeSession.project_path || projectPathFallback ? (
             <SessionFilePanel
+              key={`${activeSession.id}:${activeSession.project_path || projectPathFallback!}`}
+              sessionId={activeSession.id}
               projectPath={activeSession.project_path || projectPathFallback!}
               panelWidth={panelWidth}
             />

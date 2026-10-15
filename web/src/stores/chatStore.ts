@@ -10,6 +10,7 @@ import {
   deleteSessionMessages as apiDeleteSessionMessages,
 } from '@/lib/api'
 import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
+import { useInspectorStateStore } from './inspectorStateStore'
 
 export type ChatRequestStatus = 'starting' | 'streaming' | 'queued' | 'cancelling'
 
@@ -119,12 +120,16 @@ function loadActiveChatRoutes(): Record<string, ChatRouteInfo> {
 }
 
 function persistActiveChatRoutes(routes: Record<string, ChatRouteInfo | undefined>) {
-  const activeRoutes = Object.fromEntries(Object.entries(routes).filter(([, route]) => route))
-  if (Object.keys(activeRoutes).length === 0) {
-    localStorage.removeItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY)
-    return
+  try {
+    const activeRoutes = Object.fromEntries(Object.entries(routes).filter(([, route]) => route))
+    if (Object.keys(activeRoutes).length === 0) {
+      localStorage.removeItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY)
+      return
+    }
+    localStorage.setItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY, JSON.stringify(activeRoutes))
+  } catch {
+    // Browser storage is best-effort. Runtime route state must remain authoritative.
   }
-  localStorage.setItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY, JSON.stringify(activeRoutes))
 }
 
 // Coalesce concurrent loadSessions() calls (e.g. App.tsx auto-retry effect
@@ -248,6 +253,7 @@ export const useChatStore = create<ChatState>((set) => ({
           activeRequests,
         }
       })
+      useInspectorStateStore.getState().removeSession(id)
     } catch {
       // ignore
     }

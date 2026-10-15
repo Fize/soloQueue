@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
+import { useInspectorStateStore } from "@/stores/inspectorStateStore";
 
 const mocks = vi.hoisted(() => ({
   loadHistory: vi.fn(),
@@ -24,6 +25,10 @@ const mocks = vi.hoisted(() => ({
   },
   agentWorkingProps: {} as { modelName?: string; taskLevel?: string },
   setInspectorPanelWidth: vi.fn(),
+  resizablePaneArgs: {} as {
+    inspectorWidth?: number;
+    onInspectorWidthChange?: (width: number) => void;
+  },
   runtimeStoreState: {
     connectionStatus: "connected",
     sidebarCollapsed: false,
@@ -129,13 +134,21 @@ vi.mock("@/hooks/useAgentStream", () => ({
 }));
 
 vi.mock("@/hooks/useResizablePanes", () => ({
-  useResizablePanes: () => ({
-    panelWidth: 0,
-    isResizing: false,
-    splitContainerRef: { current: null },
-    handleResizeStart: vi.fn(),
-    containerWidth: 1024,
-  }),
+  useResizablePanes: (
+    _isDesignMode: boolean,
+    _activeSessionId: string | null,
+    inspectorWidth?: number,
+    onInspectorWidthChange?: (width: number) => void,
+  ) => {
+    mocks.resizablePaneArgs = { inspectorWidth, onInspectorWidthChange };
+    return {
+      panelWidth: inspectorWidth ?? 0,
+      isResizing: false,
+      splitContainerRef: { current: null },
+      handleResizeStart: vi.fn(),
+      containerWidth: 1024,
+    };
+  },
 }));
 
 vi.mock("@/hooks/useStickToBottom", () => ({
@@ -210,6 +223,8 @@ function setViewport(width: number, height: number) {
 }
 
 beforeEach(() => {
+  localStorage.clear();
+  useInspectorStateStore.setState({ sessions: {} });
   routeSessionId = "channel-l2";
   mocks.runtimeStoreState.isDesignMode = false;
   mocks.runtimeStoreState.setDesignMode = vi.fn((enabled: boolean) => {
@@ -220,7 +235,10 @@ beforeEach(() => {
   mocks.agentWorkingProps = {};
   mocks.designPanelProps = {};
   mocks.inspectorPanelProps = {};
+  mocks.resizablePaneArgs = {};
   chatStoreState.activeSessionId = "channel-l2";
+  chatStoreState.sessionsLoading = false;
+  chatStoreState.sessionsLoaded = true;
   chatStoreState.sessions = [
     {
       id: "channel-l2",
@@ -247,7 +265,7 @@ beforeEach(() => {
 
 describe("ChatPage", () => {
   it("restores inspector open, tab, and selected Plan snapshots per session", async () => {
-    const { rerender } = render(<ChatPage />);
+    let view = render(<ChatPage />);
 
     fireEvent.click(screen.getByTitle('Show Task Status Panel'));
     fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
@@ -257,7 +275,7 @@ describe("ChatPage", () => {
 
     routeSessionId = 'channel-other';
     chatStoreState.activeSessionId = 'channel-other';
-    rerender(<ChatPage />);
+    view.rerender(<ChatPage />);
     expect(screen.queryByTestId('inspector-panel')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle('Show Task Status Panel'));
@@ -266,14 +284,156 @@ describe("ChatPage", () => {
 
     routeSessionId = 'channel-l2';
     chatStoreState.activeSessionId = 'channel-l2';
-    rerender(<ChatPage />);
+    view.rerender(<ChatPage />);
+    expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-tab', 'plan');
+    expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-plan', '/plans/a.md');
+
+    view.unmount();
+    view = render(<ChatPage />);
     expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-tab', 'plan');
     expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-plan', '/plans/a.md');
 
     routeSessionId = 'channel-other';
     chatStoreState.activeSessionId = 'channel-other';
-    rerender(<ChatPage />);
+    view.rerender(<ChatPage />);
     expect(screen.getByTestId('inspector-panel')).toHaveAttribute('data-tab', 'changes');
+  });
+
+  it("restores and updates panel width for the active session", () => {
+    useInspectorStateStore.getState().updateSession('channel-l2', {
+      open: true,
+      panelWidth: 444,
+    });
+
+    render(<ChatPage />);
+
+    expect(mocks.resizablePaneArgs.inspectorWidth).toBe(444);
+    mocks.resizablePaneArgs.onInspectorWidthChange?.(512);
+    expect(useInspectorStateStore.getState().sessions['channel-l2']?.panelWidth).toBe(512);
+  });
+
+  it("clamps restored panel width against the live split container", async () => {
+    const { clampInspectorWidthToContainer } = await vi.importActual<
+      typeof import('@/hooks/useResizablePanes')
+    >('@/hooks/useResizablePanes');
+
+    expect(clampInspectorWidthToContainer(1_200, 800)).toBe(480);
+    expect(clampInspectorWidthToContainer(0, 800)).toBe(200);
+  });
+
+  it("invalidates stale file state when the session project changes while closed", async () => {
+    useInspectorStateStore.getState().updateSession('channel-l2', {
+      projectPath: '/work/old',
+      expandedDirectories: ['src'],
+      selectedFile: 'src/old.ts',
+    });
+    chatStoreState.sessions[0].project_path = '/work/new';
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(useInspectorStateStore.getState().sessions['channel-l2']).toMatchObject({
+        projectPath: '/work/new',
+        expandedDirectories: [],
+        selectedFile: null,
+      });
+    });
+  });
+
+  it("does not overwrite hydrated Inspector state before delayed session metadata loads", async () => {
+    useInspectorStateStore.getState().updateSession('channel-l2', {
+      open: true,
+      tab: 'plan',
+      selectedPlan: '/plans/a.md',
+      projectPath: '/work/project',
+      expandedDirectories: ['src'],
+      selectedFile: 'src/main.ts',
+    });
+    chatStoreState.sessions = [];
+    chatStoreState.sessionsLoading = true;
+    chatStoreState.sessionsLoaded = false;
+
+    const view = render(<ChatPage />);
+
+    expect(useInspectorStateStore.getState().sessions['channel-l2']).toMatchObject({
+      tab: 'plan',
+      selectedPlan: '/plans/a.md',
+      projectPath: '/work/project',
+      expandedDirectories: ['src'],
+      selectedFile: 'src/main.ts',
+    });
+
+    chatStoreState.sessions = [{
+      id: 'channel-l2',
+      group: 'team',
+      agent_instance_id: 'l2-instance',
+      agent_name: 'Channel L2',
+      project_path: '/work/project',
+      plans: ['/plans/a.md'],
+    }];
+    chatStoreState.sessionsLoading = false;
+    chatStoreState.sessionsLoaded = true;
+    view.rerender(<ChatPage />);
+
+    await waitFor(() => {
+      expect(useInspectorStateStore.getState().sessions['channel-l2']).toMatchObject({
+        tab: 'plan',
+        selectedPlan: '/plans/a.md',
+        projectPath: '/work/project',
+        expandedDirectories: ['src'],
+        selectedFile: 'src/main.ts',
+      });
+    });
+  });
+
+  it("does not copy the previous session project while target metadata is delayed", async () => {
+    chatStoreState.sessions[0].project_path = '/work/first';
+    useInspectorStateStore.getState().updateSession('channel-other', {
+      projectPath: '/work/second',
+      expandedDirectories: ['src'],
+      selectedFile: 'src/second.ts',
+    });
+    const view = render(<ChatPage />);
+    await waitFor(() => {
+      expect(useInspectorStateStore.getState().sessions['channel-l2']?.projectPath).toBe(
+        '/work/first',
+      );
+    });
+
+    routeSessionId = 'channel-other';
+    chatStoreState.activeSessionId = 'channel-other';
+    chatStoreState.sessions = chatStoreState.sessions.filter(
+      (session) => session.id !== 'channel-other',
+    );
+    chatStoreState.sessionsLoading = true;
+    chatStoreState.sessionsLoaded = false;
+    view.rerender(<ChatPage />);
+
+    expect(useInspectorStateStore.getState().sessions['channel-other']).toMatchObject({
+      projectPath: '/work/second',
+      expandedDirectories: ['src'],
+      selectedFile: 'src/second.ts',
+    });
+
+    chatStoreState.sessions.push({
+      id: 'channel-other',
+      group: 'team',
+      agent_instance_id: 'l2-other',
+      agent_name: 'Channel Other',
+      project_path: '',
+      plans: ['/plans/other.md'],
+    });
+    chatStoreState.sessionsLoading = false;
+    chatStoreState.sessionsLoaded = true;
+    view.rerender(<ChatPage />);
+
+    await waitFor(() => {
+      expect(useInspectorStateStore.getState().sessions['channel-other']).toMatchObject({
+        projectPath: '',
+        expandedDirectories: [],
+        selectedFile: null,
+      });
+    });
   });
 
   it("passes Team request metadata through the shared input and working indicator", async () => {

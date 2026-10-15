@@ -41,20 +41,17 @@ import type { RequestStreamRecovery } from "@/components/chat/recoverInFlightMes
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
 import { toast } from "sonner";
+import {
+  useInspectorStateStore,
+  type InspectorSessionState,
+} from "@/stores/inspectorStateStore";
 
-type InspectorTab = "files" | "changes" | "plan";
-
-interface InspectorSnapshot {
-  open: boolean;
-  tab: InspectorTab;
-  selectedPlan: string;
-}
-
-const DEFAULT_INSPECTOR_SNAPSHOT: InspectorSnapshot = {
+const DEFAULT_INSPECTOR_SNAPSHOT = {
   open: false,
   tab: "files",
   selectedPlan: "",
-};
+  panelWidth: 300,
+} as const;
 
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -101,23 +98,21 @@ export function ChatPage() {
   const { t } = useTranslation();
 
   // macOS Inspector state
-  const [inspectorSnapshots, setInspectorSnapshots] = useState<Record<string, InspectorSnapshot>>({});
-  const inspectorSnapshot = activeSessionId
-    ? (inspectorSnapshots[activeSessionId] ?? DEFAULT_INSPECTOR_SNAPSHOT)
-    : DEFAULT_INSPECTOR_SNAPSHOT;
+  const storedInspectorSnapshot = useInspectorStateStore((state) =>
+    activeSessionId ? state.sessions[activeSessionId] : undefined,
+  );
+  const updateInspectorSession = useInspectorStateStore((state) => state.updateSession);
+  const inspectorSnapshot = storedInspectorSnapshot ?? DEFAULT_INSPECTOR_SNAPSHOT;
   const showInspector = inspectorSnapshot.open;
   const inspectorTab = inspectorSnapshot.tab;
 
-  const updateInspectorSnapshot = useCallback((patch: Partial<InspectorSnapshot>) => {
+  const updateInspectorSnapshot = useCallback((patch: Partial<Omit<InspectorSessionState, 'lastActivity'>>) => {
     if (!activeSessionId) return;
-    setInspectorSnapshots((current) => ({
-      ...current,
-      [activeSessionId]: {
-        ...(current[activeSessionId] ?? DEFAULT_INSPECTOR_SNAPSHOT),
-        ...patch,
-      },
-    }));
-  }, [activeSessionId]);
+    updateInspectorSession(activeSessionId, patch);
+  }, [activeSessionId, updateInspectorSession]);
+  const handleInspectorWidthChange = useCallback((width: number) => {
+    updateInspectorSnapshot({ panelWidth: width });
+  }, [updateInspectorSnapshot]);
 
   const toggleInspector = (open: boolean) => {
     useRuntimeStore.getState().setInspectorPanelWidth(open ? panelWidth : 0);
@@ -149,7 +144,12 @@ export function ChatPage() {
     splitContainerRef,
     handleResizeStart,
     containerWidth,
-  } = useResizablePanes(designModeActive, activeSessionId);
+  } = useResizablePanes(
+    designModeActive,
+    activeSessionId,
+    inspectorSnapshot.panelWidth,
+    handleInspectorWidthChange,
+  );
 
   const MIN_AREA_WIDTH = 200;
 
@@ -286,14 +286,19 @@ export function ChatPage() {
   const activeProjectPath = activeSession?.project_path ?? null;
   const isL1Session = activeSessionId === "l1";
 
+  useEffect(() => {
+    if (!activeSessionId || sessionsLoading || !sessionsLoaded || !activeSession) return;
+    updateInspectorSession(activeSessionId, { projectPath: activeSession.project_path || "" });
+  }, [activeSessionId, activeSession, sessionsLoading, sessionsLoaded, updateInspectorSession]);
+
   // Safety check: redirect away from plan tab if plans list becomes empty
   useEffect(() => {
+    if (sessionsLoading || !sessionsLoaded || !activeSession) return;
     if (inspectorTab === "plan" && (!activeSession?.plans || activeSession.plans.length === 0)) {
       // Keep the inspector on an available tab when the plan list disappears.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       updateInspectorSnapshot({ tab: "files", selectedPlan: "" });
     }
-  }, [activeSession?.plans, inspectorTab, updateInspectorSnapshot]);
+  }, [activeSession, sessionsLoading, sessionsLoaded, inspectorTab, updateInspectorSnapshot]);
 
   // Sync selectors from active session when session changes
   useEffect(() => {
