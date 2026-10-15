@@ -2423,6 +2423,7 @@ enqueued:
 
 		var finalContent string
 		var finalReasoning string
+		var firstAssistantOutputAt time.Time
 		var gotDone bool
 		var eventCount int
 		deliveryRequestID := requestID
@@ -2466,13 +2467,13 @@ enqueued:
 		// Also skipped if accContent matches the last content we already pushed to cw
 		// (this happens when the L2 ran multiple turns and the last turn produced no new content).
 		defer func() {
-			if !gotDone && accContent.Len() > 0 && s.tl != nil {
+			if !gotDone && (accContent.Len() > 0 || accReasoning.Len() > 0) && s.tl != nil {
 				pending := accContent.String()
 				// Skip if this content is identical to what we already pushed to cw
 				// in a previous turn's DoneEvent. This prevents duplicate entries when
 				// the LLM returns a multi-turn response (e.g., content + tool_call + empty
 				// content) and the session is force-killed before the last DoneEvent.
-				if pending == lastPushedContent {
+				if pending == lastPushedContent && accReasoning.Len() == 0 {
 					return
 				}
 				// The accumulated content may already be persisted by the agent's
@@ -2491,7 +2492,7 @@ enqueued:
 				}
 				if dump != "" {
 					pending = partialFlushRemainder(pending, dump)
-					if pending == "" {
+					if pending == "" && accReasoning.Len() == 0 {
 						s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial flush skipped (content already persisted by push hook)",
 							"target_id", s.TargetID,
 							"content_len", accContent.Len(),
@@ -2506,6 +2507,7 @@ enqueued:
 					ReasoningContent: accReasoning.String(),
 					AgentID:          askAgent.InstanceID,
 					RequestID:        deliveryRequestID,
+					Timestamp:        firstAssistantOutputAt.UTC().Format(time.RFC3339Nano),
 				})
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial assistant content flushed to timeline",
 					"target_id", s.TargetID,
@@ -2696,8 +2698,14 @@ enqueued:
 				s.newTurnDone()
 				s.releaseFlight(flightID)
 			case agent.ContentDeltaEvent:
+				if firstAssistantOutputAt.IsZero() {
+					firstAssistantOutputAt = time.Now()
+				}
 				accContent.WriteString(e.Delta)
 			case agent.ReasoningDeltaEvent:
+				if firstAssistantOutputAt.IsZero() {
+					firstAssistantOutputAt = time.Now()
+				}
 				accReasoning.WriteString(e.Delta)
 			case agent.DoneEvent:
 				finalContent = e.Content
@@ -2714,9 +2722,12 @@ enqueued:
 		// Check if cancellation occurred between goto done and this label (narrow race window)
 		if terminateContext() {
 		} else if gotDone {
-			if finalContent != "" {
+			if finalContent != "" || finalReasoning != "" {
 				s.mu.Lock()
 				opts := []ctxwin.PushOption{ctxwin.WithReasoningContent(finalReasoning)}
+				if !firstAssistantOutputAt.IsZero() {
+					opts = append(opts, ctxwin.WithTimestamp(firstAssistantOutputAt))
+				}
 				if deliveryRequestID != "" {
 					opts = append(opts, ctxwin.WithRequestID(deliveryRequestID))
 				}

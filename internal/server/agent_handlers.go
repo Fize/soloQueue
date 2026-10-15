@@ -220,7 +220,6 @@ func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, gene
 			AgentID:   instanceID,
 			RequestID: requestID,
 			Segments:  []Segment{},
-			StartedAt: time.Now(),
 		}
 		rm.agentStreams[streamKey] = s
 	}
@@ -249,6 +248,9 @@ func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, gene
 	}
 	switch e := ev.(type) {
 	case agent.ContentDeltaEvent:
+		if s.StartedAt.IsZero() {
+			s.StartedAt = time.Now()
+		}
 		n := len(s.Segments)
 		if n > 0 && s.Segments[n-1].Type == SegContent {
 			s.Segments[n-1].Text += e.Delta
@@ -257,6 +259,9 @@ func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, gene
 		}
 
 	case agent.ReasoningDeltaEvent:
+		if s.StartedAt.IsZero() {
+			s.StartedAt = time.Now()
+		}
 		n := len(s.Segments)
 		if n > 0 && s.Segments[n-1].Type == SegThinking {
 			s.Segments[n-1].Text += e.Delta
@@ -265,6 +270,9 @@ func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, gene
 		}
 
 	case agent.ToolExecStartEvent:
+		if s.StartedAt.IsZero() {
+			s.StartedAt = time.Now()
+		}
 		s.Segments = append(s.Segments, Segment{
 			Type:            SegToolCall,
 			CallID:          e.CallID,
@@ -978,29 +986,6 @@ func (m *Mux) buildRuntimeStatus(hub *Hub) *RuntimeStatusResponse {
 	}
 
 	agentStreams := m.runtimeMetrics.AgentStreams()
-	if hub != nil && hub.requests != nil {
-		// The registry timestamp is the request ownership boundary. Keep the
-		// producer timestamp as a fallback for direct/runtime-only streams, but
-		// prefer the authoritative request start whenever it is available.
-		requestStarts := make(map[string]time.Time)
-		for _, req := range hub.requests.GetBySessionAll("l1") {
-			if !req.StartedAt.IsZero() {
-				requestStarts[req.RequestID] = req.StartedAt
-			}
-		}
-		if m.l2Store != nil {
-			for _, entry := range m.l2Store.List() {
-				if req, ok := hub.requests.GetBySession("l2:" + entry.ID); ok && !req.StartedAt.IsZero() {
-					requestStarts[req.RequestID] = req.StartedAt
-				}
-			}
-		}
-		for _, stream := range agentStreams {
-			if startedAt := requestStarts[stream.RequestID]; !startedAt.IsZero() {
-				stream.StartedAt = startedAt
-			}
-		}
-	}
 
 	return &RuntimeStatusResponse{
 		Phase:             phase,
