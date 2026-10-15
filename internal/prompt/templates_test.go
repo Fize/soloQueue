@@ -230,3 +230,20 @@ func TestPlanStorageHonorsUserLocationAcrossLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanPromptsUseOnlyStandardGFMTaskMarkers(t *testing.T) {
+	for name, prompt := range map[string]string{
+		"PlanDocumentFormat":    PlanDocumentFormat,
+		"L2EnforcedPlanSection": L2EnforcedPlanSection,
+		"L3EnforcedDirectives":  L3EnforcedDirectives,
+	} {
+		if strings.Contains(prompt, "[/]") {
+			t.Errorf("%s contains non-GFM slash task marker guidance", name)
+		}
+		for _, marker := range []string{"- [ ]", "- [x]"} {
+			if !strings.Contains(prompt, marker) {
+				t.Errorf("%s missing standard GFM task marker %q", name, marker)
+			}
+		}
+	}
+}

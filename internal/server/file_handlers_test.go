@@ -61,10 +61,10 @@ func TestHTTP_FileHandlers_ToggleCheckbox(t *testing.T) {
 			t.Errorf("Task 1 was not checked: %s", updatedContent)
 		}
 
-		// Toggle Task 3 (index 2: from [x] to [ ])
+		// Non-standard [/] is plain text, so Task 3 is checkbox index 1.
 		body = map[string]any{
 			"path":  planFile,
-			"index": 2,
+			"index": 1,
 		}
 		data, _ = json.Marshal(body)
 		req = newLocalhostRequest("POST", "/api/files/toggle-checkbox", bytes.NewReader(data))
@@ -82,6 +82,9 @@ func TestHTTP_FileHandlers_ToggleCheckbox(t *testing.T) {
 		updatedContent = string(updatedBytes)
 		if !strings.Contains(updatedContent, "- [ ] Task 3") {
 			t.Errorf("Task 3 was not unchecked: %s", updatedContent)
+		}
+		if !strings.Contains(updatedContent, "- [/] Task 2") {
+			t.Errorf("Non-standard marker should remain plain text: %s", updatedContent)
 		}
 	}
 }

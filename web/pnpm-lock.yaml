@@ -23,6 +23,9 @@ importers:
       '@streamdown/code':
         specifier: ^1.1.1
         version: 1.1.1(react@19.2.7)
+      '@streamdown/mermaid':
+        specifier: 1.0.2
+        version: 1.0.2(react@19.2.7)
       '@tailwindcss/vite':
         specifier: ^4
         version: 4.3.1(vite@7.3.5(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))
@@ -880,6 +883,11 @@ packages:
 
   '@streamdown/code@1.1.1':
     resolution: {integrity: sha512-i7HTNuDgZWb+VdrNVOam9gQhIc5MSSDXKWXgbUrn/4vSRaSMM+Rtl10MQj4wLWPNpF7p80waJsAqFP8HZfb0Jg==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+
+  '@streamdown/mermaid@1.0.2':
+    resolution: {integrity: sha512-Fr/4sBWnAeSnxM3PcrV/+DiZe5oPMq9gOkUIAH7ZauJeuwrZ/DVzD4g0zlav6AH0axh2m/sOfrfLtY5aLT7niw==}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
 
@@ -4870,6 +4878,11 @@ snapshots:
     dependencies:
       react: 19.2.7
       shiki: 3.23.0
+
+  '@streamdown/mermaid@1.0.2(react@19.2.7)':
+    dependencies:
+      mermaid: 11.16.0
+      react: 19.2.7
 
   '@tailwindcss/node@4.3.1':
     dependencies:

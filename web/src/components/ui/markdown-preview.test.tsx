@@ -1,8 +1,23 @@
 import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MarkdownPreview } from './markdown-preview'
 
+const streamdownProps = vi.hoisted(() => ({ plugins: {} as Record<string, unknown> }))
+
+vi.mock('streamdown', () => ({
+  Streamdown: ({ children, plugins }: { children: string; plugins: Record<string, unknown> }) => {
+    streamdownProps.plugins = plugins
+    return <div>{children}</div>
+  },
+}))
+
 describe('MarkdownPreview', () => {
+  it('registers the official Mermaid renderer', () => {
+    render(<MarkdownPreview content={'```mermaid\nflowchart LR\nA --> B\n```'} />)
+
+    expect(streamdownProps.plugins).toHaveProperty('mermaid')
+  })
+
   it('does not turn untrusted markdown HTML into executable elements', () => {
     const { container } = render(
       <MarkdownPreview

@@ -119,7 +119,8 @@ Use the following sections in order, adapted to the selected storage. Markdown u
 
 5. **## Tasks** — ordered checklist with status tracking. Each task MUST identify a file path, document URL, task ID, or other concrete work object and describe the concrete change. Do not invent local files for cloud or non-code work. Use nested tasks when needed.
 
-For Markdown plans use - [ ], - [/], and - [x]; otherwise use native headings and task status fields.
+For Markdown plans use standard GFM task markers: - [ ] for incomplete tasks and - [x] for completed tasks. Keep a task incomplete while it is in progress; otherwise use native task status fields.
+When a Markdown plan needs a diagram, use a fenced code block whose language identifier is mermaid and valid Mermaid syntax; do not use diagram types such as flowchart as the fence language.
 
 `
 

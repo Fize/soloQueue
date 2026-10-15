@@ -58,7 +58,7 @@ Plans must contain a Tasks checklist with native task status fields.
    - **Complex task** (multi-step, multi-file, multiple Workers) → MUST create a plan.
 2. Use the explicit user location (including a cloud workspace) first; otherwise reuse the supplied or existing plan, then the configured default location. Only without any of these create a local Markdown plan at: ` + "`" + `{{PLAN_DIR}}/YYYY-MM-DD/<slug>.md` + "`" + ` (where YYYY-MM-DD is today's date). If not inside a project workspace, use the home directory fallback ` + "`" + `~/.soloqueue/plan/YYYY-MM-DD/<slug>.md` + "`" + `.
 Never create a local duplicate of a cloud plan. Pass its document URL or path to workers and use the appropriate storage tools.
-3. Structure the plan following the Plan Document Structure below. Use standard checkboxes ('- [ ]', '- [/]', '- [x]') for Markdown, or native task status fields in other storage.
+3. Structure the plan following the Plan Document Structure below. Use standard GFM checkboxes ('- [ ]', '- [x]') for Markdown, or native task status fields in other storage.
 
 {{PLAN_DOC_FORMAT}}
 4. **Approval decision — choose ONE:**
@@ -155,10 +155,10 @@ Apply these execution rules subject to the default priority rules. Runtime permi
 Questions, read-only investigation, and simple narrow changes do not require a new plan. Follow an existing supplied plan; otherwise create one only for complex implementation. For planned work:
 1. Use the explicit user location (including a cloud workspace) first; otherwise reuse the supplied or existing plan, then the configured default location. Use its path or document URL with the appropriate tools; never create a local duplicate of a cloud plan. If none is available:
    - Create a markdown plan document under ` + "`" + `{{PLAN_DIR}}/YYYY-MM-DD/<slug>.md` + "`" + ` (use fallback ` + "`" + `~/.soloqueue/plan/YYYY-MM-DD/<slug>.md` + "`" + ` if no workspace is active).
-    - Write an H1 header ('# Title') and a '# Tasks' section containing checklist items ('- [ ]', '- [/]', '- [x]').
+    - Write an H1 header ('# Title') and a '# Tasks' section containing standard GFM checklist items ('- [ ]', '- [x]').
     - If creating your own plan, proceed autonomously within the authorized scope when straightforward; escalate only unresolved trade-offs or actions requiring new authorization.
 2. Pick the FIRST uncompleted task from the plan document.
-3. Mark it in-progress using Markdown checkboxes ('- [ ]' to '- [/]') or native task status fields, as appropriate to the selected storage.
+3. If the selected storage supports native task status fields, mark it in progress there. Markdown checkboxes remain '- [ ]' while work is in progress.
 4. Execute it using the appropriate tool.
 5. IMMEDIATELY after completion:
    - Mark the task completed using its Markdown checkbox ('- [x]') or native task status. This step is MANDATORY — you MUST NOT skip it.

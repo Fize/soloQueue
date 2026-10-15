@@ -315,6 +315,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Post("/l2", m.handleCreateL2Session)
 		r.Delete("/l2/{id}", m.handleDeleteL2Session)
 		r.Get("/l2/{id}/changes", m.handleGetSessionChanges)
+		r.Get("/l2/{id}/changes/diff", m.handleGetSessionChangeDiff)
 	})
 
 	// Health check

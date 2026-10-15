@@ -1,17 +1,25 @@
 package server
 
 import (
+	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
+
+const maxChangeRevisionBytes int64 = 1 << 20
+
+var errChangeRevisionConflict = errors.New("change revision conflict")
 
 // ─── Response Types ──────────────────────────────────────────────────────────
 
@@ -24,6 +32,7 @@ type FileChange struct {
 	Deletions int        `json:"deletions"`            // deleted line count
 	Binary    bool       `json:"binary"`               // true if binary file
 	SizeBytes int64      `json:"size_bytes,omitempty"` // file size (for binary files)
+	Revision  string     `json:"revision"`             // stable identifier for this file version
 	Hunks     []DiffHunk `json:"hunks,omitempty"`      // line-level diff (text files only)
 }
 
@@ -97,7 +106,7 @@ func (m *Mux) handleGetSessionChanges(w http.ResponseWriter, r *http.Request) {
 		if ref == "" {
 			ref = "HEAD"
 		}
-		changes, err := computeGitDiff(workDir, ref)
+		changes, err := computeGitSummary(workDir, ref)
 		if err != nil {
 			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -117,11 +126,264 @@ func (m *Mux) handleGetSessionChanges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	changes := computeSnapshotDiff(workDir, snapshot)
+	changes := computeSnapshotSummary(workDir, snapshot)
 	resp := summarizeChanges(changes)
 	resp.IsGitRepo = false
 	resp.Plans = entry.Plans
 	m.writeJSON(w, http.StatusOK, resp)
+}
+
+// handleGetSessionChangeDiff returns diff content for one path from the current
+// session change set. Exact membership validation prevents arbitrary file reads.
+func (m *Mux) handleGetSessionChangeDiff(w http.ResponseWriter, r *http.Request) {
+	if m.l2Store == nil {
+		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "L2 sessions not available"})
+		return
+	}
+	entry := m.l2Store.GetEntry(chi.URLParam(r, "id"))
+	if entry == nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "L2 session not found"})
+		return
+	}
+	requestedPath := r.URL.Query().Get("path")
+	if requestedPath == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
+		return
+	}
+	expectedRevision := r.URL.Query().Get("expected_revision")
+	if expectedRevision == "" {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "expected_revision is required"})
+		return
+	}
+	if !validChangePath(requestedPath) {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid path"})
+		return
+	}
+	workDir := expandTilde(entry.WorkDir)
+	if info, err := os.Stat(workDir); workDir == "" || err != nil || !info.IsDir() {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid work directory"})
+		return
+	}
+
+	if isGitRepo(workDir) {
+		ref := entry.GitBaseRef
+		if ref == "" {
+			ref = "HEAD"
+		}
+		change, err := loadGitDiffForPath(workDir, ref, requestedPath, expectedRevision, computeGitHunks)
+		if errors.Is(err, errChangeRevisionConflict) {
+			m.writeJSON(w, http.StatusConflict, map[string]string{"error": "change revision is stale", "code": "stale_revision"})
+			return
+		}
+		if err != nil {
+			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if change == nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is not in the current change set"})
+			return
+		}
+		m.writeJSON(w, http.StatusOK, change)
+		return
+	}
+
+	snapshot := session.LoadBaseline(m.l2Store.WorkDir(), chi.URLParam(r, "id"))
+	if snapshot == nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session baseline not available"})
+		return
+	}
+	change, ok := computeSnapshotDiffForPath(workDir, snapshot, requestedPath)
+	if !ok {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is not in the current change set"})
+		return
+	}
+	if change.Revision != expectedRevision {
+		m.writeJSON(w, http.StatusConflict, map[string]string{"error": "change revision is stale", "code": "stale_revision"})
+		return
+	}
+	m.writeJSON(w, http.StatusOK, change)
+}
+
+// computeGitSummary collects metadata for all changed files with a fixed number
+// of git commands. Diff hunks are loaded separately by path.
+func computeGitSummary(workDir, baseRef string) ([]FileChange, error) {
+	statusCmd := exec.Command("git", "-C", workDir, "diff", "--name-status", "--no-renames", baseRef)
+	statusOutput, err := statusCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff --name-status: %w", err)
+	}
+
+	numstatCmd := exec.Command("git", "-C", workDir, "diff", "--numstat", "--no-renames", baseRef)
+	numstatOutput, err := numstatCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff --numstat: %w", err)
+	}
+	type counts struct {
+		additions int
+		deletions int
+		binary    bool
+	}
+	stats := make(map[string]counts)
+	for _, line := range strings.Split(strings.TrimSpace(string(numstatOutput)), "\n") {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		if parts[0] == "-" && parts[1] == "-" {
+			stats[parts[2]] = counts{binary: true}
+			continue
+		}
+		additions, _ := strconv.Atoi(parts[0])
+		deletions, _ := strconv.Atoi(parts[1])
+		stats[parts[2]] = counts{additions: additions, deletions: deletions}
+	}
+
+	var changes []FileChange
+	for _, line := range strings.Split(strings.TrimSpace(string(statusOutput)), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		status := mapStatusCode(parts[0])
+		if status == "" {
+			continue
+		}
+		filePath := parts[1]
+		stat := stats[filePath]
+		change := FileChange{
+			Path:      filePath,
+			Status:    status,
+			Additions: stat.additions,
+			Deletions: stat.deletions,
+			Binary:    stat.binary,
+		}
+		if stat.binary {
+			if info, statErr := os.Stat(filepath.Join(workDir, filepath.FromSlash(filePath))); statErr == nil {
+				change.SizeBytes = info.Size()
+			}
+		}
+		change.Revision = computeChangeRevision(workDir, baseRef, change)
+		changes = append(changes, change)
+	}
+	return changes, nil
+}
+
+// computeGitChangeSummary inspects only requestedPath. It deliberately avoids
+// scanning or hashing the rest of the current change set.
+func computeGitChangeSummary(workDir, baseRef, requestedPath string) (*FileChange, error) {
+	if !validChangePath(requestedPath) {
+		return nil, nil
+	}
+	statusOutput, err := exec.Command(
+		"git", "-C", workDir, "diff", "--name-status", "--no-renames", baseRef, "--", requestedPath,
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff --name-status: %w", err)
+	}
+	status := ""
+	for _, line := range strings.Split(strings.TrimSpace(string(statusOutput)), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 && parts[1] == requestedPath {
+			status = mapStatusCode(parts[0])
+			break
+		}
+	}
+	if status == "" {
+		return nil, nil
+	}
+
+	numstatOutput, err := exec.Command(
+		"git", "-C", workDir, "diff", "--numstat", "--no-renames", baseRef, "--", requestedPath,
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff --numstat: %w", err)
+	}
+	change := &FileChange{Path: requestedPath, Status: status}
+	for _, line := range strings.Split(strings.TrimSpace(string(numstatOutput)), "\n") {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 || parts[2] != requestedPath {
+			continue
+		}
+		if parts[0] == "-" && parts[1] == "-" {
+			change.Binary = true
+			break
+		}
+		change.Additions, _ = strconv.Atoi(parts[0])
+		change.Deletions, _ = strconv.Atoi(parts[1])
+		break
+	}
+	if change.Binary {
+		if info, statErr := os.Lstat(filepath.Join(workDir, filepath.FromSlash(requestedPath))); statErr == nil {
+			change.SizeBytes = info.Size()
+		}
+	}
+	change.Revision = computeChangeRevision(workDir, baseRef, *change)
+	return change, nil
+}
+
+func loadGitDiffForPath(
+	workDir, baseRef, requestedPath, expectedRevision string,
+	loadHunks func(string, string, string) ([]DiffHunk, error),
+) (*FileChange, error) {
+	before, err := computeGitChangeSummary(workDir, baseRef, requestedPath)
+	if err != nil || before == nil {
+		return before, err
+	}
+	if before.Revision != expectedRevision {
+		return nil, errChangeRevisionConflict
+	}
+	var hunks []DiffHunk
+	if !before.Binary {
+		hunks, err = loadHunks(workDir, baseRef, requestedPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	after, err := computeGitChangeSummary(workDir, baseRef, requestedPath)
+	if err != nil {
+		return nil, err
+	}
+	if after == nil || after.Revision != expectedRevision {
+		return nil, errChangeRevisionConflict
+	}
+	after.Hunks = hunks
+	return after, nil
+}
+
+func computeChangeRevision(workDir, baseRef string, change FileChange) string {
+	hash := sha256.New()
+	_, _ = fmt.Fprintf(
+		hash,
+		"%s\x00%s\x00%s\x00%s\x00%d\x00%d\x00%t\x00",
+		baseRef, change.Status, change.Path, change.OldPath,
+		change.Additions, change.Deletions, change.Binary,
+	)
+	fullPath := filepath.Join(workDir, filepath.FromSlash(change.Path))
+	info, err := os.Lstat(fullPath)
+	if err != nil {
+		_, _ = io.WriteString(hash, "missing")
+		return fmt.Sprintf("%x", hash.Sum(nil))
+	}
+	_, _ = fmt.Fprintf(hash, "mode=%d\x00size=%d\x00mtime=%d\x00", info.Mode(), info.Size(), info.ModTime().UnixNano())
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, readErr := os.Readlink(fullPath)
+		if readErr == nil {
+			_, _ = io.WriteString(hash, "symlink\x00"+target)
+		}
+		return fmt.Sprintf("%x", hash.Sum(nil))
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxChangeRevisionBytes {
+		return fmt.Sprintf("%x", hash.Sum(nil))
+	}
+	file, openErr := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if openErr == nil {
+		openedInfo, statErr := file.Stat()
+		if statErr == nil && openedInfo.Mode().IsRegular() && os.SameFile(info, openedInfo) {
+			_, _ = io.CopyN(hash, file, maxChangeRevisionBytes+1)
+		}
+		_ = file.Close()
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil))
 }
 
 // ─── Git Diff ────────────────────────────────────────────────────────────────
@@ -136,73 +398,15 @@ func isGitRepo(workDir string) bool {
 	return strings.TrimSpace(string(output)) == "true"
 }
 
-// computeGitDiff runs git diff --name-status and git diff to produce FileChanges.
-func computeGitDiff(workDir, baseRef string) ([]FileChange, error) {
-	// Get file status list.
-	statusCmd := exec.Command("git", "-C", workDir, "diff", "--name-status", "--no-renames", baseRef)
-	statusOutput, err := statusCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("git diff --name-status: %w", err)
-	}
-
-	var changes []FileChange
-	for _, line := range strings.Split(string(statusOutput), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		statusCode := parts[0]
-		filePath := parts[1]
-
-		status := mapStatusCode(statusCode)
-		if status == "" {
-			continue // skip unknown statuses
-		}
-
-		fc := FileChange{Path: filePath, Status: status}
-
-		// Get per-file diff with stat.
-		diffCmd := exec.Command("git", "-C", workDir, "diff", "--numstat", baseRef, "--", filePath)
-		diffOutput, err := diffCmd.Output()
-		if err == nil {
-			fc.Additions, fc.Deletions = parseNumstat(string(diffOutput))
-		}
-
-		// Check if binary.
-		if fc.Additions == 0 && fc.Deletions == 0 {
-			binaryCmd := exec.Command("git", "-C", workDir, "diff", "--stat", baseRef, "--", filePath)
-			binaryOutput, err := binaryCmd.Output()
-			if err == nil && strings.Contains(string(binaryOutput), "Bin") {
-				fc.Binary = true
-				// Extract file size from "Bin 100 -> 200 bytes"
-				fc.SizeBytes = extractBinarySize(string(binaryOutput))
-			}
-		}
-
-		// Get full diff hunks for text files.
-		if !fc.Binary {
-			fc.Hunks = computeGitHunks(workDir, baseRef, filePath)
-		}
-
-		changes = append(changes, fc)
-	}
-
-	return changes, nil
-}
-
 // computeGitHunks parses the unified diff output for a single file into DiffHunks.
-func computeGitHunks(workDir, baseRef, filePath string) []DiffHunk {
+func computeGitHunks(workDir, baseRef, filePath string) ([]DiffHunk, error) {
 	cmd := exec.Command("git", "-C", workDir, "diff", baseRef, "--", filePath)
 	output, err := cmd.Output()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("git diff: %w", err)
 	}
 
-	return parseUnifiedDiff(string(output))
+	return parseUnifiedDiff(string(output)), nil
 }
 
 // parseUnifiedDiff parses `git diff` output into DiffHunks.
@@ -298,109 +502,122 @@ func mapStatusCode(code string) string {
 	}
 }
 
-// parseNumstat parses "additions\tdeletions\tpath" output.
-func parseNumstat(output string) (int, int) {
-	output = strings.TrimSpace(output)
-	if output == "" {
-		return 0, 0
-	}
-	parts := strings.Split(output, "\t")
-	if len(parts) < 2 {
-		return 0, 0
-	}
-	add, _ := strconv.Atoi(parts[0])
-	del, _ := strconv.Atoi(parts[1])
-	return add, del
-}
-
-// extractBinarySize extracts the new file size from "Bin 100 -> 200 bytes".
-func extractBinarySize(output string) int64 {
-	// Find "->" and parse the number after it.
-	idx := strings.Index(output, "->")
-	if idx < 0 {
-		return 0
-	}
-	rest := strings.TrimSpace(output[idx+2:])
-	parts := strings.Fields(rest)
-	if len(parts) < 1 {
-		return 0
-	}
-	size, _ := strconv.ParseInt(parts[0], 10, 64)
-	return size
-}
-
 // ─── Non-Git Snapshot Diff ──────────────────────────────────────────────────
 
-// computeSnapshotDiff compares current filesystem state against the baseline snapshot.
-func computeSnapshotDiff(workDir string, snapshot map[string]string) []FileChange {
-	// Current file hashes.
+func computeSnapshotSummary(workDir string, snapshot map[string]string) []FileChange {
 	current := make(map[string]string)
 	currentFiles := make(map[string]bool)
 	walkAndHash(workDir, "", current, currentFiles)
 
 	var changes []FileChange
-
-	// Check for modified and added files.
 	for path, hash := range current {
 		oldHash, existed := snapshot[path]
-		if !existed {
-			// New file.
-			fc := buildFileChangeFromSnapshot(workDir, path, "", hash, "added")
-			changes = append(changes, fc)
-		} else if oldHash != hash {
-			// Modified file.
-			fc := buildFileChangeFromSnapshot(workDir, path, oldHash, hash, "modified")
-			changes = append(changes, fc)
+		if existed && oldHash == hash {
+			continue
 		}
+		status := "added"
+		if existed {
+			status = "modified"
+		}
+		change := FileChange{Path: path, Status: status, Revision: hash}
+		if content, _, binary, size, ok := readSnapshotTarget(filepath.Join(workDir, filepath.FromSlash(path))); ok {
+			change.Binary = binary
+			change.SizeBytes = size
+			if !binary {
+				change.Additions = len(strings.Split(string(content), "\n"))
+			}
+		}
+		changes = append(changes, change)
 	}
-
-	// Check for deleted files.
-	for path := range snapshot {
+	for path, oldHash := range snapshot {
 		if !currentFiles[path] {
-			changes = append(changes, FileChange{Path: path, Status: "deleted"})
+			changes = append(changes, FileChange{Path: path, Status: "deleted", Revision: oldHash})
 		}
 	}
-
 	return changes
 }
 
-// buildFileChangeFromSnapshot creates a FileChange with line diff for non-git files.
-func buildFileChangeFromSnapshot(workDir, relPath, oldHash, newHash, status string) FileChange {
-	fc := FileChange{Path: relPath, Status: status}
-
-	fullPath := filepath.Join(workDir, relPath)
-	newContent, err := os.ReadFile(fullPath)
-	if err != nil {
-		fc.Binary = true
-		return fc
+func computeSnapshotDiffForPath(
+	workDir string,
+	snapshot map[string]string,
+	requestedPath string,
+) (FileChange, bool) {
+	if !validChangePath(requestedPath) {
+		return FileChange{}, false
 	}
-
-	// We don't have the old content stored (only the hash).
-	// For non-git, we can only show the new content as additions.
-	// To get a real diff, we'd need to store original content — but that's
-	// a larger storage cost. For now, show current content as all-additions
-	// for new files, and for modified files, show the full new content.
-	//
-	// This is a known limitation of the hash-only snapshot approach.
-	newLines := strings.Split(string(newContent), "\n")
-	var lines []DiffLine
+	oldHash, existed := snapshot[requestedPath]
+	content, revision, binary, size, exists := readSnapshotTarget(
+		filepath.Join(workDir, filepath.FromSlash(requestedPath)),
+	)
+	if !exists {
+		if existed {
+			return FileChange{Path: requestedPath, Status: "deleted", Revision: oldHash}, true
+		}
+		return FileChange{}, false
+	}
+	if existed && oldHash == revision {
+		return FileChange{}, false
+	}
+	status := "added"
+	if existed {
+		status = "modified"
+	}
+	change := FileChange{
+		Path: requestedPath, Status: status, Revision: revision, Binary: binary, SizeBytes: size,
+	}
+	if binary {
+		return change, true
+	}
+	newLines := strings.Split(string(content), "\n")
+	lines := make([]DiffLine, 0, len(newLines))
 	for i, line := range newLines {
-		lines = append(lines, DiffLine{
-			Type:    "add",
-			Content: line,
-			NewNum:  i + 1,
-		})
+		lines = append(lines, DiffLine{Type: "add", Content: line, NewNum: i + 1})
 	}
+	change.Additions = len(newLines)
 	if len(lines) > 0 {
-		fc.Hunks = []DiffHunk{{
-			NewStart: 1,
-			NewLines: len(newLines),
-			Lines:    lines,
-		}}
-		fc.Additions = len(newLines)
+		change.Hunks = []DiffHunk{{NewStart: 1, NewLines: len(newLines), Lines: lines}}
 	}
+	return change, true
+}
 
-	return fc
+// readSnapshotTarget returns one coherent bounded read. The returned revision
+// is derived from the same bytes used to build the diff.
+func readSnapshotTarget(fullPath string) ([]byte, string, bool, int64, bool) {
+	info, err := os.Lstat(fullPath)
+	if err != nil {
+		return nil, "", false, 0, false
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, readErr := os.Readlink(fullPath)
+		if readErr != nil {
+			return nil, "", false, 0, false
+		}
+		sum := sha256.Sum256([]byte("symlink\x00" + target))
+		return nil, fmt.Sprintf("%x", sum[:]), true, info.Size(), true
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > maxChangeRevisionBytes {
+		return nil, "", false, 0, false
+	}
+	file, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, "", false, 0, false
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		return nil, "", false, 0, false
+	}
+	content, err := io.ReadAll(io.LimitReader(file, maxChangeRevisionBytes+1))
+	if err != nil || int64(len(content)) > maxChangeRevisionBytes {
+		return nil, "", false, 0, false
+	}
+	afterInfo, err := file.Stat()
+	if err != nil || afterInfo.Size() != openedInfo.Size() ||
+		afterInfo.ModTime() != openedInfo.ModTime() || afterInfo.Mode() != openedInfo.Mode() {
+		return nil, "", false, 0, false
+	}
+	sum := sha256.Sum256(content)
+	return content, fmt.Sprintf("%x", sum[:]), false, int64(len(content)), true
 }
 
 // walkAndHash recursively walks the directory and hashes text files.
@@ -427,19 +644,23 @@ func walkAndHash(baseDir, relDir string, hashes map[string]string, files map[str
 		if isExcludedExt(ext) {
 			continue
 		}
-		info, err := entry.Info()
-		if err != nil || info.Size() == 0 || info.Size() > 1<<20 {
-			continue
-		}
 		fullPath := filepath.Join(baseDir, relPath)
-		hash, err := session.HashFile(fullPath)
-		if err != nil {
+		_, hash, _, _, ok := readSnapshotTarget(fullPath)
+		if !ok {
 			continue
 		}
 		slashPath := filepath.ToSlash(relPath)
 		hashes[slashPath] = hash
 		files[slashPath] = true
 	}
+}
+
+func validChangePath(path string) bool {
+	if path == "" || filepath.IsAbs(path) {
+		return false
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+	return clean == path && clean != "." && clean != ".." && !strings.HasPrefix(clean, "../")
 }
 
 func isExcludedDir(name string) bool {
@@ -471,10 +692,14 @@ func isExcludedExt(ext string) bool {
 
 // summarizeChanges computes totals and returns a ChangesResponse.
 func summarizeChanges(changes []FileChange) ChangesResponse {
-	resp := ChangesResponse{Changes: changes}
-	for _, c := range changes {
+	summaries := make([]FileChange, len(changes))
+	copy(summaries, changes)
+	resp := ChangesResponse{Changes: summaries}
+	for i := range resp.Changes {
+		c := &resp.Changes[i]
 		resp.TotalAdditions += c.Additions
 		resp.TotalDeletions += c.Deletions
+		c.Hunks = nil
 	}
 	return resp
 }

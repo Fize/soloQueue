@@ -56,6 +56,16 @@ function renderInput(overrides: Partial<React.ComponentProps<typeof ChatInput>> 
 }
 
 describe('ChatInput workspace selector', () => {
+  it('does not render route badges when task and model props are supplied', () => {
+    renderInput({
+      taskLevel: 'route-task-sentinel',
+      modelName: 'route-model-sentinel',
+    })
+
+    expect(screen.queryByText('route-task-sentinel')).not.toBeInTheDocument()
+    expect(screen.queryByText('route-model-sentinel')).not.toBeInTheDocument()
+  })
+
   it('keeps local selected by default even when projects are available', async () => {
     const user = userEvent.setup()
     const onProjectChange = vi.fn()

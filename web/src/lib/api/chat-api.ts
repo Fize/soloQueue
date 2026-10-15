@@ -6,6 +6,7 @@ import type {
   CreateL2SessionResponse,
   SessionHistoryResponse,
   ChangesResponse,
+  FileChange,
 } from '@/types'
 import { request, requestBlob, requestForm, requestRootJson, requestText } from './core'
 
@@ -123,6 +124,18 @@ export async function uploadFile(
 export async function getSessionChanges(sessionId: string): Promise<ChangesResponse> {
   const id = sessionId.startsWith('l2:') ? sessionId.slice(3) : sessionId
   return request<ChangesResponse>(`/session/l2/${encodeURIComponent(id)}/changes`)
+}
+
+export async function getSessionChangeDiff(
+  sessionId: string,
+  path: string,
+  expectedRevision: string
+): Promise<FileChange> {
+  const id = sessionId.startsWith('l2:') ? sessionId.slice(3) : sessionId
+  const params = new URLSearchParams({ path, expected_revision: expectedRevision })
+  return request<FileChange>(
+    `/session/l2/${encodeURIComponent(id)}/changes/diff?${params.toString()}`
+  )
 }
 
 // ─── Misc ────────────────────────────────────────────────────────────────────
