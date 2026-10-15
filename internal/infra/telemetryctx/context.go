@@ -38,6 +38,16 @@ type Metadata struct {
 	Origin    string
 	UsageType string
 	TaskType  string
+	SegmentID string
+	OnUsage   func(Usage)
+}
+
+// Usage is the token portion of one completed LLM call, passed back to the
+// owning session for durable summary updates.
+type Usage struct {
+	InputTokens, OutputTokens, TotalTokens int
+	CacheHitTokens, CacheMissTokens        int
+	CacheDetailsReported                   bool
 }
 
 func WithContext(ctx context.Context, teamID, usageType string) context.Context {
@@ -77,6 +87,12 @@ func WithMetadata(ctx context.Context, metadata Metadata) context.Context {
 	}
 	if metadata.TaskType != "" {
 		current.TaskType = metadata.TaskType
+	}
+	if metadata.SegmentID != "" {
+		current.SegmentID = metadata.SegmentID
+	}
+	if metadata.OnUsage != nil {
+		current.OnUsage = metadata.OnUsage
 	}
 	return context.WithValue(ctx, metadataKey, current)
 }

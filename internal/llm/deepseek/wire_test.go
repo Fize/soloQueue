@@ -505,6 +505,14 @@ func TestWireUsageToLLM_NilCompletionDetails(t *testing.T) {
 	}
 }
 
+func TestWireUsageToLLM_DerivesMissesWhenCacheHitsAreZero(t *testing.T) {
+	hit := 0
+	got := wireUsageToLLM(&wireUsage{PromptTokens: 12, PromptCacheHitTokens: &hit})
+	if got.PromptCacheHitTokens != 0 || got.PromptCacheMissTokens != 12 || !got.CacheDetailsReported {
+		t.Fatalf("usage = %+v, want all 12 prompt tokens counted as cache misses", got)
+	}
+}
+
 // --- Helpers -----------------------------------------------------------------
 
 func contains(haystack, needle string) bool {

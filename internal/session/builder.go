@@ -1003,7 +1003,9 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		effectiveCW = agent.DefaultContextWindow
 	}
 
-	// Summary hook (timeline-only, no memory writes).
+	// Summary hook records the successful compact boundary in both the timeline
+	// and meta.json so every compaction path starts the next usage segment.
+	var l2Session *Session
 	summaryHook := func(ctx context.Context, _ []ctxwin.SummarySegment, finalSummary string) {
 		if finalSummary == "" {
 			return
@@ -1015,6 +1017,9 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline summary append failed",
 				"err", err.Error(), "agent_id", agentID)
+		}
+		if l2Session != nil {
+			l2Session.advanceUsageSegment()
 		}
 	}
 
@@ -1087,6 +1092,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	// Build the Session.
 	sessLogger := sessLog.Child()
 	s := NewSession(sessionID, group, childAgent, cw, tl, sessLogger)
+	l2Session = s
 	s.SetRunWatch(b.RT.RunWatch)
 	s.SetAgentRegistry(b.RT.AgentRegistry)
 	s.SetSupervisor(sv, b.RT.RemoveSupervisor)
@@ -1106,6 +1112,11 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	// other session code path) can persist without re-deriving paths.
 	s.metaWorkDir = b.WorkDir
 	s.metaL2ID = id
+	s.usageMetaPath = MetaFilePath(b.WorkDir, id)
+	if meta, err := LoadMeta(b.WorkDir, id); err == nil {
+		s.usageIndex = meta.Usage.CurrentSegment
+	}
+	s.refreshLifecycleTelemetry()
 	s.gitBaseRef = baseline.GitBaseRef
 	if baseline.Snapshot != nil {
 		s.metaBaseline = baseline.Snapshot

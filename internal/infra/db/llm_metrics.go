@@ -13,6 +13,7 @@ type LLMCallMetric struct {
 	CallID                   string
 	RequestID                string
 	SessionID                string
+	SegmentID                string
 	RunID                    string
 	AgentID                  string
 	TeamID                   string
@@ -61,15 +62,15 @@ func (db *DB) InsertLLMCallMetric(ctx context.Context, metric LLMCallMetric) err
 
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO llm_call_metrics (
-			call_id, request_id, session_id, run_id, agent_id, team_id,
+			call_id, request_id, session_id, segment_id, run_id, agent_id, team_id,
 			origin, usage_type, task_type, provider_id, model_id,
 			started_at, finished_at, status, finish_reason, error_code,
 			retry_count, duration_ms, prompt_tokens, completion_tokens,
 			reasoning_tokens, total_tokens, cache_hit_tokens, cache_miss_tokens,
 			reasoning_details_reported, cache_details_reported
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
-		metric.CallID, metric.RequestID, metric.SessionID, metric.RunID,
+		metric.CallID, metric.RequestID, metric.SessionID, metric.SegmentID, metric.RunID,
 		metric.AgentID, metric.TeamID, metric.Origin,
 		metric.UsageType, metric.TaskType,
 		metric.ProviderID, metric.ModelID,
@@ -111,7 +112,7 @@ func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLM
 	rows, err := db.QueryContext(ctx, `
 		WITH events AS (
 			SELECT
-				call_id, request_id, session_id, run_id, agent_id, team_id,
+				call_id, request_id, session_id, segment_id, run_id, agent_id, team_id,
 				origin, usage_type, task_type, provider_id, model_id,
 				started_at, finished_at, status, finish_reason, error_code,
 				retry_count, duration_ms, prompt_tokens, completion_tokens,
@@ -121,7 +122,7 @@ func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLM
 			FROM llm_call_metrics
 			UNION ALL
 			SELECT
-				'legacy:' || id, '', '', '', '', team_id,
+				'legacy:' || id, '', '', '', '', '', team_id,
 				'unknown', usage_type, 'unknown', '', model_name,
 				timestamp, timestamp, 'unknown', '', '',
 				0, 0, prompt_tokens, completion_tokens,
@@ -132,7 +133,7 @@ func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLM
 			WHERE metric_category = ?
 		)
 		SELECT
-			call_id, request_id, session_id, run_id, agent_id, team_id,
+			call_id, request_id, session_id, segment_id, run_id, agent_id, team_id,
 			origin, usage_type, task_type, provider_id, model_id,
 			started_at, finished_at, status, finish_reason, error_code,
 			retry_count, duration_ms, prompt_tokens, completion_tokens,
@@ -154,7 +155,7 @@ func (db *DB) ListLLMCallMetrics(ctx context.Context, from, to time.Time) ([]LLM
 		var startedAt, finishedAt string
 		var legacy int
 		if err := rows.Scan(
-			&metric.CallID, &metric.RequestID, &metric.SessionID, &metric.RunID,
+			&metric.CallID, &metric.RequestID, &metric.SessionID, &metric.SegmentID, &metric.RunID,
 			&metric.AgentID, &metric.TeamID, &metric.Origin, &metric.UsageType,
 			&metric.TaskType, &metric.ProviderID, &metric.ModelID,
 			&startedAt, &finishedAt, &metric.Status, &metric.FinishReason,

@@ -19,6 +19,7 @@ func TestInsertAndListLLMCallMetrics(t *testing.T) {
 		CallID:                   "call-1",
 		RequestID:                "request-1",
 		SessionID:                "session-1",
+		SegmentID:                "1",
 		RunID:                    "run-1",
 		AgentID:                  "agent-1",
 		TeamID:                   "team-a",
@@ -53,7 +54,7 @@ func TestInsertAndListLLMCallMetrics(t *testing.T) {
 		t.Fatalf("row count = %d, want 1", len(rows))
 	}
 	got := rows[0]
-	if got.CallID != metric.CallID || got.ReasoningTokens != 20 || got.Status != "success" || !got.ReasoningDetailsReported || !got.CacheDetailsReported {
+	if got.CallID != metric.CallID || got.SegmentID != "1" || got.ReasoningTokens != 20 || got.Status != "success" || !got.ReasoningDetailsReported || !got.CacheDetailsReported {
 		t.Fatalf("metric = %+v", got)
 	}
 	if got.Legacy {

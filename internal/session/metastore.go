@@ -38,6 +38,65 @@ type SessionMeta struct {
 	CtxwinUsed    int               `json:"ctxwin_used,omitempty"`
 	CtxwinLimit   int               `json:"ctxwin_limit,omitempty"`
 	CtxwinUpdated time.Time         `json:"ctxwin_updated_at,omitempty"`
+	Usage         SessionUsage      `json:"usage,omitempty"`
+}
+
+// SessionUsage stores lifetime token totals and compact-delimited cache phases.
+// Rows without reported cache details increase token totals but do not affect
+// the cache hit ratio denominator.
+type SessionUsage struct {
+	CurrentSegment int            `json:"current_segment"`
+	Lifetime       UsageTotals    `json:"lifetime"`
+	Segments       []UsageSegment `json:"segments,omitempty"`
+}
+
+type UsageTotals struct {
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	CacheHitTokens   int `json:"cache_hit_tokens"`
+	CacheMissTokens  int `json:"cache_miss_tokens"`
+	CacheInputTokens int `json:"cache_input_tokens"`
+}
+
+type UsageSegment struct {
+	Index  int         `json:"index"`
+	Totals UsageTotals `json:"totals"`
+}
+
+func (u UsageTotals) CacheHitRatio() float64 {
+	if u.CacheInputTokens <= 0 {
+		return 0
+	}
+	return float64(u.CacheHitTokens) / float64(u.CacheInputTokens)
+}
+
+func (u *SessionUsage) add(segment int, input, output, total, hit, miss int, cacheReported bool) {
+	if u == nil {
+		return
+	}
+	if segment < 0 {
+		segment = 0
+	}
+	for len(u.Segments) <= segment {
+		u.Segments = append(u.Segments, UsageSegment{Index: len(u.Segments)})
+	}
+	addUsageTotals(&u.Lifetime, input, output, total, hit, miss, cacheReported)
+	addUsageTotals(&u.Segments[segment].Totals, input, output, total, hit, miss, cacheReported)
+	if segment > u.CurrentSegment {
+		u.CurrentSegment = segment
+	}
+}
+
+func addUsageTotals(t *UsageTotals, input, output, total, hit, miss int, cacheReported bool) {
+	t.InputTokens += input
+	t.OutputTokens += output
+	t.TotalTokens += total
+	if cacheReported {
+		t.CacheHitTokens += hit
+		t.CacheMissTokens += miss
+		t.CacheInputTokens += input
+	}
 }
 
 // ErrMetaSchemaMismatch is returned when meta.json exists with a different
@@ -159,16 +218,41 @@ func SaveMeta(workDir, id string, m *SessionMeta) error {
 // responsible for holding any in-process lock that prevents concurrent
 // mutations of the same session.
 func MergeAndSave(workDir, id string, mutate func(*SessionMeta)) error {
+	return MergeAndSavePath(MetaFilePath(workDir, id), mutate)
+}
+
+// LoadMetaPath reads a meta.json by path for the L1 timeline, whose metadata
+// lives beside the default timeline rather than in an l2-<id> directory.
+func LoadMetaPath(metaPath string) (*SessionMeta, error) {
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil, err
+	}
+	var m SessionMeta
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", MetaFileName, err)
+	}
+	if m.SchemaVersion == 0 {
+		m.SchemaVersion = CurrentSchemaVersion
+	}
+	if m.SchemaVersion != CurrentSchemaVersion {
+		return nil, fmt.Errorf("%w: persisted=%d current=%d", ErrMetaSchemaMismatch, m.SchemaVersion, CurrentSchemaVersion)
+	}
+	return &m, nil
+}
+
+// MergeAndSavePath atomically updates the metadata file at metaPath. Caller
+// serializes mutations for a given session.
+func MergeAndSavePath(metaPath string, mutate func(*SessionMeta)) error {
 	if mutate == nil {
-		return errors.New("MergeAndSave: nil mutate")
+		return errors.New("MergeAndSavePath: nil mutate")
 	}
 
 	metaMu.Lock()
 	defer metaMu.Unlock()
 
-	m, err := readMetaLocked(workDir, id)
-	if err != nil && !errors.Is(err, ErrNoGroup) {
-		// meta.json present but unreadable / wrong schema — don't clobber.
+	m, err := LoadMetaPath(metaPath)
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	if m == nil {
@@ -180,7 +264,6 @@ func MergeAndSave(workDir, id string, mutate func(*SessionMeta)) error {
 		m.SchemaVersion = CurrentSchemaVersion
 	}
 
-	metaPath := MetaFilePath(workDir, id)
 	if err := os.MkdirAll(filepath.Dir(metaPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir for %s: %w", metaPath, err)
 	}

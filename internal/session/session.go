@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,6 +30,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
@@ -292,8 +294,11 @@ type Session struct {
 
 	// L2-only: coordinates persistent meta.json writes for level/git_base_ref/baseline.
 	// Empty on L1 sessions; MergeAndSave is only called when metaL2ID is non-empty.
-	metaWorkDir string
-	metaL2ID    string
+	metaWorkDir   string
+	metaL2ID      string
+	usageMetaPath string
+	usageMu       sync.Mutex
+	usageIndex    int
 	// gitBaseRef captures the HEAD commit hash at session start (git repos).
 	// Persisted in meta.json; read by the Changes tab to diff against this ref.
 	gitBaseRef   string
@@ -1154,7 +1159,88 @@ func (s *Session) withSessionTelemetry(ctx context.Context) context.Context {
 			metadata.AgentID = a.InstanceID
 		}
 	}
+	if s.usageMetaPath != "" {
+		s.usageMu.Lock()
+		segment := s.usageIndex
+		s.usageMu.Unlock()
+		metadata.SegmentID = strconv.Itoa(segment)
+		metadata.OnUsage = func(u telemetryctx.Usage) { s.recordUsage(segment, u) }
+	}
 	return telemetry.WithTelemetryMetadata(ctx, metadata)
+}
+
+func (s *Session) recordUsage(segment int, usage telemetryctx.Usage) {
+	if s.usageMetaPath == "" {
+		return
+	}
+	s.usageMu.Lock()
+	defer s.usageMu.Unlock()
+	if err := MergeAndSavePath(s.usageMetaPath, func(m *SessionMeta) {
+		m.Usage.add(segment, usage.InputTokens, usage.OutputTokens, usage.TotalTokens,
+			usage.CacheHitTokens, usage.CacheMissTokens, usage.CacheDetailsReported)
+	}); err != nil {
+		s.logger.Warn(logger.CatApp, "session token usage persistence failed", "err", err.Error())
+	}
+}
+
+func (s *Session) advanceUsageSegment() {
+	if s.usageMetaPath == "" {
+		return
+	}
+	used, limit := 0, 0
+	if s.cw != nil {
+		used, limit, _ = s.cw.TokenUsage()
+	}
+	s.usageMu.Lock()
+	next := s.usageIndex + 1
+	if err := MergeAndSavePath(s.usageMetaPath, func(m *SessionMeta) {
+		m.Usage.CurrentSegment = next
+		m.CtxwinUsed = used
+		m.CtxwinLimit = limit
+		m.CtxwinUpdated = time.Now().UTC()
+		for len(m.Usage.Segments) <= next {
+			m.Usage.Segments = append(m.Usage.Segments, UsageSegment{Index: len(m.Usage.Segments)})
+		}
+	}); err != nil {
+		s.usageMu.Unlock()
+		s.logger.Warn(logger.CatApp, "session compact segment persistence failed", "err", err.Error())
+		return
+	}
+	s.usageIndex = next
+	s.usageMu.Unlock()
+	s.refreshLifecycleTelemetry()
+}
+
+func (s *Session) refreshLifecycleTelemetry() {
+	if s.usageMetaPath == "" || s.cw == nil {
+		return
+	}
+	s.usageMu.Lock()
+	segment := s.usageIndex
+	s.usageMu.Unlock()
+	s.cw.SetLifecycleContext(s.usageTelemetryContext(segment))
+}
+
+// UsageSnapshot returns the durable per-session token summary for API/UI use.
+func (s *Session) UsageSnapshot() SessionUsage {
+	if s == nil || s.usageMetaPath == "" {
+		return SessionUsage{}
+	}
+	meta, err := LoadMetaPath(s.usageMetaPath)
+	if err != nil {
+		return SessionUsage{}
+	}
+	return meta.Usage
+}
+
+func (s *Session) usageTelemetryContext(segment int) context.Context {
+	metadata := telemetry.Metadata{SessionID: s.TargetID, SegmentID: strconv.Itoa(segment)}
+	metadata.OnUsage = func(u telemetryctx.Usage) { s.recordUsage(segment, u) }
+	base := s.reflectionCtx
+	if base == nil {
+		base = context.Background()
+	}
+	return telemetry.WithTelemetryMetadata(base, metadata)
 }
 
 func effectiveRunID(ctx context.Context) string {
@@ -1531,6 +1617,7 @@ func (s *Session) Clear() error {
 // into a condensed representation using the compactor. Unlike Clear,
 // it preserves the recent context and does NOT save to conversation.
 func (s *Session) Compact(ctx context.Context) (string, error) {
+	ctx = s.withSessionTelemetry(ctx)
 	ctx = context.WithValue(ctx, compactionReasonKey{}, compactionReasonUserCommand)
 	compactCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -1802,7 +1889,10 @@ func (s *Session) checkAutoClear() {
 	s.logger.InfoContext(context.Background(), logger.CatApp, "auto-clear: compressing idle session context",
 		"tokens", tokens, "threshold", threshold)
 
-	compactCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.usageMu.Lock()
+	compactSegment := s.usageIndex
+	s.usageMu.Unlock()
+	compactCtx, cancel := context.WithTimeout(s.usageTelemetryContext(compactSegment), 60*time.Second)
 	defer cancel()
 
 	summary, err := s.cw.CompactAndReplace(compactCtx)
@@ -3119,6 +3209,18 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 		sessionLogger = a.Log.Child()
 	}
 	s := NewSession(id, teamID, a, cw, tl, sessionLogger)
+	if tl != nil {
+		s.usageMetaPath = filepath.Join(tl.Dir(), MetaFileName)
+		if meta, err := LoadMetaPath(s.usageMetaPath); err == nil {
+			s.usageIndex = meta.Usage.CurrentSegment
+		}
+		if cw != nil {
+			cw.AddSummaryHook(func(context.Context, []ctxwin.SummarySegment, string) {
+				s.advanceUsageSegment()
+			})
+		}
+		s.refreshLifecycleTelemetry()
+	}
 	s.SetAgentRegistry(m.agentRegistry)
 	s.SetAgentRebuilder(func(rebuildCtx context.Context) (*agent.Agent, error) {
 		fresh, _, freshTimeline, err := m.factory(rebuildCtx, teamID)

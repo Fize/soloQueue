@@ -213,6 +213,23 @@ func WithSummaryHook(hook SummaryHook) Option {
 	return func(cw *ContextWindow) { cw.summaryHook = hook }
 }
 
+// AddSummaryHook chains a callback after the configured summary hook. Call it
+// during session setup, before any messages can trigger compaction.
+func (cw *ContextWindow) AddSummaryHook(hook SummaryHook) {
+	if hook == nil {
+		return
+	}
+	cw.Lock()
+	previous := cw.summaryHook
+	cw.summaryHook = func(ctx context.Context, segments []SummarySegment, summary string) {
+		if previous != nil {
+			previous(ctx, segments, summary)
+		}
+		hook(ctx, segments, summary)
+	}
+	cw.Unlock()
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const (

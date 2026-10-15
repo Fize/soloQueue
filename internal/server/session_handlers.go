@@ -256,12 +256,13 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		// DesignDir is the absolute path to the design assets directory for this
 		// session. For project sessions: <project_path>/.soloqueue/design/.
 		// For no-project sessions: <workDir>/design/.
-		DesignDir   string    `json:"design_dir,omitempty"`
-		CreatedAt   time.Time `json:"created_at"`
-		IsQBot      bool      `json:"is_qbot"`
-		CtxwinUsed  int       `json:"ctxwin_used"`
-		CtxwinLimit int       `json:"ctxwin_limit"`
-		Plans       []string  `json:"plans,omitempty"`
+		DesignDir   string               `json:"design_dir,omitempty"`
+		CreatedAt   time.Time            `json:"created_at"`
+		IsQBot      bool                 `json:"is_qbot"`
+		CtxwinUsed  int                  `json:"ctxwin_used"`
+		CtxwinLimit int                  `json:"ctxwin_limit"`
+		Usage       session.SessionUsage `json:"usage,omitempty"`
+		Plans       []string             `json:"plans,omitempty"`
 	}
 
 	// resolveDesignDir computes the design directory for a session.
@@ -327,6 +328,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			IsQBot:          l1Sess.IsQBot(),
 			CtxwinUsed:      ctxwinUsed,
 			CtxwinLimit:     ctxwinLimit,
+			Usage:           l1Sess.UsageSnapshot(),
 		})
 	}
 
@@ -356,6 +358,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				CreatedAt:       info.CreatedAt,
 				CtxwinUsed:      ctxwinUsed,
 				CtxwinLimit:     ctxwinLimit,
+				Usage:           info.Usage,
 				Plans:           info.Plans,
 			})
 		}
@@ -433,6 +436,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				CreatedAt:   createdAt,
 				CtxwinUsed:  ctxwinUsed,
 				CtxwinLimit: ctxwinLimit,
+				Usage:       loaded.Usage,
 				Plans:       plans,
 			})
 		}
