@@ -334,6 +334,7 @@ export function AssistantPage() {
 
   const requestActive = (streaming || delegating || runtimeProcessing || runtimeDelegating) && !isSystemCommandRunning;
   const activeRoute = routeSessions["l1"];
+  const inputProviderName = requestActive ? (effectiveRequestRuntime?.provider_id || activeRoute?.providerId || "") : undefined;
   const inputModelName = requestActive ? (effectiveRequestRuntime?.model_id || activeRoute?.modelId || "") : undefined;
   const inputTaskLevel = requestActive ? (effectiveRequestRuntime?.task_type || activeRoute?.taskLevel || "") : undefined;
 
@@ -408,6 +409,7 @@ export function AssistantPage() {
                 <div className="mx-auto max-w-3xl px-4 w-full">
                   <AgentWorkingIndicator
                     agentName={agentName}
+                    providerName={inputProviderName}
                     modelName={inputModelName}
                     taskLevel={inputTaskLevel}
                     delegating={delegating || runtimeDelegating}
@@ -423,6 +425,7 @@ export function AssistantPage() {
               <div className="mx-auto max-w-3xl px-4 w-full">
                 <AgentWorkingIndicator
                   agentName={agentName}
+                  providerName={inputProviderName}
                   modelName={inputModelName}
                   taskLevel={inputTaskLevel}
                   delegating={delegating || runtimeDelegating}

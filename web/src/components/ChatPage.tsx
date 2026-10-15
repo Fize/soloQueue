@@ -616,6 +616,7 @@ export function ChatPage() {
   const runtimeProcessing = runtimeRequests.some((runtime) => runtime.state !== "idle" && runtime.state !== "error");
   const runtimeDelegating = runtimeRequests.some((runtime) => runtime.delegating);
   const requestActive = (streaming || delegating || runtimeProcessing || runtimeDelegating) && !isSystemCommandRunning;
+  const inputProviderName = requestActive ? (effectiveRequestRuntime?.provider_id || activeRoute?.providerId || "") : undefined;
   const inputModelName = requestActive ? (effectiveRequestRuntime?.model_id || activeRoute?.modelId || "") : undefined;
   const inputTaskLevel = requestActive ? (effectiveRequestRuntime?.task_type || activeRoute?.taskLevel || "") : undefined;
   const requestContextUsed = effectiveRequestRuntime?.ctxwin_used ?? sessionRuntime?.ctxwin_used ?? activeSession?.ctxwin_used ?? 0;
@@ -1080,6 +1081,7 @@ export function ChatPage() {
                     {requestActive && (
                       <AgentWorkingIndicator
                         agentName={agentDisplayName}
+                        providerName={inputProviderName}
                         modelName={inputModelName}
                         taskLevel={inputTaskLevel}
                         delegating={delegating || runtimeDelegating}

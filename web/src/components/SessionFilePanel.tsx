@@ -149,8 +149,10 @@ function SessionFilePanelInner({ projectPath, panelWidth = 0 }: SessionFilePanel
             type="button"
             onClick={() => toggleNode(node)}
             className={cn(
-              'flex w-full items-center gap-1.5 rounded px-2 py-0.5 text-left text-xs transition-colors hover:bg-muted/50',
-              isActive && 'bg-accent text-accent-foreground'
+              'flex w-full items-center gap-1.5 rounded px-2 py-0.5 text-left text-xs transition-colors',
+              isActive
+                ? 'bg-accent text-accent-foreground'
+                : 'hover:bg-muted/50'
             )}
             style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
           >
