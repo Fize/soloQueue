@@ -1,14 +1,16 @@
 import { useTranslation } from '@/lib/i18n'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
-import { getFileUrl, readFileBytes, toggleFileCheckbox } from '@/lib/api'
+import { getFileUrl, readFileBytesConditional, toggleFileCheckbox } from '@/lib/api'
 import { Loader2, FileIcon, Copy, Check, MousePointer2, Edit3, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CODE_PREVIEW_CONFIG } from '@/lib/theme'
 import { DesignPreview } from './DesignPreview'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import type { PreviewCommentSnapshot } from '@/types/annotation'
+import { type FilePreviewMode, useSessionFilesStore } from '@/stores/sessionFilesStore'
+import { APIError } from '@/transport/http-client'
 
 function wrapInCodeBlock(content: string, language: string): string {
   const matches = content.match(/`+/g)
@@ -30,18 +32,35 @@ import {
 
 interface FileContentViewProps {
   path: string | null
-  onError?: (path: string) => void
+  cacheKey?: string
+  refreshRequest?: { sequence: number; force: boolean }
+  onError?: (path: string, error: unknown) => void
   onClose?: () => void
 }
 
-export function FileContentView({ path, onError, onClose }: FileContentViewProps) {
+export function FileContentView({
+  path,
+  cacheKey,
+  refreshRequest = { sequence: 0, force: false },
+  onError,
+  onClose,
+}: FileContentViewProps) {
   const { t } = useTranslation()
-  const [content, setContent] = useState<string | null>(null)
+  const initialPreview = cacheKey
+    ? useSessionFilesStore.getState().sessions[cacheKey]?.preview
+    : null
+  const matchingPreview = initialPreview?.path === path ? initialPreview : null
+  const [content, setContent] = useState<string | null>(matchingPreview?.content ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refreshError, setRefreshError] = useState(false)
+  const [terminalFailure, setTerminalFailure] = useState(false)
   const [copied, setCopied] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [viewMode, setViewMode] = useState<'preview' | 'raw' | 'design'>('preview')
+  const [viewMode, setViewMode] = useState<FilePreviewMode>(matchingPreview?.viewMode ?? 'preview')
+  const scrollViewportRef = useRef<HTMLDivElement>(null)
+  const updateFilesSession = useSessionFilesStore((state) => state.updateSession)
+  const clearSelectedFile = useSessionFilesStore((state) => state.clearSelectedFile)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const [designMode, setDesignMode] = useState<'click' | 'draw' | 'interact'>('interact')
   const [selectedTarget, setSelectedTarget] = useState<PreviewCommentSnapshot | null>(null)
@@ -61,13 +80,26 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
       return
     }
 
-    // Text content is loaded asynchronously after a file selection.
-    // The loading indicator must be visible before the request resolves.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true)
-    readFileBytes(path)
-      .then((buf) => {
+    const cachedPreview = cacheKey
+      ? useSessionFilesStore.getState().sessions[cacheKey]?.preview
+      : null
+    const matchingCache = cachedPreview?.path === path ? cachedPreview : null
+    if (!matchingCache?.content) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLoading(true)
+    }
+    readFileBytesConditional(
+      path,
+      refreshRequest.force ? undefined : (matchingCache?.etag ?? undefined)
+    )
+      .then((response) => {
         if (cancelled) return
+        if (response.status === 'not-modified') {
+          setLoading(false)
+          setRefreshError(false)
+          return
+        }
+        const buf = response.data
         // Content-based binary detection: if the file contains NUL bytes it
         // is binary regardless of extension. Prevents freezing the renderer.
         if (looksBinary(buf)) {
@@ -77,17 +109,89 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
           return
         }
         const decoder = new TextDecoder()
-        setContent(decoder.decode(buf))
+        const nextContent = decoder.decode(buf)
+        setContent(nextContent)
+        setError(null)
+        setRefreshError(false)
+        setTerminalFailure(false)
         setLoading(false)
+        if (cacheKey) {
+          const latest = useSessionFilesStore.getState().sessions[cacheKey]?.preview
+          updateFilesSession(cacheKey, {
+            preview: {
+              path,
+              content: nextContent,
+              etag: response.etag,
+              viewMode:
+                latest?.path === path ? latest.viewMode : (matchingCache?.viewMode ?? 'preview'),
+              scrollTop: latest?.path === path ? latest.scrollTop : 0,
+            },
+          })
+        }
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : String(err))
         setLoading(false)
-        onError?.(path)
+        if (err instanceof APIError && [401, 403, 404].includes(err.status)) {
+          setContent(null)
+          setRefreshError(false)
+          setTerminalFailure(true)
+          setError(err.status === 404 ? 'File was deleted or moved' : 'File is no longer available')
+          if (cacheKey) clearSelectedFile(cacheKey, path)
+          onError?.(path, err)
+          return
+        }
+        if (matchingCache?.content != null) {
+          setRefreshError(true)
+          return
+        }
+        setError(err instanceof Error ? err.message : String(err))
+        onError?.(path, err)
       })
-    return () => { cancelled = true }
-  }, [path, refreshKey, onError])
+    return () => {
+      cancelled = true
+    }
+  }, [
+    cacheKey,
+    clearSelectedFile,
+    onError,
+    path,
+    refreshKey,
+    refreshRequest.force,
+    refreshRequest.sequence,
+    updateFilesSession,
+  ])
+
+  useEffect(() => {
+    if (!cacheKey || !path || terminalFailure) return
+    const current = useSessionFilesStore.getState().sessions[cacheKey]?.preview
+    updateFilesSession(cacheKey, {
+      preview: {
+        path,
+        content,
+        etag: current?.path === path ? current.etag : null,
+        viewMode,
+        scrollTop: current?.path === path ? current.scrollTop : 0,
+      },
+    })
+  }, [cacheKey, content, path, terminalFailure, updateFilesSession, viewMode])
+
+  useEffect(() => {
+    const viewport = scrollViewportRef.current
+    if (!viewport || !cacheKey || !path) return
+    const cached = useSessionFilesStore.getState().sessions[cacheKey]?.preview
+    if (cached?.path === path) viewport.scrollTop = cached.scrollTop
+    const onScroll = () => {
+      const latest = useSessionFilesStore.getState().sessions[cacheKey]?.preview
+      if (latest?.path === path) {
+        updateFilesSession(cacheKey, {
+          preview: { ...latest, scrollTop: viewport.scrollTop },
+        })
+      }
+    }
+    viewport.addEventListener('scroll', onScroll)
+    return () => viewport.removeEventListener('scroll', onScroll)
+  }, [cacheKey, path, updateFilesSession])
 
   if (!path) {
     return (
@@ -139,7 +243,10 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-2 border-b flex items-center justify-between shrink-0 gap-2">
-        <p className="text-xs font-mono text-muted-foreground truncate flex-1 min-w-0">{fileName}</p>
+        <p className="text-xs font-mono text-muted-foreground truncate flex-1 min-w-0">
+          {fileName}
+        </p>
+        {refreshError && <span className="text-[10px] text-destructive">Refresh failed</span>}
         {isTextFile && content !== null && (
           <div className="flex items-center rounded-md border border-border/60 overflow-hidden">
             <button
@@ -198,19 +305,14 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
             </Button>
           )}
           {onClose && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onClose}
-              title={t('common.closeDialog')}
-            >
+            <Button variant="ghost" size="icon" onClick={onClose} title={t('common.closeDialog')}>
               <X className="h-3.5 w-3.5" />
             </Button>
           )}
         </div>
       </div>
 
-      <ScrollArea className="flex-1 min-h-0">
+      <ScrollArea className="flex-1 min-h-0" viewportRef={scrollViewportRef}>
         <div className="p-4">
           {isBinary && (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
@@ -259,47 +361,51 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
             <div className="flex w-full h-[65vh] md:h-[75vh] border rounded-lg overflow-hidden border-border/60 shadow-sm">
               {/* Annotation Dialog (Left Side) */}
               <div className="w-[300px] border-r border-border/40 bg-card/50 flex flex-col shrink-0 overflow-hidden relative z-10">
-                 <div className="p-3 border-b border-border/40 font-semibold text-xs flex items-center justify-between bg-card text-foreground/90 uppercase tracking-wider">
-                   <span>Design Annotations</span>
-                 </div>
-                 <div className="p-3 flex gap-2 border-b border-border/20 bg-muted/20">
-                   <Button 
-                      variant={designMode === 'click' ? 'default' : 'outline'} 
-                      size="sm"
-                      onClick={() => setDesignMode(designMode === 'click' ? 'interact' : 'click')}
-                   >
-                     <MousePointer2 className="w-3.5 h-3.5 mr-1.5" />
-                     Pick Element
-                   </Button>
-                   <Button 
-                      variant={designMode === 'draw' ? 'default' : 'outline'} 
-                      size="sm"
-                      onClick={() => setDesignMode(designMode === 'draw' ? 'interact' : 'draw')}
-                   >
-                     <Edit3 className="w-3.5 h-3.5 mr-1.5" />
-                     {t('common.drawRegion')}
-                   </Button>
-                 </div>
-                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                   {selectedTarget ? (
-                     <div className="text-xs bg-muted/30 border border-border/50 p-3 rounded-lg shadow-sm">
-                       <div className="font-semibold mb-1 text-primary">Target Selected</div>
-                       <div className="text-muted-foreground mb-3 break-all font-mono text-[10px]">{selectedTarget.label}</div>
-                       <textarea 
-                         placeholder={t('common.designPlaceholder')}
-                         className="w-full h-24 bg-background border border-border/40 rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
-                       />
-                       <Button size="sm" className="w-full mt-3 h-8 text-xs font-medium">{t('common.sendAnnotation')}</Button>
-                     </div>
-                   ) : (
-                     <div className="flex flex-col items-center justify-center text-center h-full text-muted-foreground opacity-70">
-                       <MousePointer2 className="h-8 w-8 mb-3 opacity-20" />
-                       <span className="text-[11px] max-w-[200px] leading-relaxed">
-                         Select an element or draw a region on the right to add an annotation.
-                       </span>
-                     </div>
-                   )}
-                 </div>
+                <div className="p-3 border-b border-border/40 font-semibold text-xs flex items-center justify-between bg-card text-foreground/90 uppercase tracking-wider">
+                  <span>Design Annotations</span>
+                </div>
+                <div className="p-3 flex gap-2 border-b border-border/20 bg-muted/20">
+                  <Button
+                    variant={designMode === 'click' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setDesignMode(designMode === 'click' ? 'interact' : 'click')}
+                  >
+                    <MousePointer2 className="w-3.5 h-3.5 mr-1.5" />
+                    Pick Element
+                  </Button>
+                  <Button
+                    variant={designMode === 'draw' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setDesignMode(designMode === 'draw' ? 'interact' : 'draw')}
+                  >
+                    <Edit3 className="w-3.5 h-3.5 mr-1.5" />
+                    {t('common.drawRegion')}
+                  </Button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  {selectedTarget ? (
+                    <div className="text-xs bg-muted/30 border border-border/50 p-3 rounded-lg shadow-sm">
+                      <div className="font-semibold mb-1 text-primary">Target Selected</div>
+                      <div className="text-muted-foreground mb-3 break-all font-mono text-[10px]">
+                        {selectedTarget.label}
+                      </div>
+                      <textarea
+                        placeholder={t('common.designPlaceholder')}
+                        className="w-full h-24 bg-background border border-border/40 rounded p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
+                      />
+                      <Button size="sm" className="w-full mt-3 h-8 text-xs font-medium">
+                        {t('common.sendAnnotation')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center h-full text-muted-foreground opacity-70">
+                      <MousePointer2 className="h-8 w-8 mb-3 opacity-20" />
+                      <span className="text-[11px] max-w-[200px] leading-relaxed">
+                        Select an element or draw a region on the right to add an annotation.
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Design Preview (Right Side) */}
@@ -308,8 +414,8 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
                   htmlContent={content}
                   mode={designMode}
                   onSelectTarget={(t) => {
-                     setSelectedTarget(t)
-                     if (t) setDesignMode('interact') // Auto-switch out of mode after picking
+                    setSelectedTarget(t)
+                    if (t) setDesignMode('interact') // Auto-switch out of mode after picking
                   }}
                 />
               </div>
@@ -337,9 +443,7 @@ export function FileContentView({ path, onError, onClose }: FileContentViewProps
                   }}
                 />
               )}
-              {language && (
-                <MarkdownPreview content={wrapInCodeBlock(content, language)} />
-              )}
+              {language && <MarkdownPreview content={wrapInCodeBlock(content, language)} />}
               {!isMarkdown && !language && (
                 <pre
                   className="whitespace-pre-wrap break-words"

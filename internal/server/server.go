@@ -615,7 +615,8 @@ func (m *Mux) corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, X-SoloQueue-Account-Mutation")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, If-None-Match, X-SoloQueue-Account-Mutation")
+			w.Header().Set("Access-Control-Expose-Headers", "ETag")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return
