@@ -5,12 +5,14 @@ import { cn, getModelColorVar } from '@/lib/utils'
 export interface AgentWorkingIndicatorProps {
   /** Display name of the active agent (e.g. "Assistant", "Engineering Team"). */
   agentName?: string
+  /** Provider ID/name to display, with the same pending semantics as `modelName`. */
+  providerName?: string | undefined
   /**
    * Model name to display, when known.
    *
    * Special value `""` (empty string) means "the agent is processing but
    * the router hasn't classified the prompt yet" — paired with the same
-   * sentinel on `taskLevel`. In that case a pulsing "…" placeholder is
+   * sentinel on `taskLevel` and `providerName`. In that case a pulsing "…" placeholder is
    * rendered so the chip is always present while working, and the real
    * value transitions in (in lockstep with the level) once the WebSocket
    * `state` push arrives.
@@ -51,7 +53,7 @@ export interface AgentWorkingIndicatorProps {
  * Visual recipe:
  *  - Avatar matches the assistant message avatar (Sparkles)
  *  - Label: "Working…" or "Delegating…" with three pulsing dots
- *  - Right side: model chip (placeholder "…" until the model is known)
+ *  - Right side: task type, provider, and model chips (placeholders until known)
  *  - Whole pill is wrapped in a breathing scale/opacity animation
  *    (see `.agent-working-breathing` in index.css) that softly
  *    expands and contracts on a 2.4s cycle.
@@ -60,18 +62,20 @@ export interface AgentWorkingIndicatorProps {
  * `isAgentProcessing || streaming || delegating` is true.
  */
 function AgentWorkingIndicatorInner({
+  providerName,
   modelName,
   taskLevel,
   compact = false,
   hideRouteInfo = false,
 }: AgentWorkingIndicatorProps) {
-  // `taskLevel` and `modelName` are intentionally string-or-undefined:
+  // Route values are intentionally string-or-undefined:
   //   - undefined  → not processing, no chip
   //   - ""         → processing but router hasn't classified yet
-  //   - a known level / real model
+  //   - a known task type / provider / model
   const taskTypeIsPending = taskLevel !== undefined && taskLevel === ''
+  const providerNameIsPending = providerName !== undefined && providerName === ''
   const modelNameIsPending = modelName !== undefined && modelName === ''
-  const modelColorVar = getModelColorVar(modelName)
+  const modelColorVar = getModelColorVar(providerName || modelName)
 
   return (
     <div
@@ -87,7 +91,8 @@ function AgentWorkingIndicatorInner({
         <span className="animate-led-ping-2 absolute h-2 w-2 rounded-full bg-signal/20" />
       </span>
 
-      {!hideRouteInfo && (taskLevel !== undefined || modelName !== undefined) && (
+      {!hideRouteInfo &&
+        (taskLevel !== undefined || providerName !== undefined || modelName !== undefined) && (
         <div className="flex items-center gap-1.5 shrink-0">
           {taskTypeIsPending ? (
             <div className="h-[22px] w-[72px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
@@ -96,11 +101,30 @@ function AgentWorkingIndicatorInner({
               {taskLevel}
             </span>
           ) : null}
+          {providerNameIsPending ? (
+            <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
+          ) : providerName ? (
+            <span
+              className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[140px] truncate"
+              style={{
+                backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
+                color: `var(--foreground)`,
+                borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
+              }}
+              title={providerName}
+            >
+              <Cpu
+                className="h-2.5 w-2.5 shrink-0"
+                style={{ color: `color-mix(in srgb, ${modelColorVar} 80%, var(--foreground))` }}
+              />
+              <span className="truncate opacity-90">{providerName}</span>
+            </span>
+          ) : null}
           {modelNameIsPending ? (
             <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
-          ) : (
+          ) : modelName ? (
             <span
-              className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[220px] truncate"
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[220px] truncate"
               style={{
                 backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
                 color: `var(--foreground)`,
@@ -108,13 +132,9 @@ function AgentWorkingIndicatorInner({
               }}
               title={modelName}
             >
-              <Cpu
-                className="h-2.5 w-2.5 shrink-0"
-                style={{ color: `color-mix(in srgb, ${modelColorVar} 80%, var(--foreground))` }}
-              />
-              <span className="truncate opacity-90">{modelName}</span>
+              {modelName}
             </span>
-          )}
+          ) : null}
         </div>
       )}
     </div>
@@ -123,7 +143,7 @@ function AgentWorkingIndicatorInner({
 
 /**
  * Memoized: the only props that change during a single in-flight task are
- * `modelName` / `taskLevel` (via the request-scoped route state); other props
+ * `providerName` / `modelName` / `taskLevel` (via the request-scoped route state); other props
  * are stable for the lifetime of the working state. Wrapping in memo
  * keeps the bottom-of-stream indicator from re-rendering on every
  * chat_chunk.
