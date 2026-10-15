@@ -394,18 +394,24 @@ func chunkToEvents(c wireChunk) []llm.Event {
 
 func wireUsageToLLM(u *wireUsage) llm.Usage {
 	hit := 0
+	hitReported := false
 	if u.PromptCacheHitTokens != nil {
 		hit = *u.PromptCacheHitTokens
+		hitReported = true
 	}
-	if hit == 0 && u.PromptTokensDetails != nil {
+	if !hitReported && u.PromptTokensDetails != nil {
 		hit = u.PromptTokensDetails.CachedTokens
+		hitReported = true
 	}
 	miss := 0
+	missReported := u.PromptCacheMissTokens != nil
 	if u.PromptCacheMissTokens != nil {
 		miss = *u.PromptCacheMissTokens
 	}
-	if miss == 0 && hit > 0 && u.PromptTokens > hit {
+	if hitReported && !missReported && u.PromptTokens >= hit {
 		miss = u.PromptTokens - hit
+	} else if missReported && !hitReported && u.PromptTokens >= miss {
+		hit = u.PromptTokens - miss
 	}
 	out := llm.Usage{
 		PromptTokens:          u.PromptTokens,

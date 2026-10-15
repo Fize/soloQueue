@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
+import type { SessionUsage } from '@/types/chat'
 import { cn, pathsMatch } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useWorkspaceCapabilities } from '@/hooks/useWorkspaceCapabilities'
@@ -44,6 +45,7 @@ export interface ChatInputProps {
   readOnlySelectors?: boolean
   ctxwinUsed?: number
   ctxwinLimit?: number
+  sessionUsage?: SessionUsage
   modelName?: string
   taskLevel?: string
 
@@ -81,6 +83,7 @@ export function ChatInput({
   readOnlySelectors = false,
   ctxwinUsed = 0,
   ctxwinLimit = 0,
+  sessionUsage,
   skillNames = [],
   atRootDir = '',
   selectedTarget,
@@ -206,6 +209,8 @@ export function ChatInput({
   const cwRadius = 7
   const cwCircum = 2 * Math.PI * cwRadius
   const cwOffset = cwCircum - (cwPct / 100) * cwCircum
+  const currentUsageSegment = sessionUsage?.segments?.find(segment => segment.index === sessionUsage.current_segment)?.totals
+  const cacheRate = (hit: number, input: number) => input > 0 ? `${((hit / input) * 100).toFixed(1)}%` : 'unknown'
 
   // Compute fixed position for dropdown menus (must break out of overflow-x-auto clipping)
   const computeDropdownPos = useCallback((dropdown = activeDropdown) => {
@@ -928,6 +933,14 @@ export function ChatInput({
                         <p className="text-[10px] text-muted-foreground mt-0.5">
                           {ctxwinUsed.toLocaleString()} / {ctxwinLimit.toLocaleString()} tokens
                         </p>
+                        {sessionUsage && (
+                          <div className="mt-1 border-t border-border pt-1 text-[10px] text-muted-foreground space-y-0.5">
+                            <p>Current segment cache hit: {cacheRate(currentUsageSegment?.cache_hit_tokens ?? 0, currentUsageSegment?.cache_input_tokens ?? 0)}</p>
+                            <p>Lifetime cache hit: {cacheRate(sessionUsage.lifetime.cache_hit_tokens, sessionUsage.lifetime.cache_input_tokens)}</p>
+                            <p>Current cached tokens: {(currentUsageSegment?.cache_hit_tokens ?? 0).toLocaleString()} hit / {(currentUsageSegment?.cache_miss_tokens ?? 0).toLocaleString()} miss</p>
+                            <p>Lifetime cached tokens: {sessionUsage.lifetime.cache_hit_tokens.toLocaleString()} hit / {sessionUsage.lifetime.cache_miss_tokens.toLocaleString()} miss</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

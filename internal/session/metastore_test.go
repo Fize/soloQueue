@@ -87,6 +87,43 @@ func TestLoadMeta_PreferMetaJSON(t *testing.T) {
 	}
 }
 
+func TestSessionUsagePersistsLifetimeAndCompactSegments(t *testing.T) {
+	dir := t.TempDir()
+	const id = "usage"
+	if err := SaveMeta(dir, id, &SessionMeta{Group: "dev", Usage: SessionUsage{CurrentSegment: 1,
+		Lifetime: UsageTotals{InputTokens: 150, OutputTokens: 30, TotalTokens: 180, CacheHitTokens: 70, CacheMissTokens: 30, CacheInputTokens: 150},
+		Segments: []UsageSegment{
+			{Index: 0, Totals: UsageTotals{InputTokens: 100, CacheHitTokens: 40, CacheMissTokens: 10, CacheInputTokens: 100}},
+			{Index: 1, Totals: UsageTotals{InputTokens: 50, OutputTokens: 30, TotalTokens: 80, CacheHitTokens: 30, CacheMissTokens: 20, CacheInputTokens: 50}},
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadMeta(dir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Usage.CurrentSegment != 1 || got.Usage.Lifetime.TotalTokens != 180 || len(got.Usage.Segments) != 2 {
+		t.Fatalf("usage was not restored: %+v", got.Usage)
+	}
+	if ratio := got.Usage.Lifetime.CacheHitRatio(); ratio != 70.0/150.0 {
+		t.Fatalf("lifetime cache ratio = %v, want %v", ratio, 70.0/150.0)
+	}
+}
+
+func TestSessionUsageAddSeparatesCacheCoverageBySegment(t *testing.T) {
+	var usage SessionUsage
+	usage.add(0, 100, 20, 120, 40, 10, true)
+	usage.add(0, 25, 5, 30, 0, 0, false)
+	usage.add(1, 50, 10, 60, 15, 35, true)
+	if usage.Lifetime.TotalTokens != 210 || usage.Lifetime.CacheInputTokens != 150 || usage.Lifetime.CacheHitRatio() != .36666666666666664 {
+		t.Fatalf("unexpected lifetime usage: %+v", usage.Lifetime)
+	}
+	if usage.Segments[0].Totals.TotalTokens != 150 || usage.Segments[0].Totals.CacheInputTokens != 100 || usage.Segments[1].Totals.CacheInputTokens != 50 {
+		t.Fatalf("unexpected segment usage: %+v", usage.Segments)
+	}
+}
+
 func TestLoadMeta_GenerateMinimalFromGroupFile(t *testing.T) {
 	dir := t.TempDir()
 	id := "skeleton"

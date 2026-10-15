@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 23
+const schemaVersion = 24
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -295,6 +295,7 @@ CREATE TABLE IF NOT EXISTS llm_call_metrics (
 	call_id TEXT PRIMARY KEY,
 	request_id TEXT NOT NULL DEFAULT '',
 	session_id TEXT NOT NULL DEFAULT '',
+	segment_id TEXT NOT NULL DEFAULT '',
 	run_id TEXT NOT NULL DEFAULT '',
 	agent_id TEXT NOT NULL DEFAULT '',
 	team_id TEXT NOT NULL DEFAULT '',
@@ -942,6 +943,17 @@ func (d *DB) migrate() error {
 	}{
 		{"reasoning_details_reported", `ALTER TABLE llm_call_metrics ADD COLUMN reasoning_details_reported INTEGER NOT NULL DEFAULT 0`},
 		{"cache_details_reported", `ALTER TABLE llm_call_metrics ADD COLUMN cache_details_reported INTEGER NOT NULL DEFAULT 0`},
+	}
+	segmentColumnPresent, err := tableHasColumn(tx, "llm_call_metrics", "segment_id")
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("inspect llm_call_metrics segment_id column: %w", err)
+	}
+	if !segmentColumnPresent {
+		if _, err := tx.Exec(`ALTER TABLE llm_call_metrics ADD COLUMN segment_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate llm_call_metrics add segment_id: %w", err)
+		}
 	}
 	for _, column := range metricCoverageColumns {
 		hasColumn, err := tableHasColumn(tx, "llm_call_metrics", column.name)

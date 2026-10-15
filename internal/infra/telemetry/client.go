@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
@@ -99,6 +100,7 @@ func (c *TelemetryClient) logCallAsync(
 		CallID:       uuid.NewString(),
 		RequestID:    metadata.RequestID,
 		SessionID:    metadata.SessionID,
+		SegmentID:    metadata.SegmentID,
 		RunID:        metadata.RunID,
 		AgentID:      metadata.AgentID,
 		TeamID:       metadata.TeamID,
@@ -130,7 +132,13 @@ func (c *TelemetryClient) logCallAsync(
 
 	bgCtx := context.Background()
 	go func() {
-		_ = c.db.InsertLLMCallMetric(bgCtx, metric)
+		if err := c.db.InsertLLMCallMetric(bgCtx, metric); err == nil && metadata.OnUsage != nil && usage != nil {
+			metadata.OnUsage(telemetryctx.Usage{
+				InputTokens: usage.PromptTokens, OutputTokens: usage.CompletionTokens,
+				TotalTokens: usage.TotalTokens, CacheHitTokens: usage.PromptCacheHitTokens,
+				CacheMissTokens: usage.PromptCacheMissTokens, CacheDetailsReported: usage.CacheDetailsReported,
+			})
+		}
 	}()
 }
 

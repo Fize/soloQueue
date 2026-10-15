@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
@@ -28,6 +29,9 @@ func (b *Builder) ReadL2ContextUsage(ctx context.Context, id, group, workDir str
 	limit = b.DefaultContextLimit()
 	if b == nil || b.RT == nil {
 		return 0, limit, nil
+	}
+	if meta, metaErr := LoadMeta(b.WorkDir, id); metaErr == nil && meta.CtxwinUpdated.After(time.Time{}) && meta.CtxwinLimit > 0 {
+		return meta.CtxwinUsed, meta.CtxwinLimit, nil
 	}
 
 	// 1. Resolve leader template matching group
@@ -64,7 +68,7 @@ func (b *Builder) ReadL2ContextUsage(ctx context.Context, id, group, workDir str
 
 	// 4. Replay timeline segments if directory exists
 	tlDir := filepath.Join(b.WorkDir, "logs", "timelines", "l2-"+id)
-	segments, _, readErr := timeline.ReadTail(tlDir, "timeline.jsonl", 0, "")
+	segments, _, readErr := timeline.ReadTail(tlDir, "timeline", 0, "")
 	if readErr == nil && len(segments) > 0 {
 		timeline.ReplayInto(cw, segments)
 	}

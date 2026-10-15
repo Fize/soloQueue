@@ -1027,6 +1027,7 @@ export function ChatPage() {
                       showL2Selectors={!isL1Session}
                       ctxwinUsed={requestContextUsed}
                       ctxwinLimit={requestContextLimit}
+                      sessionUsage={activeSession?.usage}
                       atRootDir={activeSession?.project_path || ""}
                       processing={requestActive}
                       modelName={inputModelName}
@@ -1107,6 +1108,7 @@ export function ChatPage() {
                     readOnlySelectors={true}
                     ctxwinUsed={requestContextUsed}
                     ctxwinLimit={requestContextLimit}
+                    sessionUsage={activeSession?.usage}
                     atRootDir={activeSession?.project_path || ""}
                     processing={requestActive}
                     modelName={inputModelName}

@@ -47,16 +47,17 @@ type L2SessionEntry struct {
 
 // L2SessionInfo is the public metadata returned by List().
 type L2SessionInfo struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	Group           string    `json:"group"`
-	ProjectID       string    `json:"project_id,omitempty"`
-	WorkDir         string    `json:"work_dir,omitempty"`
-	AgentInstanceID string    `json:"agent_instance_id,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	CtxwinUsed      int       `json:"ctxwin_used"`
-	CtxwinLimit     int       `json:"ctxwin_limit"`
-	Plans           []string  `json:"plans,omitempty"`
+	ID              string       `json:"id"`
+	Name            string       `json:"name"`
+	Group           string       `json:"group"`
+	ProjectID       string       `json:"project_id,omitempty"`
+	WorkDir         string       `json:"work_dir,omitempty"`
+	AgentInstanceID string       `json:"agent_instance_id,omitempty"`
+	CreatedAt       time.Time    `json:"created_at"`
+	CtxwinUsed      int          `json:"ctxwin_used"`
+	CtxwinLimit     int          `json:"ctxwin_limit"`
+	Usage           SessionUsage `json:"usage"`
+	Plans           []string     `json:"plans,omitempty"`
 }
 
 // L2SessionStore manages multiple L2 sessions keyed by UUID.
@@ -693,6 +694,13 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 		if _, err := os.Stat(tlDir); err != nil {
 			continue
 		}
+		usage := SessionUsage{}
+		if meta, err := LoadMeta(s.workDir, entry.TargetID); err == nil {
+			usage = meta.Usage
+			if ctxwinUsed == 0 && entry.Session == nil && meta.CtxwinLimit > 0 {
+				ctxwinUsed, ctxwinLimit = meta.CtxwinUsed, meta.CtxwinLimit
+			}
+		}
 		result = append(result, L2SessionInfo{
 			ID:              entry.TargetID,
 			Name:            entry.Name,
@@ -703,6 +711,7 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 			CreatedAt:       entry.CreatedAt,
 			CtxwinUsed:      ctxwinUsed,
 			CtxwinLimit:     ctxwinLimit,
+			Usage:           usage,
 			Plans:           append([]string(nil), entry.Plans...),
 		})
 	}

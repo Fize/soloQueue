@@ -12,6 +12,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 )
 
@@ -227,11 +228,15 @@ func TestTelemetryClient_RecordsSuccessfulCall(t *testing.T) {
 		},
 	}}
 	client := telemetry.NewTelemetryClient(inner, database)
+	usageRecorded := make(chan telemetryctx.Usage, 1)
 	ctx := telemetry.WithTelemetryContext(context.Background(), "team-a", telemetry.UsageChat)
 	ctx = telemetry.WithTelemetryMetadata(ctx, telemetry.Metadata{
 		RequestID: "request-1",
+		SessionID: "session-1",
+		SegmentID: "3",
 		Origin:    telemetry.OriginDesktop,
 		TaskType:  "engineering",
+		OnUsage:   func(usage telemetryctx.Usage) { usageRecorded <- usage },
 	})
 	if _, err := client.Chat(ctx, agent.LLMRequest{ProviderID: "provider-a", Model: "model-a"}); err != nil {
 		t.Fatalf("Chat: %v", err)
@@ -242,11 +247,19 @@ func TestTelemetryClient_RecordsSuccessfulCall(t *testing.T) {
 	if got.Status != telemetry.StatusSuccess || got.ReasoningTokens != 20 || !got.ReasoningDetailsReported || !got.CacheDetailsReported {
 		t.Fatalf("metric = %+v", got)
 	}
-	if got.RequestID != "request-1" || got.Origin != telemetry.OriginDesktop || got.TaskType != "engineering" {
+	if got.RequestID != "request-1" || got.SessionID != "session-1" || got.SegmentID != "3" || got.Origin != telemetry.OriginDesktop || got.TaskType != "engineering" {
 		t.Fatalf("metadata = %+v", got)
 	}
 	if got.ProviderID != "provider-a" || got.ModelID != "model-a" {
 		t.Fatalf("model identity = %+v", got)
+	}
+	select {
+	case usage := <-usageRecorded:
+		if usage.TotalTokens != 150 || usage.CacheHitTokens != 80 || !usage.CacheDetailsReported {
+			t.Fatalf("usage callback = %+v", usage)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session usage callback was not invoked")
 	}
 }
 

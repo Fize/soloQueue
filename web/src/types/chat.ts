@@ -195,7 +195,23 @@ export interface ChatSession {
   createdAt: string;
   ctxwin_used?: number;
   ctxwin_limit?: number;
+  usage?: SessionUsage;
   plans?: string[];
+}
+
+export interface SessionUsage {
+  current_segment: number;
+  lifetime: SessionUsageTotals;
+  segments?: Array<{ index: number; totals: SessionUsageTotals }>;
+}
+
+export interface SessionUsageTotals {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cache_hit_tokens: number;
+  cache_miss_tokens: number;
+  cache_input_tokens: number;
 }
 
 export interface ChatRouteInfo {
