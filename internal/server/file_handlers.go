@@ -271,7 +271,7 @@ func (m *Mux) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, http.StatusOK, files)
 }
 
-var checkboxRegex = regexp.MustCompile(`(?m)(^|[\r\n])(\s*(?:[*+-]|\d+\.)\s+)\[([ x/])\]`)
+var checkboxRegex = regexp.MustCompile(`(?m)(^|[\r\n])(\s*(?:[*+-]|\d+\.)\s+)\[([ xX])\]`)
 
 // handleToggleCheckbox toggles the sequential N-th checkbox in a markdown file.
 func (m *Mux) handleToggleCheckbox(w http.ResponseWriter, r *http.Request) {
@@ -312,7 +312,7 @@ func (m *Mux) handleToggleCheckbox(w http.ResponseWriter, r *http.Request) {
 	charIdx := match[6]
 	oldChar := content[charIdx]
 	var newChar rune
-	if oldChar == ' ' || oldChar == '/' {
+	if oldChar == ' ' {
 		newChar = 'x'
 	} else {
 		newChar = ' '

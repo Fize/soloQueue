@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import {
   ArrowUp, StopCircle, Plus, ChevronDown,
-  Check, Laptop, GitBranch, Users, Palette, Cpu
+  Check, Laptop, GitBranch, Users, Palette
 } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
@@ -81,8 +81,6 @@ export function ChatInput({
   readOnlySelectors = false,
   ctxwinUsed = 0,
   ctxwinLimit = 0,
-  modelName,
-  taskLevel,
   skillNames = [],
   atRootDir = '',
   selectedTarget,
@@ -895,27 +893,6 @@ export function ChatInput({
 
               {/* Right actions wrap within the pane, including beside an expanded sidebar. */}
               <div className="ml-auto flex flex-wrap items-center justify-end gap-2 min-w-0 max-w-full">
-
-                {(taskLevel !== undefined || modelName !== undefined) && (
-                  <div className="flex flex-wrap items-center justify-end gap-1.5 min-w-0 max-w-full">
-                    {taskLevel ? (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border text-foreground/80 bg-signal/10 border-signal/20">
-                        {taskLevel}
-                      </span>
-                    ) : taskLevel === '' ? (
-                      <span className="h-[22px] w-14 rounded-md border border-border/40 bg-foreground/5 animate-pulse" aria-label="Loading task type" />
-                    ) : null}
-                    {modelName ? (
-                      <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border border-border/40 bg-muted/30 min-w-0 max-w-[min(100%,180px)] truncate" title={modelName}>
-                        <Cpu className="h-2.5 w-2.5 shrink-0 text-signal" />
-                        <span className="truncate">{modelName}</span>
-                      </span>
-                    ) : modelName === '' ? (
-                      <span className="h-[22px] w-16 rounded-md border border-border/40 bg-foreground/5 animate-pulse" aria-label="Loading model" />
-                    ) : null}
-                  </div>
-                )}
-
                 {ctxwinLimit > 0 && (
                   <div className="relative group/cw flex items-center">
                     <svg

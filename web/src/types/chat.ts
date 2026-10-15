@@ -322,6 +322,7 @@ export interface FileChange {
   deletions: number;
   binary: boolean;
   size_bytes?: number;
+  revision: string;
   hunks?: DiffHunk[];
 }
 

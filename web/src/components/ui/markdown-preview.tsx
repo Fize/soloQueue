@@ -1,5 +1,6 @@
 import { Streamdown } from 'streamdown'
 import { code } from '@streamdown/code'
+import { mermaid } from '@streamdown/mermaid'
 import { memo } from 'react'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
@@ -48,7 +49,7 @@ function MarkdownPreviewInner({
         isAnimating={isAnimating}
         shikiTheme={['github-light', 'github-dark']}
         remarkPlugins={[remarkGfm]}
-        plugins={{ code }}
+        plugins={{ code, mermaid }}
         controls={{ table: false, code: { copy: true, download: false } }}
         translations={{
           copyCode: '复制代码',
