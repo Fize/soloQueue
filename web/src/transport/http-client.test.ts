@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useConnectionStore } from '@/stores/connectionStore'
-import { APIError, request, requestForm, requestRootJson, requestText } from './http-client'
+import {
+  APIError,
+  request,
+  requestConditionalJson,
+  requestForm,
+  requestRootJson,
+  requestText,
+} from './http-client'
 
 describe('http client', () => {
   beforeEach(() => {
@@ -53,6 +60,28 @@ describe('http client', () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }))
 
     await expect(request('/config/session', { method: 'DELETE' })).resolves.toBeUndefined()
+  })
+
+  it('returns conditional JSON metadata without reading a 304 body', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ name: 'plan.md' }]), {
+          headers: { ETag: '"files-v1"' },
+        })
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 304, headers: { ETag: '"files-v1"' } }))
+
+    await expect(requestConditionalJson('/files/list?dir=%2Fproject')).resolves.toEqual({
+      status: 'modified',
+      data: [{ name: 'plan.md' }],
+      etag: '"files-v1"',
+    })
+    await expect(
+      requestConditionalJson('/files/list?dir=%2Fproject', '"files-v1"')
+    ).resolves.toEqual({ status: 'not-modified', etag: '"files-v1"' })
+
+    const headers = new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers)
+    expect(headers.get('If-None-Match')).toBe('"files-v1"')
   })
 
   it('does not expose arbitrary non-JSON error bodies', async () => {

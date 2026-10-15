@@ -27,6 +27,9 @@ func TestHTTP_LoopbackCORS(t *testing.T) {
 	if got := rec.Header().Get("Vary"); got != "Origin" {
 		t.Fatalf("vary = %q, want Origin", got)
 	}
+	if got := rec.Header().Get("Access-Control-Expose-Headers"); got != "ETag" {
+		t.Fatalf("expose headers = %q, want ETag", got)
+	}
 }
 
 func TestHTTP_LoopbackCORSPreflight(t *testing.T) {
@@ -36,7 +39,7 @@ func TestHTTP_LoopbackCORSPreflight(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/api/session/", nil)
 	req.Header.Set("Origin", "http://127.0.0.1:5173")
 	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
-	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	req.Header.Set("Access-Control-Request-Headers", "content-type, if-none-match")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -52,7 +55,7 @@ func TestHTTP_LoopbackCORSPreflight(t *testing.T) {
 	if got := rec.Header().Get("Access-Control-Allow-Methods"); got == "" {
 		t.Fatal("missing allow methods")
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, Accept, X-SoloQueue-Account-Mutation" {
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, Accept, If-None-Match, X-SoloQueue-Account-Mutation" {
 		t.Fatalf("allow headers = %q", got)
 	}
 }

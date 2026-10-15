@@ -4,6 +4,10 @@ export const API_BASE = '/api'
 
 export type ApiRequestOptions = RequestInit & { waitForBackend?: boolean }
 
+export type ConditionalResponse<T> =
+  | { status: 'modified'; data: T; etag: string | null }
+  | { status: 'not-modified'; etag: string | null }
+
 export class APIError extends Error {
   status: number
   code?: string
@@ -98,6 +102,20 @@ export async function requestJson<T>(path: string, options?: ApiRequestOptions):
   return JSON.parse(body) as T
 }
 
+export async function requestConditionalJson<T>(
+  path: string,
+  etag?: string,
+  options?: ApiRequestOptions
+): Promise<ConditionalResponse<T>> {
+  const headers = new Headers(options?.headers)
+  if (etag) headers.set('If-None-Match', etag)
+  const response = await send(path, { ...options, headers }, false)
+  const responseETag = response.headers.get('ETag')
+  if (response.status === 304) return { status: 'not-modified', etag: responseETag ?? etag ?? null }
+  if (!response.ok) await throwAPIError(response)
+  return { status: 'modified', data: (await response.json()) as T, etag: responseETag }
+}
+
 export async function requestRootJson<T>(path: string, options?: ApiRequestOptions): Promise<T> {
   const response = await send(path, options, true)
   if (!response.ok) await throwAPIError(response)
@@ -118,6 +136,20 @@ export async function requestBlob(path: string, options?: ApiRequestOptions): Pr
   const response = await send(path, options, false)
   if (!response.ok) await throwAPIError(response)
   return response.blob()
+}
+
+export async function requestConditionalBlob(
+  path: string,
+  etag?: string,
+  options?: ApiRequestOptions
+): Promise<ConditionalResponse<Blob>> {
+  const headers = new Headers(options?.headers)
+  if (etag) headers.set('If-None-Match', etag)
+  const response = await send(path, { ...options, headers }, false)
+  const responseETag = response.headers.get('ETag')
+  if (response.status === 304) return { status: 'not-modified', etag: responseETag ?? etag ?? null }
+  if (!response.ok) await throwAPIError(response)
+  return { status: 'modified', data: await response.blob(), etag: responseETag }
 }
 
 export async function requestForm<T>(

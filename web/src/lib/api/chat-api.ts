@@ -8,12 +8,30 @@ import type {
   ChangesResponse,
   FileChange,
 } from '@/types'
-import { request, requestBlob, requestForm, requestRootJson, requestText } from './core'
+import {
+  request,
+  requestBlob,
+  requestForm,
+  requestRootJson,
+  requestText,
+} from './core'
+import {
+  requestConditionalBlob,
+  requestConditionalJson,
+  type ConditionalResponse,
+} from '@/transport/http-client'
 
 // ─── File APIs ──────────────────────────────────────────────────────────────────
 
 export async function listFiles(dir: string): Promise<FileInfo[]> {
   return request<FileInfo[]>(`/files/list?dir=${encodeURIComponent(dir)}`)
+}
+
+export async function listFilesConditional(
+  dir: string,
+  etag?: string
+): Promise<ConditionalResponse<FileInfo[]>> {
+  return requestConditionalJson<FileInfo[]>(`/files/list?dir=${encodeURIComponent(dir)}`, etag)
 }
 
 export async function toggleFileCheckbox(path: string, index: number): Promise<{ status: string }> {
@@ -37,6 +55,18 @@ export async function readFile(path: string): Promise<string> {
 export async function readFileBytes(path: string): Promise<ArrayBuffer> {
   const blob = await requestBlob(`/files/content?path=${encodeURIComponent(path)}`)
   return blob.arrayBuffer()
+}
+
+export async function readFileBytesConditional(
+  path: string,
+  etag?: string
+): Promise<ConditionalResponse<ArrayBuffer>> {
+  const response = await requestConditionalBlob(
+    `/files/content?path=${encodeURIComponent(path)}`,
+    etag
+  )
+  if (response.status === 'not-modified') return response
+  return { ...response, data: await response.data.arrayBuffer() }
 }
 
 // ─── Dependency APIs ───────────────────────────────────────────────────────────

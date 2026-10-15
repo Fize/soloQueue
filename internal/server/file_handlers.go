@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -200,6 +202,12 @@ func (m *Mux) handleGetFileContent(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "file not found"})
 		return
 	}
+	etag := fmt.Sprintf("W/\"%x-%x\"", fi.Size(), fi.ModTime().UnixNano())
+	w.Header().Set("ETag", etag)
+	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 
 	ext := strings.ToLower(filepath.Ext(absPath))
 	if textExtensions[ext] {
@@ -257,7 +265,7 @@ func (m *Mux) handleListFiles(w http.ResponseWriter, r *http.Request) {
 			Size:    info.Size(),
 			IsDir:   e.IsDir(),
 			Ext:     ext,
-			ModTime: info.ModTime().Format(time.RFC3339),
+			ModTime: info.ModTime().Format(time.RFC3339Nano),
 		})
 	}
 
@@ -268,7 +276,30 @@ func (m *Mux) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
 	})
 
+	representation, err := json.Marshal(files)
+	if err != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	etag := fmt.Sprintf("\"%x\"", sha256.Sum256(representation))
+	w.Header().Set("ETag", etag)
+	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	m.writeJSON(w, http.StatusOK, files)
+}
+
+func etagMatches(header, etag string) bool {
+	current := strings.TrimPrefix(strings.TrimSpace(etag), "W/")
+	for value := range strings.SplitSeq(header, ",") {
+		candidate := strings.TrimSpace(value)
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == current {
+			return true
+		}
+	}
+	return false
 }
 
 var checkboxRegex = regexp.MustCompile(`(?m)(^|[\r\n])(\s*(?:[*+-]|\d+\.)\s+)\[([ xX])\]`)
