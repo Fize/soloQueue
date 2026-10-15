@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { runtimeSessionId } from '@/stores/runtimeStore'
@@ -26,6 +26,7 @@ function isSystemSlashCommand(prompt: string): boolean {
 }
 
 export function useChatStream() {
+  const cancelRequested = useRef(new Set<string>())
   const {
     activeSessionId,
     addMessage,
@@ -213,6 +214,7 @@ export function useChatStream() {
       const finishRequest = () => {
         if (finished) return
         finished = true
+        cancelRequested.current.delete(requestId)
         clearAckTimer()
         removeRequest(requestId)
         const remaining = Object.values(useChatStore.getState().activeRequests).filter(
@@ -253,6 +255,7 @@ export function useChatStream() {
           setRoute(route)
         },
         onChunk: (delta) => {
+          if (cancelRequested.current.has(requestId)) return
           const assistantId = ensureAssistantMessage()
           if (isCompact) {
             appendAssistantCompact(sid, assistantId, delta)
@@ -262,9 +265,11 @@ export function useChatStream() {
           if (shouldGenTitle) finalContent += delta
         },
         onReasoning: (delta) => {
+          if (cancelRequested.current.has(requestId)) return
           appendAssistantThinking(sid, ensureAssistantMessage(), delta)
         },
         onToolStart: (data) => {
+          if (cancelRequested.current.has(requestId)) return
           updateAssistantSegment(sid, ensureAssistantMessage(), {
             type: 'tool_call',
             callId: data.call_id,
@@ -275,6 +280,7 @@ export function useChatStream() {
           })
         },
         onToolDone: (data) => {
+          if (cancelRequested.current.has(requestId)) return
           updateToolCallResult(
             sid,
             data.call_id,
@@ -325,13 +331,18 @@ export function useChatStream() {
           ensureAssistantMessage()
         },
         onError: (error) => {
+          if (cancelRequested.current.has(requestId)) {
+            finishRequest()
+            void useChatStore.getState().loadHistory(sid)
+            return
+          }
           failAssistantMessage(sid, ensureAssistantMessage(), error)
           finishRequest()
         },
         onRuntimeTerminal: ({ terminal_code, error }) => {
-          if (error) {
+          if (error && !cancelRequested.current.has(requestId)) {
             failAssistantMessage(sid, ensureAssistantMessage(), error)
-          } else if (!asstId) {
+          } else if (!error && !asstId && !cancelRequested.current.has(requestId)) {
             const terminalText =
               terminal_code === 'completed'
                 ? 'Response completed; loading history…'
@@ -417,6 +428,7 @@ export function useChatStream() {
     const cancelRequestId = activeRequest?.cancelRequestId || requestId
 
     store.cancelRunningDelegations(sid)
+    cancelRequested.current.add(requestId)
     store.updateRequestStatus(requestId, 'cancelling')
     store.removeRequest(requestId)
     const remaining = Object.values(useChatStore.getState().activeRequests).filter(
@@ -434,10 +446,14 @@ export function useChatStream() {
       if (fallbackRoute) store.setRoute(fallbackRoute)
       else store.clearRoute(sid, requestId)
     }
-    // Unregister the chat handler to prevent buffered WS chunks from
-    // appending to messages after the cancel has been initiated.
-    wsManager.unregisterChat(requestId)
-
+    // A queued request may borrow the root request's transport. Its own
+    // handler will not receive the root's terminal envelope, so detach it.
+    // For a directly owned transport keep the handler to consume chat_done
+    // and reload the persisted partial reply.
+    if (cancelRequestId !== requestId) {
+      cancelRequested.current.delete(requestId)
+      wsManager.unregisterChat(requestId)
+    }
     wsManager.send({
       type: 'chat_cancel',
       request_id: cancelRequestId,

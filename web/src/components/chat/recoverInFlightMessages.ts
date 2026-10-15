@@ -219,9 +219,12 @@ export function recoverInFlightMessages(
     requestId,
   } as RequestOwnedChatMessage;
   const startedAtMs = startedAt ? Date.parse(startedAt) : Number.NaN;
+  const owningUserIndex = currentMessages.findIndex((message) =>
+    message.role === "user" && (message as RequestOwnedChatMessage).requestId === requestId,
+  );
   if (!Number.isNaN(startedAtMs)) {
-    const laterUserIndex = currentMessages.findIndex((message) => {
-      if (message.role !== "user") return false;
+    const laterUserIndex = currentMessages.findIndex((message, index) => {
+      if (message.role !== "user" || (owningUserIndex >= 0 && index <= owningUserIndex)) return false;
       const timestamp = Date.parse(message.timestamp);
       return !Number.isNaN(timestamp) && timestamp > startedAtMs;
     });
@@ -230,6 +233,11 @@ export function recoverInFlightMessages(
       updated.splice(laterUserIndex, 0, recovered);
       return updated;
     }
+  }
+  if (owningUserIndex >= 0) {
+    const updated = [...currentMessages];
+    updated.splice(owningUserIndex + 1, 0, recovered);
+    return updated;
   }
   return [...currentMessages, recovered];
 }

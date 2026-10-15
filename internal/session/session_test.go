@@ -1951,7 +1951,7 @@ func TestSession_AskStream_CloseTurnDoneIdempotent(t *testing.T) {
 // startTimelineSession builds a session whose CW push hook writes to a real
 // timeline (mirroring the production builder wiring), returning the session
 // plus a function to read back the persisted assistant rows.
-func startTimelineSession(t *testing.T, fake *agenttest.FakeLLM, tools ...tools.Tool) (*Session, func() []string) {
+func startTimelineSession(t *testing.T, fake *agenttest.FakeLLM, tools ...tools.Tool) (*Session, func() []timeline.MessagePayload) {
 	t.Helper()
 	dir := t.TempDir()
 	tl, err := timeline.NewWriter(dir, "timeline", 0, 0)
@@ -1999,8 +1999,8 @@ func startTimelineSession(t *testing.T, fake *agenttest.FakeLLM, tools ...tools.
 
 	s := NewSession("s1", "t1", a, cw, tl, nil)
 
-	readAssistants := func() []string {
-		var out []string
+	readAssistants := func() []timeline.MessagePayload {
+		var out []timeline.MessagePayload
 		events, err := timeline.ReadFileEvents(timelineLatestFile(dir))
 		if err != nil {
 			return out
@@ -2009,8 +2009,8 @@ func startTimelineSession(t *testing.T, fake *agenttest.FakeLLM, tools ...tools.
 			if ev.EventType != timeline.EventMessage || ev.Message == nil {
 				continue
 			}
-			if ev.Message.Role == "assistant" && ev.Message.Content != "" {
-				out = append(out, ev.Message.Content)
+			if ev.Message.Role == "assistant" {
+				out = append(out, *ev.Message)
 			}
 		}
 		return out
@@ -2088,13 +2088,64 @@ func TestSession_AskStream_CancelAfterToolCall_NoDuplicateTimeline(t *testing.T)
 
 	// The timeline must contain exactly one row with content "first".
 	var contents []string
-	for _, c := range readAssistants() {
-		if strings.Contains(c, "first") {
-			contents = append(contents, c)
+	for _, msg := range readAssistants() {
+		if strings.Contains(msg.Content, "first") {
+			contents = append(contents, msg.Content)
 		}
 	}
 	if len(contents) != 1 {
 		t.Errorf("timeline contains %d rows with content %q, want exactly 1 (duplicate partial flush)", len(contents), contents)
+	}
+}
+
+func TestSession_AskStream_CancelPersistsReasoningOnlyWithFirstOutputTimestamp(t *testing.T) {
+	reasoningDeltas := make([]string, 100)
+	for i := range reasoningDeltas {
+		reasoningDeltas[i] = "thinking "
+	}
+	fake := &agenttest.FakeLLM{
+		ReasoningDeltasByTurn: [][]string{reasoningDeltas},
+		Delay:                 20 * time.Millisecond,
+	}
+	s, readAssistants := startTimelineSession(t, fake)
+	ch, err := s.AskStream(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	var firstOutputAt time.Time
+	deadline := time.After(3 * time.Second)
+	for firstOutputAt.IsZero() {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				t.Fatal("stream closed before reasoning delta")
+			}
+			if _, ok := ev.(agent.ReasoningDeltaEvent); ok {
+				firstOutputAt = time.Now()
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for reasoning delta")
+		}
+	}
+	if err := s.CancelCurrent("test stop after reasoning"); err != nil {
+		t.Fatalf("CancelCurrent: %v", err)
+	}
+	for range ch {
+	}
+	messages := readAssistants()
+	if len(messages) != 1 {
+		t.Fatalf("assistant timeline rows = %d, want 1", len(messages))
+	}
+	msg := messages[0]
+	if msg.ReasoningContent == "" || msg.Content != "" {
+		t.Fatalf("partial assistant message = (%q, %q), want reasoning-only", msg.Content, msg.ReasoningContent)
+	}
+	ts, err := time.Parse(time.RFC3339Nano, msg.Timestamp)
+	if err != nil {
+		t.Fatalf("partial assistant timestamp %q: %v", msg.Timestamp, err)
+	}
+	if ts.After(firstOutputAt.Add(50 * time.Millisecond)) {
+		t.Fatalf("partial assistant timestamp %s is later than first output %s", ts, firstOutputAt)
 	}
 }
 

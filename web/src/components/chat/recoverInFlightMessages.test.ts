@@ -91,6 +91,39 @@ describe("recoverInFlightMessages", () => {
     expect(recovered[1].timestamp).toBe("2026-10-13T18:14:39+08:00");
   });
 
+  it("never inserts a recovered reply before the user message that owns the request", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "request-user",
+        requestId: "req-stopped",
+        role: "user",
+        timestamp: "2026-10-13T18:14:34.200Z",
+        segments: [{ type: "content", text: "first prompt" }],
+      },
+      {
+        id: "follow-up-user",
+        requestId: "req-follow-up",
+        role: "user",
+        timestamp: "2026-10-13T18:20:37.000Z",
+        segments: [{ type: "content", text: "follow up" }],
+      },
+    ];
+
+    const recovered = recoverInFlightMessages(
+      messages,
+      [{ type: "thinking", text: "partial reasoning" }],
+      true,
+      "req-stopped",
+      "2026-10-13T18:14:34.100Z",
+    );
+
+    expect(recovered.map((message) => message.id)).toEqual([
+      "request-user",
+      "msg-req-stopped",
+      "follow-up-user",
+    ]);
+  });
+
   it("preserves a request-owned user prompt while updating its assistant reply", () => {
     const requestHistory = [
       {

@@ -91,6 +91,29 @@ func TestRuntimeMetricsPopulatesAgentStreamStartedAt(t *testing.T) {
 	}
 }
 
+func TestRuntimeMetricsStartsRecoveryTimestampAtFirstOutput(t *testing.T) {
+	rm := &RuntimeMetrics{
+		agentStreams: make(map[string]*AgentStreamState),
+		agentCancels: make(map[string]func()),
+	}
+	rm.updateAgentStream("agent-1", agent.IterationDoneEvent{RequestID: "req-1", Iter: 1})
+	stream := rm.AgentStreams()["agent-1\x00req-1"]
+	if stream == nil || !stream.StartedAt.IsZero() {
+		t.Fatalf("started_at before output = %#v, want zero", stream)
+	}
+	rm.updateAgentStream("agent-1", agent.ReasoningDeltaEvent{RequestID: "req-1", Delta: "thinking"})
+	stream = rm.AgentStreams()["agent-1\x00req-1"]
+	if stream == nil || stream.StartedAt.IsZero() {
+		t.Fatalf("started_at after first output = %#v, want populated", stream)
+	}
+	startedAt := stream.StartedAt
+	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-1", Delta: "answer"})
+	stream = rm.AgentStreams()["agent-1\x00req-1"]
+	if !stream.StartedAt.Equal(startedAt) {
+		t.Fatalf("started_at changed after first output: got %s, want %s", stream.StartedAt, startedAt)
+	}
+}
+
 func TestRuntimeMetricsTerminalizesCancelledRequestStream(t *testing.T) {
 	rm := &RuntimeMetrics{
 		agentStreams: make(map[string]*AgentStreamState),
