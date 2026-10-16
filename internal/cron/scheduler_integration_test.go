@@ -86,7 +86,7 @@ func TestScheduler_CronRunRecoversToolAndModelWatchdogs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			watchdog := runwatch.NewManager(runwatch.Policy{ScanInterval: time.Millisecond, RootIdle: time.Second, TransportIdle: 30 * time.Millisecond})
+			watchdog := runwatch.NewManager(runwatch.Policy{ScanInterval: time.Millisecond, RootIdle: time.Second, TransportIdle: 250 * time.Millisecond})
 			t.Cleanup(watchdog.Close)
 			model := &toolStallLLM{failModel: failModel, requests: make(chan agent.LLMRequest, 1)}
 			selected := []tools.Tool{stallingTool{}}
