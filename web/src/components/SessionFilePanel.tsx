@@ -64,9 +64,8 @@ function selectedFileDisappeared(
   const parts = selected.relative.split('/')
   let parent = projectPath.replace(/\\/g, '/').replace(/\/+$/, '') || '/'
   for (const directoryName of parts.slice(0, -1)) {
-    if (!visited.has(parent)) return false
     const next = parent === '/' ? `/${directoryName}` : `${parent}/${directoryName}`
-    const directoryExists = directories[parent]?.files.some((file) => {
+    const directoryExists = !visited.has(parent) || directories[parent]?.files.some((file) => {
       const resolved = resolveProjectPath(projectPath, file.path)
       return resolved?.absolute === next && file.isDir
     })
@@ -225,19 +224,59 @@ function SessionFilePanelInner({
     (path: string): Promise<boolean> => {
       const generation = generationRef.current
       const token = Symbol(path)
+      const current = useSessionFilesStore.getState().sessions[cacheKey]
+      const showLoading = !current?.directories[path]
       const request = (async () => {
-        setLoadingNodes((prev) => ({ ...prev, [path]: true }))
+        if (showLoading) setLoadingNodes((prev) => ({ ...prev, [path]: true }))
         try {
-          const current = useSessionFilesStore.getState().sessions[cacheKey]
           const response = await listFilesConditional(
             path,
             current?.directories[path]?.etag ?? undefined
           )
           if (!mountedRef.current || generationRef.current !== generation) return false
+          if (inFlightRef.current.get(path)?.token !== token) return true
           if (response.status === 'modified') {
             const files = response.data.filter((file: FileInfo) =>
               resolveProjectPath(projectPath, file.path)
             )
+            const previous = useSessionFilesStore.getState().sessions[cacheKey]
+            const directoryPaths = new Set(files.filter((file) => file.isDir).map((file) =>
+              resolveProjectPath(projectPath, file.path)!.absolute
+            ))
+            const removed = (previous?.directories[path]?.files ?? []).flatMap((file) => {
+              const resolved = resolveProjectPath(projectPath, file.path)
+              return file.isDir && resolved && !directoryPaths.has(resolved.absolute)
+                ? [resolved.absolute] : []
+            })
+            if (removed.length > 0) {
+              const wasRemoved = (candidate: string) => removed.some((root) => isAtOrBelow(candidate, root))
+              const selectedRemoved = previous?.selectedPath && wasRemoved(previous.selectedPath)
+              // A response for a removed branch must not recreate it after the parent changes.
+              for (const pendingPath of inFlightRef.current.keys()) {
+                if (wasRemoved(pendingPath)) inFlightRef.current.delete(pendingPath)
+              }
+              for (const removedPath of removed) removeDirectoryTree(cacheKey, removedPath)
+              updateFilesSession(cacheKey, {
+                expanded: Object.fromEntries(Object.entries(previous?.expanded ?? {}).filter(
+                  ([expandedPath]) => !wasRemoved(expandedPath)
+                )),
+              })
+              const persisted = useInspectorStateStore.getState().sessions[sessionId]?.expandedDirectories ?? []
+              updateInspectorSession(sessionId, {
+                expandedDirectories: persisted.filter((relativePath) => {
+                  const absolute = fromProjectRelativePath(projectPath, relativePath)
+                  return absolute && !wasRemoved(absolute)
+                }),
+                ...(selectedRemoved ? { selectedFile: null } : {}),
+              })
+              setLoadingNodes((prev) => Object.fromEntries(Object.entries(prev).filter(
+                ([loadingPath]) => !wasRemoved(loadingPath)
+              )))
+              if (selectedRemoved) {
+                setTerminalMessage('Selected file was deleted or moved')
+                setModalOpen(false)
+              }
+            }
             const latest = useSessionFilesStore.getState().sessions[cacheKey]
             updateFilesSession(cacheKey, {
               directories: {
@@ -249,8 +288,14 @@ function SessionFilePanelInner({
           return true
         } catch (error) {
           if (!mountedRef.current || generationRef.current !== generation) return false
+          if (inFlightRef.current.get(path)?.token !== token) return true
           if (isTerminalFileError(error)) {
             const selected = useSessionFilesStore.getState().sessions[cacheKey]?.selectedPath
+            for (const pendingPath of inFlightRef.current.keys()) {
+              if (pendingPath !== path && isAtOrBelow(pendingPath, path)) {
+                inFlightRef.current.delete(pendingPath)
+              }
+            }
             removeDirectoryTree(cacheKey, path)
             if (selected && isAtOrBelow(selected, path)) {
               updateInspectorSession(sessionId, { selectedFile: null })
@@ -262,7 +307,8 @@ function SessionFilePanelInner({
           }
           return false
         } finally {
-          if (mountedRef.current && generationRef.current === generation) {
+          if (showLoading && mountedRef.current && generationRef.current === generation &&
+              inFlightRef.current.get(path)?.token === token) {
             setLoadingNodes((prev) => ({ ...prev, [path]: false }))
           }
           if (inFlightRef.current.get(path)?.token === token) inFlightRef.current.delete(path)
@@ -334,18 +380,32 @@ function SessionFilePanelInner({
       const generation = generationRef.current
       const outcomes: boolean[] = []
       const visited = new Set([projectPath])
-      const refreshReachableDirectory = async (path: string): Promise<void> => {
+      const refreshReachableDirectory = async (
+        path: string,
+        ancestors: string[] = []
+      ): Promise<void> => {
+        const isReachable = () => {
+          const state = useSessionFilesStore.getState().sessions[cacheKey]
+          return mountedRef.current && generationRef.current === generation &&
+            document.visibilityState !== 'hidden' &&
+            (path === projectPath || [...ancestors, path].every((parent) => state?.expanded[parent]))
+        }
+        if (!isReachable()) return
         outcomes.push(await loadNode(path))
-        const directories = useSessionFilesStore.getState().sessions[cacheKey]?.directories ?? {}
+        if (!isReachable()) return
+        const state = useSessionFilesStore.getState().sessions[cacheKey]
+        const directories = state?.directories ?? {}
         const childPaths: string[] = []
         for (const file of directories[path]?.files ?? []) {
           if (!file.isDir || visited.size > INSPECTOR_EXPANDED_DIRECTORIES_MAX) continue
           const resolved = resolveProjectPath(projectPath, file.path)
-          if (!resolved || visited.has(resolved.absolute) || !expanded[resolved.absolute]) continue
+          if (!resolved || visited.has(resolved.absolute) || !state?.expanded[resolved.absolute]) continue
           visited.add(resolved.absolute)
           childPaths.push(resolved.absolute)
         }
-        await Promise.all(childPaths.map((childPath) => refreshReachableDirectory(childPath)))
+        await Promise.all(childPaths.map((childPath) =>
+          refreshReachableDirectory(childPath, [...ancestors, path])
+        ))
       }
       await refreshReachableDirectory(projectPath)
       if (mountedRef.current && generationRef.current === generation) {
@@ -369,7 +429,6 @@ function SessionFilePanelInner({
     [
       cacheKey,
       clearSelectedFile,
-      expanded,
       loadNode,
       projectPath,
       sessionId,
@@ -454,40 +513,40 @@ function SessionFilePanelInner({
         return
       }
       // Directory: expand / collapse
-      if (expanded[node.path]) {
-        const nextExpanded = { ...expanded, [node.path]: false }
-        updateFilesSession(cacheKey, { expanded: nextExpanded })
-        const relativePath = resolveProjectPath(projectPath, node.path)?.relative
-        if (!relativePath) return
-        updateInspectorSession(sessionId, {
-          expandedDirectories:
-            useInspectorStateStore
-              .getState()
-              .sessions[sessionId]?.expandedDirectories.filter((path) => path !== relativePath) ??
-            [],
-        })
-        return
-      }
-      if (!children[node.path]) {
-        const succeeded = await loadNode(node.path)
-        if (!succeeded) setRefreshError(true)
-      }
-      const nextExpanded = { ...expanded, [node.path]: true }
-      updateFilesSession(cacheKey, { expanded: nextExpanded })
+      const currentExpanded = useSessionFilesStore.getState().sessions[cacheKey]?.expanded ?? {}
+      const opening = !currentExpanded[node.path]
+      updateFilesSession(cacheKey, {
+        expanded: { ...currentExpanded, [node.path]: opening },
+      })
       const relativePath = resolveProjectPath(projectPath, node.path)?.relative
       if (!relativePath) return
       const persisted =
         useInspectorStateStore.getState().sessions[sessionId]?.expandedDirectories ?? []
       updateInspectorSession(sessionId, {
-        expandedDirectories: persisted.includes(relativePath)
-          ? persisted
-          : [...persisted, relativePath],
+        expandedDirectories: opening
+          ? persisted.includes(relativePath) ? persisted : [...persisted, relativePath]
+          : persisted.filter((path) => path !== relativePath),
       })
+      if (opening) {
+        const succeeded = await loadNode(node.path)
+        if (!succeeded) setRefreshError(true)
+        else {
+          const state = useSessionFilesStore.getState().sessions[cacheKey]
+          const selected = state?.selectedPath
+          if (selected && selectedFileDisappeared(
+            selected, projectPath, new Set([node.path]), state.directories
+          )) {
+            clearSelectedFile(cacheKey, selected)
+            updateInspectorSession(sessionId, { selectedFile: null })
+            setTerminalMessage('Selected file was deleted or moved')
+            setModalOpen(false)
+          }
+        }
+      }
     },
     [
       cacheKey,
-      expanded,
-      children,
+      clearSelectedFile,
       loadNode,
       isInline,
       projectPath,

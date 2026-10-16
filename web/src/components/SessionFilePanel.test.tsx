@@ -110,6 +110,59 @@ describe('SessionFilePanel', () => {
     )
   })
 
+  it('keeps cached rows unchanged during 304, identical, and metadata-only validation', async () => {
+    vi.useFakeTimers()
+    const cacheKey = filesCacheKey('', 'l2:files', '/project')
+    const files = [
+      { name: 'cached.ts', path: '/project/src/cached.ts', size: 10, isDir: false, ext: '.ts', modTime: '' },
+    ]
+    useSessionFilesStore.getState().updateSession(cacheKey, {
+      directories: {
+        '/project': {
+          files: [{ name: 'src', path: '/project/src', size: 0, isDir: true, ext: '', modTime: '' }],
+          etag: '"root-v1"',
+        },
+        '/project/src': { files, etag: '"src-v1"' },
+      },
+      expanded: { '/project': true, '/project/src': true },
+    })
+    let resolveChild!: (result: {
+      status: 'not-modified' | 'modified'
+      etag: string
+      data?: typeof files
+    }) => void
+    mocks.listFilesConditional.mockImplementation((path: string) =>
+      path === '/project'
+        ? Promise.resolve({ status: 'not-modified', etag: '"root-v1"' })
+        : new Promise((resolve) => { resolveChild = resolve })
+    )
+    const { container, unmount } = render(
+      <SessionFilePanel sessionId="l2:files" projectPath="/project" panelWidth={500} />
+    )
+    const childRow = screen.getByRole('button', { name: 'cached.ts' })
+    const mutations: MutationRecord[] = []
+    const observer = new MutationObserver((records) => mutations.push(...records))
+    observer.observe(container, { childList: true, subtree: true, attributes: true })
+
+    for (const response of [
+      { status: 'not-modified' as const, etag: '"src-v1"' },
+      { status: 'modified' as const, etag: '"src-v1"', data: files },
+      { status: 'modified' as const, etag: '"src-v2"', data: files.map((file) => ({ ...file, size: 20, modTime: '2026-10-16T12:00:00Z' })) },
+    ]) {
+      await act(async () => {})
+      expect(screen.queryByText('common.loading')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'cached.ts' })).toBe(childRow)
+      await act(async () => { resolveChild(response) })
+      expect(screen.getByRole('button', { name: 'cached.ts' })).toBe(childRow)
+      expect(mutations).toEqual([])
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    }
+
+    expect(mocks.listFilesConditional).toHaveBeenLastCalledWith('/project/src', '"src-v2"')
+    observer.disconnect()
+    unmount()
+  })
+
   it('polls only visible expanded directories and resumes immediately after browser visibility returns', async () => {
     vi.useFakeTimers()
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
@@ -164,6 +217,224 @@ describe('SessionFilePanel', () => {
 
     unmount()
     vi.useRealTimers()
+  })
+
+  it('keeps the five-second polling schedule when a directory is collapsed', async () => {
+    vi.useFakeTimers()
+    const cacheKey = filesCacheKey('', 'l2:files', '/project')
+    useSessionFilesStore.getState().updateSession(cacheKey, {
+      directories: {
+        '/project': {
+          etag: '"root-v1"',
+          files: [{ name: 'src', path: '/project/src', size: 0, isDir: true, ext: '', modTime: '' }],
+        },
+        '/project/src': { files: [], etag: '"src-v1"' },
+      },
+      expanded: { '/project': true, '/project/src': true },
+    })
+    mocks.listFilesConditional.mockResolvedValue({ status: 'not-modified', etag: null })
+    render(<SessionFilePanel sessionId="l2:files" projectPath="/project" panelWidth={500} />)
+    await act(async () => {})
+    expect(mocks.listFilesConditional).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    await act(async () => {})
+    expect(mocks.listFilesConditional).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(3999) })
+    expect(mocks.listFilesConditional).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(mocks.listFilesConditional).toHaveBeenCalledTimes(3)
+    expect(mocks.listFilesConditional).toHaveBeenLastCalledWith('/project', '"root-v1"')
+  })
+
+  it('expands uncached directories immediately and preserves rapid click state while deduplicating loads', async () => {
+    const cacheKey = filesCacheKey('', 'l2:files', '/project')
+    useSessionFilesStore.getState().updateSession(cacheKey, {
+      directories: {
+        '/project': {
+          etag: '"root-v1"',
+          files: ['src', 'docs'].map((name) => ({ name, path: `/project/${name}`, size: 0, isDir: true, ext: '', modTime: '' })),
+        },
+      },
+      expanded: { '/project': true },
+    })
+    const resolveLoads: Record<string, (result: unknown) => void> = {}
+    mocks.listFilesConditional.mockImplementation((path: string) =>
+      path === '/project'
+        ? Promise.resolve({ status: 'not-modified', etag: '"root-v1"' })
+        : new Promise((resolve) => { resolveLoads[path] = resolve })
+    )
+    render(<SessionFilePanel sessionId="l2:files" projectPath="/project" panelWidth={500} />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    expect(useSessionFilesStore.getState().sessions[cacheKey].expanded['/project/src']).toBe(true)
+    expect(screen.getByText('common.loading')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    expect(screen.queryByText('common.loading')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'docs' }))
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    expect(mocks.listFilesConditional.mock.calls.map(([path]) => path)).toEqual([
+      '/project', '/project/src', '/project/docs',
+    ])
+    await act(async () => {
+      for (const path of ['/project/src', '/project/docs']) {
+        resolveLoads[path]({
+          status: 'modified', etag: `"${path}-v1"`,
+          data: [{ name: `${path.split('/').at(-1)}.md`, path: `${path}/file.md`, size: 1, isDir: false, ext: '.md', modTime: '' }],
+        })
+      }
+    })
+
+    expect(useSessionFilesStore.getState().sessions[cacheKey].expanded).toMatchObject({
+      '/project/src': false, '/project/docs': true,
+    })
+    expect(useInspectorStateStore.getState().sessions['l2:files'].expandedDirectories).toEqual(['docs'])
+    expect(screen.queryByRole('button', { name: 'src.md' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'docs.md' })).toBeInTheDocument()
+  })
+
+  it('stops scheduling hidden descendants when an ancestor collapses during an awaited request', async () => {
+    const cacheKey = filesCacheKey('', 'l2:files', '/project')
+    const paths = ['/project', '/project/src', '/project/src/nested', '/project/src/nested/deep']
+    useSessionFilesStore.getState().updateSession(cacheKey, {
+      directories: Object.fromEntries(paths.map((path, index) => [path, {
+        etag: `"${index}"`,
+        files: paths[index + 1]
+          ? [{ name: paths[index + 1].split('/').at(-1)!, path: paths[index + 1], size: 0, isDir: true, ext: '', modTime: '' }]
+          : [],
+      }])),
+      expanded: Object.fromEntries(paths.map((path) => [path, true])),
+    })
+    let resolveNested!: (result: unknown) => void
+    mocks.listFilesConditional.mockImplementation((path: string) =>
+      path === '/project/src/nested'
+        ? new Promise((resolve) => { resolveNested = resolve })
+        : Promise.resolve({ status: 'not-modified', etag: null })
+    )
+    render(<SessionFilePanel sessionId="l2:files" projectPath="/project" panelWidth={500} />)
+    await act(async () => {})
+    expect(mocks.listFilesConditional.mock.calls.map(([path]) => path)).toEqual(paths.slice(0, 3))
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    await act(async () => { resolveNested({ status: 'not-modified', etag: '"2"' }) })
+
+    expect(mocks.listFilesConditional.mock.calls.map(([path]) => path)).toEqual(paths.slice(0, 3))
+    expect(screen.queryByRole('button', { name: 'deep' })).not.toBeInTheDocument()
+  })
+
+  it.each(['rename', 'delete', 'type-change'])(
+    'invalidates an old directory branch on parent %s and ignores its late response',
+    async (change) => {
+      const cacheKey = filesCacheKey('', 'l2:files', '/project')
+      useInspectorStateStore.getState().updateSession('l2:files', {
+        projectPath: '/project', expandedDirectories: ['src', 'src/nested'], selectedFile: 'src/old.ts',
+      })
+      useSessionFilesStore.getState().updateSession(cacheKey, {
+        directories: {
+          '/project': {
+            etag: '"root-v1"',
+            files: [{ name: 'src', path: '/project/src', size: 0, isDir: true, ext: '', modTime: '' }],
+          },
+          '/project/src': {
+            etag: '"src-v1"',
+            files: [{ name: 'nested', path: '/project/src/nested', size: 0, isDir: true, ext: '', modTime: '' }],
+          },
+          '/project/src/nested': { files: [], etag: '"nested-v1"' },
+        },
+        expanded: { '/project': true, '/project/src': true, '/project/src/nested': true },
+        selectedPath: '/project/src/old.ts',
+        preview: { path: '/project/src/old.ts', content: 'old', etag: '"old"', viewMode: 'raw', scrollTop: 0 },
+      })
+      const resolveLoads: Record<string, (result: unknown) => void> = {}
+      mocks.listFilesConditional.mockImplementation((path: string) =>
+        new Promise((resolve) => { resolveLoads[path] = resolve })
+      )
+      render(<SessionFilePanel sessionId="l2:files" projectPath="/project" panelWidth={500} />)
+      fireEvent.click(screen.getByRole('button', { name: 'src' }))
+      fireEvent.click(screen.getByRole('button', { name: 'src' }))
+      expect(mocks.listFilesConditional.mock.calls.map(([path]) => path)).toEqual(['/project', '/project/src'])
+      const replacement = change === 'delete' ? [] : [{
+        name: change === 'rename' ? 'renamed' : 'src',
+        path: change === 'rename' ? '/project/renamed' : '/project/src',
+        size: 0, isDir: change === 'rename', ext: '', modTime: '',
+      }]
+      await act(async () => {
+        resolveLoads['/project']({ status: 'modified', etag: '"root-v2"', data: replacement })
+      })
+
+      const state = useSessionFilesStore.getState().sessions[cacheKey]
+      expect(Object.keys(state.directories)).toEqual(['/project'])
+      expect(state.expanded).toEqual({ '/project': true })
+      expect(state.selectedPath).toBeNull()
+      expect(state.preview).toBeNull()
+      expect(useInspectorStateStore.getState().sessions['l2:files'].expandedDirectories).toEqual([])
+      expect(useInspectorStateStore.getState().sessions['l2:files'].selectedFile).toBeNull()
+      await act(async () => {
+        resolveLoads['/project/src']({ status: 'modified', etag: '"late"', data: [
+          { name: 'zombie', path: '/project/src/zombie', size: 0, isDir: true, ext: '', modTime: '' },
+        ] })
+      })
+
+      expect(Object.keys(useSessionFilesStore.getState().sessions[cacheKey].directories)).toEqual(['/project'])
+      expect(mocks.listFilesConditional).toHaveBeenCalledTimes(2)
+      expect(screen.queryByText('Unable to refresh files')).not.toBeInTheDocument()
+      if (replacement[0]) expect(screen.getByRole('button', { name: replacement[0].name })).toBeInTheDocument()
+      else expect(screen.queryByRole('button', { name: 'src' })).not.toBeInTheDocument()
+    }
+  )
+
+  it('reopens cached children silently and clears a selected file deleted while the directory was closed', async () => {
+    vi.useFakeTimers()
+    const cacheKey = filesCacheKey('', 'l2:files', '/project')
+    useSessionFilesStore.getState().updateSession(cacheKey, {
+      directories: {
+        '/project': {
+          etag: '"root-v1"',
+          files: [{ name: 'src', path: '/project/src', size: 0, isDir: true, ext: '', modTime: '' }],
+        },
+        '/project/src': {
+          etag: '"src-v1"',
+          files: [{ name: 'old.ts', path: '/project/src/old.ts', size: 1, isDir: false, ext: '.ts', modTime: '' }],
+        },
+      },
+      expanded: { '/project': true, '/project/src': false },
+      selectedPath: '/project/src/old.ts',
+      preview: { path: '/project/src/old.ts', content: 'old', etag: '"old"', viewMode: 'raw', scrollTop: 0 },
+    })
+    let resolveChild!: (result: unknown) => void
+    mocks.listFilesConditional.mockImplementation((path: string) =>
+      path === '/project'
+        ? Promise.resolve({ status: 'not-modified', etag: '"root-v1"' })
+        : new Promise((resolve) => { resolveChild = resolve })
+    )
+    render(<SessionFilePanel sessionId="l2:files" projectPath="/project" panelWidth={500} />)
+    await act(async () => {})
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    expect(screen.getByRole('button', { name: 'old.ts' })).toBeInTheDocument()
+    expect(screen.queryByText('common.loading')).not.toBeInTheDocument()
+    expect(mocks.listFilesConditional.mock.calls).toEqual([
+      ['/project', '"root-v1"'], ['/project/src', '"src-v1"'],
+    ])
+    await act(async () => {
+      resolveChild({ status: 'modified', etag: '"src-v2"', data: [
+        { name: 'new.ts', path: '/project/src/new.ts', size: 1, isDir: false, ext: '.ts', modTime: '' },
+      ] })
+    })
+
+    expect(screen.queryByRole('button', { name: 'old.ts' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'new.ts' })).toBeInTheDocument()
+    expect(useSessionFilesStore.getState().sessions[cacheKey].selectedPath).toBeNull()
+    expect(useSessionFilesStore.getState().sessions[cacheKey].preview).toBeNull()
+    expect(screen.getByText('Selected file was deleted or moved')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(3999) })
+    expect(mocks.listFilesConditional).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(mocks.listFilesConditional.mock.calls.slice(2)).toEqual([
+      ['/project', '"root-v1"'], ['/project/src', '"src-v2"'],
+    ])
   })
 
   it('does not poll an expanded descendant beneath a collapsed ancestor', async () => {
@@ -280,6 +551,7 @@ describe('SessionFilePanel', () => {
               ext: '.md',
               modTime: '',
             },
+            { name: 'src', path: '/project/src', size: 0, isDir: true, ext: '', modTime: '' },
           ],
         },
       },
@@ -293,9 +565,17 @@ describe('SessionFilePanel', () => {
         scrollTop: 0,
       },
     })
-    mocks.listFilesConditional.mockRejectedValue(new APIError('forbidden', 403))
+    let rejectRoot!: (error: unknown) => void
+    let resolveChild!: (result: unknown) => void
+    mocks.listFilesConditional.mockImplementation((path: string) =>
+      path === '/project'
+        ? new Promise((_resolve, reject) => { rejectRoot = reject })
+        : new Promise((resolve) => { resolveChild = resolve })
+    )
 
     render(<SessionFilePanel sessionId="l2:files" projectPath="/project" panelWidth={500} />)
+    fireEvent.click(screen.getByRole('button', { name: 'src' }))
+    await act(async () => { rejectRoot(new APIError('forbidden', 403)) })
 
     expect(await screen.findByText('Files unavailable')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'secret.md' })).not.toBeInTheDocument()
@@ -305,6 +585,10 @@ describe('SessionFilePanel', () => {
       selectedPath: null,
       preview: null,
     })
+    await act(async () => {
+      resolveChild({ status: 'modified', etag: '"late"', data: [] })
+    })
+    expect(useSessionFilesStore.getState().sessions[cacheKey].directories).toEqual({})
   })
 
   it('does not overlap slow polling cycles or emit duplicate preview validations', async () => {
