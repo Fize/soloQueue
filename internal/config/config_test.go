@@ -438,6 +438,58 @@ func TestLoader_Watch_ReloadsOnChange(t *testing.T) {
 	}
 }
 
+func TestLoader_Watch_WaitsForInPlaceWriteToSettle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	writeYAML(t, path, map[string]any{
+		"log": map[string]any{"level": "info"},
+	})
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
+	if err := loader.Load(); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if err := loader.Watch(); err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	defer loader.StopWatch()
+
+	committed := make(chan Settings, 2)
+	loader.SetOnCommitted(func(settings Settings) {
+		committed <- settings
+	})
+
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		t.Fatalf("open settings: %v", err)
+	}
+	if _, err := file.WriteString("log:\n  level: "); err != nil {
+		t.Fatalf("write partial settings: %v", err)
+	}
+	select {
+	case settings := <-committed:
+		t.Fatalf("committed partial settings with log level %q", settings.Log.Level)
+	case <-time.After(20 * time.Millisecond):
+	}
+	if _, err := file.WriteString("debug\n"); err != nil {
+		t.Fatalf("finish settings: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close settings: %v", err)
+	}
+
+	select {
+	case settings := <-committed:
+		if settings.Log.Level != "debug" {
+			t.Fatalf("committed log level = %q, want debug", settings.Log.Level)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("onCommitted not called after in-place write settled")
+	}
+}
+
 func TestLoader_Watch_RepeatedStartStopIsRaceFree(t *testing.T) {
 	dir := t.TempDir()
 	loader, err := NewLoader(DefaultSettings(), filepath.Join(dir, "settings.yaml"))
