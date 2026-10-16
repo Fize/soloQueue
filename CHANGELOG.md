@@ -6,6 +6,10 @@ Notable changes are recorded here for each release in English and Simplified Chi
 
 ## [0.2.2] - 2026-10-16
 
+### Fixed
+
+- Prevented config reloads from publishing partially written settings files.
+
 ### Added
 
 - Added persisted session inspector state, session change tracking, and token/cache usage statistics.
@@ -23,6 +27,10 @@ Notable changes are recorded here for each release in English and Simplified Chi
 - 新增会话检查器状态持久化、会话变更追踪，以及令牌和缓存用量统计。
 - 为会话文件面板增加条件请求和文件列表缓存。
 - 在 Agent 工作状态指示器中展示模型提供方名称。
+
+### 修复
+
+- 防止配置热重载在文件写入完成前发布不完整的设置。
 
 ### 改进
 

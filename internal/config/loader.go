@@ -257,6 +257,15 @@ func (l *Loader[T]) watchLoop(watcher *fsnotify.Watcher, stop <-chan struct{}, p
 			if skip {
 				continue
 			}
+			// Files may be truncated before their replacement contents are written.
+			// Let the write settle so a transient empty file cannot publish defaults.
+			timer := time.NewTimer(50 * time.Millisecond)
+			select {
+			case <-stop:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
 			candidate, err := l.readCandidate(context.Background())
 			if err != nil {
 				l.mu.RLock()
