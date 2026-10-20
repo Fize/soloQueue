@@ -14,20 +14,27 @@ import { LSPMCPSection } from './ConfigTab/LSPMCPSection'
 export function MemoryTab() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [saveError, setSaveError] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const [savedEmbeddingConfig, setSavedEmbeddingConfig] = useState<EmbeddingConfig | null>(null)
   const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig | null>(null)
   const [lspmcpConfig, setLspmcpConfig] = useState<LSPMCPConfig | null>(null)
 
   const loadData = async () => {
     setLoading(true)
+    setLoadError(false)
     try {
       const [dbEmbedding, dbLspmcp] = await Promise.all([
         getEmbeddingConfig(),
         getLSPMCPConfig(),
       ])
       setEmbeddingConfig(dbEmbedding)
+      setSavedEmbeddingConfig(dbEmbedding)
       setLspmcpConfig(dbLspmcp)
-    } catch (err) {
-      toast.error((err as Error).message)
+    } catch {
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -42,13 +49,23 @@ export function MemoryTab() {
   // ─── Embedding CRUD ─────────────────────────────────────────────────────────
 
   const handleSaveEmbedding = async () => {
-    if (!embeddingConfig) return
+    if (!embeddingConfig || saving) return
+    const submitted = embeddingConfig
+    setSaving(true)
+    setSaveError(false)
     try {
-      await updateEmbeddingConfig(embeddingConfig)
-      toast.success(t('config.toastEmbeddingUpdated'))
-      loadData()
-    } catch (err) {
-      toast.error((err as Error).message)
+      const payload = submitted.provider === 'onnx'
+        ? { ...submitted, local: { model: submitted.local?.model || 'multilingual-e5-small', device: 'auto' as const } }
+        : submitted
+      const saved = await updateEmbeddingConfig(payload)
+      setSavedEmbeddingConfig(saved)
+      setEmbeddingConfig(current => current === submitted ? saved : current)
+      setRevision(current => current + 1)
+      toast.success(t(submitted.provider === 'onnx' ? 'config.embedLocalSaved' : 'config.toastEmbeddingUpdated'))
+    } catch {
+      setSaveError(true)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -172,9 +189,17 @@ export function MemoryTab() {
 
   return (
     <div className="space-y-8 pb-10">
+      {loadError && <div role="alert" className="space-y-2">
+        <p>{t('config.embedConfigLoadError')}</p>
+        <button type="button" onClick={loadData}>{t('config.embedRetry')}</button>
+      </div>}
+      {saveError && <p role="alert">{t('config.embedConfigSaveError')}</p>}
       {embeddingConfig && (
         <EmbeddingSection
           config={embeddingConfig}
+          savedConfig={savedEmbeddingConfig}
+          saving={saving}
+          revision={revision}
           onChange={setEmbeddingConfig}
           onSave={handleSaveEmbedding}
           onAddProvider={handleAddEmbeddingProvider}

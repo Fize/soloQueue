@@ -5,8 +5,12 @@ import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { useTranslation } from '@/lib/i18n'
 import type { EmbeddingConfig } from '@/types'
+import { LocalEmbeddingSection } from './LocalEmbeddingSection'
 
 interface EmbeddingSectionProps {
+  savedConfig?: EmbeddingConfig | null
+  saving?: boolean
+  revision?: number
   config: EmbeddingConfig
   onChange: (config: EmbeddingConfig) => void
   onSave: () => void
@@ -20,6 +24,9 @@ interface EmbeddingSectionProps {
 
 export function EmbeddingSection({
   config,
+  savedConfig,
+  saving,
+  revision,
   onChange,
   onSave,
   onAddProvider,
@@ -42,8 +49,8 @@ export function EmbeddingSection({
             {t('config.embedTitleDesc')}
           </p>
         </div>
-        <Button size="sm" onClick={onSave}>
-          {t('config.embedSave')}
+        <Button size="sm" onClick={onSave} disabled={saving}>
+          {saving ? t('common.loading') : t('config.embedSave')}
         </Button>
       </div>
 
@@ -67,10 +74,11 @@ export function EmbeddingSection({
               { value: '', label: t('config.embedProviderNone') },
               { value: 'none', label: t('config.embedProviderNoneDesc') },
               { value: 'openai', label: t('config.embedProviderOpenai') },
+              { value: 'onnx', label: t('config.embedProviderOnnx') },
             ]}
           />
         </div>
-        <div className="flex flex-col gap-1.5">
+        {config.provider !== 'onnx' && <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
             {t('config.embedApiModel')}
           </label>
@@ -80,7 +88,7 @@ export function EmbeddingSection({
             value={config.modelName || ''}
             onChange={(e) => onChange({ ...config, modelName: e.target.value })}
           />
-        </div>
+        </div>}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
             {t('config.embedMinSimilarity')}
@@ -95,6 +103,10 @@ export function EmbeddingSection({
           />
         </div>
       </div>
+
+      {(config.provider === 'onnx' || savedConfig?.provider === 'onnx') && (
+        <LocalEmbeddingSection config={config} savedConfig={savedConfig} revision={revision} onChange={onChange} />
+      )}
 
       {/* Embedding Providers Section */}
       {config.provider === 'openai' && (

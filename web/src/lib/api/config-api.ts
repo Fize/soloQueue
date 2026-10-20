@@ -6,6 +6,8 @@ import type {
   SessionConfig,
   ToolsConfig,
   EmbeddingConfig,
+  EmbeddingStatus,
+  EmbeddingAction,
   QQBotConfig,
   WeChatAccountView,
   WeChatLoginSnapshot,
@@ -306,4 +308,16 @@ export async function fetchSkillDetail(id: string): Promise<SkillInfo> {
 
 export async function fetchSkillFiles(id: string): Promise<{ files: SkillFileEntry[] }> {
   return request<{ files: SkillFileEntry[] }>(`/skills/${encodeURIComponent(id)}/files`)
+}
+
+export async function getEmbeddingStatus(options?: RequestInit): Promise<EmbeddingStatus> {
+  return request<EmbeddingStatus>('/config/embedding/status', options)
+}
+
+export async function runEmbeddingAction(action: EmbeddingAction, options?: RequestInit): Promise<EmbeddingStatus> {
+  return request<EmbeddingStatus>('/config/embedding/actions', {
+    ...options,
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  })
 }

@@ -110,11 +110,30 @@ export interface EmbeddingModel {
   isDefault: boolean;
 }
 
+export interface EmbeddingStatus {
+  provider: 'none' | 'openai' | 'onnx';
+  state: 'disabled' | 'preparing' | 'downloading' | 'loading' | 'reindexing' | 'ready' | 'error' | 'cancelled';
+  model: string;
+  device: 'auto' | 'cpu';
+  backend: string;
+  dimension: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  indexed: number;
+  pending: number;
+  failed: number;
+  error?: string;
+  fallbackReason?: string;
+}
+
+export type EmbeddingAction = 'retry' | 'cancel' | 'reindex';
+
 export interface EmbeddingConfig {
   enabled: boolean;
   minSimilarity: number;
   provider: string;
   modelName: string;
+  local?: { model: string; device: 'auto' | 'cpu' };
   providers: EmbeddingProvider[];
   models: EmbeddingModel[];
 }
