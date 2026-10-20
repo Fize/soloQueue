@@ -94,3 +94,19 @@ func ChatMetaFromContext(ctx context.Context) (ChatMeta, bool) {
 	v, ok := ctx.Value(chatCtxKey).(ChatMeta)
 	return v, ok
 }
+
+// NotificationBinding identifies the current session configuration at send time.
+// AccountID is the logical settings ID, while Message.AccountID is the bot ID.
+type NotificationBinding struct {
+	AccountID string
+	Group     string
+}
+type notificationBindingKey struct{}
+
+func ContextWithNotificationBinding(ctx context.Context, binding NotificationBinding) context.Context {
+	return context.WithValue(ctx, notificationBindingKey{}, binding)
+}
+func NotificationBindingFromContext(ctx context.Context) (NotificationBinding, bool) {
+	binding, ok := ctx.Value(notificationBindingKey{}).(NotificationBinding)
+	return binding, ok
+}

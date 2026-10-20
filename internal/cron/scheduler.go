@@ -687,7 +687,7 @@ func (s *Scheduler) executeL2TaskGeneration(t Task, generation uint64) {
 	}
 	if drainErr == nil && len(result.mediaFiles) > 0 && l2Session != nil && l2Session.HasNotifyChannel() {
 		if err := l2Session.SendMediaViaChannel(ctx, result.mediaFiles); err != nil {
-			s.logger.Warn(logger.CatApp, "cron: L2 media notification failed", "task_id", t.ID, "err", err)
+			s.logger.Warn(logger.CatApp, "cron: L2 media notification failed", "task_id", t.ID, "err", err.Error())
 		}
 	}
 
@@ -705,13 +705,13 @@ func (s *Scheduler) deliverL2ResultViaChannel(ctx context.Context, t Task, l2Ses
 			return
 		}
 		if err := l1Session.SendViaChannel(ctx, replyText); err != nil {
-			s.logger.Warn(logger.CatApp, "cron: L2 notification fallback to L1 failed", "task_id", t.ID, "err", err)
+			s.logger.Warn(logger.CatApp, "cron: L2 notification fallback to L1 failed", "task_id", t.ID, "err", err.Error())
 		}
 		return
 	}
 	err := l2Session.SendViaChannel(ctx, replyText)
 	if err != nil {
-		s.logger.Warn(logger.CatApp, "cron: L2 channel notification failed", "task_id", t.ID, "err", err)
+		s.logger.Warn(logger.CatApp, "cron: L2 channel notification failed", "task_id", t.ID, "err", err.Error())
 	}
 }
 
@@ -723,12 +723,12 @@ func (s *Scheduler) deliverL1ResultViaChannel(ctx context.Context, t Task, reply
 	}
 	if replyText != "" {
 		if err := l1Session.SendViaChannel(ctx, replyText); err != nil {
-			s.logger.Warn(logger.CatApp, "cron: L1 notification failed", "task_id", t.ID, "err", err)
+			s.logger.Warn(logger.CatApp, "cron: L1 notification failed", "task_id", t.ID, "err", err.Error())
 		}
 	}
 	if len(media) > 0 {
 		if err := l1Session.SendMediaViaChannel(ctx, media); err != nil {
-			s.logger.Warn(logger.CatApp, "cron: L1 media notification failed", "task_id", t.ID, "err", err)
+			s.logger.Warn(logger.CatApp, "cron: L1 media notification failed", "task_id", t.ID, "err", err.Error())
 		}
 	}
 }

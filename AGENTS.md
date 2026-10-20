@@ -201,20 +201,25 @@ LLM-driven conversation summaries triggered on context window compaction. `Manag
 
 ## Cron notification limitations
 
-Cron task results are delivered to channels (QQ/WeChat) via the session's active bridge
-(`SendActiveMessage` for QQ, `SendText` for WeChat). This mechanism has several constraints:
+Cron task results are delivered through the configured notification channel. WeChat
+uses the current enabled account's saved authentication credential and a previously
+saved recipient route, including the conversation context token.
 
-1. **Requires agent config**: The agent's template must set `notify_channel` to `"qq"` or
-   `"wechat"` (via YAML frontmatter or `~/.soloqueue/persona/roles/channels.yaml` for L1).
-   Without this, no channel notification is sent.
+1. **Requires agent config**: Set `notify_channel` to the desired channel in the
+   agent template or `~/.soloqueue/persona/roles/channels.yaml` for L1. The selected
+   WeChat account must match the session binding and allow the recipient.
 
-2. **Requires recent user interaction**: The channel bridge only registers its sender after
-   a user sends a message. If the server has just restarted or no user has messaged the bot
-   recently, `SendViaChannel` will be a no-op.
+2. **Requires an established recipient route**: A valid, allowed user message must
+   establish the WeChat route at least once. When the route and account credentials
+   are saved, notifications can be attempted after restart without another message.
+   L2 notification routes are restored by agent group.
 
-3. **WeChat instability**: WeChat iLink API may not reliably deliver active messages.
-   Consider QQ Bot for more consistent channel notifications.
+3. **Credentials and context can expire**: Saved authentication does not guarantee
+   that WeChat will accept an old conversation context. Check account credentials
+   or send a new WeChat message when the reported failure requires it.
 
-4. **No guaranteed delivery**: If the target user's bridge context is expired or the channel
-   API returns an error, the notification is silently dropped. Always check the Web UI for
-   definitive task results.
+4. **Acceptance is not guaranteed delivery**: Missing routes, rejected requests and
+   network failures are diagnosed in the logs. Notification failure does not change
+   the task execution result; check the Web UI for that result. An accepted API
+   request does not prove user receipt, and a network timeout leaves acceptance
+   unknown. Notifications are not automatically retried.

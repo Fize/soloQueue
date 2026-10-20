@@ -110,7 +110,7 @@ func (c *Client) loadOutboundMedia(ctx context.Context, media channel.OutboundMe
 	}
 	resp, err := mediaHTTP.Do(req)
 	if err != nil {
-		return nil, "", err
+		return nil, "", safeTransportError(ctx, "media_download", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -177,17 +177,16 @@ func (c *Client) uploadMedia(ctx context.Context, userID string, kind channel.Me
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, bytes.NewReader(ciphertext))
 	if err != nil {
-		return uploadedMedia{}, err
+		return uploadedMedia{}, fmt.Errorf("wechat_media_upload_invalid: cannot construct upload request")
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	uploadResp, err := c.http.Do(req)
 	if err != nil {
-		return uploadedMedia{}, err
+		return uploadedMedia{}, safeTransportError(ctx, "media_upload", err)
 	}
 	defer uploadResp.Body.Close()
 	if uploadResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(uploadResp.Body, 4096))
-		return uploadedMedia{}, fmt.Errorf("CDN upload %s: %s", uploadResp.Status, strings.TrimSpace(string(body)))
+		return uploadedMedia{}, fmt.Errorf("wechat_media_upload_rejected: HTTP %d", uploadResp.StatusCode)
 	}
 	downloadParam := uploadResp.Header.Get("x-encrypted-param")
 	if downloadParam == "" {

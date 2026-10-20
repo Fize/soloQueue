@@ -145,6 +145,8 @@ func (s *L2SessionStore) ApplyChannelSendersTo(group string, target *Session) {
 	if group == "" || target == nil {
 		return
 	}
+	target.notificationTargetID = group
+	target.metaStore = s.metaStore
 	s.mu.RLock()
 	senders := s.channelSenders[group]
 	mediaSenders := s.channelMediaSenders[group]

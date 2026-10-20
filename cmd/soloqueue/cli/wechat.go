@@ -36,6 +36,7 @@ type WechatBotManager struct {
 	gateways      []*wechat.Gateway
 	bridges       []*channel.TextBridge
 	clients       map[string]*wechat.Client
+	accounts      map[string]config.WechatBotConfig
 }
 
 type wechatCredentialStore struct {
@@ -84,45 +85,64 @@ func NewWechatBotManager(cfg *config.GlobalService, mgr *session.SessionManager,
 	m := &WechatBotManager{cfg: cfg, mgr: mgr, l2Store: l2Store, rt: rt, workDir: workDir, version: version, mainLog: mainLog, supervisorsFn: supervisorsFn, registry: registry, clients: make(map[string]*wechat.Client)}
 
 	channel.RegisterSenderFactory("wechat", func(ctx context.Context, data []byte, text string) error {
-		var msg channel.Message
-		if err := json.Unmarshal(data, &msg); err != nil {
+		msg, client, err := m.notificationClient(ctx, data)
+		if err != nil {
 			return err
-		}
-
-		m.mu.Lock()
-		client := m.clients[msg.AccountID]
-		if client == nil && msg.AccountID == "" && len(m.clients) == 1 {
-			for _, only := range m.clients {
-				client = only
-			}
-		}
-		m.mu.Unlock()
-
-		if client == nil {
-			return fmt.Errorf("no active wechat bridge available")
 		}
 		return client.SendText(ctx, msg, text)
 	})
 	channel.RegisterMediaSenderFactory("wechat", func(ctx context.Context, data []byte, media []channel.OutboundMedia) error {
-		var msg channel.Message
-		if err := json.Unmarshal(data, &msg); err != nil {
+		msg, client, err := m.notificationClient(ctx, data)
+		if err != nil {
 			return err
-		}
-		m.mu.Lock()
-		client := m.clients[msg.AccountID]
-		if client == nil && msg.AccountID == "" && len(m.clients) == 1 {
-			for _, only := range m.clients {
-				client = only
-			}
-		}
-		m.mu.Unlock()
-		if client == nil {
-			return fmt.Errorf("no active wechat bridge for account %q", msg.AccountID)
 		}
 		return client.SendMedia(ctx, msg, media)
 	})
 
 	return m
+}
+
+// notificationClient resolves the currently configured account for both live and
+// restored routes. A missing account never falls back to another bot.
+func (m *WechatBotManager) notificationClient(ctx context.Context, data []byte) (channel.Message, *wechat.Client, error) {
+	var msg channel.Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return msg, nil, fmt.Errorf("wechat_notification_route_invalid: saved route is malformed; send a new WeChat message")
+	}
+	if msg.Channel != "" && msg.Channel != "wechat" {
+		return msg, nil, fmt.Errorf("wechat_notification_route_invalid: channel mismatch")
+	}
+	if msg.AccountID == "" || msg.UserID == "" || msg.ReplyToken == "" {
+		return msg, nil, fmt.Errorf("wechat_notification_route_missing: send a WeChat message to establish a recipient and context")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	account, ok := m.accounts[msg.AccountID]
+	client := m.clients[msg.AccountID]
+	if !ok || !account.Enabled || account.BotToken == "" || client == nil {
+		return msg, nil, fmt.Errorf("wechat_notification_account_unavailable: account disabled, removed or credentials missing; check WeChat settings")
+	}
+	if binding, ok := channel.NotificationBindingFromContext(ctx); ok {
+		if binding.AccountID != "" && binding.AccountID != account.ID {
+			return msg, nil, fmt.Errorf("wechat_notification_binding_mismatch: saved route belongs to another configured account; send a message to the selected account")
+		}
+		if (account.BindType == "l2" && (binding.Group == "" || account.BindAgent != binding.Group)) || (account.BindType != "l2" && binding.Group != "") {
+			return msg, nil, fmt.Errorf("wechat_notification_binding_mismatch: account is bound to another session")
+		}
+	}
+	if account.WhitelistEnabled {
+		allowed := false
+		for _, user := range account.Whitelist {
+			if user == msg.UserID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return msg, nil, fmt.Errorf("wechat_notification_recipient_denied: recipient is no longer allowed by the account whitelist")
+		}
+	}
+	return msg, client, nil
 }
 
 func (m *WechatBotManager) Reload() {
@@ -139,6 +159,7 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 	m.gateways = nil
 	m.bridges = nil
 	m.clients = make(map[string]*wechat.Client)
+	m.accounts = make(map[string]config.WechatBotConfig)
 
 	var transcriber *qqbot.Transcriber
 	if settings.Speech.Enabled {
@@ -187,6 +208,7 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 		m.gateways = append(m.gateways, gateway)
 		m.bridges = append(m.bridges, bridge)
 		m.clients[wxCfg.BotID] = client
+		m.accounts[wxCfg.BotID] = baseCfg
 
 		go func() {
 			if err := gateway.Run(context.Background()); err != nil && err != wechat.ErrClosed {
@@ -206,6 +228,7 @@ func (m *WechatBotManager) Shutdown() {
 	m.gateways = nil
 	m.bridges = nil
 	m.clients = make(map[string]*wechat.Client)
+	m.accounts = make(map[string]config.WechatBotConfig)
 }
 
 func WechatCmd(version string) *cobra.Command {

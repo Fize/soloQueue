@@ -52,13 +52,31 @@ func NewTextBridge(sess SessionProvider, sender TextSender, log *logger.Logger, 
 }
 
 func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
+	if b.whitelistEnabled {
+		if _, ok := b.whitelist[msg.UserID]; !ok {
+			b.log.InfoContext(ctx, logger.CatApp, "channel message ignored: user not in whitelist", "channel", msg.Channel, "user_ref", channelUserRef(msg.UserID))
+			return
+		}
+	}
+
 	// Register channel sender for system notifications (cron, etc.).
 	if s, ok := b.sess.(interface {
 		SetChannelSenderData(string, []byte, func(context.Context, string) error)
 	}); ok {
-		msgBytes, _ := json.Marshal(msg)
+		route := msg
+		if msg.Channel == "wechat" {
+			route = Message{Channel: msg.Channel, AccountID: msg.AccountID, ConversationID: msg.ConversationID, UserID: msg.UserID, ReplyToken: msg.ReplyToken}
+		}
+		msgBytes, _ := json.Marshal(route)
 		registeredMsg := msg
 		s.SetChannelSenderData(msg.Channel, msgBytes, func(ctx context.Context, text string) error {
+			if msg.Channel == "wechat" {
+				if factory := GetSenderFactory("wechat"); factory != nil {
+					data, _ := json.Marshal(registeredMsg)
+					return factory(ctx, data, text)
+				}
+				return fmt.Errorf("wechat_notification_unavailable: sender factory is not registered")
+			}
 			return b.sender.SendText(ctx, registeredMsg, text)
 		})
 		b.log.InfoContext(ctx, logger.CatApp, "bridge: channelSender registered with metadata",
@@ -69,6 +87,13 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 	}); ok {
 		registeredMsg := msg
 		s.SetChannelSender(msg.Channel, func(ctx context.Context, text string) error {
+			if msg.Channel == "wechat" {
+				if factory := GetSenderFactory("wechat"); factory != nil {
+					data, _ := json.Marshal(registeredMsg)
+					return factory(ctx, data, text)
+				}
+				return fmt.Errorf("wechat_notification_unavailable: sender factory is not registered")
+			}
 			return b.sender.SendText(ctx, registeredMsg, text)
 		})
 		b.log.InfoContext(ctx, logger.CatApp, "bridge: channelSender registered",
@@ -81,15 +106,15 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 		}); ok {
 			registeredMsg := msg
 			s.SetChannelMediaSender(msg.Channel, func(ctx context.Context, media []OutboundMedia) error {
+				if msg.Channel == "wechat" {
+					if factory := GetMediaSenderFactory("wechat"); factory != nil {
+						data, _ := json.Marshal(registeredMsg)
+						return factory(ctx, data, media)
+					}
+					return fmt.Errorf("wechat_notification_unavailable: media sender factory is not registered")
+				}
 				return mediaSender.SendMedia(ctx, registeredMsg, media)
 			})
-		}
-	}
-
-	if b.whitelistEnabled {
-		if _, ok := b.whitelist[msg.UserID]; !ok {
-			b.log.InfoContext(ctx, logger.CatApp, "channel message ignored: user not in whitelist", "channel", msg.Channel, "user_ref", channelUserRef(msg.UserID))
-			return
 		}
 	}
 

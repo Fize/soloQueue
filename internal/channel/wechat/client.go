@@ -8,10 +8,11 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -76,7 +77,7 @@ func (c *Client) GetUpdates(ctx context.Context, cursor string, timeout time.Dur
 		return resp, err
 	}
 	if resp.Ret != 0 || resp.ErrCode != 0 {
-		return resp, fmt.Errorf("wechat getupdates ret=%d errcode=%d: %s", resp.Ret, resp.ErrCode, resp.ErrMsg)
+		return resp, &APIError{Operation: "getupdates", Ret: resp.Ret, ErrCode: resp.ErrCode}
 	}
 	return resp, nil
 }
@@ -160,9 +161,52 @@ func (c *Client) SendTyping(ctx context.Context, userID, typingTicket string, st
 	return responseError("sendtyping", resp)
 }
 
+// transportError exposes only safe context causes, never URL/response content.
+type transportError struct {
+	operation string
+	cause     error
+}
+
+func (e *transportError) Error() string {
+	if e.operation == "sendmessage" {
+		return "wechat_notification_delivery_unknown: network request failed; message acceptance is unknown (no automatic retry)"
+	}
+	return "wechat_request_failed: network request failed; check connectivity"
+}
+func (e *transportError) Unwrap() error { return e.cause }
+func safeTransportError(ctx context.Context, operation string, err error) error {
+	var cause error
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		cause = context.DeadlineExceeded
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		cause = context.Canceled
+	}
+	return &transportError{operation: operation, cause: cause}
+}
+
+// APIError retains numeric rejection codes without echoing server-controlled
+// text, which may contain authentication or conversation credentials.
+type APIError struct {
+	Operation  string
+	HTTPStatus int
+	Ret        int
+	ErrCode    int
+}
+
+func (e *APIError) Error() string {
+	if e.HTTPStatus != 0 {
+		if e.HTTPStatus == 401 || e.HTTPStatus == 403 {
+			return fmt.Sprintf("wechat_auth_rejected: HTTP %d; check account credentials and log in again if needed", e.HTTPStatus)
+		}
+		return fmt.Sprintf("wechat_api_rejected: HTTP %d", e.HTTPStatus)
+	}
+	return fmt.Sprintf("wechat_api_rejected: %s ret=%d errcode=%d; check WeChat account/session status", e.Operation, e.Ret, e.ErrCode)
+}
+
 func responseError(operation string, resp APIResponse) error {
 	if resp.Ret != 0 || resp.ErrCode != 0 {
-		return fmt.Errorf("wechat %s ret=%d errcode=%d: %s", operation, resp.Ret, resp.ErrCode, resp.ErrMsg)
+		return &APIError{Operation: operation, Ret: resp.Ret, ErrCode: resp.ErrCode}
 	}
 	return nil
 }
@@ -207,7 +251,7 @@ func (c *Client) post(ctx context.Context, baseURL, endpoint string, body any, t
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL(baseURL, endpoint), bytes.NewReader(raw))
 	if err != nil {
-		return err
+		return fmt.Errorf("wechat_request_invalid: cannot construct API request")
 	}
 	c.setHeaders(req, token, true)
 	return c.do(req, out)
@@ -216,7 +260,7 @@ func (c *Client) post(ctx context.Context, baseURL, endpoint string, body any, t
 func (c *Client) get(ctx context.Context, baseURL, endpoint string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpointURL(baseURL, endpoint), nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("wechat_request_invalid: cannot construct API request")
 	}
 	c.setHeaders(req, "", false)
 	return c.do(req, out)
@@ -238,15 +282,18 @@ func (c *Client) setHeaders(req *http.Request, token string, authenticated bool)
 func (c *Client) do(req *http.Request, out any) error {
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return safeTransportError(req.Context(), path.Base(req.URL.Path), err)
 	}
+
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("wechat API %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return &APIError{HTTPStatus: resp.StatusCode}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("decode wechat API response: %w", err)
+		if req.Context().Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return safeTransportError(req.Context(), path.Base(req.URL.Path), err)
+		}
+		return fmt.Errorf("wechat_response_invalid: cannot decode API response; message acceptance is unknown")
 	}
 	return nil
 }

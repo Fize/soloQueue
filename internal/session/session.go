@@ -225,20 +225,21 @@ type Session struct {
 	Router   TaskRouterFunc // Optional: task routing classifier (nil = no routing, use default model)
 	Created  time.Time
 
-	mu                  sync.Mutex
-	agentMu             sync.RWMutex // serializes generation snapshots and swaps
-	rebuildMu           sync.Mutex   // single-flight generation construction/swap
-	generation          agentGeneration
-	cw                  *ctxwin.ContextWindow // Replaces original history, manages full conversation context
-	tl                  *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
-	dispatchManager     *dispatch.Manager
-	dispatchInitErr     error
-	runWatch            *runwatch.Manager
-	requestHooks        RequestLifecycleHooks
-	logger              *logger.Logger       // Session-level logger
-	resourceCloser      func() error         // closes the logger handler owned by this Session
-	metaStore           ChannelMetadataStore // Optional: for persisting channel sender metadata
-	l1NotifyChannelPath string               // Optional: latest L1 notification config file
+	mu                   sync.Mutex
+	agentMu              sync.RWMutex // serializes generation snapshots and swaps
+	rebuildMu            sync.Mutex   // single-flight generation construction/swap
+	generation           agentGeneration
+	cw                   *ctxwin.ContextWindow // Replaces original history, manages full conversation context
+	tl                   *timeline.Writer      // Timeline writer (can be nil, meaning no persistence)
+	dispatchManager      *dispatch.Manager
+	dispatchInitErr      error
+	runWatch             *runwatch.Manager
+	requestHooks         RequestLifecycleHooks
+	logger               *logger.Logger       // Session-level logger
+	resourceCloser       func() error         // closes the logger handler owned by this Session
+	metaStore            ChannelMetadataStore // Optional: for persisting channel sender metadata
+	notificationTargetID string               // L2 routes are persisted by group rather than temporary session ID
+	l1NotifyChannelPath  string               // Optional: latest L1 notification config file
 
 	// pending queue: new messages enqueue when session is busy, popped and injected
 	// into ContextWindow before the agent's next LLM API call in the tool loop, merging consecutive messages
@@ -1028,6 +1029,9 @@ func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.Outbo
 	if notifyChannel == "" {
 		return nil
 	}
+	if notifyChannel == "wechat" {
+		return s.sendWechatNotification(ctx, "", media)
+	}
 	s.channelSendersMu.RLock()
 	fn := s.channelMediaSenders[notifyChannel]
 	s.channelSendersMu.RUnlock()
@@ -1072,6 +1076,10 @@ func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 			"target_id", s.TargetID,
 		)
 		return nil
+	}
+
+	if notifyChannel == "wechat" {
+		return s.sendWechatNotification(ctx, text, nil)
 	}
 
 	s.channelSendersMu.RLock()
@@ -1126,6 +1134,67 @@ func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 		"notify_channel", notifyChannel,
 	)
 	return nil
+}
+
+// sendWechatNotification applies current account bindings to live and restored
+// senders alike. Route persistence never contains the authentication credential.
+func (s *Session) sendWechatNotification(ctx context.Context, text string, media []channel.OutboundMedia) error {
+	binding := channel.NotificationBinding{}
+	if a := s.CurrentAgent(); a != nil {
+		binding.AccountID = a.Def.Channels["wechat"]
+	}
+	if s.l1NotifyChannelPath != "" {
+		data, err := os.ReadFile(s.l1NotifyChannelPath)
+		if err != nil {
+			return fmt.Errorf("wechat_notification_config_unavailable: cannot read notification binding")
+		}
+		var cfg struct {
+			Channels map[string]string `yaml:"channels"`
+		}
+		if yaml.Unmarshal(data, &cfg) != nil {
+			return fmt.Errorf("wechat_notification_config_invalid: cannot parse notification binding")
+		}
+		binding.AccountID = cfg.Channels["wechat"]
+	} else if s.TargetID != "l1-session" && s.TeamID != "L1" {
+		binding.Group = s.TeamID
+	}
+	ctx = channel.ContextWithNotificationBinding(ctx, binding)
+	s.channelSendersMu.RLock()
+	textSender := s.channelSenders["wechat"]
+	mediaSender := s.channelMediaSenders["wechat"]
+	s.channelSendersMu.RUnlock()
+	if media != nil && mediaSender != nil {
+		return mediaSender(ctx, media)
+	}
+	if media == nil && textSender != nil {
+		return textSender(ctx, text)
+	}
+	if s.metaStore == nil {
+		return fmt.Errorf("wechat_notification_store_unavailable: saved recipient store is not configured")
+	}
+	target := s.TargetID
+	if s.notificationTargetID != "" {
+		target = s.notificationTargetID
+	}
+	metadata, err := s.metaStore.GetChannelSenderData(target, "wechat")
+	if err != nil {
+		return fmt.Errorf("wechat_notification_route_load_failed: cannot read saved recipient route")
+	}
+	if metadata == "" {
+		return fmt.Errorf("wechat_notification_route_missing: send a WeChat message to establish a recipient and context")
+	}
+	if media != nil {
+		factory := channel.GetMediaSenderFactory("wechat")
+		if factory == nil {
+			return fmt.Errorf("wechat_notification_unavailable: media sender factory is not registered")
+		}
+		return factory(ctx, []byte(metadata), media)
+	}
+	factory := channel.GetSenderFactory("wechat")
+	if factory == nil {
+		return fmt.Errorf("wechat_notification_unavailable: sender factory is not registered")
+	}
+	return factory(ctx, []byte(metadata), text)
 }
 
 // IsQBot returns true if the session is currently serving or was last triggered by QBot.
