@@ -751,6 +751,15 @@ class WebSocketManager {
 
     const handler: ChatHandler = {
       onAccepted: () => useChatStore.getState().updateRequestStatus(requestId, 'streaming'),
+      onQueueStarted: ({ owns_stream, cancel_request_id }) => {
+        if (!owns_stream) {
+          finish()
+          return
+        }
+        const current = useChatStore.getState()
+        current.updateRequestStatus(requestId, 'streaming')
+        current.updateRequestCancelId(requestId, cancel_request_id)
+      },
       onRoute: (data) => {
         const next = {
           requestId: data.request_id,

@@ -104,6 +104,8 @@ type PendingInputStartedEvent struct {
 	RequestID         string
 	PreviousRequestID string
 	RequestIDs        []string
+	Prompt            string
+	ReceivedAt        time.Time
 }
 
 // RequestIDOfEvent returns the request identity attached to an AgentEvent.

@@ -117,7 +117,7 @@ func inputPushOptions(ctx context.Context) []ctxwin.PushOption {
 }
 
 func (s *Session) enqueuePending(ctx context.Context, prompt string) {
-	message := PendingMessage{Prompt: prompt}
+	message := PendingMessage{Prompt: prompt, RequestID: telemetry.MetadataFromContext(ctx).RequestID}
 	metadata, ok := temporalExposureFromContext(ctx)
 	if ok {
 		message.ReceivedAt = metadata.receivedAt
@@ -2445,7 +2445,7 @@ enqueued:
 		assistantDump := func() string {
 			var b strings.Builder
 			for i := cwLenBeforeTurn; i < s.cw.Len(); i++ {
-				if m, ok := s.cw.MessageAt(i); ok && m.Role == ctxwin.RoleAssistant {
+				if m, ok := s.cw.MessageAt(i); ok && m.Role == ctxwin.RoleAssistant && m.RequestID == deliveryRequestID {
 					b.WriteString(m.Content)
 				}
 			}
@@ -2616,6 +2616,14 @@ enqueued:
 			errorEvent := false
 			if boundary, ok := ev.(agent.PendingInputStartedEvent); ok && boundary.RequestID != "" {
 				deliveryRequestID = boundary.RequestID
+				// The previous iteration is persisted before input is drained.
+				// Start a fresh visible reply, including its clock and partial
+				// buffers, so cancellation cannot mix output across user inputs.
+				firstAssistantOutputAt = time.Time{}
+				accContent.Reset()
+				accReasoning.Reset()
+				lastPushedContent = ""
+				persistedAssistantDump = ""
 			}
 			if e, ok := ev.(agent.ErrorEvent); ok {
 				errorEvent = true

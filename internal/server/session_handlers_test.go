@@ -1132,3 +1132,61 @@ func TestExtractFilesFromPrompt(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTP_SessionHistory_SplitsReplyAtLegacyQueuedInput(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	dir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Old channel queues lost the request ID. The final row also used the
+	// first reasoning timestamp, so append order defines this boundary.
+	events := []string{
+		`{"ts":"2026-10-20T15:20:54+08:00","type":"message","msg":{"role":"user","content":"can I do T?","request_id":"req-root"}}`,
+		`{"ts":"2026-10-20T15:21:05+08:00","type":"message","msg":{"role":"assistant","reasoning":"checking T","tool_calls":[{"id":"call-first","type":"function","name":"Skill","arguments":"{}"}],"request_id":"req-root"}}`,
+		`{"ts":"2026-10-20T15:21:05+08:00","type":"message","msg":{"role":"tool","content":"skill loaded","tool_call_id":"call-first","request_id":"req-root"}}`,
+		`{"ts":"2026-10-20T15:21:05+08:00","type":"message","msg":{"role":"user","content":"breakdown risk?","temporal_parts":[{"content":"breakdown risk?","ts":"2026-10-20T15:21:00+08:00","expose_timestamp":true}]}}`,
+		`{"ts":"2026-10-20T15:21:09+08:00","type":"message","msg":{"role":"assistant","reasoning":"checking breakdown risk","tool_calls":[{"id":"call-second","type":"function","name":"Bash","arguments":"{}"}],"request_id":"req-root"}}`,
+		`{"ts":"2026-10-20T15:21:09+08:00","type":"message","msg":{"role":"tool","content":"market data","tool_call_id":"call-second","request_id":"req-root"}}`,
+		`{"ts":"2026-10-20T15:20:57+08:00","type":"message","msg":{"role":"assistant","content":"answer to both","request_id":"req-root"}}`,
+	}
+	if err := os.WriteFile(filepath.Join(dir, "timeline-2026-10-20.jsonl"), []byte(strings.Join(events, "\n")+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Messages []struct {
+			Role     string `json:"role"`
+			Segments []struct {
+				Type   string `json:"type"`
+				Text   string `json:"text"`
+				Result string `json:"result"`
+			} `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Messages) != 4 {
+		t.Fatalf("want user / assistant / user / assistant, got %s", rec.Body.String())
+	}
+	for i, role := range []string{"user", "assistant", "user", "assistant"} {
+		if resp.Messages[i].Role != role {
+			t.Fatalf("message %d role=%q want %q", i, resp.Messages[i].Role, role)
+		}
+	}
+	first, second := resp.Messages[1].Segments, resp.Messages[3].Segments
+	if len(first) != 2 || first[0].Text != "checking T" || first[1].Result != "skill loaded" {
+		t.Fatalf("first reply=%#v", first)
+	}
+	if len(second) != 3 || second[0].Text != "checking breakdown risk" || second[1].Result != "market data" || second[2].Text != "answer to both" {
+		t.Fatalf("second reply=%#v", second)
+	}
+}

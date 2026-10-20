@@ -94,11 +94,14 @@ func TestBusyAskRetainsTemporalMetadataWithoutChangingQueueOwnership(t *testing.
 	sess := NewSession("busy", "default", a, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, newTestLog(t))
 	sess.inFlight.Store(1)
 	receivedAt := time.Date(2026, time.August, 27, 9, 35, 59, 0, time.Local)
-	ctx := withTemporalExposure(context.Background(), receivedAt)
+	ctx := withTemporalExposure(telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-qq-queued"}), receivedAt)
 	if _, err := sess.AskStream(ctx, "queued"); !errors.Is(err, ErrQueued) {
 		t.Fatalf("AskStream error = %v, want ErrQueued", err)
 	}
 	drained := sess.pending.Drain()
+	if len(drained.RequestIDs) != 1 || drained.RequestIDs[0] != "req-qq-queued" {
+		t.Fatalf("queued request IDs = %#v, want channel input identity for the reply boundary", drained.RequestIDs)
+	}
 	if len(drained.Parts) != 1 || drained.Parts[0].Prompt != "queued" || !drained.Parts[0].ExposeTimestamp || !drained.Parts[0].ReceivedAt.Equal(receivedAt) {
 		t.Fatalf("pending = %#v, want original temporal metadata", drained)
 	}
@@ -125,7 +128,17 @@ func TestQueuedBoundaryPersistsSubsequentAssistantUnderDeliveryRequest(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range out {
+	var boundarySeen bool
+	for event := range out {
+		if boundary, ok := event.(agent.PendingInputStartedEvent); ok {
+			boundarySeen = true
+			if boundary.Prompt != "queued" || boundary.ReceivedAt.IsZero() {
+				t.Fatalf("boundary input metadata = %#v", boundary)
+			}
+		}
+	}
+	if !boundarySeen {
+		t.Fatal("queued input did not emit a reply boundary")
 	}
 
 	var queuedUser, queuedAssistant bool
@@ -230,6 +243,93 @@ func TestNonL1InputsRemainTemporallyUnmarked(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if opts := inputPushOptions(ctx); len(opts) != 0 {
 				t.Fatalf("input options = %#v, want no temporal eligibility", opts)
+			}
+		})
+	}
+}
+
+func TestQueuedBoundaryStartsFreshAssistantOutput(t *testing.T) {
+	for _, complete := range []bool{true, false} {
+		name := "partial"
+		if complete {
+			name = "complete"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			tl, err := timeline.NewWriter(dir, "timeline", 0, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = tl.Close() })
+			cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer(), ctxwin.WithPushHook(func(msg ctxwin.Message) {
+				_ = tl.AppendMessage(&timeline.MessagePayload{Role: string(msg.Role), Content: msg.Content, ReasoningContent: msg.ReasoningContent, Timestamp: msg.Timestamp.Format(time.RFC3339Nano), RequestID: msg.RequestID})
+			}))
+			a := startAgent(t, &agenttest.FakeLLM{})
+			sess := NewSession("queued-output", "default", a, cw, tl, newTestLog(t))
+			source := make(chan agent.AgentEvent)
+			sess.askStreamHistory = func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error) {
+				return source, nil
+			}
+			ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-root"})
+			out, err := sess.AskStream(ctx, "root")
+			if err != nil {
+				t.Fatal(err)
+			}
+			receive := func() {
+				t.Helper()
+				select {
+				case _, ok := <-out:
+					if !ok {
+						t.Fatal("output ended before boundary")
+					}
+				case <-time.After(time.Second):
+					t.Fatal("output timed out")
+				}
+			}
+			source <- agent.ReasoningDeltaEvent{RequestID: "req-root", Delta: "old reasoning"}
+			receive()
+			source <- agent.ContentDeltaEvent{RequestID: "req-root", Delta: "old output"}
+			receive()
+			// Simulate the agent persisting a completed iteration before draining input.
+			cw.Push(ctxwin.RoleAssistant, "old output", ctxwin.WithRequestID("req-root"))
+			cw.Push(ctxwin.RoleUser, "queued", ctxwin.WithRequestID("req-queued"))
+			queued, _ := cw.MessageAt(cw.Len() - 1)
+			source <- agent.PendingInputStartedEvent{RequestID: "req-queued", PreviousRequestID: "req-root", RequestIDs: []string{"req-queued"}}
+			receive()
+			source <- agent.ReasoningDeltaEvent{RequestID: "req-queued", Delta: "new reasoning"}
+			receive()
+			source <- agent.ContentDeltaEvent{RequestID: "req-queued", Delta: "new output"}
+			receive()
+			if complete {
+				source <- agent.DoneEvent{RequestID: "req-queued", Content: "new output", ReasoningContent: "new reasoning"}
+			}
+			close(source)
+			for range out {
+			}
+			if err := tl.Close(); err != nil {
+				t.Fatal(err)
+			}
+			events, err := timeline.ReadFileEvents(timelineLatestFile(dir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var found bool
+			for _, event := range events {
+				msg := event.Message
+				if msg == nil || msg.Role != "assistant" || msg.RequestID != "req-queued" {
+					continue
+				}
+				found = true
+				if msg.Content != "new output" || msg.ReasoningContent != "new reasoning" {
+					t.Fatalf("queued output mixed with previous reply: %#v", msg)
+				}
+				stamp, err := time.Parse(time.RFC3339Nano, msg.Timestamp)
+				if err != nil || stamp.Before(queued.Timestamp) {
+					t.Fatalf("new reply timestamp=%q precedes queued input %s (parse error: %v)", msg.Timestamp, queued.Timestamp, err)
+				}
+			}
+			if !found {
+				t.Fatal("queued assistant reply was not persisted")
 			}
 		})
 	}

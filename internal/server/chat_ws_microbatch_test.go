@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"reflect"
 	"testing"
 	"time"
 
@@ -388,5 +390,68 @@ done:
 	}
 	if msgs[2].Type != "tool_start" {
 		t.Errorf("third frame = %#v, want tool_start", msgs[2])
+	}
+}
+
+func TestChannelQueuedInputBroadcastStartsSeparateReply(t *testing.T) {
+	fake := &agenttest.FakeLLM{
+		StreamDeltas:         [][]string{{"first iteration"}, {"second reply"}, {"third reply"}},
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{Index: 0, ID: "call-first", Name: "unavailable", Arguments: `{}`}}, {{Index: 0, ID: "call-second", Name: "unavailable", Arguments: `{}`}}},
+	}
+	a := agent.NewAgent(agent.Definition{ID: "l1-agent"}, fake, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop(time.Second)
+	h := NewHub(&Mux{sessionMgr: session.NewSessionManager(nil, nil)})
+	defer session.SetDefaultRequestLifecycleHooks(session.RequestLifecycleHooks{})
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	sess := session.NewSession("l1-session", "default", a, cw, nil, nil)
+	var calls int
+	fake.Hook = func(_ agent.LLMRequest) {
+		calls++
+		if calls == 1 {
+			sess.QueueMessage("second question", "req-queued")
+		}
+		if calls == 2 {
+			sess.QueueMessage("third question", "req-next")
+		}
+	}
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-root", OwnerID: "channel\x00qq", Origin: telemetry.OriginQQ})
+	out, err := sess.AskStream(ctx, "first question")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range out {
+	}
+	var frames []*WSMessage
+	for len(h.broadcast) > 0 {
+		frames = append(frames, <-h.broadcast)
+	}
+	var sequence []string
+	for _, frame := range frames {
+		if frame.Origin != "channel" {
+			t.Fatalf("channel provenance lost: %#v", frame)
+		}
+		switch frame.Type {
+		case "chat_accepted":
+			sequence = append(sequence, "input:"+frame.RequestID)
+			if frame.Prompt == "" || frame.Timestamp == "" {
+				t.Fatalf("input metadata missing: %#v", frame)
+			}
+		case "chat_queue_started":
+			sequence = append(sequence, "boundary:"+frame.RequestID)
+			if frame.CancelRequestID != "req-root" {
+				t.Fatalf("boundary cancellation owner changed: %#v", frame)
+			}
+		case "chat_chunk":
+			sequence = append(sequence, "output:"+frame.RequestID+":"+frame.Delta)
+		case "chat_done":
+			sequence = append(sequence, "done:"+frame.RequestID)
+		}
+	}
+	want := []string{"input:req-root", "output:req-root:first iteration", "input:req-queued", "boundary:req-root", "output:req-queued:second reply", "input:req-next", "boundary:req-queued", "output:req-next:third reply", "done:req-next"}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("channel frames = %#v, want %#v", sequence, want)
 	}
 }

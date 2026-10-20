@@ -903,6 +903,12 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			targetMsgIdx := -1
 			if msg.RequestID != "" {
 				for i := len(msgs) - 1; i >= 0; i-- {
+					// Older channel queues lost request ownership. Their user
+					// row still starts a new reply, even when later output kept
+					// the original request ID. Do not merge across that boundary.
+					if msgs[i].Role == "user" && msgs[i].RequestID == "" {
+						break
+					}
 					if msgs[i].Role == "assistant" && msgs[i].RequestID == msg.RequestID {
 						targetMsgIdx = i
 						break

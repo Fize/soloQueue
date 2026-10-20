@@ -1094,3 +1094,85 @@ describe('websocket', () => {
     expect(onClose).toHaveBeenCalledWith(1009, false)
   })
 })
+
+it('splits consecutive QQ inputs into independent live replies at injection', async () => {
+  useChatStore.setState({ messages: {} })
+  await wsManager.connect()
+  simulateOpen()
+  const channel = { origin: 'channel', session_id: 'l1' }
+  simulateMessage({
+    ...channel,
+    type: 'chat_accepted',
+    request_id: 'req-first',
+    prompt: 'first question',
+    timestamp: '2026-10-20T15:20:54+08:00',
+  })
+  simulateMessage({
+    ...channel,
+    type: 'reasoning_chunk',
+    request_id: 'req-first',
+    delta: 'first reasoning',
+  })
+  simulateMessage({
+    ...channel,
+    type: 'chat_chunk',
+    request_id: 'req-first',
+    delta: 'first output',
+  })
+  simulateMessage({
+    ...channel,
+    type: 'chat_accepted',
+    request_id: 'req-second',
+    prompt: 'second question',
+    timestamp: '2026-10-20T15:21:00+08:00',
+  })
+  simulateMessage({
+    ...channel,
+    type: 'chat_queue_started',
+    request_id: 'req-first',
+    request_ids: ['req-second'],
+    cancel_request_id: 'req-first',
+  })
+
+  expect(wsManager.hasChatHandler('req-first')).toBe(false)
+  expect(useChatStore.getState().activeRequests['req-first']).toBeUndefined()
+  expect(useChatStore.getState().activeRequests['req-second']).toMatchObject({
+    status: 'streaming',
+    cancelRequestId: 'req-first',
+  })
+  simulateMessage({
+    ...channel,
+    type: 'reasoning_chunk',
+    request_id: 'req-second',
+    delta: 'second reasoning',
+  })
+  simulateMessage({
+    ...channel,
+    type: 'chat_chunk',
+    request_id: 'req-second',
+    delta: 'second output',
+  })
+  const messages = useChatStore.getState().messages.l1
+  expect(messages.map(({ role, requestId }) => [role, requestId])).toEqual([
+    ['user', 'req-first'],
+    ['assistant', 'req-first'],
+    ['user', 'req-second'],
+    ['assistant', 'req-second'],
+  ])
+  expect(messages[1].segments).toEqual([
+    { type: 'thinking', text: 'first reasoning' },
+    { type: 'content', text: 'first output' },
+  ])
+  expect(messages[3].segments).toEqual([
+    { type: 'thinking', text: 'second reasoning' },
+    { type: 'content', text: 'second output' },
+  ])
+  simulateMessage({
+    ...channel,
+    type: 'chat_done',
+    request_id: 'req-second',
+    content: 'second output',
+  })
+  expect(useChatStore.getState().activeRequests).toEqual({})
+  expect(useChatStore.getState().streamingSessions.l1).toBe(false)
+})

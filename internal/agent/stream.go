@@ -262,11 +262,19 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			metadata := telemetryctx.FromContext(ctx)
 			metadata.RequestID = deliveryRequestID
 			ctx = telemetryctx.WithMetadata(ctx, metadata)
-			if !a.emit(ctx, out, PendingInputStartedEvent{
+			boundary := PendingInputStartedEvent{
 				RequestID:         deliveryRequestID,
 				PreviousRequestID: previousRequestID,
 				RequestIDs:        pendingRequestIDs,
-			}) {
+			}
+			if history, ok := strat.(*historyStrategy); ok {
+				boundary.Prompt = history.pendingInput.Content
+				boundary.ReceivedAt = history.pendingInput.Timestamp
+				if parts := history.pendingInput.TemporalParts; len(parts) > 0 && !parts[0].Timestamp.IsZero() {
+					boundary.ReceivedAt = parts[0].Timestamp
+				}
+			}
+			if !a.emit(ctx, out, boundary) {
 				return
 			}
 		}
@@ -619,8 +627,9 @@ func (s *simpleStrategy) promptLen() int { return len(s.prompt) }
 // --- historyStrategy: ContextWindow-based (runOnceStreamWithHistory) ---
 
 type historyStrategy struct {
-	cw     *ctxwin.ContextWindow
-	prompt string
+	cw           *ctxwin.ContextWindow
+	prompt       string
+	pendingInput ctxwin.Message
 }
 
 func (s *historyStrategy) buildMessages(ctx context.Context, a *Agent, iter int) ([]LLMMessage, []string, error) {
@@ -628,6 +637,11 @@ func (s *historyStrategy) buildMessages(ctx context.Context, a *Agent, iter int)
 	// the LLM payload. This injects queued messages at the next natural
 	// break point in the tool loop.
 	pendingRequestIDs := s.cw.DrainPending()
+	if len(pendingRequestIDs) > 0 {
+		// Capture the injected user turn before overflow compaction can replace
+		// it, so channel observers can display the same input at this boundary.
+		s.pendingInput, _ = s.cw.MessageAt(s.cw.Len() - 1)
+	}
 
 	// Overflow hard-limit check: prevent API 400
 	if s.cw.Overflow() {

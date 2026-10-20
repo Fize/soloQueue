@@ -276,6 +276,23 @@ func (h *Hub) configureRequestLifecycle() {
 			if !h.prepareChannelMessage(logicalSessionID, requestID, wsMsg) {
 				return
 			}
+			if boundary, ok := ev.(agent.PendingInputStartedEvent); ok {
+				if boundary.PreviousRequestID != "" {
+					wsMsg.RequestID = boundary.PreviousRequestID
+				}
+				// The root request still owns execution and cancellation. Publish
+				// the newly consumed input before moving the visible reply to it.
+				input := &WSMessage{
+					Type: "chat_accepted", Origin: "channel", SessionID: logicalSessionID,
+					RequestID: boundary.RequestID, Prompt: session.StripRecalledMemories(boundary.Prompt),
+					Timestamp: boundary.ReceivedAt.UTC().Format(time.RFC3339Nano),
+				}
+				if input.RequestID != "" && input.Prompt != "" {
+					h.BroadcastMessage(input)
+				}
+			} else if deliveryID := agent.RequestIDOfEvent(ev); deliveryID != "" {
+				wsMsg.RequestID = deliveryID
+			}
 			if wsMsg.Type == "delegation_start" {
 				_ = h.requests.SetDelegating(requestID, true)
 				h.NextSessionRevision(logicalSessionID)
