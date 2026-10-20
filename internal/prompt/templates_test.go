@@ -45,11 +45,26 @@ func TestDefaultRules(t *testing.T) {
 	if !strings.Contains(DefaultRules, "Clarification Handling") {
 		t.Error("DefaultRules should contain Clarification Handling")
 	}
-	if !strings.Contains(DefaultRules, "need_clarification") {
-		t.Error("DefaultRules should reference need_clarification status")
-	}
 	if !strings.Contains(DefaultRules, "Internal runtime identifiers are never needed in a response") {
 		t.Error("DefaultRules should keep runtime identifiers out of agent responses")
+	}
+}
+
+func TestDefaultRules_ConciseClarificationHandling(t *testing.T) {
+	for _, required := range []string{
+		"first resolve the questions using available context or tools",
+		"only unresolved blocking questions",
+		"in concise natural language, together in one turn",
+		"include the task goal, answers, and only the context needed",
+		"omit conversation history and redundant summaries",
+		"No fixed response schema is required",
+	} {
+		if !strings.Contains(DefaultRules, required) {
+			t.Errorf("clarification handling missing %q", required)
+		}
+	}
+	if strings.Contains(DefaultRules, "need_clarification") {
+		t.Error("clarification handling must not depend on the retired JSON status")
 	}
 }
 

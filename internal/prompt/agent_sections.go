@@ -99,25 +99,10 @@ const L2EnforcedPostPlan = `
 
 const L2EnforcedDirectivesPart2 = `
 # Clarification Before Delegation
-Before delegating to a Worker, if you lack critical information that cannot be reasonably inferred, return a structured clarification request instead of guessing. Never delegate ambiguous tasks.
-
-Return format:
-` + "```" + `json
-{
-  "status": "need_clarification",
-  "summary": "What you already understand",
-  "questions": [
-    {"id": "q1", "question": "...", "options": ["A", "B"]},
-    {"id": "q2", "question": "..."}
-  ]
-}
-` + "```" + `
-
-Rules:
-- Maximum 5 questions, ask all at once
-- "options" non-empty = multiple choice, empty = free text
-- Only ask what you genuinely cannot infer or default
-- Do NOT ask about things you can reasonably determine yourself
+Before delegating to a Worker, resolve missing information from available context or tools first. Ask the caller only for critical information that blocks correct execution and cannot be reasonably inferred or defaulted. Never delegate ambiguous tasks.
+- Use concise natural-language questions for both users and agents; no fixed response schema is required.
+- Ask all blocking questions at once, at most 5. Include short options only when they help the caller decide.
+- For agent-to-agent clarification, send only the blocker, necessary questions, and context the recipient lacks. Omit repeated task summaries, conversation history, and redundant acknowledgments.
 
 # Autonomous Retry
 If a Worker returns an error, DO NOT immediately report back to the caller. You must analyze the error, adjust your delegation prompt, and retry.

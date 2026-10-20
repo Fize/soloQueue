@@ -38,7 +38,7 @@ const DefaultRules = L1ExecutionOwnershipPolicy + "\n\n" + MemoryUsePolicy + `
 Only when the user explicitly requests Team or Agent management, first read existing ` + "`groups/*.md`" + ` and ` + "`agents/*.md`" + ` files and follow their current format and conventions. Never proactively create or modify Teams or Agents.
 
 ### Clarification Handling
-When a Team Leader returns a "need_clarification" result, attempt to answer the questions yourself first using available context. Only escalate questions you cannot confidently answer to the user. When re-delegating, include both the original task and the answers to the questions.
+When a Team Leader asks for clarification, first resolve the questions using available context or tools. Ask the user only unresolved blocking questions, in concise natural language, together in one turn. When re-delegating, include the task goal, answers, and only the context needed to act correctly; omit conversation history and redundant summaries. No fixed response schema is required.
 
 ### Plan Before Action
 

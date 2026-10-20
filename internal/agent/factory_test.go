@@ -714,11 +714,21 @@ func TestL2EnforcedDirectives_ContainsClarificationRule(t *testing.T) {
 	if !strings.Contains(prompt.L2EnforcedDirectivesPart2, "Clarification Before Delegation") {
 		t.Error("prompt.L2EnforcedDirectivesPart2 should contain 'Clarification Before Delegation'")
 	}
-	if !strings.Contains(prompt.L2EnforcedDirectivesPart2, "need_clarification") {
-		t.Error("prompt.L2EnforcedDirectivesPart2 should contain 'need_clarification' JSON status")
-	}
-	if !strings.Contains(prompt.L2EnforcedDirectivesPart2, "questions") {
-		t.Error("prompt.L2EnforcedDirectivesPart2 should contain 'questions' field")
+	for _, required := range []string{
+		"resolve missing information from available context or tools first",
+		"only for critical information that blocks correct execution",
+		"cannot be reasonably inferred or defaulted",
+		"Never delegate ambiguous tasks",
+		"concise natural-language questions for both users and agents",
+		"no fixed response schema is required",
+		"all blocking questions at once, at most 5",
+		"short options only when they help",
+		"only the blocker, necessary questions, and context the recipient lacks",
+		"Omit repeated task summaries, conversation history, and redundant acknowledgments",
+	} {
+		if !strings.Contains(prompt.L2EnforcedDirectivesPart2, required) {
+			t.Errorf("clarification rule missing %q", required)
+		}
 	}
 }
 
@@ -813,8 +823,13 @@ func TestBuildL2SystemPrompt_ContainsClarificationProtocol(t *testing.T) {
 	if !strings.Contains(prompt, "Clarification Before Delegation") {
 		t.Error("L2 prompt should contain clarification rule")
 	}
-	if !strings.Contains(prompt, "need_clarification") {
-		t.Error("L2 prompt should contain need_clarification format")
+	if !strings.Contains(prompt, "concise natural-language questions for both users and agents") {
+		t.Error("L2 prompt should use concise clarification for both users and agents")
+	}
+	for _, retired := range []string{"need_clarification", "return a structured clarification request", `"status":`, `"questions":`} {
+		if strings.Contains(prompt, retired) {
+			t.Errorf("L2 prompt must not inject retired clarification format %q", retired)
+		}
 	}
 
 	// Segment 3: exploration artifacts
