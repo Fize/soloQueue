@@ -266,18 +266,32 @@ impl Worker {
         match self.infer(texts, purpose) {
             Ok(values) => Ok(values),
             Err(error) if self.backend != "cpu" => {
-                self.fallback = Some(format!(
-                    "{}: inference failed; entire request retried on CPU",
-                    self.backend
-                ));
-                self.backend = "cpu".into();
-                self.session = build(&self.model, "cpu", None)?;
+                switch_to_cpu(
+                    &mut self.session,
+                    &mut self.backend,
+                    &mut self.fallback,
+                    || build(&self.model, "cpu", None),
+                )?;
                 let _ = error;
                 self.infer(texts, purpose)
             }
             Err(error) => Err(error),
         }
     }
+}
+fn switch_to_cpu<S>(
+    session: &mut S,
+    backend: &mut String,
+    fallback: &mut Option<String>,
+    build_cpu: impl FnOnce() -> Fallible<S>,
+) -> Fallible<()> {
+    // Preserve the accelerated session and its metadata if reconstruction fails.
+    let cpu_session = build_cpu()?;
+    let reason = format!("{backend}: inference failed; entire request retried on CPU");
+    *session = cpu_session;
+    *backend = "cpu".into();
+    *fallback = Some(reason);
+    Ok(())
 }
 fn tokenize(
     tokenizer: &Tokenizer,
@@ -476,6 +490,37 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cpu_rebuild_failure_preserves_accelerated_state() {
+        let mut session = "accelerated session";
+        let mut backend = "cuda".to_string();
+        let mut fallback = Some("previous provider failure".to_string());
+        let accelerated_inference: Fallible<()> = Err("accelerated inference failed".into());
+        let result = accelerated_inference.or_else(|_| {
+            switch_to_cpu(&mut session, &mut backend, &mut fallback, || {
+                Err("CPU session reconstruction failed".into())
+            })
+        });
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "CPU session reconstruction failed"
+        );
+        assert_eq!(session, "accelerated session");
+        assert_eq!(backend, "cuda");
+        assert_eq!(fallback.as_deref(), Some("previous provider failure"));
+
+        // A later request can still transition from the actual accelerated state.
+        switch_to_cpu(&mut session, &mut backend, &mut fallback, || {
+            Ok("CPU session")
+        })
+        .unwrap();
+        assert_eq!(session, "CPU session");
+        assert_eq!(backend, "cpu");
+        assert_eq!(
+            fallback.as_deref(),
+            Some("cuda: inference failed; entire request retried on CPU")
+        );
+    }
     #[test]
     #[ignore = "requires verified official model and generated reference fixture; run explicitly in native CI"]
     fn tokenizer_parity() {
