@@ -47,15 +47,18 @@ func (a *AgentChatClient) Chat(ctx context.Context, req ChatRequest) (*ChatRespo
 	compactorCtx := telemetry.WithTelemetryContext(ctx, teamID, telemetry.UsageCompactor)
 
 	resp, err := a.Client.Chat(compactorCtx, agent.LLMRequest{
-		ProviderID: req.ProviderID,
-		Model:      req.Model,
-		Messages:   msgs,
+		ProviderID:      req.ProviderID,
+		Model:           req.Model,
+		Messages:        msgs,
+		MaxTokens:       req.MaxTokens,
+		ThinkingEnabled: false,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &ChatResponse{
-		Content: resp.Content,
+		Content:      resp.Content,
+		FinishReason: resp.FinishReason,
 	}, nil
 }

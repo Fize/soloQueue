@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } fr
 import { useParams, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { ChatMessageView } from "@/components/ChatMessage";
+import { CompactionStatusRows } from "@/components/chat/CompactionStatusRows";
 import { ChatInput } from "@/components/ChatInput";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
@@ -24,7 +25,7 @@ import { useConnectionStore } from "@/stores/connectionStore";
 
 import { cn, pathsMatch } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
-import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment } from "@/types";
+import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment, CompactionStatus } from "@/types";
 import { useResizablePanes } from "@/hooks/useResizablePanes";
 import { SessionInspectorPanel } from "./chat/SessionInspectorPanel";
 import type { PreviewCommentSnapshot } from "@/types/annotation";
@@ -53,6 +54,8 @@ const DEFAULT_INSPECTOR_SNAPSHOT = {
   panelWidth: 300,
 } as const;
 
+const EMPTY_COMPACTIONS: CompactionStatus[] = [];
+
 export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -65,6 +68,9 @@ export function ChatPage() {
   // the per-message children short-circuit this cost via React.memo on
   // ChatMessageView — old messages keep their reference and skip rendering.
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const compactions = useChatStore((s) =>
+    activeSessionId ? s.compactions?.[activeSessionId] ?? EMPTY_COMPACTIONS : EMPTY_COMPACTIONS
+  )
   const messages = useChatStore((s) => s.messages)
   const streamingSessions = useChatStore(useShallow((s) => s.streamingSessions))
   const systemCommandSessions = useChatStore(useShallow((s) => s.systemCommandSessions))
@@ -1070,6 +1076,8 @@ export function ChatPage() {
                         sessionAgentId={activeAgentInstanceId}
                       />
                     ))}
+
+                    <CompactionStatusRows rows={compactions} />
 
                     {delegating && (
                       <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">

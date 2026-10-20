@@ -715,10 +715,14 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 
 	var dir string
 	var ctxwinUsed, ctxwinLimit int
+	activeCompactionID := ""
 	if sessionID == "l1" {
 		dir = filepath.Join(m.workDir, "logs", "timelines", "default")
 		if m.sessionMgr != nil && m.sessionMgr.Session() != nil {
-			ctxwinUsed, ctxwinLimit, _ = m.sessionMgr.Session().CW().TokenUsage()
+			if cw := m.sessionMgr.Session().CW(); cw != nil {
+				ctxwinUsed, ctxwinLimit, _ = cw.TokenUsage()
+				activeCompactionID = cw.ActiveCompactionID()
+			}
 		}
 	} else {
 		id := strings.TrimPrefix(sessionID, "l2:")
@@ -727,6 +731,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			if entry := m.l2Store.GetEntry(id); entry != nil {
 				if sess := m.l2Store.GetActivated(id); sess != nil && sess.CW() != nil {
 					ctxwinUsed, ctxwinLimit, _ = sess.CW().TokenUsage()
+					activeCompactionID = sess.CW().ActiveCompactionID()
 				} else if builder := m.l2Store.Builder(); builder != nil {
 					ctxwinUsed, ctxwinLimit, _ = builder.ReadL2ContextUsage(r.Context(), id, entry.Group, entry.WorkDir)
 				}
@@ -739,8 +744,9 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 	allEvents, err := readAllTimelineEvents(dir)
 	if err != nil {
 		m.writeJSON(w, http.StatusOK, map[string]interface{}{
-			"messages": []interface{}{},
-			"has_more": false,
+			"messages":    []interface{}{},
+			"has_more":    false,
+			"compactions": []timeline.CompactionStatusPayload{},
 		})
 		return
 	}
@@ -752,8 +758,55 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	events := allEvents
+	clearAt := time.Time{}
 	if lastClearIdx >= 0 {
+		clearAt, _ = time.Parse(time.RFC3339Nano, allEvents[lastClearIdx].Timestamp)
 		events = allEvents[lastClearIdx+1:]
+	}
+	// Status history is aggregated from the full post-clear timeline and is
+	// intentionally independent of the paginated message list below.
+	compactionsByID := make(map[string]timeline.CompactionStatusPayload)
+	startedCompactions := make(map[string]bool)
+	var compactionOrder []string
+	for _, evt := range events {
+		if evt.EventType != timeline.EventControl || evt.Control == nil || evt.Control.Action != "compaction_status" || evt.Control.Compaction == nil {
+			continue
+		}
+		cp := *evt.Control.Compaction
+		if cp.StartedAt != "" && !clearAt.IsZero() {
+			if startedAt, parseErr := time.Parse(time.RFC3339Nano, cp.StartedAt); parseErr == nil && startedAt.Before(clearAt) {
+				continue
+			}
+		}
+		if cp.Status != "running" && cp.StartedAt == "" && !startedCompactions[cp.ID] {
+			continue
+		}
+		if _, ok := compactionsByID[cp.ID]; !ok {
+			compactionOrder = append(compactionOrder, cp.ID)
+		}
+		if cp.Status == "running" {
+			startedCompactions[cp.ID] = true
+		}
+		prev := compactionsByID[cp.ID]
+		if cp.StartedAt == "" {
+			cp.StartedAt = prev.StartedAt
+		}
+		if cp.FinishedAt == "" && prev.FinishedAt != "" {
+			cp.FinishedAt = prev.FinishedAt
+		}
+		if cp.Error == "" && prev.Error != "" {
+			cp.Error = prev.Error
+		}
+		compactionsByID[cp.ID] = cp
+	}
+	compactions := make([]timeline.CompactionStatusPayload, 0, len(compactionOrder))
+	for _, id := range compactionOrder {
+		status := compactionsByID[id]
+		if status.Status == "running" && status.ID != activeCompactionID {
+			status.Status = "interrupted"
+			status.Error = "process ended before completion status was recorded"
+		}
+		compactions = append(compactions, status)
 	}
 
 	type historyMsg struct {
@@ -1140,6 +1193,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"messages":     msgs,
 		"has_more":     hasMore,
+		"compactions":  compactions,
 		"cursor":       cursor,
 		"ctxwin_used":  ctxwinUsed,
 		"ctxwin_limit": ctxwinLimit,

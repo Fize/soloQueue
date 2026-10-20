@@ -3,6 +3,7 @@ package ctxwin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,6 +15,82 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 )
+
+var compactionSequence atomic.Uint64
+
+type compactionRun struct {
+	done      chan struct{}
+	id        string
+	reason    string
+	startedAt time.Time
+	summary   string
+	err       error
+}
+
+func (cw *ContextWindow) beginCompaction(ctx context.Context) (string, bool) {
+	cw.compactStateMu.Lock()
+	defer cw.compactStateMu.Unlock()
+	if !cw.summarizing.CompareAndSwap(false, true) {
+		return "", false
+	}
+	id := fmt.Sprintf("compact-%d-%d", time.Now().UnixNano(), compactionSequence.Add(1))
+	startedAt := time.Now()
+	reason := compactionReasonFromContext(ctx)
+	run := &compactionRun{done: make(chan struct{}), id: id, reason: reason, startedAt: startedAt}
+	cw.activeCompaction = run
+	if cw.compactionStatusHook != nil {
+		cw.compactionStatusHook(ctx, CompactionStatus{ID: id, Status: "running", Reason: reason, StartedAt: startedAt})
+	}
+	return id, true
+}
+
+func compactionReasonFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return "auto_compact"
+	}
+	if v := ctx.Value(compactionReasonContextKey{}); v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return "auto_compact"
+}
+
+func (cw *ContextWindow) finishCompaction(ctx context.Context, id string, summary string, err error, applied bool) {
+	status := "failed"
+	if applied {
+		status = "completed"
+	}
+	cw.compactStateMu.Lock()
+	run := cw.activeCompaction
+	if run != nil {
+		run.summary, run.err = summary, err
+	}
+	cw.compactStateMu.Unlock()
+	if cw.compactionStatusHook != nil {
+		st := CompactionStatus{ID: id, Status: status, FinishedAt: time.Now()}
+		if run != nil {
+			st.Reason, st.StartedAt = run.reason, run.startedAt
+		}
+		if err != nil {
+			st.Error = err.Error()
+		}
+		cw.compactionStatusHook(ctx, st)
+	}
+	cw.compactStateMu.Lock()
+	if run != nil {
+		cw.activeCompaction = nil
+		cw.summarizing.Store(false)
+		close(run.done)
+	}
+	cw.compactStateMu.Unlock()
+}
+
+type compactionReasonContextKey struct{}
+
+func WithCompactionReason(ctx context.Context, reason string) context.Context {
+	return context.WithValue(ctx, compactionReasonContextKey{}, reason)
+}
 
 // ─── Context keys ───────────────────────────────────────────────────────────
 
@@ -93,20 +170,21 @@ const (
 //   - Calibrate proportionally adjusts each msg.Tokens so that sum ≈ currentTokens
 //   - Eviction strategies use currentTokens for decisions; msg.Tokens is only used for incremental calculations
 type Message struct {
-	Role             MessageRole
-	Content          string
-	Images           []llm.ImageContent // Multimodal images (only used in user messages)
-	Files            []FileAttachment   // Attached files metadata (only used in user messages)
-	Tokens           int                // Estimated on insertion; after Calibrate, sum no longer guarantees == currentTokens
-	IsEphemeral      bool               // Marks verbose tool output (large error logs, file read results)
-	ReasoningContent string             // DeepSeek reasoning; required for API roundtrip
-	Name             string             // Tool name (role=tool)
-	ToolCallID       string             // Tool call ID (role=tool)
-	ToolCalls        []llm.ToolCall     // Tool calls when role=assistant
-	Timestamp        time.Time          // Timestamp when the message was pushed; restored from timeline events during replay
-	ExposeTimestamp  bool               // Restricts LLM-visible temporal context to explicitly eligible input.
-	TemporalParts    []TemporalPart     // Components of one aggregated pending user turn.
-	RequestID        string             // Stable request identity for timeline/UI ownership; never sent to the LLM.
+	Role                MessageRole
+	Content             string
+	Images              []llm.ImageContent // Multimodal images (only used in user messages)
+	Files               []FileAttachment   // Attached files metadata (only used in user messages)
+	Tokens              int                // Estimated on insertion; after Calibrate, sum no longer guarantees == currentTokens
+	IsEphemeral         bool               // Marks verbose tool output (large error logs, file read results)
+	ReasoningContent    string             // DeepSeek reasoning; required for API roundtrip
+	Name                string             // Tool name (role=tool)
+	ToolCallID          string             // Tool call ID (role=tool)
+	ToolCalls           []llm.ToolCall     // Tool calls when role=assistant
+	Timestamp           time.Time          // Timestamp when the message was pushed; restored from timeline events during replay
+	ExposeTimestamp     bool               // Restricts LLM-visible temporal context to explicitly eligible input.
+	TemporalParts       []TemporalPart     // Components of one aggregated pending user turn.
+	RequestID           string             // Stable request identity for timeline/UI ownership; never sent to the LLM.
+	suppressAutoCompact bool
 }
 
 // ─── PushOption ─────────────────────────────────────────────────────────────
@@ -147,6 +225,12 @@ func WithFiles(files []FileAttachment) PushOption {
 // WithToolCalls sets the tool call list (used when role=assistant)
 func WithToolCalls(tcs []llm.ToolCall) PushOption {
 	return func(m *Message) { m.ToolCalls = tcs }
+}
+
+// WithSuppressAutoCompact prevents a control prompt from starting a competing
+// automatic run when the manual operation is about to claim the shared lock.
+func WithSuppressAutoCompact() PushOption {
+	return func(m *Message) { m.suppressAutoCompact = true }
 }
 
 // WithTimestamp sets the message timestamp (for restoring original time during timeline replay)
@@ -198,6 +282,17 @@ type SummarySegment struct {
 // memory, long-term memory, or timeline based on Date.
 type SummaryHook func(ctx context.Context, segments []SummarySegment, finalSummary string)
 
+// CompactionStatus is a durable lifecycle transition for one compaction run.
+type CompactionStatus struct {
+	ID         string    `json:"id"`
+	Status     string    `json:"status"`
+	Reason     string    `json:"reason,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at,omitempty"`
+	Error      string    `json:"error,omitempty"`
+}
+type CompactionStatusHook func(context.Context, CompactionStatus)
+
 // ─── Option ─────────────────────────────────────────────────────────────────
 
 // Option configures the optional behavior of ContextWindow
@@ -211,6 +306,9 @@ func WithPushHook(hook PushHook) Option {
 // WithSummaryHook sets the callback after asynchronous compression completes
 func WithSummaryHook(hook SummaryHook) Option {
 	return func(cw *ContextWindow) { cw.summaryHook = hook }
+}
+func WithCompactionStatusHook(hook CompactionStatusHook) Option {
+	return func(cw *ContextWindow) { cw.compactionStatusHook = hook }
 }
 
 // AddSummaryHook chains a callback after the configured summary hook. Call it
@@ -256,17 +354,21 @@ const (
 type ContextWindow struct {
 	sync.RWMutex
 	messages             []Message
-	maxTokens            int            // hard waterline: physical capacity limit
-	bufferTokens         int            // reserved for model output (from config)
-	summaryTokens        int            // soft waterline: triggers async compression
-	currentTokens        int            // real-time token count; exact after Calibrate
-	tokenizer            *Tokenizer     // shared, immutable after init
-	compactor            Compactor      // context compressor (may be nil)
-	pushHook             PushHook       // callback after Push (may be nil)
-	summaryHook          SummaryHook    // callback after compaction (may be nil)
+	maxTokens            int         // hard waterline: physical capacity limit
+	bufferTokens         int         // reserved for model output (from config)
+	summaryTokens        int         // soft waterline: triggers async compression
+	currentTokens        int         // real-time token count; exact after Calibrate
+	tokenizer            *Tokenizer  // shared, immutable after init
+	compactor            Compactor   // context compressor (may be nil)
+	pushHook             PushHook    // callback after Push (may be nil)
+	summaryHook          SummaryHook // callback after compaction (may be nil)
+	compactionStatusHook CompactionStatusHook
 	replayMode           bool           // disable pushHook during replay
 	log                  *logger.Logger // optional logger for message tracking
 	summarizing          atomic.Bool    // true while async compression is in progress
+	compactStateMu       sync.Mutex
+	activeCompaction     *compactionRun
+	historyEpoch         uint64 // invalidates in-flight snapshots after destructive history edits
 	lifecycleCtx         context.Context
 	pendingPrimarySystem *string
 	pendingDrain         func() PendingInput
@@ -377,7 +479,7 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 	}
 
 	// Soft waterline check: trigger async compression
-	if cw.compactor != nil && cw.currentTokens > cw.summaryTokens && !cw.summarizing.Load() {
+	if cw.compactor != nil && cw.currentTokens > cw.summaryTokens && !msg.suppressAutoCompact && !cw.summarizing.Load() {
 		if cw.log != nil {
 			cw.log.DebugContext(context.Background(), logger.CatMessages, "push: soft waterline exceeded, triggering async compression",
 				"current_tokens", cw.currentTokens,
@@ -741,6 +843,7 @@ func (cw *ContextWindow) Truncate(length int) {
 	if length >= len(cw.messages) {
 		return
 	}
+	cw.historyEpoch++
 	for _, msg := range cw.messages[length:] {
 		cw.currentTokens -= msg.Tokens
 	}
@@ -756,6 +859,7 @@ func (cw *ContextWindow) Truncate(length int) {
 func (cw *ContextWindow) Reset() {
 	cw.Lock()
 	defer cw.Unlock()
+	cw.historyEpoch++
 
 	if len(cw.messages) > 0 && cw.messages[0].Role == RoleSystem {
 		sysMsg := cw.messages[0]
@@ -805,6 +909,15 @@ func (cw *ContextWindow) SummaryTokens() int {
 	cw.RLock()
 	defer cw.RUnlock()
 	return cw.summaryTokens
+}
+
+func (cw *ContextWindow) ActiveCompactionID() string {
+	cw.compactStateMu.Lock()
+	defer cw.compactStateMu.Unlock()
+	if cw.activeCompaction == nil {
+		return ""
+	}
+	return cw.activeCompaction.id
 }
 
 // SetReplayMode enables or disables replay mode.
@@ -868,6 +981,7 @@ func (cw *ContextWindow) Recalculate() int {
 func (cw *ContextWindow) Rewind(targetTs time.Time) {
 	cw.Lock()
 	defer cw.Unlock()
+	cw.historyEpoch++
 
 	var kept []Message
 	newTokens := 0
@@ -894,6 +1008,7 @@ func (cw *ContextWindow) Rewind(targetTs time.Time) {
 func (cw *ContextWindow) DeleteMessages(targetTs []time.Time) {
 	cw.Lock()
 	defer cw.Unlock()
+	cw.historyEpoch++
 
 	delSet := make(map[time.Time]bool)
 	for _, ts := range targetTs {
@@ -930,7 +1045,8 @@ const maxToolContentLen = 2000
 // Unlike asyncCompact:
 //   - runs synchronously (caller blocks until compression completes)
 //   - respects the provided context for cancellation/timeout
-//   - no CAS (caller must ensure no concurrent compact)
+//   - shares the same CAS ownership as asynchronous compaction; concurrent
+//     manual callers wait for the active run and reuse its result
 //
 // Flow:
 //  1. RLock: snapshot messages
@@ -958,15 +1074,48 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 	if cw.compactor == nil {
 		return "", nil
 	}
+	cw.RLock()
+	canCompact := len(cw.messages) > 1
+	cw.RUnlock()
+	if !canCompact {
+		return "", nil
+	}
+	compactCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	ctx = compactCtx
+	if cw.summarizing.Load() {
+		cw.compactStateMu.Lock()
+		run := cw.activeCompaction
+		cw.compactStateMu.Unlock()
+		if run != nil {
+			return awaitCompaction(ctx, run)
+		}
+	}
+	id, claimed := cw.beginCompaction(ctx)
+	if !claimed {
+		cw.compactStateMu.Lock()
+		run := cw.activeCompaction
+		cw.compactStateMu.Unlock()
+		if run == nil {
+			return "", errors.New("context window: compaction already in progress")
+		}
+		return awaitCompaction(ctx, run)
+	}
+	applied := false
+	var resultErr error
+	var resultSummary string
+	defer func() { cw.finishCompaction(ctx, id, resultSummary, resultErr, applied) }()
 
 	cw.RLock()
 	msgs := make([]Message, len(cw.messages))
 	copy(msgs, cw.messages)
 	tokensBefore := cw.currentTokens
+	historyEpoch := cw.historyEpoch
 	cw.RUnlock()
 
 	if len(msgs) <= 1 {
-		return "", nil // nothing to compact (only system prompt)
+		resultErr = errors.New("context window: context changed before compression started")
+		return "", resultErr
 	}
 
 	if cw.log != nil {
@@ -980,13 +1129,25 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 			cw.log.WarnContext(ctx, logger.CatMessages, "compact_and_replace: compression failed",
 				"err", err.Error())
 		}
+		resultErr = err
 		return "", err
 	}
 	if strings.TrimSpace(finalSummary) == "" {
-		return "", fmt.Errorf("context window: compression produced no valid summary")
+		resultErr = fmt.Errorf("context window: compression produced no valid summary")
+		return "", resultErr
 	}
 
 	cw.Lock()
+	if cw.historyEpoch != historyEpoch {
+		cw.Unlock()
+		resultErr = errors.New("context window: history changed before summary could be applied")
+		return "", resultErr
+	}
+	if len(cw.messages) < len(msgs) {
+		cw.Unlock()
+		resultErr = errors.New("context window: context was cleared before summary could be applied")
+		return "", resultErr
+	}
 	if len(cw.messages) > 0 && finalSummary != "" {
 		summaryTokens := cw.tokenizer.Count(finalSummary)
 		var lastMsgTimestamp time.Time
@@ -1020,14 +1181,25 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 				"segments", len(segments),
 			)
 		}
+		applied = true
 	}
 	cw.Unlock()
+	resultSummary = finalSummary
 
 	if cw.summaryHook != nil && len(segments) > 0 {
 		cw.summaryHook(ctx, segments, finalSummary)
 	}
 
 	return finalSummary, nil
+}
+
+func awaitCompaction(ctx context.Context, run *compactionRun) (string, error) {
+	select {
+	case <-run.done:
+		return run.summary, run.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }
 
 // replaceSummaryLocked replaces only the snapshotted history and keeps any
@@ -1072,10 +1244,22 @@ func (cw *ContextWindow) asyncCompact() {
 	if ctx.Err() != nil {
 		return
 	}
-	if !cw.summarizing.CompareAndSwap(false, true) {
+	cw.RLock()
+	canCompact := len(cw.messages) > 1
+	cw.RUnlock()
+	if !canCompact {
 		return
 	}
-	defer cw.summarizing.Store(false)
+	id, claimed := cw.beginCompaction(ctx)
+	if !claimed {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	applied := false
+	var resultErr error
+	var resultSummary string
+	defer func() { cw.finishCompaction(ctx, id, resultSummary, resultErr, applied) }()
 
 	if cw.log != nil {
 		cw.log.DebugContext(context.Background(), logger.CatMessages, "async_compact: compression initiated")
@@ -1086,9 +1270,11 @@ func (cw *ContextWindow) asyncCompact() {
 	msgs := make([]Message, len(cw.messages))
 	copy(msgs, cw.messages)
 	tokensBefore := cw.currentTokens
+	historyEpoch := cw.historyEpoch
 	cw.RUnlock()
 
 	if len(msgs) <= 1 {
+		resultErr = errors.New("context window: context changed before compression started")
 		return
 	}
 
@@ -1101,6 +1287,7 @@ func (cw *ContextWindow) asyncCompact() {
 
 	segments, finalSummary, err := cw.compactSegments(ctx, msgs)
 	if err != nil {
+		resultErr = err
 		if cw.log != nil {
 			cw.log.WarnContext(context.Background(), logger.CatMessages, "async_compact: compression failed",
 				"err", err.Error())
@@ -1122,7 +1309,22 @@ func (cw *ContextWindow) asyncCompact() {
 
 	// Replace history with summary under write lock
 	cw.Lock()
-	if len(cw.messages) > 0 && finalSummary != "" {
+	if cw.historyEpoch != historyEpoch {
+		cw.Unlock()
+		resultErr = errors.New("context window: history changed before summary could be applied")
+		return
+	}
+	if strings.TrimSpace(finalSummary) == "" {
+		cw.Unlock()
+		resultErr = errors.New("context window: compression produced no valid summary")
+		return
+	}
+	if len(cw.messages) < len(msgs) {
+		cw.Unlock()
+		resultErr = errors.New("context window: context was cleared before summary could be applied")
+		return
+	}
+	if len(cw.messages) > 0 {
 		summaryTokens := cw.tokenizer.Count(finalSummary) + restoredTokens
 		var lastMsgTimestamp time.Time
 		for i := len(msgs) - 1; i >= 0; i-- {
@@ -1163,6 +1365,8 @@ func (cw *ContextWindow) asyncCompact() {
 			)
 		}
 	}
+	applied = true
+	resultSummary = finalSummary
 	cw.Unlock()
 
 	// Persist all segments (outside lock)
@@ -1181,7 +1385,7 @@ func (cw *ContextWindow) asyncCompact() {
 // Returns:
 //   - segments: all successfully compressed segments (including expired)
 //   - finalSummary: the merged summary for recent segments (empty if none)
-//   - err: only if every single batch failed
+//   - err: if any required batch or merge step fails
 func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([]SummarySegment, string, error) {
 	// 1. Drop oversized tool messages (memory only needs "what tool was called")
 	filtered := filterOversizedToolMessages(msgs[1:]) // skip system prompt
@@ -1210,7 +1414,7 @@ func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([
 						cw.log.WarnContext(ctx, logger.CatMessages, "compact_segments: sub-batch failed",
 							"err", err.Error(), "date", g.date.Format("2006-01-02"))
 					}
-					continue // skip this sub-batch, keep going
+					return nil, "", fmt.Errorf("context window: compact sub-batch %s: %w", g.date.Format("2006-01-02"), err)
 				}
 				segments = append(segments, SummarySegment{
 					Summary: summary,
@@ -1225,7 +1429,7 @@ func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([
 					cw.log.WarnContext(ctx, logger.CatMessages, "compact_segments: batch failed",
 						"err", err.Error(), "date", g.date.Format("2006-01-02"))
 				}
-				continue // skip this date group, keep going
+				return nil, "", fmt.Errorf("context window: compact batch %s: %w", g.date.Format("2006-01-02"), err)
 			}
 			segments = append(segments, SummarySegment{
 				Summary: summary,
@@ -1235,10 +1439,8 @@ func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([
 		}
 	}
 
-	// If every batch failed, return empty segments but no error.
-	// The caller (CompactAndReplace / asyncCompact) will keep CW unchanged.
 	if len(segments) == 0 {
-		return nil, "", nil
+		return nil, "", errors.New("context window: no summary segments were produced")
 	}
 
 	// 4. Extract recent segments (≤7 days)
@@ -1258,15 +1460,18 @@ func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([
 	case 1:
 		finalSummary = recent[0].Summary
 	default:
-		finalSummary = cw.mergeSummaries(ctx, recent)
+		var err error
+		finalSummary, err = cw.mergeSummaries(ctx, recent)
+		if err != nil {
+			return nil, "", fmt.Errorf("context window: merge summaries: %w", err)
+		}
 	}
 
 	return segments, finalSummary, nil
 }
 
 // mergeSummaries merges multiple daily summaries into one concise summary.
-// If the second compactor call fails, it falls back to simple concatenation.
-func (cw *ContextWindow) mergeSummaries(ctx context.Context, segments []SummarySegment) string {
+func (cw *ContextWindow) mergeSummaries(ctx context.Context, segments []SummarySegment) (string, error) {
 	// Build a synthetic conversation for the compactor
 	mergeMsgs := []Message{
 		{
@@ -1284,17 +1489,12 @@ func (cw *ContextWindow) mergeSummaries(ctx context.Context, segments []SummaryS
 	merged, err := cw.compactor.Compact(ctx, mergeMsgs)
 	if err != nil {
 		if cw.log != nil {
-			cw.log.WarnContext(ctx, logger.CatMessages, "merge_summaries: second-pass compaction failed, falling back to concat",
+			cw.log.WarnContext(ctx, logger.CatMessages, "merge_summaries: second-pass compaction failed",
 				"err", err.Error())
 		}
-		// Fallback: concatenate with separators
-		var parts []string
-		for _, seg := range segments {
-			parts = append(parts, seg.Summary)
-		}
-		merged = strings.Join(parts, "\n\n---\n\n")
+		return "", fmt.Errorf("merge summaries: %w", err)
 	}
-	return merged
+	return merged, nil
 }
 
 // ─── Compaction Helpers ────────────────────────────────────────────────────

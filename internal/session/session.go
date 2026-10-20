@@ -192,9 +192,10 @@ type RequestLifecycleHooks struct {
 	// OnEvent observes normalized AgentEvents before they are delivered to the
 	// request consumer. The consumer remains responsible for draining the
 	// stream; this hook only mirrors the event to shared observers.
-	OnEvent  func(context.Context, string, string, agent.AgentEvent)
-	OnCancel func(string, string, string) error
-	OnFinish func(string, string, string, string)
+	OnEvent      func(context.Context, string, string, agent.AgentEvent)
+	OnCancel     func(string, string, string) error
+	OnFinish     func(string, string, string, string)
+	OnCompaction func(string, timeline.CompactionStatusPayload)
 }
 
 var requestLifecycleDefaults struct {
@@ -208,6 +209,15 @@ func SetDefaultRequestLifecycleHooks(hooks RequestLifecycleHooks) {
 	requestLifecycleDefaults.Lock()
 	requestLifecycleDefaults.hooks = hooks
 	requestLifecycleDefaults.Unlock()
+}
+
+func PublishCompactionStatus(sessionID string, status timeline.CompactionStatusPayload) {
+	requestLifecycleDefaults.RLock()
+	hook := requestLifecycleDefaults.hooks.OnCompaction
+	requestLifecycleDefaults.RUnlock()
+	if hook != nil {
+		hook(sessionID, status)
+	}
 }
 
 func defaultRequestLifecycleHooks() RequestLifecycleHooks {
@@ -1688,7 +1698,8 @@ func (s *Session) Clear() error {
 func (s *Session) Compact(ctx context.Context) (string, error) {
 	ctx = s.withSessionTelemetry(ctx)
 	ctx = context.WithValue(ctx, compactionReasonKey{}, compactionReasonUserCommand)
-	compactCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx = ctxwin.WithCompactionReason(ctx, compactionReasonUserCommand)
+	compactCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	summary, err := s.cw.CompactAndReplace(compactCtx)
@@ -1961,7 +1972,7 @@ func (s *Session) checkAutoClear() {
 	s.usageMu.Lock()
 	compactSegment := s.usageIndex
 	s.usageMu.Unlock()
-	compactCtx, cancel := context.WithTimeout(s.usageTelemetryContext(compactSegment), 60*time.Second)
+	compactCtx, cancel := context.WithTimeout(s.usageTelemetryContext(compactSegment), 5*time.Minute)
 	defer cancel()
 
 	summary, err := s.cw.CompactAndReplace(compactCtx)
@@ -2068,7 +2079,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		// post-completion loadHistory. Without this the user's prompt is
 		// silently dropped from the chat UI.
 		s.maybeInjectPersonaState()
-		s.cw.Push(ctxwin.RoleUser, prompt, inputPushOptions(ctx)...)
+		pushOptions := append(inputPushOptions(ctx), ctxwin.WithSuppressAutoCompact())
+		s.cw.Push(ctxwin.RoleUser, prompt, pushOptions...)
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
 			defer close(out)

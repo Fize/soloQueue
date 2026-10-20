@@ -138,6 +138,22 @@ export interface WSNotificationMessage {
   notification: NotificationPayload;
 }
 
+export interface CompactionStatus {
+  id: string;
+  status: "running" | "completed" | "failed" | "interrupted";
+  reason?: string;
+  started_at: string;
+  finished_at?: string;
+  error?: string;
+}
+
+export interface WSCompactionStatusMessage {
+  type: "compaction_status";
+  session_id: string;
+  compaction: CompactionStatus;
+  timestamp?: string;
+}
+
 export type WSMessage =
   | WSStateMessage
   | WSChatRoute
@@ -156,7 +172,8 @@ export type WSMessage =
   | WSSessionPlans
   | WSConnected
   | WSPong
-  | WSNotificationMessage;
+  | WSNotificationMessage
+  | WSCompactionStatusMessage;
 
 // Client → server messages
 export interface ClientChatSend {
@@ -311,6 +328,7 @@ export interface SessionHistoryResponse {
   cursor?: string;
   ctxwin_used?: number;
   ctxwin_limit?: number;
+  compactions?: CompactionStatus[];
 }
 
 // ─── Session Changes / Diff Types ───────────────────────────────────────────

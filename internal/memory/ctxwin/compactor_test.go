@@ -2,8 +2,10 @@ package ctxwin
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -492,15 +494,103 @@ func TestAsyncCompact_PartialFailure(t *testing.T) {
 	}
 
 	segments, finalSummary, err := cw.compactSegments(context.Background(), msgs)
-	if err != nil {
-		t.Fatalf("compactSegments failed: %v", err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("compactSegments error = %v, want underlying batch failure", err)
 	}
+	if len(segments) != 0 || finalSummary != "" {
+		t.Fatalf("partial summary escaped after a failed batch: segments=%d summary=%q", len(segments), finalSummary)
+	}
+}
 
-	if len(segments) == 0 {
-		t.Fatal("expected at least one successful segment")
+func TestManualCompactWaitsForAutomaticAndReusesResult(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	mc := &mockCompactor{compactFn: func(ctx context.Context, _ []Message) (string, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		return "valid summary", nil
+	}}
+	cw := NewContextWindow(10000, 100, 1, NewTokenizer(), WithCompactor(mc))
+	cw.SetLifecycleContext(context.Background())
+	cw.Push(RoleSystem, "system")
+	cw.Push(RoleUser, "trigger automatic compact")
+	select {
+	case <-started:
+	case <-time.After(time.Second * 3):
+		t.Fatal("automatic compaction did not start")
 	}
-	if finalSummary == "" {
-		t.Error("expected non-empty finalSummary from successful batches")
+	done := make(chan error, 1)
+	go func() { _, err := cw.CompactAndReplace(context.Background()); done <- err }()
+	// Give the manual caller a chance to observe the in-flight automatic run
+	// before releasing the fake model call.
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second * 3):
+		t.Fatal("manual compact did not reuse automatic result")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("compactor calls=%d, want 1", calls.Load())
+	}
+}
+
+func TestCompactFailurePreservesContextAndLifecycle(t *testing.T) {
+	var statuses []CompactionStatus
+	mc := &mockCompactor{compactFn: func(context.Context, []Message) (string, error) { return "", context.DeadlineExceeded }}
+	cw := NewContextWindow(10000, 100, 5000, NewTokenizer(), WithCompactor(mc), WithCompactionStatusHook(func(_ context.Context, s CompactionStatus) { statuses = append(statuses, s) }))
+	cw.Push(RoleSystem, "system")
+	cw.Push(RoleUser, "keep this original context")
+	before := cw.BuildPayload()
+	_, err := cw.CompactAndReplace(context.Background())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error lost: %v", err)
+	}
+	after := cw.BuildPayload()
+	if len(before) != len(after) || after[1].Content != before[1].Content {
+		t.Fatalf("context changed on failure: before=%v after=%v", before, after)
+	}
+	if len(statuses) != 2 || statuses[0].Status != "running" || statuses[1].Status != "failed" {
+		t.Fatalf("statuses=%+v", statuses)
+	}
+}
+
+func TestCompactDoesNotApplySnapshotAfterClearAndRefill(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	mc := &mockCompactor{compactFn: func(context.Context, []Message) (string, error) {
+		close(started)
+		<-release
+		return "summary from before clear", nil
+	}}
+	cw := NewContextWindow(10000, 100, 5000, NewTokenizer(), WithCompactor(mc))
+	cw.Push(RoleSystem, "system")
+	cw.Push(RoleUser, "old conversation")
+	done := make(chan error, 1)
+	go func() { _, err := cw.CompactAndReplace(context.Background()); done <- err }()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("compaction did not start")
+	}
+	cw.Reset()
+	cw.Push(RoleUser, "new conversation")
+	close(release)
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "history changed") {
+			t.Fatalf("error=%v, want stale snapshot rejection", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("compaction did not finish")
+	}
+	payload := cw.BuildPayload()
+	if len(payload) != 2 || payload[1].Content != "new conversation" {
+		t.Fatalf("stale summary changed the cleared/refilled context: %+v", payload)
 	}
 }
 

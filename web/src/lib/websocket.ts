@@ -313,6 +313,9 @@ class WebSocketManager {
 
     // Chat streaming messages — route to request handler.
     switch (msg.type) {
+      case 'compaction_status':
+        useChatStore.getState().setCompactionStatus(msg.session_id, msg.compaction)
+        return
       case 'chat_accepted': {
         const h = this.chatHandlers.get(msg.request_id)
         if (h) {

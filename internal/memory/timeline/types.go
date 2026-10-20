@@ -74,10 +74,20 @@ type MessagePayload struct {
 
 // ControlPayload represents the payload for a control event.
 type ControlPayload struct {
-	Action   string   `json:"action"`              // "clear" | "summary" | "rewind" | "delete"
-	Reason   string   `json:"reason,omitempty"`    // Reason for trigger
-	Content  string   `json:"content,omitempty"`   // Summary text (when action="summary")
-	TargetTs []string `json:"target_ts,omitempty"` // Target message timestamps for rewind/delete
+	Action     string                   `json:"action"`              // "clear" | "summary" | "rewind" | "delete"
+	Reason     string                   `json:"reason,omitempty"`    // Reason for trigger
+	Content    string                   `json:"content,omitempty"`   // Summary text (when action="summary")
+	TargetTs   []string                 `json:"target_ts,omitempty"` // Target message timestamps for rewind/delete
+	Compaction *CompactionStatusPayload `json:"compaction,omitempty"`
+}
+
+type CompactionStatusPayload struct {
+	ID         string `json:"id"`
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // ─── ToolCallRec ────────────────────────────────────────────────────────────

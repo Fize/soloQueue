@@ -51,6 +51,50 @@ func TestLLMCompactorCompact(t *testing.T) {
 	}
 }
 
+func TestLLMCompactorUses16KAndRetriesTruncationOnce(t *testing.T) {
+	var limits []int
+	mc := &mockChatClient{chatFn: func(_ context.Context, req ChatRequest) (*ChatResponse, error) {
+		limits = append(limits, req.MaxTokens)
+		if len(limits) == 1 {
+			return &ChatResponse{Content: "partial", FinishReason: llm.FinishLength}, nil
+		}
+		return &ChatResponse{Content: validCompactedSummary, FinishReason: llm.FinishStop}, nil
+	}}
+	summary, err := NewLLMCompactor(mc, "p", "m").Compact(context.Background(), []ctxwin.Message{{Role: ctxwin.RoleUser, Content: "work"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary != validCompactedSummary || len(limits) != 2 || limits[0] != 16_384 || limits[1] != 16_384 {
+		t.Fatalf("summary=%q limits=%v calls=%d", summary, limits, mc.called)
+	}
+}
+
+func TestLLMCompactorReturnsErrorAfterRepeatedTruncation(t *testing.T) {
+	var limits []int
+	mc := &mockChatClient{chatFn: func(_ context.Context, req ChatRequest) (*ChatResponse, error) {
+		limits = append(limits, req.MaxTokens)
+		return &ChatResponse{Content: "partial", FinishReason: llm.FinishLength}, nil
+	}}
+	_, err := NewLLMCompactor(mc, "p", "m").Compact(context.Background(), []ctxwin.Message{{Role: ctxwin.RoleUser, Content: "work"}})
+	if err == nil || len(limits) != 2 || limits[0] != 16_384 || limits[1] != 16_384 {
+		t.Fatalf("err=%v limits=%v calls=%d, want one capped retry", err, limits, mc.called)
+	}
+}
+
+func TestLLMCompactorRetriesInvalidSummaryOnlyOnce(t *testing.T) {
+	var mc *mockChatClient
+	mc = &mockChatClient{chatFn: func(_ context.Context, _ ChatRequest) (*ChatResponse, error) {
+		if mc.called == 1 {
+			return &ChatResponse{Content: "invalid", FinishReason: llm.FinishStop}, nil
+		}
+		return &ChatResponse{Content: "still invalid", FinishReason: llm.FinishStop}, nil
+	}}
+	_, err := NewLLMCompactor(mc, "p", "m").Compact(context.Background(), []ctxwin.Message{{Role: ctxwin.RoleUser, Content: "work"}})
+	if err == nil || mc.called != 2 {
+		t.Fatalf("err=%v calls=%d, want one bounded retry", err, mc.called)
+	}
+}
+
 func TestLLMCompactorCompactWithReasoning(t *testing.T) {
 	var sawReasoningInInput bool
 	mc := &mockChatClient{

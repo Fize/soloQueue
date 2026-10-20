@@ -1,6 +1,7 @@
 import { useWorkedStateKeys } from "@/hooks/useWorkedStateKeys";
 import { useEffect, useRef, useCallback, useMemo, useState, useLayoutEffect } from "react";
 import { ChatMessageView } from "@/components/ChatMessage";
+import { CompactionStatusRows } from "@/components/chat/CompactionStatusRows";
 import { ChatInput } from "@/components/ChatInput";
 import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
 import { Sparkles, Loader2 } from "lucide-react";
@@ -26,6 +27,7 @@ export function AssistantPage() {
   const {
     activeSessionId,
     messages,
+    compactions = {},
     streamingSessions,
     systemCommandSessions,
     delegatingSessions,
@@ -404,6 +406,7 @@ export function AssistantPage() {
                     sessionAgentId={l1AgentInstanceId}
                   />
                 ))}
+                <CompactionStatusRows rows={compactions[activeSessionId || 'l1'] || []} />
               </div>
               {requestActive && (
                 <div className="mx-auto max-w-3xl px-4 w-full">

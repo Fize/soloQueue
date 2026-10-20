@@ -24,6 +24,8 @@ beforeEach(() => {
     sessions: [],
     activeSessionId: null,
     messages: {},
+    compactions: {},
+    compactionClearWatermarks: {},
     streamingSessions: {},
     delegatingSessions: {},
     routeSessions: {},
@@ -406,6 +408,50 @@ describe('chatStore', () => {
     expect(useChatStore.getState().messages[sid][0].requestId).toBe('channel-request')
   })
 
+  it('preserves a live terminal compaction over a stale running history snapshot', async () => {
+    const sid = 'l1'
+    const completed = {
+      id: 'compact-1',
+      status: 'completed' as const,
+      started_at: '2026-10-16T10:00:00Z',
+      finished_at: '2026-10-16T10:01:00Z',
+    }
+    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
+      messages: [],
+      has_more: false,
+      compactions: [{ ...completed, status: 'running', finished_at: undefined }],
+    } as any)
+    useChatStore.setState({ compactions: { [sid]: [completed] }, messages: { [sid]: [] } })
+
+    await useChatStore.getState().loadHistory(sid)
+
+    expect(useChatStore.getState().compactions[sid]).toEqual([completed])
+  })
+
+  it('ignores a delayed compaction terminal event after clear but accepts a new compaction', () => {
+    const sid = 'l1'
+    const staleStartedAt = new Date(Date.now() - 60_000).toISOString()
+    useChatStore.getState().clearCompactions(sid)
+    const watermark = useChatStore.getState().compactionClearWatermarks[sid]
+
+    useChatStore.getState().setCompactionStatus(sid, {
+      id: 'compact-before-clear',
+      status: 'completed',
+      started_at: staleStartedAt,
+      finished_at: new Date(Date.now() + 1_000).toISOString(),
+    })
+    expect(useChatStore.getState().compactions[sid]).toEqual([])
+
+    useChatStore.getState().setCompactionStatus(sid, {
+      id: 'compact-after-clear',
+      status: 'running',
+      started_at: new Date(Date.parse(watermark) + 1_000).toISOString(),
+    })
+    expect(useChatStore.getState().compactions[sid]).toMatchObject([
+      { id: 'compact-after-clear', status: 'running' },
+    ])
+  })
+
   it('preserves request ownership when loading an older history page', async () => {
     const sid = 'l1'
     vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
@@ -436,6 +482,31 @@ describe('chatStore', () => {
       id: 'older-assistant',
       requestId: 'older-channel-request',
     })
+  })
+
+  it('preserves a live terminal compaction when loading an older history page', async () => {
+    const sid = 'l1'
+    const failed = {
+      id: 'compact-2',
+      status: 'failed' as const,
+      started_at: '2026-10-16T11:00:00Z',
+      finished_at: '2026-10-16T11:01:00Z',
+      error: 'provider timeout',
+    }
+    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
+      messages: [],
+      has_more: false,
+      compactions: [{ ...failed, status: 'running', finished_at: undefined, error: undefined }],
+    } as any)
+    useChatStore.setState({
+      compactions: { [sid]: [failed] },
+      messages: { [sid]: [] },
+      historyCursor: { [sid]: 'older-cursor' },
+    })
+
+    await useChatStore.getState().loadMoreHistory(sid)
+
+    expect(useChatStore.getState().compactions[sid]).toEqual([failed])
   })
 
   it('does not overwrite handler-owned messages while streaming', async () => {

@@ -145,6 +145,42 @@ func TestHTTP_SessionHistory_HidesAutomaticCompactionSummary(t *testing.T) {
 	}
 }
 
+func TestHTTP_SessionHistoryCompactionsIgnorePaginationAndClearBoundary(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	dir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	body := strings.Join([]string{
+		`{"ts":"2026-10-16T10:00:00Z","type":"control","ctrl":{"action":"compaction_status","compaction":{"id":"old","status":"running","started_at":"2026-10-16T10:00:00Z"}}}`,
+		`{"ts":"2026-10-16T10:01:00Z","type":"control","ctrl":{"action":"clear"}}`,
+		`{"ts":"2026-10-16T10:02:30Z","type":"control","ctrl":{"action":"compaction_status","compaction":{"id":"old","status":"completed","started_at":"2026-10-16T10:00:00Z","finished_at":"2026-10-16T10:02:30Z"}}}`,
+		`{"ts":"2026-10-16T10:02:00Z","type":"control","ctrl":{"action":"compaction_status","compaction":{"id":"new","status":"running","started_at":"2026-10-16T10:02:00Z"}}}`,
+		`{"ts":"2026-10-16T10:03:00Z","type":"control","ctrl":{"action":"compaction_status","compaction":{"id":"new","status":"completed","started_at":"2026-10-16T10:02:00Z","finished_at":"2026-10-16T10:03:00Z"}}}`,
+		`{"ts":"2026-10-16T10:04:00Z","type":"message","msg":{"role":"user","content":"first"}}`,
+		`{"ts":"2026-10-16T10:05:00Z","type":"message","msg":{"role":"user","content":"second"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, newLocalhostRequest("GET", "/api/session/history?session_id=l1&limit=1", nil))
+	var got struct {
+		Messages    []any                              `json:"messages"`
+		Compactions []timeline.CompactionStatusPayload `json:"compactions"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 1 || len(got.Compactions) != 1 || got.Compactions[0].ID != "new" || got.Compactions[0].Status != "completed" {
+		t.Fatalf("pagination/clear status mismatch: %+v", got)
+	}
+}
+
 func TestHTTP_SessionHistory_ShowsUserCommandCompactionSummary(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))

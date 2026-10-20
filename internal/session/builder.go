@@ -684,6 +684,7 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		b.RT.Tokenizer,
 		ctxwin.WithPushHook(pushHook),
 		ctxwin.WithSummaryHook(summaryHook),
+		ctxwin.WithCompactionStatusHook(compactionStatusHook(tl, "l1-session", sessLog)),
 		ctxwin.WithCompactor(b.RT.Compactor),
 	)
 	// Push system prompt without writing to timeline. The timeline is a
@@ -1068,6 +1069,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		b.RT.Tokenizer,
 		ctxwin.WithPushHook(pushHook),
 		ctxwin.WithSummaryHook(summaryHook),
+		ctxwin.WithCompactionStatusHook(compactionStatusHook(tl, sessionID, sessLog)),
 		ctxwin.WithCompactor(b.RT.Compactor),
 	)
 
@@ -1314,4 +1316,19 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	)
 
 	return s, nil
+}
+
+func compactionStatusHook(tl *timeline.Writer, sessionID string, log *logger.Logger) ctxwin.CompactionStatusHook {
+	return func(ctx context.Context, status ctxwin.CompactionStatus) {
+		payload := timeline.CompactionStatusPayload{ID: status.ID, Status: status.Status, Reason: status.Reason, StartedAt: status.StartedAt.Format(time.RFC3339Nano), Error: status.Error}
+		if !status.FinishedAt.IsZero() {
+			payload.FinishedAt = status.FinishedAt.Format(time.RFC3339Nano)
+		}
+		if tl != nil {
+			if err := tl.AppendControl(&timeline.ControlPayload{Action: "compaction_status", Reason: status.Reason, Compaction: &payload}); err != nil && log != nil {
+				log.Error(logger.CatActor, "compaction status timeline append failed", "err", err.Error(), "compaction_id", status.ID)
+			}
+		}
+		PublishCompactionStatus(sessionID, payload)
+	}
 }

@@ -115,6 +115,7 @@ export function useChatStream() {
             [sid]: [],
           },
         }))
+        useChatStore.getState().clearCompactions(sid)
       } else {
         // Add user message — always show in the UI.
         const msgId = `msg-${Date.now()}`

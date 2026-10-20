@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import { preserveWorkedStateKeys } from '@/components/chat/preserveWorkedStateKeys'
-import type { ChatSession, ChatMessage, ChatSegment, ChatRouteInfo } from '@/types'
+import type {
+  ChatSession,
+  ChatMessage,
+  ChatSegment,
+  ChatRouteInfo,
+  CompactionStatus,
+} from '@/types'
 import {
   listSessions,
   createL2Session,
@@ -27,6 +33,8 @@ interface ChatState {
   sessions: ChatSession[]
   activeSessionId: string | null
   messages: Record<string, ChatMessage[]> // keyed by session id
+  compactions: Record<string, CompactionStatus[]>
+  compactionClearWatermarks: Record<string, string>
   activeRequests: Record<string, ActiveChatRequest>
   streamingSessions: Record<string, boolean>
   systemCommandSessions: Record<string, boolean> // keyed by session id, true while a built-in system slash command (/clear, /compact, /cancel, /help, /version) is being executed. Used to suppress the L0–L3 / model chips in the working indicator, since those commands don't run a routed task.
@@ -34,6 +42,8 @@ interface ChatState {
   routeSessions: Record<string, ChatRouteInfo | undefined>
   titleGenerated: Record<string, boolean> // track which sessions already had title generated
   historyLoading: Record<string, boolean> // track which sessions are loading history
+  setCompactionStatus: (sessionId: string, status: CompactionStatus) => void
+  clearCompactions: (sessionId: string) => void
   historyHasMore: Record<string, boolean> // track which sessions have more history to load
   historyCursor: Record<string, string | null> // cursor for next load-more page
   historyPreservedMessageIds: Record<string, string[]> // one-shot protection for request-owned terminal errors during runtime hydration
@@ -92,6 +102,43 @@ interface ChatState {
 const PAGE_SIZE = 30 // number of messages to load per page
 const ACTIVE_CHAT_ROUTES_STORAGE_KEY = 'soloqueue_active_chat_routes'
 
+function isAfterCompactionClear(status: CompactionStatus, watermark?: string) {
+  if (!watermark) return true
+  const startedAt = Date.parse(status.started_at)
+  const clearedAt = Date.parse(watermark)
+  return Number.isFinite(startedAt) && Number.isFinite(clearedAt) && startedAt >= clearedAt
+}
+
+function mergeCompactionStatuses(
+  snapshot: CompactionStatus[],
+  current: CompactionStatus[],
+  watermark?: string
+) {
+  const terminal = new Set(['completed', 'failed', 'interrupted'])
+  const merged = new Map(
+    snapshot
+      .filter((status) => isAfterCompactionClear(status, watermark))
+      .map((status) => [status.id, status])
+  )
+  for (const live of current.filter((status) => isAfterCompactionClear(status, watermark))) {
+    const saved = merged.get(live.id)
+    if (!saved) {
+      merged.set(live.id, live)
+      continue
+    }
+    const savedTerminal = terminal.has(saved.status)
+    const liveTerminal = terminal.has(live.status)
+    if (liveTerminal && !savedTerminal) {
+      merged.set(live.id, live)
+      continue
+    }
+    if (liveTerminal && savedTerminal && (live.finished_at || '') > (saved.finished_at || '')) {
+      merged.set(live.id, live)
+    }
+  }
+  return Array.from(merged.values())
+}
+
 function isPersistedChatRoute(value: unknown, sessionId: string): value is ChatRouteInfo {
   if (!value || typeof value !== 'object') return false
   const route = value as Partial<ChatRouteInfo>
@@ -142,6 +189,8 @@ export const useChatStore = create<ChatState>((set) => ({
   sessions: [],
   activeSessionId: null,
   messages: {},
+  compactions: {},
+  compactionClearWatermarks: {},
   activeRequests: {},
   streamingSessions: {},
   systemCommandSessions: {},
@@ -149,6 +198,23 @@ export const useChatStore = create<ChatState>((set) => ({
   routeSessions: loadActiveChatRoutes(),
   titleGenerated: {},
   historyLoading: {},
+  setCompactionStatus: (sessionId, status) =>
+    set((s) => {
+      if (!isAfterCompactionClear(status, s.compactionClearWatermarks[sessionId])) return {}
+      const rows = [...(s.compactions[sessionId] || [])]
+      const i = rows.findIndex((r) => r.id === status.id)
+      if (i < 0) rows.push(status)
+      else if (!['completed', 'failed', 'interrupted'].includes(rows[i].status)) rows[i] = status
+      return { compactions: { ...s.compactions, [sessionId]: rows } }
+    }),
+  clearCompactions: (sessionId) =>
+    set((s) => ({
+      compactions: { ...s.compactions, [sessionId]: [] },
+      compactionClearWatermarks: {
+        ...s.compactionClearWatermarks,
+        [sessionId]: new Date().toISOString(),
+      },
+    })),
   historyHasMore: {},
   historyCursor: {},
   historyPreservedMessageIds: {},
@@ -315,6 +381,14 @@ export const useChatStore = create<ChatState>((set) => ({
         if (preserveCurrentMessages) {
           const { [sessionId]: _consumed, ...remainingPreservedIds } = s.historyPreservedMessageIds
           return {
+            compactions: {
+              ...s.compactions,
+              [sessionId]: mergeCompactionStatuses(
+                data.compactions || [],
+                s.compactions[sessionId] || [],
+                s.compactionClearWatermarks[sessionId]
+              ),
+            },
             sessions: updatedSessions,
             historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
             historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
@@ -322,6 +396,14 @@ export const useChatStore = create<ChatState>((set) => ({
           }
         }
         return {
+          compactions: {
+            ...s.compactions,
+            [sessionId]: mergeCompactionStatuses(
+              data.compactions || [],
+              s.compactions[sessionId] || [],
+              s.compactionClearWatermarks[sessionId]
+            ),
+          },
           sessions: updatedSessions,
           messages: { ...s.messages, [sessionId]: preserveWorkedStateKeys(current || [], msgs) },
           historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
@@ -385,6 +467,18 @@ export const useChatStore = create<ChatState>((set) => ({
           return sess
         })
         return {
+          ...(data.compactions
+            ? {
+                compactions: {
+                  ...s.compactions,
+                  [sessionId]: mergeCompactionStatuses(
+                    data.compactions,
+                    s.compactions[sessionId] || [],
+                    s.compactionClearWatermarks[sessionId]
+                  ),
+                },
+              }
+            : {}),
           sessions: updatedSessions,
           messages: { ...s.messages, [sessionId]: [...olderMsgs, ...current] },
           historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },

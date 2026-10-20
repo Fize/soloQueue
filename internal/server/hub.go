@@ -13,6 +13,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
@@ -54,32 +55,33 @@ type WSMessage struct {
 	Agents  *AgentListResponse     `json:"agents,omitempty"`
 
 	// Chat streaming fields.
-	RequestID        string               `json:"request_id,omitempty"`
-	RequestIDs       []string             `json:"request_ids,omitempty"`
-	CancelRequestID  string               `json:"cancel_request_id,omitempty"`
-	SessionID        string               `json:"session_id,omitempty"`
-	Timestamp        string               `json:"timestamp,omitempty"`
-	TaskType         string               `json:"task_type,omitempty"`
-	ModelID          string               `json:"model_id,omitempty"`
-	ProviderID       string               `json:"provider_id,omitempty"`
-	AgentInstanceID  string               `json:"agent_instance_id,omitempty"`
-	Delta            string               `json:"delta,omitempty"`
-	CallID           string               `json:"call_id,omitempty"`
-	Name             string               `json:"name,omitempty"`
-	Args             string               `json:"args,omitempty"`
-	Result           string               `json:"result,omitempty"`
-	Error            string               `json:"error,omitempty"`
-	DurationMS       int64                `json:"duration_ms,omitempty"`
-	Content          string               `json:"content,omitempty"`
-	ReasoningContent string               `json:"reasoning_content,omitempty"`
-	Prompt           string               `json:"prompt,omitempty"`
-	TargetAgentID    string               `json:"target_agent_id,omitempty"`
-	AgentName        string               `json:"agent_name,omitempty"`
-	ResultContent    string               `json:"result_content,omitempty"`
-	NumTasks         int                  `json:"num_tasks,omitempty"`
-	Plans            []string             `json:"plans,omitempty"`
-	CronTasks        []CronTaskStatus     `json:"cron_tasks,omitempty"`
-	Notification     *NotificationPayload `json:"notification,omitempty"`
+	RequestID        string                            `json:"request_id,omitempty"`
+	RequestIDs       []string                          `json:"request_ids,omitempty"`
+	CancelRequestID  string                            `json:"cancel_request_id,omitempty"`
+	SessionID        string                            `json:"session_id,omitempty"`
+	Timestamp        string                            `json:"timestamp,omitempty"`
+	TaskType         string                            `json:"task_type,omitempty"`
+	ModelID          string                            `json:"model_id,omitempty"`
+	ProviderID       string                            `json:"provider_id,omitempty"`
+	AgentInstanceID  string                            `json:"agent_instance_id,omitempty"`
+	Delta            string                            `json:"delta,omitempty"`
+	CallID           string                            `json:"call_id,omitempty"`
+	Name             string                            `json:"name,omitempty"`
+	Args             string                            `json:"args,omitempty"`
+	Result           string                            `json:"result,omitempty"`
+	Error            string                            `json:"error,omitempty"`
+	DurationMS       int64                             `json:"duration_ms,omitempty"`
+	Content          string                            `json:"content,omitempty"`
+	ReasoningContent string                            `json:"reasoning_content,omitempty"`
+	Prompt           string                            `json:"prompt,omitempty"`
+	TargetAgentID    string                            `json:"target_agent_id,omitempty"`
+	AgentName        string                            `json:"agent_name,omitempty"`
+	ResultContent    string                            `json:"result_content,omitempty"`
+	NumTasks         int                               `json:"num_tasks,omitempty"`
+	Plans            []string                          `json:"plans,omitempty"`
+	CronTasks        []CronTaskStatus                  `json:"cron_tasks,omitempty"`
+	Notification     *NotificationPayload              `json:"notification,omitempty"`
+	Compaction       *timeline.CompactionStatusPayload `json:"compaction,omitempty"`
 }
 
 type ClientMessage struct {
@@ -312,6 +314,9 @@ func (h *Hub) configureRequestLifecycle() {
 			_ = h.requests.SetTerminalCode(requestID, terminal)
 			_ = h.requests.SetTerminalError(requestID, message)
 			h.finalizeRequest(logicalRuntimeSessionID(sessionID), requestID)
+		},
+		OnCompaction: func(sessionID string, status timeline.CompactionStatusPayload) {
+			h.BroadcastMessage(&WSMessage{Type: "compaction_status", SessionID: logicalRuntimeSessionID(sessionID), Timestamp: time.Now().Format(time.RFC3339Nano), Compaction: &status})
 		},
 	}
 	session.SetDefaultRequestLifecycleHooks(hooks)
