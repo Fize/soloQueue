@@ -83,5 +83,15 @@ jobs:
           SOLOQUEUE_ONNX_MODEL_DIR: ${{ env.ONNX_MODEL }}
           SOLOQUEUE_ONNX_TOKEN_FIXTURE: ${{ runner.temp }}/token-fixture.json
         run: cargo +1.88.0 test --locked --manifest-path native/embedding/Cargo.toml tests::tokenizer_parity -- --ignored --exact
+      - name: Download and verify provider-capable Runtime
+        run: |
+          python native/embedding/scripts/prepare.py --output "$RUNNER_TEMP/onnx-artifacts" --reference --runtime-flavor auto > "$RUNNER_TEMP/onnx-auto-paths.json"
+          python - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          paths = json.loads((Path(os.environ['RUNNER_TEMP']) / 'onnx-auto-paths.json').read_text())
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write('AUTO_ONNX_RUNTIME=' + paths['runtime'] + '\n')
+          PYTHON
       - name: Real auto selection or explicit CPU fallback
-        run: python native/embedding/scripts/verify.py --worker "$ONNX_WORKER" --model-dir "$ONNX_MODEL" --runtime "$ONNX_RUNTIME" --device auto
+        run: python native/embedding/scripts/verify.py --worker "$ONNX_WORKER" --model-dir "$ONNX_MODEL" --runtime "$AUTO_ONNX_RUNTIME" --device auto
