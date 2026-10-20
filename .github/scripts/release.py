@@ -80,11 +80,9 @@ def archive(version, system, arch, binary, worker, license_metadata, output_dir)
     with tempfile.TemporaryDirectory() as temporary:
         stage = Path(temporary)
         shutil.copyfile(binary, stage / ("soloqueue" + suffix))
-        (stage / ("soloqueue" + suffix)).chmod(0o755)
         shutil.copyfile(Path(__file__).resolve().parents[2] / "LICENSE", stage / "LICENSE")
         if worker:
             shutil.copyfile(worker, stage / ("soloqueue-embedding" + suffix))
-            (stage / ("soloqueue-embedding" + suffix)).chmod(0o755)
             native_licenses(license_metadata, stage / "THIRD_PARTY_LICENSES.txt")
         else:
             (stage / "LOCAL_ONNX_UNSUPPORTED.txt").write_text(
@@ -99,7 +97,10 @@ def archive(version, system, arch, binary, worker, license_metadata, output_dir)
             destination = output / (name + ".tar.gz")
             with tarfile.open(destination, "w:gz") as bundle:
                 for path in sorted(stage.iterdir()):
-                    bundle.add(path, arcname=path.name)
+                    info = bundle.gettarinfo(str(path), arcname=path.name)
+                    info.mode = 0o755 if path.name in {"soloqueue", "soloqueue-embedding"} else 0o644
+                    with path.open("rb") as content:
+                        bundle.addfile(info, content)
     return destination
 
 

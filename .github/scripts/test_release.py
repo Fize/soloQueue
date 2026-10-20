@@ -108,7 +108,10 @@ class ReleaseTests(unittest.TestCase):
                 "license": "MIT", "source": "registry+test", "manifest_path": str(crate / "Cargo.toml")}]}))
             for system, arch in [("darwin", "arm64"), ("linux", "amd64"), ("windows", "amd64")]:
                 with self.subTest(system=system):
-                    bundle = release.archive("1.2.3", system, arch, binary, worker, manifest, root / "out")
+                    # Windows chmod cannot set Unix executable bits. Archive
+                    # metadata must remain correct when chmod has no effect.
+                    with patch.object(Path, "chmod", return_value=None):
+                        bundle = release.archive("1.2.3", system, arch, binary, worker, manifest, root / "out")
                     suffix = ".exe" if system == "windows" else ""
                     if system == "windows":
                         with zipfile.ZipFile(bundle) as source:
@@ -116,10 +119,13 @@ class ReleaseTests(unittest.TestCase):
                     else:
                         with tarfile.open(bundle) as source:
                             files = {member.name: source.extractfile(member).read() for member in source.getmembers()}
-                            self.assertTrue(source.getmember("soloqueue-embedding").mode & 0o111)
+                            for name, mode in {"soloqueue": 0o755, "soloqueue-embedding": 0o755,
+                                               "LICENSE": 0o644, "THIRD_PARTY_LICENSES.txt": 0o644}.items():
+                                self.assertEqual(source.getmember(name).mode, mode, name)
                     self.assertEqual(set(files), {"soloqueue" + suffix, "soloqueue-embedding" + suffix,
                                                   "LICENSE", "THIRD_PARTY_LICENSES.txt"})
                     self.assertEqual(files["soloqueue-embedding" + suffix], b"worker bytes")
+                    self.assertEqual(files["soloqueue" + suffix], b"app bytes")
                     self.assertIn(b"A third party copyright notice", files["THIRD_PARTY_LICENSES.txt"])
                     self.assertIn(b"Vendored native code notice", files["THIRD_PARTY_LICENSES.txt"])
             release.checksums(root / "out")
@@ -134,9 +140,13 @@ class ReleaseTests(unittest.TestCase):
             root = Path(directory)
             binary = root / "app"
             binary.write_bytes(b"legacy")
-            destination = release.archive("1.2.3", "darwin", "amd64", binary, None, None, root / "out")
+            with patch.object(Path, "chmod", return_value=None):
+                destination = release.archive("1.2.3", "darwin", "amd64", binary, None, None, root / "out")
             with tarfile.open(destination) as bundle:
                 self.assertEqual(set(bundle.getnames()), {"soloqueue", "LICENSE", "LOCAL_ONNX_UNSUPPORTED.txt"})
+                for name, mode in {"soloqueue": 0o755, "LICENSE": 0o644,
+                                   "LOCAL_ONNX_UNSUPPORTED.txt": 0o644}.items():
+                    self.assertEqual(bundle.getmember(name).mode, mode, name)
                 self.assertIn(b"macOS Intel", bundle.extractfile("LOCAL_ONNX_UNSUPPORTED.txt").read())
             for system, arch in [("windows", "amd64"), ("darwin", "arm64"), ("linux", "amd64")]:
                 with self.subTest(system=system), self.assertRaises(ValueError):
