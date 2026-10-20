@@ -1,0 +1,87 @@
+name: Native ONNX embedding
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/onnx-embedding]
+    paths: ['native/embedding/**', 'internal/memory/engine/embedding/local/**', '.github/workflows/onnx.yml']
+  pull_request:
+    paths: ['native/embedding/**', 'internal/memory/engine/embedding/local/**', '.github/workflows/onnx.yml']
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            system: Darwin
+            machine: arm64
+          - os: ubuntu-24.04
+            system: Linux
+            machine: x86_64
+          - os: windows-2022
+            system: Windows
+            machine: AMD64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONUTF8: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Assert actual native platform
+        run: python -c 'import platform; assert platform.system() == "${{ matrix.system }}"; assert platform.machine() == "${{ matrix.machine }}", platform.machine()'
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+      - name: Native deterministic checks
+        run: |
+          cargo +1.88.0 fmt --manifest-path native/embedding/Cargo.toml --check
+          cargo +1.88.0 test --locked --manifest-path native/embedding/Cargo.toml
+          cargo +1.88.0 clippy --locked --manifest-path native/embedding/Cargo.toml --all-targets -- -D warnings
+          cargo +1.88.0 build --locked --release --manifest-path native/embedding/Cargo.toml
+          go test -race ./internal/memory/engine/embedding/local/...
+          python -m unittest discover -s native/embedding/scripts -v
+      - name: Install pinned CPU reference dependencies
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+          fi
+          python -m pip install -r native/embedding/scripts/requirements-reference.txt
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/onnx-artifacts
+          key: onnx-verified-v1-${{ matrix.os }}-${{ hashFiles('native/embedding/scripts/prepare.py') }}
+      - name: Download and verify pinned official model and CPU Runtime
+        run: |
+          python native/embedding/scripts/prepare.py --output "$RUNNER_TEMP/onnx-artifacts" --reference --runtime-flavor cpu > "$RUNNER_TEMP/onnx-paths.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          paths = json.loads((Path(os.environ['RUNNER_TEMP']) / 'onnx-paths.json').read_text())
+          suffix = '.exe' if os.name == 'nt' else ''
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write('ONNX_MODEL=' + paths['modelDir'] + '\n')
+              env.write('ONNX_RUNTIME=' + paths['runtime'] + '\n')
+              env.write('ONNX_WORKER=' + str(Path('native/embedding/target/release/soloqueue-embedding' + suffix).resolve()) + '\n')
+          PY
+      - name: Real native CPU parity and protocol recovery
+        run: python native/embedding/scripts/verify.py --worker "$ONNX_WORKER" --model-dir "$ONNX_MODEL" --runtime "$ONNX_RUNTIME" --device cpu --fixture-output "$RUNNER_TEMP/token-fixture.json"
+      - name: Exact tokenizer IDs masks and truncation
+        env:
+          SOLOQUEUE_ONNX_MODEL_DIR: ${{ env.ONNX_MODEL }}
+          SOLOQUEUE_ONNX_TOKEN_FIXTURE: ${{ runner.temp }}/token-fixture.json
+        run: cargo +1.88.0 test --locked --manifest-path native/embedding/Cargo.toml tests::tokenizer_parity -- --ignored --exact
+      - name: Real auto selection or explicit CPU fallback
+        run: python native/embedding/scripts/verify.py --worker "$ONNX_WORKER" --model-dir "$ONNX_MODEL" --runtime "$ONNX_RUNTIME" --device auto
