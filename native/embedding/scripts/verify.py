@@ -5,7 +5,22 @@ import json
 from pathlib import Path
 import subprocess
 
-TEXTS = ["中文记忆：下周三讨论项目。", "The meeting is on Wednesday.", "中 English 混合🙂🚀 café e\u0301", "", " \t\n  ", "query: literal text", "hello " * 509, "hello " * 510, "hello " * 511, "hello " * 512, "记忆测试 " * 600]
+BASE_TEXTS = ["中文记忆：下周三讨论项目。", "The meeting is on Wednesday.", "中 English 混合🙂🚀 café e\u0301", "", " \t\n  ", "query: literal text", "记忆测试 " * 600]
+
+
+def boundary_texts(tokenizer, prefix):
+    # Discover exact boundaries through the official tokenizer; prefix lengths differ.
+    required = (510, 511, 512, 513)
+    found = {}
+    for count in range(1, 514):
+        text = "a " * count
+        raw_count = len(tokenizer(prefix + text, add_special_tokens=True, verbose=False)["input_ids"])
+        if raw_count in required:
+            found[raw_count] = text
+        if len(found) == len(required):
+            break
+    assert set(found) == set(required), "could not construct exact token boundaries"
+    return [found[count] for count in required]
 
 
 def frame(process, request):
@@ -50,13 +65,15 @@ def main():
             worst = 1.0
             fixtures = []
             for request_id, purpose in enumerate(("query", "document"), start=1):
-                response = frame(process, {"version": 1, "id": request_id, "op": "embed", "purpose": purpose, "texts": TEXTS})
+                prefix = "query: " if purpose == "query" else "passage: "
+                texts = BASE_TEXTS + boundary_texts(tokenizer, prefix)
+                response = frame(process, {"version": 1, "id": request_id, "op": "embed", "purpose": purpose, "texts": texts})
                 assert response["id"] == request_id and response["error"] is None, response.get("error")
                 results = response["data"]["results"]
-                assert len(results) == len(TEXTS)
-                for text, result in zip(TEXTS, results):
+                assert len(results) == len(texts)
+                for text, result in zip(texts, results):
                     prefixed = ("query: " if purpose == "query" else "passage: ") + text
-                    raw_count = len(tokenizer(prefixed, add_special_tokens=True)["input_ids"])
+                    raw_count = len(tokenizer(prefixed, add_special_tokens=True, verbose=False)["input_ids"])
                     encoded = tokenizer(prefixed, max_length=512, padding="max_length", truncation=True, return_tensors="pt")
                     fixtures.append({"text": text, "purpose": purpose, "input_ids": encoded["input_ids"][0].tolist(), "attention_mask": encoded["attention_mask"][0].tolist(), "token_type_ids": encoded.get("token_type_ids", torch.zeros_like(encoded["input_ids"]))[0].tolist(), "truncated": raw_count > 512})
                     with torch.no_grad():
