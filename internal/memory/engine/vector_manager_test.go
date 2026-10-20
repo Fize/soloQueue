@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -592,6 +594,153 @@ func TestManagedRemoteActivationRefreshKeepsNamespace(t *testing.T) {
 			m.IndexSaved(ctx, hash[:16], hash, "remote activation memory", OwnerL1, "", ScopeGlobal, "")
 			if len(remote.texts) != before+2 {
 				t.Fatal("re-enabled queries/writes unavailable", remote.texts)
+			}
+		})
+	}
+}
+
+// Run the real transport against a controlled NDJSON child. This exercises its
+// queue/cancellation behavior, not native model accuracy.
+func init() {
+	if dir := os.Getenv("SOLOQUEUE_MANAGER_WORKER_TEST"); dir != "" {
+		emit := func(id uint64, data any) {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"version": 1, "id": id, "data": data, "error": nil})
+		}
+		emit(0, local.Status{Model: "intfloat/multilingual-e5-small", Dimension: 384, Backend: "cpu"})
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Buffer(make([]byte, 4096), 1<<20)
+		for scanner.Scan() {
+			var request struct {
+				ID      uint64
+				Texts   []string
+				Purpose string
+			}
+			if json.Unmarshal(scanner.Bytes(), &request) != nil {
+				os.Exit(2)
+			}
+			if request.Purpose == os.Getenv("SOLOQUEUE_MANAGER_BLOCK_PURPOSE") {
+				if os.WriteFile(filepath.Join(dir, "entered"), nil, 0600) != nil {
+					os.Exit(2)
+				}
+				for {
+					if _, err := os.Stat(filepath.Join(dir, "release")); err == nil {
+						break
+					}
+					time.Sleep(time.Millisecond)
+				}
+			}
+			emit(request.ID, testLocalBatch(request.Texts))
+		}
+		os.Exit(0)
+	}
+}
+
+type observedQueueContext struct {
+	context.Context
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (c *observedQueueContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.entered) })
+	return c.Context.Done()
+}
+
+func TestManagedRequestErrorsPreserveIndexingWorker(t *testing.T) {
+	for _, kind := range []string{"queued_cancel", "oversize", "invalid_utf8", "active_cancel"} {
+		t.Run(kind, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("SOLOQUEUE_MANAGER_WORKER_TEST", dir)
+			purpose := "document"
+			if kind == "active_cancel" {
+				purpose = "query"
+			}
+			t.Setenv("SOLOQUEUE_MANAGER_BLOCK_PURPOSE", purpose)
+			exe, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			db, mu := openTestDB(t)
+			e := New(db, mu, nil, nil, nil)
+			if _, _, err := e.Save(context.Background(), "indexed memory", "2026-01-01", "", "2026-01-01"); err != nil {
+				t.Fatal(err)
+			}
+			opts := testVectorOptions(func(ctx context.Context, _ local.Config) (LocalWorker, error) {
+				return local.Start(ctx, local.Config{Worker: exe, ModelDir: dir, Runtime: exe, Device: "cpu"})
+			})
+			m := NewVectorManager(db, mu, dir, opts)
+			defer m.Close()
+			m.Apply(localVectorConfig(), nil, nil)
+			waitEntered := func() {
+				t.Helper()
+				deadline := time.Now().Add(5 * time.Second)
+				for time.Now().Before(deadline) {
+					if _, err := os.Stat(filepath.Join(dir, "entered")); err == nil {
+						return
+					}
+					time.Sleep(time.Millisecond)
+				}
+				t.Fatal("worker request did not start")
+			}
+			if kind == "active_cancel" {
+				waitVectorStatus(t, m, func(s EmbeddingStatus) bool { return s.State == "ready" })
+			} else {
+				waitEntered()
+			}
+			query := SearchQuery{Text: "memory", OwnerType: OwnerL1, ScopeType: ScopeGlobal}
+			if kind == "queued_cancel" || kind == "active_cancel" {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				observed := &observedQueueContext{Context: ctx, entered: make(chan struct{})}
+				result := make(chan error, 1)
+				go func() { _, err := m.Search(observed, query, 5); result <- err }()
+				if kind == "active_cancel" {
+					waitEntered()
+				} else {
+					select {
+					case <-observed.entered:
+					case <-time.After(5 * time.Second):
+						t.Fatal("query did not enter transport queue")
+					}
+				}
+				cancel()
+				select {
+				case err := <-result:
+					if !errors.Is(err, context.Canceled) {
+						t.Fatal(err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("query cancellation blocked")
+				}
+			} else {
+				if kind == "oversize" {
+					query.Text = strings.Repeat("x", 65537)
+				} else {
+					query.Text = string([]byte{0xff})
+				}
+				if _, err := m.Search(context.Background(), query, 5); err == nil {
+					t.Fatal("invalid query was not rejected")
+				}
+			}
+			if kind == "active_cancel" {
+				waitVectorStatus(t, m, func(s EmbeddingStatus) bool { return s.State == "error" })
+				m.Notify()
+				if m.Status().State != "error" {
+					t.Fatal("dead worker remained available")
+				}
+				return
+			}
+			if status := m.Status(); status.State != "reindexing" || status.Failed != 0 {
+				t.Fatalf("request-local failure stopped indexing: %+v", status)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "release"), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			waitVectorStatus(t, m, func(s EmbeddingStatus) bool { return s.State == "ready" && s.Indexed == 1 })
+			query.Text = "memory"
+			results, err := m.Search(context.Background(), query, 5)
+			if err != nil || len(results) != 1 {
+				t.Fatalf("healthy query after request error: %v %v", results, err)
 			}
 		})
 	}

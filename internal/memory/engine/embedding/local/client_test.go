@@ -94,6 +94,9 @@ func TestRejectMalformedOutput(t *testing.T) {
 			if _, err := c.Embed(context.Background(), []string{"secret"}, "document"); err == nil || strings.Contains(err.Error(), "secret") {
 				t.Fatal("expected sanitized failure")
 			}
+			if !c.Closed() {
+				t.Fatal("malformed response left the transport open")
+			}
 		})
 	}
 }
@@ -113,6 +116,9 @@ func TestCancellationKillsAndReaps(t *testing.T) {
 	if _, err := c.Embed(ctx, []string{"private"}, "query"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error: %v", err)
 	}
+	if !c.Closed() {
+		t.Fatal("active cancellation left the transport open")
+	}
 	if c.cmd.ProcessState == nil || !c.cmd.ProcessState.Exited() && c.cmd.ProcessState.Success() {
 		t.Fatal("process not reaped")
 	}
@@ -126,6 +132,9 @@ func TestQueuedCancellationDoesNotKillWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.gate <- struct{}{}
+	if c.Closed() {
+		t.Fatal("queued cancellation closed the transport")
+	}
 	if _, err := c.Embed(context.Background(), []string{"x"}, "query"); err != nil {
 		t.Fatal(err)
 	}
@@ -142,9 +151,22 @@ func TestStartupCancellation(t *testing.T) {
 }
 func TestInputBounds(t *testing.T) {
 	c := startHelper(t, "ok")
-	for _, texts := range [][]string{nil, make([]string, 33), {strings.Repeat("x", 65537)}} {
-		if _, err := c.Embed(context.Background(), texts, "query"); err == nil {
-			t.Fatal(fmt.Sprint("accepted bad input"))
+	oversizedFrame := make([]string, 32)
+	for i := range oversizedFrame {
+		oversizedFrame[i] = strings.Repeat("x", 32768)
+	}
+	for _, texts := range [][]string{nil, make([]string, 33), {strings.Repeat("x", 65537)}, {string([]byte{0xff})}, oversizedFrame} {
+		if _, err := c.Embed(context.Background(), texts, "query"); !errors.Is(err, ErrInvalidInput) {
+			t.Fatal(fmt.Sprint("expected typed input error: ", err))
 		}
+		if c.Closed() {
+			t.Fatal("invalid request closed the transport")
+		}
+	}
+	if _, err := c.Embed(context.Background(), []string{"x"}, "invalid"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatal(err)
+	}
+	if _, err := c.Embed(context.Background(), []string{"valid"}, "query"); err != nil {
+		t.Fatal(err)
 	}
 }

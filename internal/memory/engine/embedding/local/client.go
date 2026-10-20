@@ -20,6 +20,9 @@ import (
 const maxFrame = 1 << 20
 const Dimension = 384
 
+// ErrInvalidInput identifies a rejected request that has not affected the worker.
+var ErrInvalidInput = errors.New("invalid embedding input")
+
 type Config struct{ Worker, ModelDir, Runtime, Device string }
 type Result struct {
 	Embedding []float32 `json:"embedding"`
@@ -188,18 +191,29 @@ func validBackend(backend string) bool {
 }
 func (c *Client) Status() Status { return c.status }
 
+// Closed reports whether the transport has been terminated. In particular,
+// cancellation while queued leaves it open, whereas active cancellation closes it.
+func (c *Client) Closed() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
+}
+
 // Embed serializes requests. Cancellation while queued leaves the active request
 // intact; cancellation during a request kills and reaps the worker.
 func (c *Client) Embed(ctx context.Context, texts []string, purpose string) (Batch, error) {
 	if purpose != "query" && purpose != "document" {
-		return Batch{}, errors.New("invalid embedding purpose")
+		return Batch{}, fmt.Errorf("%w: purpose", ErrInvalidInput)
 	}
 	if len(texts) == 0 || len(texts) > 32 {
-		return Batch{}, errors.New("invalid embedding batch size")
+		return Batch{}, fmt.Errorf("%w: batch size", ErrInvalidInput)
 	}
 	for _, text := range texts {
 		if len(text) > 65536 || !utf8.ValidString(text) {
-			return Batch{}, errors.New("embedding text exceeds size limit")
+			return Batch{}, fmt.Errorf("%w: text size or encoding", ErrInvalidInput)
 		}
 	}
 	select {
@@ -229,7 +243,7 @@ func (c *Client) Embed(ctx context.Context, texts []string, purpose string) (Bat
 		return Batch{}, err
 	}
 	if len(payload)+1 > maxFrame {
-		return Batch{}, errors.New("embedding frame exceeds size limit")
+		return Batch{}, fmt.Errorf("%w: frame size", ErrInvalidInput)
 	}
 	// Write can block if the child stops reading, so cancellation must also cover it.
 	sent := make(chan error, 1)

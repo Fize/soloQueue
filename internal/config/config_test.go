@@ -610,9 +610,20 @@ func TestGlobalService_Watch_InvalidYAMLLogsReloadFailure(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		data, readErr := os.ReadFile(logPath)
-		if readErr == nil && strings.Contains(string(data), "config hot-reload failed") &&
-			strings.Contains(string(data), "parse "+path) {
-			return
+		if readErr == nil {
+			decoder := json.NewDecoder(strings.NewReader(string(data)))
+			for {
+				var record struct {
+					Message string `json:"msg"`
+					Error   string `json:"err"`
+				}
+				if err := decoder.Decode(&record); err != nil {
+					break
+				}
+				if record.Message == "config hot-reload failed" && strings.Contains(record.Error, "parse "+path) {
+					return
+				}
+			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

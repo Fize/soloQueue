@@ -471,6 +471,15 @@ func (m *VectorManager) Search(ctx context.Context, query SearchQuery, limit int
 	}
 	batch, err := binding.worker.Embed(ctx, []string{query.Text}, "query")
 	if err != nil {
+		if errors.Is(err, local.ErrInvalidInput) {
+			return nil, err
+		}
+		// The real transport preserves the worker when a caller cancels while
+		// queued, but kills it when cancellation interrupts active inference.
+		// Unknown worker implementations retain conservative failure behavior.
+		if health, ok := binding.worker.(interface{ Closed() bool }); ok && ctx.Err() != nil && !health.Closed() {
+			return nil, ctx.Err()
+		}
 		m.fail(binding.generation, errors.New("local inference stopped; retry local embedding"))
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
