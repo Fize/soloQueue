@@ -132,10 +132,13 @@ def prepare_runtime(root, flavor):
     target.mkdir(parents=True, exist_ok=True)
     unpack(archive, target)
     filename = "onnxruntime.dll" if platform.system() == "Windows" else "libonnxruntime.1.24.2.dylib" if platform.system() == "Darwin" else "libonnxruntime.so.1.24.2"
-    matches = list(target.rglob(filename))
-    if len(matches) != 1:
-        raise ValueError("runtime library missing or ambiguous")
-    return matches[0].resolve()
+    # Official archives include macOS dSYM debug files with the same basename.
+    # Select the published runtime layout, never a recursive basename match.
+    stem = name.removesuffix(".tgz").removesuffix(".zip")
+    library = target / stem / "lib" / filename
+    if not library.is_file():
+        raise ValueError("runtime library missing from expected archive layout")
+    return library.resolve()
 
 
 def main():
