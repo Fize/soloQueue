@@ -36,6 +36,16 @@ Open <http://127.0.0.1:57689>, configure a model, and add a project directory to
 
 For other model providers, Docker deployment, and troubleshooting, see the [Getting Started guide](docs/getting-started.md).
 
+Local ONNX memory embeddings additionally need the sibling `soloqueue-embedding`
+worker. Source builds can use `rustup toolchain install 1.88.0 --profile minimal`
+and `make build-with-local`; `make build` and `make build-go` remain Go-only on the
+backend. Release archives for macOS arm64, Linux amd64 and Windows amd64 include
+the worker, as do Docker images for Linux amd64/arm64. Model weights and ONNX
+Runtime are downloaded and verified on first enable in settings; they are not
+included in the release or image. Device `auto` tries acceleration and falls back
+to CPU. Linux arm64 uses CPU; macOS Intel releases retain other features but do
+not support the pinned local ONNX runtime. See [worker build and platform details](native/embedding/README.md).
+
 ## Security
 
 SoloQueue listens on `127.0.0.1` by default. Its tools inherit the system permissions of the SoloQueue process and can read files and run commands. For stronger isolation, running SoloQueue in a container or virtual machine is strongly recommended.

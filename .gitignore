@@ -41,6 +41,8 @@ __pycache__
 .gocache/
 /soloqueue
 soloqueue.exe
+/soloqueue-embedding
+/soloqueue-embedding.exe
 node_modules/
 package-lock.json
 dist

@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xiaobaitu/soloqueue/internal/session"
@@ -375,7 +374,7 @@ func computeChangeRevision(workDir, baseRef string, change FileChange) string {
 	if !info.Mode().IsRegular() || info.Size() > maxChangeRevisionBytes {
 		return fmt.Sprintf("%x", hash.Sum(nil))
 	}
-	file, openErr := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	file, openErr := openChangeFileNoFollow(fullPath)
 	if openErr == nil {
 		openedInfo, statErr := file.Stat()
 		if statErr == nil && openedInfo.Mode().IsRegular() && os.SameFile(info, openedInfo) {
@@ -598,7 +597,7 @@ func readSnapshotTarget(fullPath string) ([]byte, string, bool, int64, bool) {
 	if !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > maxChangeRevisionBytes {
 		return nil, "", false, 0, false
 	}
-	file, err := os.OpenFile(fullPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	file, err := openChangeFileNoFollow(fullPath)
 	if err != nil {
 		return nil, "", false, 0, false
 	}

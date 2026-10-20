@@ -1,8 +1,28 @@
-# Local ONNX embedding worker (phase 1)
+# Local ONNX embedding worker
 
-This isolated worker proves default-model inference before production index,
-configuration or settings UI integration. It does not modify existing providers.
-The Go client lives in `internal/memory/engine/embedding/local`.
+The Go client lives in `internal/memory/engine/embedding/local`. Release archives
+bundle `soloqueue-embedding` (`.exe` on Windows) next to the SoloQueue executable;
+keep those two files together. The backend downloads and verifies the fixed model
+and ONNX Runtime on first enable of local embeddings. Cached artifacts support
+offline restart. An explicit `SOLOQUEUE_ONNX_WORKER` path can select a development
+worker. No Python installation is required for normal local embedding use.
+
+Source builds keep the worker optional:
+
+```sh
+rustup toolchain install 1.88.0 --profile minimal
+make build-native       # worker only, copied next to ./soloqueue
+make build-with-local   # both browser UIs, Go app and sibling worker
+```
+
+`make build` and `make build-go` retain their existing Rust-free behavior. For
+distribution, archives include the project license and Rust dependency notices.
+The legacy macOS Intel archive has no local worker because the pinned Runtime
+does not publish a compatible package. Linux amd64/arm64 Docker images build a
+native worker for each architecture; Linux arm64 local inference uses CPU.
+The Linux amd64 release worker is built on Ubuntu 24.04 and needs a compatible
+glibc/libstdc++ installation. Docker workers are built against Debian bookworm;
+the standalone Linux archive does not promise compatibility with older distros.
 
 The default model is official `intfloat/multilingual-e5-small`, revision
 `614241f622f53c4eeff9890bdc4f31cfecc418b3`. Preparation downloads its official
@@ -15,7 +35,8 @@ The worker pins `ort=2.0.0-rc.12` (API 24), `tokenizers=0.22.2`, and the complet
 Rust graph in `Cargo.lock`. Runtime packages are pinned to ONNX Runtime 1.24.2.
 `ort` default features are disabled: no automatic binary/model downloads.
 Python reference dependencies are pinned in `scripts/requirements-reference.txt`.
-Python 3.12 is used for preparation and verification.
+The commands below are developer verification tools; Python 3.12 is used for
+artifact preparation and reference comparison.
 
 ```sh
 python3.12 -m venv /tmp/soloqueue-onnx-venv

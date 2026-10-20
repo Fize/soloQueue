@@ -1,10 +1,14 @@
 import io
+import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tarfile
 import unittest
 import urllib.error
+import zipfile
 from unittest.mock import patch
 
 import release
@@ -75,13 +79,70 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(initial, release.fingerprint())
                 for path in ["cmd/main.go", "internal/app.go", "web/src/app.tsx",
                              "status-ui/src/app.tsx", "web/pnpm-lock.yaml",
+                             "LICENSE", "native/embedding/Cargo.toml", "native/embedding/Cargo.lock",
+                             "native/embedding/src/main.rs",
                              "deploy/docker/Dockerfile", ".dockerignore",
                              ".github/workflows/release.yml"]:
                     before = release.fingerprint()
                     commit(path, "changed")
                     self.assertNotEqual(before, release.fingerprint(), path)
+                before = release.fingerprint()
+                commit("native/embedding/README.md", "worker docs only")
+                self.assertEqual(before, release.fingerprint())
             finally:
                 os.chdir(previous)
+
+    def test_native_archives_include_sibling_worker_and_notices(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary, worker = root / "app", root / "worker"
+            binary.write_bytes(b"app bytes")
+            worker.write_bytes(b"worker bytes")
+            crate = root / "crate"
+            crate.mkdir()
+            (crate / "LICENSE-MIT").write_text("A third party copyright notice")
+            (crate / "vendor").mkdir()
+            (crate / "vendor" / "COPYING").write_text("Vendored native code notice")
+            manifest = root / "metadata.json"
+            manifest.write_text(json.dumps({"packages": [{"name": "crate", "version": "1.0",
+                "license": "MIT", "source": "registry+test", "manifest_path": str(crate / "Cargo.toml")}]}))
+            for system, arch in [("darwin", "arm64"), ("linux", "amd64"), ("windows", "amd64")]:
+                with self.subTest(system=system):
+                    bundle = release.archive("1.2.3", system, arch, binary, worker, manifest, root / "out")
+                    suffix = ".exe" if system == "windows" else ""
+                    if system == "windows":
+                        with zipfile.ZipFile(bundle) as source:
+                            files = {name: source.read(name) for name in source.namelist()}
+                    else:
+                        with tarfile.open(bundle) as source:
+                            files = {member.name: source.extractfile(member).read() for member in source.getmembers()}
+                            self.assertTrue(source.getmember("soloqueue-embedding").mode & 0o111)
+                    self.assertEqual(set(files), {"soloqueue" + suffix, "soloqueue-embedding" + suffix,
+                                                  "LICENSE", "THIRD_PARTY_LICENSES.txt"})
+                    self.assertEqual(files["soloqueue-embedding" + suffix], b"worker bytes")
+                    self.assertIn(b"A third party copyright notice", files["THIRD_PARTY_LICENSES.txt"])
+                    self.assertIn(b"Vendored native code notice", files["THIRD_PARTY_LICENSES.txt"])
+            release.checksums(root / "out")
+            lines = (root / "out" / "SHA256SUMS").read_text().splitlines()
+            self.assertEqual(len(lines), 3)
+            for line in lines:
+                digest, name = line.split("  ")
+                self.assertEqual(digest, hashlib.sha256((root / "out" / name).read_bytes()).hexdigest())
+
+    def test_legacy_intel_archive_and_required_worker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "app"
+            binary.write_bytes(b"legacy")
+            destination = release.archive("1.2.3", "darwin", "amd64", binary, None, None, root / "out")
+            with tarfile.open(destination) as bundle:
+                self.assertEqual(set(bundle.getnames()), {"soloqueue", "LICENSE", "LOCAL_ONNX_UNSUPPORTED.txt"})
+                self.assertIn(b"macOS Intel", bundle.extractfile("LOCAL_ONNX_UNSUPPORTED.txt").read())
+            for system, arch in [("windows", "amd64"), ("darwin", "arm64"), ("linux", "amd64")]:
+                with self.subTest(system=system), self.assertRaises(ValueError):
+                    release.archive("1.2.3", system, arch, binary, None, None, root / "out")
+            with self.assertRaises(ValueError):
+                release.archive("1.2.3", "linux", "other", binary, None, None, root / "out")
 
 
 if __name__ == "__main__":

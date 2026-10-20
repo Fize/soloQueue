@@ -41,6 +41,22 @@ RUN mkdir -p internal/assets/dist \
 
 FROM golang:1.25-bookworm AS go-runtime
 
+# Native Rust is built for the image's target architecture (Buildx/QEMU for ARM64).
+# The worker dynamically loads the verified Runtime downloaded on first enable.
+FROM rust:1.88.0-bookworm AS native-build
+
+WORKDIR /src
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY native/embedding/Cargo.toml native/embedding/Cargo.lock ./native/embedding/
+COPY native/embedding/src ./native/embedding/src
+COPY .github/scripts/release.py ./.github/scripts/release.py
+RUN cargo build --locked --release --manifest-path native/embedding/Cargo.toml \
+    && cargo metadata --locked --format-version 1 --manifest-path native/embedding/Cargo.toml > /tmp/native-metadata.json \
+    && mkdir -p /out \
+    && cp native/embedding/target/release/soloqueue-embedding /out/soloqueue-embedding \
+    && python3 .github/scripts/release.py licenses /tmp/native-metadata.json /out/THIRD_PARTY_LICENSES.txt
+
 FROM node:24-bookworm-slim
 
 RUN apt-get update \
@@ -69,6 +85,9 @@ RUN apt-get update \
 
 COPY --from=go-runtime /usr/local/go /usr/local/go
 COPY --from=go-build /out/soloqueue /usr/local/bin/soloqueue
+COPY --from=native-build /out/soloqueue-embedding /usr/local/bin/soloqueue-embedding
+COPY --from=native-build /out/THIRD_PARTY_LICENSES.txt /usr/local/share/licenses/soloqueue/THIRD_PARTY_LICENSES.txt
+COPY LICENSE /usr/local/share/licenses/soloqueue/LICENSE
 ENV HOME=/root \
     PATH=/usr/local/go/bin:$PATH
 WORKDIR /root

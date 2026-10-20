@@ -15,4 +15,7 @@ logs
 *.log
 soloqueue
 soloqueue.exe
+soloqueue-embedding
+soloqueue-embedding.exe
+native/embedding/target
 .DS_Store

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"gopkg.in/yaml.v3"
@@ -305,7 +304,7 @@ func readSkillMarkdown(path string) ([]byte, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("skill markdown is not a regular file")
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := openSkillFileNoFollow(path)
 	if err != nil {
 		return nil, err
 	}

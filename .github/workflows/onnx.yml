@@ -3,9 +3,27 @@ on:
   workflow_dispatch:
   push:
     branches: [codex/onnx-embedding]
-    paths: ['native/embedding/**', 'internal/memory/engine/embedding/local/**', '.github/workflows/onnx.yml']
+    paths: &onnx-paths
+      - 'native/embedding/**'
+      - 'internal/memory/engine/**'
+      - 'internal/config/**'
+      - 'internal/runtime/**'
+      - 'internal/server/**'
+      - 'internal/agenttools/tools/runtime_process*'
+      - 'internal/agenttools/skill/open_skill*'
+      - 'internal/agenttools/skill/skill_md.go'
+      - 'cmd/soloqueue/cli/commands.go'
+      - 'web/**'
+      - '.github/scripts/**'
+      - '.github/workflows/onnx.yml'
+      - '.github/workflows/release.yml'
+      - 'deploy/docker/Dockerfile'
+      - 'Makefile'
+      - '.dockerignore'
+      - 'go.mod'
+      - 'go.sum'
   pull_request:
-    paths: ['native/embedding/**', 'internal/memory/engine/embedding/local/**', '.github/workflows/onnx.yml']
+    paths: *onnx-paths
 permissions:
   contents: read
 jobs:
@@ -95,3 +113,22 @@ jobs:
           PYTHON
       - name: Real auto selection or explicit CPU fallback
         run: python native/embedding/scripts/verify.py --worker "$ONNX_WORKER" --model-dir "$ONNX_MODEL" --runtime "$AUTO_ONNX_RUNTIME" --device auto
+      - name: Real managed native indexing and offline restart
+        env:
+          SOLOQUEUE_ONNX_INTEGRATION: '1'
+          SOLOQUEUE_ONNX_ARTIFACTS: ${{ runner.temp }}/onnx-artifacts
+          SOLOQUEUE_ONNX_WORKER: ${{ env.ONNX_WORKER }}
+        run: go test -race ./internal/memory/engine/... ./internal/config/...
+      - name: Release archive and license helper checks
+        run: python -m unittest discover -s .github/scripts -p 'test_*.py' -v
+      - name: Secure native skill entrypoint open
+        run: go test ./internal/agenttools/skill -run 'TestOpenSkillFileNoFollow|TestParseSkillMD_RejectsSymlinkEntrypoint' -v
+      - name: Secure native changed-file open
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            # Existing server package tests use Unix-only Mkfifo. Exercise the
+            # actual Windows primitive directly without compiling that fixture.
+            go test internal/server/changes_open_windows.go internal/server/changes_open_test.go -v
+          else
+            go test ./internal/server -run '^TestOpenChangeFileNoFollow$' -v
+          fi

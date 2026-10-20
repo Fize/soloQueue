@@ -1,4 +1,7 @@
-.PHONY: help build build-web build-status build-assets build-go start web clean
+.PHONY: help build build-web build-status build-assets build-go build-native build-with-local start web clean
+
+RUST_TOOLCHAIN ?= 1.88.0
+EXE_SUFFIX := $(if $(filter Windows_NT,$(OS)),.exe,)
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -19,6 +22,12 @@ build-go: ## Build Go binary using already-built assets
 
 build: build-assets build-go ## Build browser assets and Go binary
 
+build-native: ## Build the optional local ONNX worker (Rust 1.88.0 required)
+	rustup run $(RUST_TOOLCHAIN) cargo build --locked --release --manifest-path native/embedding/Cargo.toml
+	cp native/embedding/target/release/soloqueue-embedding$(EXE_SUFFIX) soloqueue-embedding$(EXE_SUFFIX)
+
+build-with-local: build build-native ## Build browser assets, Go binary and sibling local ONNX worker
+
 start: build ## Build and start backend + both browser UIs on one port
 	./soloqueue start
 
@@ -26,4 +35,4 @@ web: build-web ## Build and start standalone Web Console
 	./soloqueue web
 
 clean: ## Remove generated binaries and embedded frontend bundles
-	rm -rf soloqueue web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status
+	rm -rf soloqueue soloqueue.exe soloqueue-embedding soloqueue-embedding.exe web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status
