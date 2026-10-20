@@ -50,12 +50,14 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/llm/chatgpt"
+	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
 // Mux is the root HTTP handler.
 type Mux struct {
+	embedding         *engine.VectorManager
 	log               *logger.Logger
 	mux               chi.Router
 	workDir           string
@@ -204,6 +206,11 @@ func WithSessionManager(mgr *session.SessionManager) MuxOption {
 // WithL2SessionStore sets the L2 session store for /api/session/l2 endpoints.
 func WithL2SessionStore(store *session.L2SessionStore) MuxOption {
 	return func(m *Mux) { m.l2Store = store }
+}
+
+// WithEmbeddingManager exposes local lifecycle status and actions.
+func WithEmbeddingManager(manager *engine.VectorManager) MuxOption {
+	return func(m *Mux) { m.embedding = manager }
 }
 
 // WithSharedDB sets the SQLite DB for token and router stats.
@@ -432,6 +439,8 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Route("/embedding", func(r chi.Router) {
 			r.Get("/", m.handleGetEmbeddingConfig)
 			r.Put("/", m.handleUpdateEmbeddingConfig)
+			r.Get("/status", m.handleEmbeddingStatus)
+			r.Post("/actions", m.handleEmbeddingAction)
 		})
 
 		r.Route("/session", func(r chi.Router) {

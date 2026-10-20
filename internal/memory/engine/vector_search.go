@@ -9,6 +9,7 @@ import (
 
 // VectorSearcher wraps embedding-based vector search. No-op when embedder is nil.
 type VectorSearcher struct {
+	manager  *VectorManager
 	embedder embedding.Embedder
 	vecStore vectorstore.VectorStore
 }
@@ -20,12 +21,18 @@ func NewVectorSearcher(embedder embedding.Embedder, vecStore vectorstore.VectorS
 
 // Enabled returns true if vector search is available.
 func (v *VectorSearcher) Enabled() bool {
+	if v.manager != nil {
+		return v.manager.Enabled()
+	}
 	return v.embedder != nil && v.vecStore != nil
 }
 
 // Search embeds the query and queries the vector store.
 // Returns results with normalized scores or nil if disabled.
 func (v *VectorSearcher) Search(ctx context.Context, query SearchQuery, limit int) ([]SearchResult, error) {
+	if v.manager != nil {
+		return v.manager.Search(ctx, query, limit)
+	}
 	if !v.Enabled() {
 		return nil, nil
 	}

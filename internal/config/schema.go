@@ -267,13 +267,19 @@ type EmbeddingModel struct {
 	IsDefault  bool   `json:"isDefault"  yaml:"is_default,omitempty"`
 }
 
+type LocalEmbeddingConfig struct {
+	Model  string `json:"model" yaml:"model,omitempty"`
+	Device string `json:"device" yaml:"device,omitempty"`
+}
+
 type EmbeddingConfig struct {
-	Enabled       bool                `json:"enabled"       yaml:"enabled,omitempty"`
-	MinSimilarity float32             `json:"minSimilarity" yaml:"min_similarity,omitempty"`
-	Provider      string              `json:"provider"      yaml:"provider,omitempty"`   // "none", "openai"
-	ModelName     string              `json:"modelName"     yaml:"model_name,omitempty"` // model name for API
-	Providers     []EmbeddingProvider `json:"providers"     yaml:"providers,omitempty"`
-	Models        []EmbeddingModel    `json:"models"        yaml:"models,omitempty"`
+	Local         LocalEmbeddingConfig `json:"local" yaml:"local,omitempty"`
+	Enabled       bool                 `json:"enabled"       yaml:"enabled,omitempty"`
+	MinSimilarity float32              `json:"minSimilarity" yaml:"min_similarity,omitempty"`
+	Provider      string               `json:"provider"      yaml:"provider,omitempty"`   // "none", "openai", "onnx"
+	ModelName     string               `json:"modelName"     yaml:"model_name,omitempty"` // model name for API
+	Providers     []EmbeddingProvider  `json:"providers"     yaml:"providers,omitempty"`
+	Models        []EmbeddingModel     `json:"models"        yaml:"models,omitempty"`
 }
 
 // ─── Model Routes ─────────────────────────────────────────────────────────────

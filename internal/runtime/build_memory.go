@@ -50,6 +50,8 @@ func (bc *buildContext) buildMemoryEngine() {
 	switch provider {
 	case "openai":
 		emb = bc.createOpenAIEmbedder()
+	case "onnx":
+	// Managed local model is prepared asynchronously below.
 	case "none", "":
 		// No embedding — pure BM25 + KG
 	default:
@@ -66,6 +68,9 @@ func (bc *buildContext) buildMemoryEngine() {
 
 	start := time.Now()
 	bc.memoryEngine = engine.New(bc.sharedDB.DB, &bc.sharedDB.WMu, emb, vecStore, bc.log)
+	bc.embeddingManager = engine.NewVectorManager(bc.sharedDB.DB, &bc.sharedDB.WMu, bc.workDir, engine.VectorOptions{})
+	bc.embeddingManager.Apply(vectorConfiguration(cfg), emb, vecStore)
+	bc.memoryEngine.SetVectorManager(bc.embeddingManager)
 	bc.log.Debug(logger.CatApp, "build: memory engine ready",
 		"duration", time.Since(start).String(),
 		"has_vector", emb != nil,

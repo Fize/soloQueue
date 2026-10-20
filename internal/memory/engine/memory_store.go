@@ -17,6 +17,7 @@ import (
 
 // MemoryStore provides CRUD and BM25 search over mem_entries.
 type MemoryStore struct {
+	vectors  *VectorManager
 	db       *sql.DB
 	mu       *sync.Mutex
 	embedder embedding.Embedder
@@ -73,24 +74,7 @@ func (m *MemoryStore) Save(ctx context.Context, content, date, tags, eventTime s
 
 	m.mu.Unlock()
 
-	// --- Step 2: Embedding + vector upsert (no lock held — vecStore handles its own locking) ---
-	if m.embedder != nil && m.vecStore != nil {
-		results, embErr := m.embedder.Embed(ctx, []string{content})
-		if embErr != nil {
-			m.logWarn("memory save: embed failed", embErr)
-		} else if len(results) > 0 {
-			if upsertErr := m.vecStore.Upsert(ctx, vectorstore.MemoryEntry{
-				ID:        id,
-				Content:   content,
-				Embedding: results[0].Embedding,
-				Timestamp: time.Now().UTC(),
-				Source:    "memoryengine",
-				OwnerType: OwnerL1,
-			}); upsertErr != nil {
-				m.logWarn("memory save: vector upsert failed", upsertErr)
-			}
-		}
-	}
+	m.embed(ctx, id, contentHash, content, OwnerL1, "", ScopeGlobal, "")
 
 	return contentHash, true, nil
 }
@@ -285,6 +269,10 @@ func isSubjectUniqueMemoryType(memoryType string) bool {
 }
 
 func (m *MemoryStore) embed(ctx context.Context, id, sourceHash, content, ownerType, ownerID, scopeType, scopeID string) {
+	if m.vectors != nil {
+		m.vectors.IndexSaved(ctx, id, sourceHash, content, ownerType, ownerID, scopeType, scopeID)
+		return
+	}
 	if m.embedder == nil || m.vecStore == nil {
 		return
 	}

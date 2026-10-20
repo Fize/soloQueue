@@ -222,6 +222,7 @@ type buildContext struct {
 	memoryMgr         *conversation.Manager
 	sharedDB          *db.DB
 	memoryEngine      *engine.Engine
+	embeddingManager  *engine.VectorManager
 	planDir           string
 	mcpServers        []string
 	systemPrompt      string
@@ -340,6 +341,7 @@ func (bc *buildContext) assembleStack() *Stack {
 		SkillRegistry:       bc.skillReg,
 		MemoryManager:       bc.memoryMgr,
 		MemoryEngine:        bc.memoryEngine,
+		Embedding:           bc.embeddingManager,
 		SharedDB:            bc.sharedDB,
 		MCPManager:          bc.mcpMgr,
 		LSPManager:          bc.lspMgr,

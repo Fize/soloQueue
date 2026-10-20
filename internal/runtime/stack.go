@@ -2,6 +2,8 @@
 package runtime
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -56,11 +58,12 @@ type Stack struct {
 	TaskRouter    *router.Router
 	SkillRegistry *skill.SkillRegistry
 	MemoryManager *conversation.Manager // Short-term memory manager
-	MemoryEngine  *engine.Engine        // Memory engine (BM25 + KG + optional vector)
-	SharedDB      *db.DB                // Shared SQLite connection
-	MCPManager    *mcp.Manager          // MCP server manager
-	LSPManager    *lsp.Manager          // Built-in LSP MCP server manager
-	RunWatch      *runwatch.Manager     // Shared progress-aware execution supervisor
+	Embedding     *engine.VectorManager
+	MemoryEngine  *engine.Engine    // Memory engine (BM25 + KG + optional vector)
+	SharedDB      *db.DB            // Shared SQLite connection
+	MCPManager    *mcp.Manager      // MCP server manager
+	LSPManager    *lsp.Manager      // Built-in LSP MCP server manager
+	RunWatch      *runwatch.Manager // Shared progress-aware execution supervisor
 
 	TeamStore *store.Store // DB-backed team/agent store (nil = disabled)
 
@@ -194,6 +197,10 @@ func (s *Stack) Shutdown() {
 		s.LSPManager.Shutdown()
 	}
 
+	if s.Embedding != nil {
+		s.Embedding.Close()
+	}
+
 	// Close the shared SQLite DB last so any flush performed by the stores
 	// above (e.g. future scheduled writes) can still reach disk.
 	if s.SharedDB != nil {
@@ -325,6 +332,9 @@ func (s *Stack) OnConfigChange() error {
 // reload uses this before Loader publishes the candidate, so rejected settings
 // are never visible through GlobalService.Get.
 func (s *Stack) OnSettingsChange(settings config.Settings) error {
+	if err := config.ValidateEmbedding(settings.Embedding); err != nil {
+		return err
+	}
 	s.CfgMu.Lock()
 	defer s.CfgMu.Unlock()
 
@@ -425,6 +435,8 @@ func (s *Stack) rebuildMemoryEngine(settings config.Settings) {
 				}
 			}
 		}
+	case "onnx":
+	// Managed local model is prepared asynchronously below.
 	case "none", "":
 	default:
 		s.Log.Warn(logger.CatConfig, "hot-reload: unknown embedding provider, falling back to none",
@@ -438,18 +450,41 @@ func (s *Stack) rebuildMemoryEngine(settings config.Settings) {
 		)
 	}
 
-	newEngine := engine.New(s.SharedDB.DB, &s.SharedDB.WMu, emb, vecStore, s.Log)
-	s.MemoryEngine = newEngine
-	s.ToolsCfg.MemoryEngine = newEngine
-
-	if s.AgentFactory != nil {
-		s.AgentFactory.SetToolsConfig(s.ToolsCfg)
-		s.AgentFactory.UpdateMemoryEngine(newEngine)
+	if s.Embedding == nil {
+		s.Embedding = engine.NewVectorManager(s.SharedDB.DB, &s.SharedDB.WMu, s.workDir, engine.VectorOptions{})
+		if s.MemoryEngine == nil {
+			s.MemoryEngine = engine.New(s.SharedDB.DB, &s.SharedDB.WMu, nil, nil, s.Log)
+		}
+		s.MemoryEngine.SetVectorManager(s.Embedding)
+		s.ToolsCfg.MemoryEngine = s.MemoryEngine
+		if s.AgentFactory != nil {
+			s.AgentFactory.SetToolsConfig(s.ToolsCfg)
+			s.AgentFactory.UpdateMemoryEngine(s.MemoryEngine)
+		}
 	}
-
-	s.Log.Info(logger.CatConfig, "memory engine hot-reloaded",
-		"provider", cfg.Provider,
-		"has_vector", emb != nil)
+	s.Embedding.Apply(vectorConfiguration(cfg), emb, vecStore)
+}
+func vectorConfiguration(cfg config.EmbeddingConfig) engine.VectorConfig {
+	normalized := config.NormalizeEmbedding(cfg)
+	key := ""
+	settings := config.Settings{Embedding: cfg}
+	if model := defaultEmbeddingModelSettings(settings); model != nil {
+		if provider := embeddingProviderSettings(settings, model.ProviderID); provider != nil {
+			apiKey := provider.APIKey
+			if apiKey == "" && provider.APIKeyEnv != "" {
+				apiKey = os.Getenv(provider.APIKeyEnv)
+			}
+			credentials := sha256.Sum256([]byte(apiKey))
+			identity, _ := json.Marshal(struct {
+				Provider, Endpoint, Model string
+				Dimension                 int
+				Credentials               [32]byte
+				Preprocessing             string
+			}{provider.ID, provider.BaseURL, model.ID, model.Dimension, credentials, "legacy-query-prefix|document-raw"})
+			key = fmt.Sprintf("remote-%x", sha256.Sum256(identity))
+		}
+	}
+	return engine.VectorConfig{Provider: cfg.Provider, Enabled: cfg.Enabled, Model: normalized.Local.Model, Device: normalized.Local.Device, RemoteKey: key}
 }
 
 func modelForTaskSettings(settings config.Settings, task tasktype.TaskType) *config.LLMModel {

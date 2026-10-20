@@ -125,6 +125,7 @@ func DefaultSettings() Settings {
 			},
 		},
 		Embedding: EmbeddingConfig{
+			Local:         LocalEmbeddingConfig{Model: "multilingual-e5-small", Device: "auto"},
 			Enabled:       false,
 			MinSimilarity: 0.65,
 			Providers: []EmbeddingProvider{

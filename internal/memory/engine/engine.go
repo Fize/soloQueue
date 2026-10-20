@@ -45,6 +45,12 @@ func New(db *sql.DB, mu *sync.Mutex, embedder embedding.Embedder, vecStore vecto
 	}
 }
 
+// SetVectorManager attaches the stable runtime service before publishing this engine.
+func (e *Engine) SetVectorManager(manager *VectorManager) {
+	e.store.vectors = manager
+	e.vector.manager = manager
+}
+
 // Save stores a memory and returns its content hash.
 func (e *Engine) Save(ctx context.Context, content, date, tags, eventTime string) (string, bool, error) {
 	return e.store.Save(ctx, content, date, tags, eventTime)

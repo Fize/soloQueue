@@ -949,7 +949,7 @@ func (m *Mux) handleGetEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settings := m.configSvc.Get()
-	m.writeJSON(w, http.StatusOK, settings.Embedding)
+	m.writeJSON(w, http.StatusOK, config.NormalizeEmbedding(settings.Embedding))
 }
 
 // PUT /api/config/embedding
@@ -963,6 +963,11 @@ func (m *Mux) handleUpdateEmbeddingConfig(w http.ResponseWriter, r *http.Request
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	if err := config.ValidateEmbedding(cfg); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	cfg = config.NormalizeEmbedding(cfg)
 	if err := m.configSvc.UpdateEmbedding(cfg); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

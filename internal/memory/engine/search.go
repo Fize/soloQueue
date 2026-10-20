@@ -105,11 +105,21 @@ func (h *HybridSearcher) Search(ctx context.Context, query SearchQuery) (*Search
 	}
 	if len(hashes) > 0 {
 		entries, err := h.store.GetByContentHashesOwned(ctx, hashes, query.OwnerType, query.OwnerID)
-		if err == nil {
+		if err != nil {
+			return nil, err
+		}
+		{
 			entryMap := make(map[string]MemoryEntry, len(entries))
 			for _, e := range entries {
 				entryMap[e.ContentHash] = e
 			}
+			authoritative := make([]SearchResult, 0, len(fused))
+			for _, result := range fused {
+				if _, ok := entryMap[result.ContentHash]; ok {
+					authoritative = append(authoritative, result)
+				}
+			}
+			fused = authoritative
 			for i, r := range fused {
 				if e, ok := entryMap[r.ContentHash]; ok {
 					fused[i].Content = e.Content

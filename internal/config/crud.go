@@ -199,7 +199,37 @@ func (s *GlobalService) UpdateLSPMCP(lspmcp LSPMCPConfig) error {
 }
 
 // UpdateEmbedding replaces the embedding configuration.
+func NormalizeEmbedding(emb EmbeddingConfig) EmbeddingConfig {
+	if emb.Local.Model == "" {
+		emb.Local.Model = "multilingual-e5-small"
+	}
+	// Device selection is automatic in product configuration; the field is
+	// retained for compatibility with previously saved JSON/YAML.
+	emb.Local.Device = "auto"
+	return emb
+}
+func ValidateEmbedding(emb EmbeddingConfig) error {
+	if emb.Local.Model == "" {
+		emb.Local.Model = "multilingual-e5-small"
+	}
+	if emb.Local.Device == "" {
+		emb.Local.Device = "auto"
+	}
+	if emb.Provider == "onnx" {
+		if emb.Local.Model != "multilingual-e5-small" {
+			return fmt.Errorf("unsupported local embedding model: %s", emb.Local.Model)
+		}
+		if emb.Local.Device != "auto" && emb.Local.Device != "cpu" {
+			return fmt.Errorf("unsupported local embedding device: %s", emb.Local.Device)
+		}
+	}
+	return nil
+}
 func (s *GlobalService) UpdateEmbedding(emb EmbeddingConfig) error {
+	if err := ValidateEmbedding(emb); err != nil {
+		return err
+	}
+	emb = NormalizeEmbedding(emb)
 	_, err := s.Set(func(st *Settings) {
 		st.Embedding = emb
 	})
