@@ -2638,6 +2638,11 @@ enqueued:
 				// live remains an ordinary source error and must be forwarded intact.
 				cause := context.Cause(askCtx)
 				if sameTerminalCause(e.Err, cause) {
+					terminalCode = string(runwatch.CodeOf(cause))
+					if terminalCode == "" {
+						terminalCode = "error"
+					}
+					terminalMessage = cause.Error()
 					ev = agent.ErrorEvent{Err: terminalErrorForCause(cause)}
 					sourceTerminal = true
 				}
@@ -2990,6 +2995,12 @@ func (s *Session) CancelCurrent(reason string) error {
 	return s.cancelCurrent(reason, false)
 }
 
+// CancelCurrentByUser is the page's session-wide Stop control. Pending input
+// belongs to the stopped turn and must not leak into a later user request.
+func (s *Session) CancelCurrentByUser(reason string) error {
+	return s.cancelCurrent(reason, true)
+}
+
 func (s *Session) cancelCurrent(reason string, byUser bool) error {
 	s.cancelMu.Lock()
 	type identifiedTurn struct {
@@ -3000,9 +3011,16 @@ func (s *Session) cancelCurrent(reason string, byUser bool) error {
 	for id, turn := range s.activeCancels {
 		turns = append(turns, identifiedTurn{id: id, activeTurnCancel: turn})
 	}
+	pendingCount := 0
+	if byUser && s.pending != nil {
+		pendingCount = len(s.pending.Drain().Parts)
+	}
 	s.cancelMu.Unlock()
 
 	if len(turns) == 0 {
+		if pendingCount > 0 {
+			return nil
+		}
 		return ErrNoActiveTask
 	}
 	for _, turn := range turns {
@@ -3027,7 +3045,7 @@ func (s *Session) cancelCurrent(reason string, byUser bool) error {
 				"target_id", s.TargetID,
 				"active_turns", len(turns),
 			)
-			return nil
+			return errors.New("session: timed out waiting for task cancellation")
 		}
 	}
 

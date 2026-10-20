@@ -88,6 +88,13 @@ export async function listSessions(): Promise<SessionListResponse> {
   return request<SessionListResponse>('/session/list')
 }
 
+export async function cancelSession(sessionId: string): Promise<void> {
+  await request('/session/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId }),
+  })
+}
+
 export async function createL2Session(
   group: string,
   workDir?: string

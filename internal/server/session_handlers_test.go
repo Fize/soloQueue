@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -1188,5 +1189,90 @@ func TestHTTP_SessionHistory_SplitsReplyAtLegacyQueuedInput(t *testing.T) {
 	}
 	if len(second) != 3 || second[0].Text != "checking breakdown risk" || second[1].Result != "market data" || second[2].Text != "answer to both" {
 		t.Fatalf("second reply=%#v", second)
+	}
+}
+
+func TestHTTP_PageStopCancelsAllSourcesAndReleasesQueuedReservations(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	factory := func(context.Context, string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		return agent.NewAgent(agent.Definition{ID: "stop-agent"}, &agenttest.FakeLLM{}, log), ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil
+	}
+	mgr := session.NewSessionManager(factory, log)
+	sess, err := mgr.Init(context.Background(), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := NewMux(workDir, log, WithSessionManager(mgr))
+	defer mux.Close()
+	registry := NewActiveRequestRegistry()
+	mux.hub = &Hub{requests: registry}
+	cancelled := map[string]bool{}
+	for _, source := range []string{"qq", "wechat", "web"} {
+		id := source
+		root, err := registry.Reserve("l1", id, "owner-"+source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := registry.ReserveQueued("l1", "queued-"+id, root.Generation); err != nil {
+			t.Fatal(err)
+		}
+		if err := registry.BindCanceller(id, func() error { cancelled[id] = true; registry.Finalize("l1", id); return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other, err := registry.Reserve("l2:other", "other", "other-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.BindCanceller(other.RequestID, func() error { t.Error("other session cancelled"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	sess.QueueMessage("must never resume", "pending")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, newLocalhostRequest("POST", "/api/session/cancel", strings.NewReader(`{"session_id":"l1"}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	for _, id := range []string{"qq", "wechat", "web"} {
+		if !cancelled[id] {
+			t.Errorf("%s not cancelled", id)
+		}
+		if _, exists := registry.queued["queued-"+id]; exists {
+			t.Errorf("%s queued reservation retained", id)
+		}
+	}
+	if sess.HasPending() {
+		t.Fatal("pending session input retained")
+	}
+	if _, err := registry.Validate("l2:other", "other"); err != nil {
+		t.Fatal("other session changed", err)
+	}
+}
+
+func TestHTTP_PageStopReportsCancellationFailure(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	factory := func(context.Context, string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
+		return agent.NewAgent(agent.Definition{ID: "stop-agent"}, &agenttest.FakeLLM{}, log), ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil
+	}
+	mgr := session.NewSessionManager(factory, log)
+	if _, err := mgr.Init(context.Background(), "default"); err != nil {
+		t.Fatal(err)
+	}
+	mux := NewMux(workDir, log, WithSessionManager(mgr))
+	defer mux.Close()
+	registry := NewActiveRequestRegistry()
+	mux.hub = &Hub{requests: registry}
+	if _, err := registry.Reserve("l1", "qq", "channel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.BindCanceller("qq", func() error { return fmt.Errorf("cancellation failed") }); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, newLocalhostRequest("POST", "/api/session/cancel", strings.NewReader(`{"session_id":"l1"}`)))
+	if recorder.Code != http.StatusInternalServerError || !strings.Contains(recorder.Body.String(), "cancellation failed") {
+		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
 	}
 }

@@ -2671,3 +2671,79 @@ func TestSession_CronOwnerCancellationStopsAttemptAndRollsBack(t *testing.T) {
 		}
 	}
 }
+
+func TestSession_PageStopClearsQueuedInputsAndCancelsAllRoots(t *testing.T) {
+	log, _ := logger.System(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	s := &Session{activeCancels: make(map[string]activeTurnCancel), pending: &PendingQueue{}, logger: log}
+	roots := map[string]context.Context{}
+	for _, id := range []string{"qq", "wechat", "web"} {
+		ctx, cancel := context.WithCancelCause(context.Background())
+		roots[id] = ctx
+		s.registerActiveCancel(id, cancel)
+		go func(id string, ctx context.Context) { <-ctx.Done(); s.unregisterActiveCancel(id) }(id, ctx)
+	}
+	s.QueueMessage("queued input", "queued-id")
+	if err := s.CancelCurrentByUser("page Stop"); err != nil {
+		t.Fatal(err)
+	}
+	if s.HasPending() {
+		t.Fatal("stopped input remains queued")
+	}
+	for id, ctx := range roots {
+		if code := runwatch.CodeOf(context.Cause(ctx)); code != runwatch.CodeCancelledByUser {
+			t.Errorf("%s: code %q", id, code)
+		}
+	}
+	s.QueueMessage("new input", "new-id")
+	if s.pending.Len() != 1 {
+		t.Fatal("new input after Stop was discarded")
+	}
+}
+
+func TestSession_PageStopClearsQueueWithoutActiveRoot(t *testing.T) {
+	log, _ := logger.System(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	s := &Session{activeCancels: make(map[string]activeTurnCancel), pending: &PendingQueue{}, logger: log}
+	s.QueueMessage("stranded input", "queued-id")
+	if err := s.CancelCurrentByUser("page Stop"); err != nil {
+		t.Fatal(err)
+	}
+	if s.HasPending() {
+		t.Fatal("stranded input remains queued")
+	}
+}
+
+func TestSession_PageStopUsesUserCancellationTerminalCode(t *testing.T) {
+	started := make(chan struct{})
+	var once sync.Once
+	fake := &agenttest.FakeLLM{Responses: []string{"cancelled"}, Delay: time.Second, Hook: func(agent.LLMRequest) { once.Do(func() { close(started) }) }}
+	a := startAgent(t, fake)
+	s := NewSession("l1-session", "team", a, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	finished := make(chan string, 1)
+	s.SetRequestLifecycleHooks(RequestLifecycleHooks{
+		OnStart:  func(context.Context, string, string) error { return nil },
+		OnFinish: func(_, _, code, _ string) { finished <- code },
+	})
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "qq-root"})
+	stream, err := s.AskStream(ctx, "cancel me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("LLM did not start")
+	}
+	if err := s.CancelCurrentByUser("page Stop"); err != nil {
+		t.Fatal(err)
+	}
+	for range stream {
+	}
+	select {
+	case code := <-finished:
+		if code != string(runwatch.CodeCancelledByUser) {
+			t.Fatalf("terminal code %q", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing completion")
+	}
+}

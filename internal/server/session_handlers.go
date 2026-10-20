@@ -564,7 +564,10 @@ func (m *Mux) handleCancelSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SessionID string `json:"session_id"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
 
 	sess := m.resolveSession(r.Context(), req.SessionID)
 	if sess == nil {
@@ -572,8 +575,34 @@ func (m *Mux) handleCancelSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = sess.CancelCurrent("User requested cancellation")
-
+	// Capture registered requests before stopping roots: a request may still be
+	// starting, before its Session cancellation root is bound.
+	var requests []ActiveRequest
+	logicalID := logicalRuntimeSessionID(sess.TargetID)
+	if m.hub != nil && m.hub.requests != nil {
+		requests = m.hub.requests.GetBySessionAll(logicalID)
+	}
+	cancelErr := sess.CancelCurrentByUser("User requested cancellation")
+	if errors.Is(cancelErr, session.ErrNoActiveTask) {
+		cancelErr = nil
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	for _, request := range requests {
+		if request.State == "idle" {
+			continue
+		}
+		_, _, err := m.hub.requests.CancelAndWait(ctx, logicalID, request.RequestID)
+		if err != nil && !errors.Is(err, ErrRequestNotFound) {
+			cancelErr = errors.Join(cancelErr, err)
+			continue
+		}
+		m.hub.requests.ReleaseQueuedForGeneration(logicalID, request.Generation)
+	}
+	if cancelErr != nil {
+		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": cancelErr.Error()})
+		return
+	}
 	m.writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 

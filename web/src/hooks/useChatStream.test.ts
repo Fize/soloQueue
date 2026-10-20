@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
+import { toast } from 'sonner'
 import { useChatStream } from './useChatStream'
 import { useChatStore } from '@/stores/chatStore'
 import { wsManager } from '@/lib/websocket'
-import { fetchSessionHistory } from '@/lib/api'
+import { cancelSession, fetchSessionHistory } from '@/lib/api'
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
 vi.mock('@/lib/websocket', () => ({
   wsManager: {
@@ -15,7 +18,7 @@ vi.mock('@/lib/websocket', () => ({
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, fetchSessionHistory: vi.fn() }
+  return { ...actual, fetchSessionHistory: vi.fn(), cancelSession: vi.fn() }
 })
 
 beforeEach(() => {
@@ -35,6 +38,7 @@ beforeEach(() => {
   })
   vi.clearAllMocks()
   vi.mocked(wsManager.send).mockReturnValue(true)
+  vi.mocked(cancelSession).mockResolvedValue(undefined)
   vi.mocked(fetchSessionHistory).mockResolvedValue({
     messages: [],
     has_more: false,
@@ -42,7 +46,7 @@ beforeEach(() => {
 })
 
 describe('useChatStream', () => {
-  it('cancelling a request in session A only affects session A active request', async () => {
+  it('stops every source in session A without stopping session B', async () => {
     const { result } = renderHook(() => useChatStream())
 
     // 1. Send message in session A
@@ -73,20 +77,21 @@ describe('useChatStream', () => {
       useChatStore.setState({ activeSessionId: 'l2:session-A' })
     })
 
-    await act(async () => {
-      result.current.cancel()
+    act(() => {
+      useChatStore.getState().registerRequest('qq-A', 'l2:session-A')
+      useChatStore.getState().registerRequest('wechat-A', 'l2:session-A')
     })
-
-    const cancelCall = vi
-      .mocked(wsManager.send)
-      .mock.calls.find((c) => (c[0] as any).type === 'chat_cancel')
-    expect(cancelCall).toBeDefined()
-    const cancelMsg = cancelCall![0] as any
-
-    // Request ownership is keyed by request id and session id, so cancelling
-    // session A sends reqA, not reqB from session B.
-    expect(cancelMsg.session_id).toBe('l2:session-A')
-    expect(cancelMsg.request_id).toBe(reqA)
+    await act(async () => {
+      await result.current.cancel()
+    })
+    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
+    expect(useChatStore.getState().activeRequests[reqA]).toBeUndefined()
+    expect(useChatStore.getState().activeRequests['qq-A']).toBeUndefined()
+    expect(useChatStore.getState().activeRequests['wechat-A']).toBeUndefined()
+    expect(useChatStore.getState().activeRequests[sendCall2.request_id]).toBeDefined()
+    expect(wsManager.unregisterChat).toHaveBeenCalledWith('qq-A')
+    expect(wsManager.unregisterChat).toHaveBeenCalledWith('wechat-A')
+    expect(vi.mocked(wsManager.send).mock.calls.some(([message]) => message.type === 'chat_cancel')).toBe(false)
   })
 
   it('queues a second prompt while the session is busy', async () => {
@@ -130,7 +135,7 @@ describe('useChatStream', () => {
     expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(true)
   })
 
-  it('cancels the running request instead of a queued follow-up', async () => {
+  it('stops both the running request and its queued follow-up', async () => {
     const { result } = renderHook(() => useChatStream())
 
     await act(async () => {
@@ -148,17 +153,14 @@ describe('useChatStream', () => {
       handlers[1].onAccepted?.()
       handlers[1].onQueued?.({ error: 'session is busy; message queued' })
       expect(useChatStore.getState().activeRequests[queuedRequestId]?.status).toBe('queued')
-      result.current.cancel()
     })
-
-    const cancelMessage = vi
-      .mocked(wsManager.send)
-      .mock.calls.find((call) => (call[0] as any).type === 'chat_cancel')?.[0] as any
-    expect(cancelMessage.request_id).toBe(runningRequestId)
-    expect(cancelMessage.request_id).not.toBe(queuedRequestId)
+    await act(async () => { await result.current.cancel() })
+    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
+    expect(useChatStore.getState().activeRequests[runningRequestId]).toBeUndefined()
+    expect(useChatStore.getState().activeRequests[queuedRequestId]).toBeUndefined()
   })
 
-  it('cancels the root transport request after queued input owns the stream', async () => {
+  it('stops the session after queued input owns the stream', async () => {
     const { result } = renderHook(() => useChatStream())
 
     await act(async () => {
@@ -190,13 +192,9 @@ describe('useChatStream', () => {
       { type: 'content', text: 'queued response' },
     ])
 
-    act(() => result.current.cancel())
+    await act(async () => { await result.current.cancel() })
 
-    const cancelMessage = vi
-      .mocked(wsManager.send)
-      .mock.calls.findLast((call) => (call[0] as any).type === 'chat_cancel')?.[0] as any
-    expect(cancelMessage.request_id).toBe(rootRequestId)
-    expect(cancelMessage.request_id).not.toBe(queuedRequestId)
+    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
     expect(useChatStore.getState().activeRequests[queuedRequestId]).toBeUndefined()
     expect(wsManager.unregisterChat).toHaveBeenCalledWith(queuedRequestId)
   })
@@ -224,14 +222,11 @@ describe('useChatStream', () => {
     expect(useChatStore.getState().activeRequests[requestId]?.status).toBe('streaming')
     expect(useChatStore.getState().messages['l2:session-A']).toHaveLength(2)
 
-    act(() => result.current.cancel())
-    const cancelMessage = vi
-      .mocked(wsManager.send)
-      .mock.calls.findLast((call) => (call[0] as any).type === 'chat_cancel')?.[0] as any
-    expect(cancelMessage.request_id).toBe('req-root')
+    await act(async () => { await result.current.cancel() })
+    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
   })
 
-  it('cancels the original root after two consecutive queue ownership handoffs', async () => {
+  it('stops the session after consecutive queue ownership handoffs', async () => {
     const { result } = renderHook(() => useChatStream())
 
     await act(async () => {
@@ -275,11 +270,8 @@ describe('useChatStream', () => {
       })
     })
 
-    act(() => result.current.cancel())
-    const cancelMessage = vi
-      .mocked(wsManager.send)
-      .mock.calls.findLast((call) => (call[0] as any).type === 'chat_cancel')?.[0] as any
-    expect(cancelMessage.request_id).toBe(rootRequestId)
+    await act(async () => { await result.current.cancel() })
+    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
   })
 
   it('opens one new assistant bubble after an aggregate of queued messages starts', async () => {
@@ -489,8 +481,8 @@ describe('useChatStream', () => {
     expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(1)
     expect(useChatStore.getState().streamingSessions.l1).toBe(true)
 
-    act(() => {
-      result.current.cancel()
+    await act(async () => {
+      await result.current.cancel()
     })
 
     expect(useChatStore.getState().activeRequests).toEqual({})
@@ -645,6 +637,7 @@ describe('useChatStream', () => {
 
   it('keeps an acknowledged request alive across a message-too-large reconnect', async () => {
     vi.mocked(wsManager.send).mockReturnValue(true)
+  vi.mocked(cancelSession).mockResolvedValue(undefined)
     const { result } = renderHook(() => useChatStream())
 
     await act(async () => {
@@ -663,6 +656,7 @@ describe('useChatStream', () => {
 
   it('rejects an oversized prompt before sending it to the socket', async () => {
     vi.mocked(wsManager.send).mockReturnValue(true)
+  vi.mocked(cancelSession).mockResolvedValue(undefined)
     const { result } = renderHook(() => useChatStream())
 
     await act(async () => {
@@ -678,6 +672,7 @@ describe('useChatStream', () => {
 
   it('rejects an oversized chat envelope before sending it to the socket', async () => {
     vi.mocked(wsManager.send).mockReturnValue(true)
+  vi.mocked(cancelSession).mockResolvedValue(undefined)
     const { result } = renderHook(() => useChatStream())
 
     await act(async () => {
@@ -692,4 +687,45 @@ describe('useChatStream', () => {
       { type: 'error', text: 'Message is too large. Maximum WebSocket message size is 8 MiB.' },
     ])
   })
+})
+
+it('keeps task controls available when session Stop fails', async () => {
+  const store = useChatStore.getState()
+  store.registerRequest('qq-running', 'l2:session-A')
+  store.updateRequestStatus('qq-running', 'streaming')
+  store.setStreaming(true, 'l2:session-A')
+  vi.mocked(cancelSession).mockRejectedValueOnce(new Error('Stop connection failed'))
+  const { result } = renderHook(() => useChatStream())
+  await act(async () => { await result.current.cancel() })
+  expect(useChatStore.getState().activeRequests['qq-running']?.status).toBe('streaming')
+  expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(true)
+  expect(wsManager.unregisterChat).not.toHaveBeenCalled()
+  expect(toast.error).toHaveBeenCalledWith('Stop connection failed')
+})
+
+it('keeps the live request until the server acknowledges Stop', async () => {
+  const store = useChatStore.getState()
+  store.registerRequest('qq-running', 'l2:session-A')
+  store.updateRequestStatus('qq-running', 'streaming')
+  store.setStreaming(true, 'l2:session-A')
+  let acknowledge!: () => void
+  vi.mocked(cancelSession).mockReturnValueOnce(new Promise<void>((resolve) => { acknowledge = resolve }))
+  const { result } = renderHook(() => useChatStream())
+  let stopping!: Promise<void>
+  act(() => { stopping = result.current.cancel() })
+  expect(useChatStore.getState().activeRequests['qq-running']?.status).toBe('streaming')
+  expect(wsManager.unregisterChat).not.toHaveBeenCalled()
+  await act(async () => { acknowledge(); await stopping })
+  expect(useChatStore.getState().activeRequests['qq-running']).toBeUndefined()
+  expect(fetchSessionHistory).toHaveBeenCalled()
+})
+
+it('stops a runtime-only channel request after page reload', async () => {
+  const { useRuntimeStore } = await import('@/stores/runtimeStore')
+  useRuntimeStore.setState({ status: { sessions: { channel: { session_id: 'l2:session-A', request_id: 'runtime-qq' } } } as never })
+  const { result } = renderHook(() => useChatStream())
+  await act(async () => { await result.current.cancel() })
+  expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
+  expect(wsManager.unregisterChat).toHaveBeenCalledWith('runtime-qq')
+  useRuntimeStore.setState({ status: null })
 })

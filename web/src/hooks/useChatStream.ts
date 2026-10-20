@@ -3,6 +3,8 @@ import { useChatStore } from '@/stores/chatStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { runtimeSessionId } from '@/stores/runtimeStore'
 import { wsManager } from '@/lib/websocket'
+import { cancelSession } from '@/lib/api'
+import { toast } from 'sonner'
 import type { ChatHandler } from '@/lib/websocket'
 
 function generateRequestId(): string {
@@ -407,58 +409,47 @@ export function useChatStream() {
     ]
   )
 
-  const cancel = useCallback(() => {
+  const cancel = useCallback(async () => {
     const sid = activeSessionId
     if (!sid) return
 
     const store = useChatStore.getState()
-    const activeRequest = Object.values(store.activeRequests)
-      .filter((request) => request.sessionId === sid && request.status !== 'queued')
-      .at(-1)
-    const requestId =
-      activeRequest?.requestId ||
-      store.routeSessions[sid]?.requestId ||
-      Object.entries(useRuntimeStore.getState().status?.sessions ?? {}).find(
-        ([key, runtime]) =>
-          runtimeSessionId(key, runtime) === sid &&
-          runtime.state !== 'idle' &&
-          runtime.state !== 'error'
-      )?.[1]?.request_id
-    if (!requestId) return
-    const cancelRequestId = activeRequest?.cancelRequestId || requestId
+    const requests = Object.values(store.activeRequests).filter((request) => request.sessionId === sid)
+    const requestIds = new Set(requests.map((request) => request.requestId))
+    const routeId = store.routeSessions[sid]?.requestId
+    if (routeId) requestIds.add(routeId)
+    for (const [key, runtime] of Object.entries(useRuntimeStore.getState().status?.sessions ?? {})) {
+      if (runtimeSessionId(key, runtime) === sid && runtime.request_id) requestIds.add(runtime.request_id)
+    }
+    // Page Stop controls the whole session, including channel-owned roots.
+    // The request-owned WebSocket cancel path deliberately cannot do this.
+    try {
+      await cancelSession(sid)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to stop tasks')
+      return
+    }
 
     store.cancelRunningDelegations(sid)
-    cancelRequested.current.add(requestId)
-    store.updateRequestStatus(requestId, 'cancelling')
-    store.removeRequest(requestId)
+    for (const requestId of requestIds) {
+      store.removeRequest(requestId)
+      wsManager.unregisterChat(requestId)
+      cancelRequested.current.delete(requestId)
+    }
     const remaining = Object.values(useChatStore.getState().activeRequests).filter(
       (request) => request.sessionId === sid
     )
-    // Only clear session-level indicators when this was the last request.
-    // L1 is allowed to have multiple in-flight requests concurrently.
     if (remaining.length === 0) {
       store.setStreaming(false, sid)
       store.setDelegating(false, sid)
       store.setSystemCommandRunning(false, sid)
-      store.clearRoute(sid, requestId)
-    } else if (store.routeSessions[sid]?.requestId === requestId) {
+      if (routeId) store.clearRoute(sid, routeId)
+    } else if (routeId && requestIds.has(useChatStore.getState().routeSessions[sid]?.requestId ?? '')) {
       const fallbackRoute = [...remaining].reverse().find((request) => request.route)?.route
       if (fallbackRoute) store.setRoute(fallbackRoute)
-      else store.clearRoute(sid, requestId)
+      else store.clearRoute(sid, routeId)
     }
-    // A queued request may borrow the root request's transport. Its own
-    // handler will not receive the root's terminal envelope, so detach it.
-    // For a directly owned transport keep the handler to consume chat_done
-    // and reload the persisted partial reply.
-    if (cancelRequestId !== requestId) {
-      cancelRequested.current.delete(requestId)
-      wsManager.unregisterChat(requestId)
-    }
-    wsManager.send({
-      type: 'chat_cancel',
-      request_id: cancelRequestId,
-      session_id: sid,
-    })
+    await useChatStore.getState().loadHistory(sid)
   }, [activeSessionId])
 
   return { send, cancel }
