@@ -160,7 +160,22 @@ func (m *VectorManager) remoteNamespace(identity string, legacy vectorstore.Vect
 
 func (m *VectorManager) apply(cfg VectorConfig, remote embedding.Embedder, legacy vectorstore.VectorStore, force, rebuild bool) {
 	m.mu.Lock()
-	if m.closed || (!force && m.cfg == cfg) {
+	if m.closed {
+		m.mu.Unlock()
+		return
+	}
+	if !force && m.cfg == cfg {
+		// Model/provider activation changes availability, not vector identity.
+		// Refresh remote resources while keeping the namespace and local lifecycle.
+		if cfg.Provider == "openai" {
+			m.remote = remote
+			m.legacy = legacy
+			m.status = EmbeddingStatus{Provider: cfg.Provider, State: "disabled", Model: "remote", Device: cfg.Device}
+			if remote != nil && legacy != nil {
+				m.status.State = "ready"
+				m.status.Dimension = remote.Dimension()
+			}
+		}
 		m.mu.Unlock()
 		return
 	}

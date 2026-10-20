@@ -545,3 +545,54 @@ func TestManagedBackgroundDatabaseFailurePropagates(t *testing.T) {
 		t.Fatal("background SQLite corruption was hidden as unavailable local inference")
 	}
 }
+
+func TestManagedRemoteActivationRefreshKeepsNamespace(t *testing.T) {
+	db, mu := openTestDB(t)
+	e := New(db, mu, nil, nil, nil)
+	ctx := context.Background()
+	hash, _, err := e.Save(ctx, "remote activation memory", "2026-01-01", "", "2026-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := vectorstore.NewSQLiteStoreFromDB(db, mu, vectorstore.WithTableName("mem_vec"))
+	if err := legacy.Upsert(ctx, vectorstore.MemoryEntry{ID: hash[:16], Source: hash, Content: "remote activation memory", OwnerType: OwnerL1, ScopeType: ScopeGlobal, Embedding: testLocalBatch([]string{"x"}).Results[0].Embedding}); err != nil {
+		t.Fatal(err)
+	}
+	remote := &managedRemoteRecorder{}
+	m := NewVectorManager(db, mu, t.TempDir(), VectorOptions{})
+	defer m.Close()
+	cfg := VectorConfig{Provider: "openai", RemoteKey: "unchanged-model-provider-identity", Enabled: false}
+	query := SearchQuery{Text: "activation", OwnerType: OwnerL1}
+	m.Apply(cfg, remote, legacy)
+	if results, err := m.Search(ctx, query, 5); err != nil || len(results) != 1 {
+		t.Fatal(results, err)
+	}
+	for _, activation := range []string{"model", "provider"} {
+		t.Run(activation, func(t *testing.T) {
+			before := len(remote.texts)
+			// Runtime supplies no client/store when either model or provider is disabled.
+			m.Apply(cfg, nil, nil)
+			if m.Enabled() || m.Status().State != "disabled" {
+				t.Fatal("disabled remote remains active", m.Status())
+			}
+			if results, err := m.Search(ctx, query, 5); err != nil || len(results) != 0 {
+				t.Fatal(results, err)
+			}
+			m.IndexSaved(ctx, hash[:16], hash, "remote activation memory", OwnerL1, "", ScopeGlobal, "")
+			if len(remote.texts) != before {
+				t.Fatal("disabled remote made paid embedding calls")
+			}
+			m.Apply(cfg, remote, legacy)
+			if !m.Enabled() || m.Status().State != "ready" {
+				t.Fatal("re-enabled remote remains unavailable", m.Status())
+			}
+			if results, err := m.Search(ctx, query, 5); err != nil || len(results) != 1 || results[0].ContentHash != hash {
+				t.Fatal("re-enable lost namespace", results, err)
+			}
+			m.IndexSaved(ctx, hash[:16], hash, "remote activation memory", OwnerL1, "", ScopeGlobal, "")
+			if len(remote.texts) != before+2 {
+				t.Fatal("re-enabled queries/writes unavailable", remote.texts)
+			}
+		})
+	}
+}

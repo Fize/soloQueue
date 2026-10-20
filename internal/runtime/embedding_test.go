@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -95,5 +98,90 @@ func TestProductionEmbeddingDeviceAlwaysAutomatic(t *testing.T) {
 	cfg.Local.Device = "cpu"
 	if vectorConfiguration(cfg).Device != "auto" {
 		t.Fatal("saved compatibility device bypassed automatic selection")
+	}
+}
+
+func TestRemoteModelAndProviderActivationHotReload(t *testing.T) {
+	var requests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		vector := make([]float32, 384)
+		vector[0] = 1
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"index": 0, "embedding": vector}}})
+	}))
+	defer upstream.Close()
+	dir := t.TempDir()
+	shared, err := db.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shared.Close()
+	log, err := logger.System(dir, logger.WithConsole(false), logger.WithFile(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	settings := config.DefaultSettings()
+	settings.Embedding.Provider = "openai"
+	settings.Embedding.Enabled = false
+	settings.Embedding.Providers[0].Enabled = true
+	settings.Embedding.Providers[0].BaseURL = upstream.URL
+	settings.Embedding.Models[0].Enabled = true
+	settings.Embedding.Models[0].Dimension = 384
+	stack := &Stack{SharedDB: shared, Log: log, workDir: dir}
+	stack.rebuildMemoryEngine(settings)
+	defer stack.Embedding.Close()
+	manager := stack.Embedding
+	hash, _, err := stack.MemoryEngine.Save(context.Background(), "remote hot reload memory", "2026-01-01", "", "2026-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := engine.SearchQuery{Text: "memory", OwnerType: engine.OwnerL1}
+	identity := vectorConfiguration(settings.Embedding)
+	for _, toggle := range []string{"model", "provider"} {
+		t.Run(toggle, func(t *testing.T) {
+			if toggle == "model" {
+				settings.Embedding.Models[0].Enabled = false
+			} else {
+				settings.Embedding.Providers[0].Enabled = false
+			}
+			if vectorConfiguration(settings.Embedding) != identity {
+				t.Fatal("activation changed vector identity")
+			}
+			stack.rebuildMemoryEngine(settings)
+			before := requests.Load()
+			if manager.Enabled() {
+				t.Fatal("disabled remote still enabled")
+			}
+			results, err := manager.Search(context.Background(), query, 5)
+			if err != nil || len(results) != 0 {
+				t.Fatal(results, err)
+			}
+			manager.IndexSaved(context.Background(), hash[:16], hash, "remote hot reload memory", engine.OwnerL1, "", engine.ScopeGlobal, "")
+			if requests.Load() != before {
+				t.Fatal("disabled remote made embedding requests")
+			}
+			if toggle == "model" {
+				settings.Embedding.Models[0].Enabled = true
+			} else {
+				settings.Embedding.Providers[0].Enabled = true
+			}
+			stack.rebuildMemoryEngine(settings)
+			if !manager.Enabled() || manager.Status().State != "ready" {
+				t.Fatal("re-enabled remote unavailable", manager.Status())
+			}
+			results, err = manager.Search(context.Background(), query, 5)
+			if err != nil || len(results) != 1 || results[0].ContentHash != hash {
+				t.Fatal("same namespace not restored", results, err)
+			}
+			manager.IndexSaved(context.Background(), hash[:16], hash, "remote hot reload memory", engine.OwnerL1, "", engine.ScopeGlobal, "")
+			if requests.Load() != before+2 {
+				t.Fatal("re-enabled query/write not restored", requests.Load(), before)
+			}
+			if stack.Embedding != manager {
+				t.Fatal("hot reload replaced stable manager")
+			}
+		})
 	}
 }
