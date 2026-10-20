@@ -130,5 +130,5 @@ jobs:
             # actual Windows primitive directly without compiling that fixture.
             go test internal/server/changes_open_windows.go internal/server/changes_open_test.go -v
           else
-            go test ./internal/server -run '^TestOpenChangeFileNoFollow$' -v
+            go test internal/server/changes_open_unix.go internal/server/changes_open_test.go -v
           fi
