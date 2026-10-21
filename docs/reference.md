@@ -53,7 +53,7 @@ model_routes:
 | `agent` | Internal agent tool and MCP server settings |
 | `qqbots` / `wechat_bots` / `telegram_bots` | Credentials and session bindings for QQ, WeChat, and Telegram channels |
 | `lspmcp` | Language server binary paths, arguments, and language/file extension bindings |
-| `embedding` | Vector embedding provider and model settings (optional) |
+| `embedding` | Long-term memory retrieval and embedding model settings |
 | `speech` | Optional local speech-to-text settings using whisper.cpp |
 
 ### Field-by-field reference
@@ -122,7 +122,7 @@ Route values use `provider-id:model-id` and must refer to enabled entries above.
 | `qqbots[]` | QQ account fields: `id`, `name`, `enabled`, `app_id`, `app_secret`, `intents`, `sandbox`, `bind_type`, `bind_agent`, `whitelist_enabled`, and `whitelist`. |
 | `wechat_bots[]` | WeChat iLink account fields: `id`, `name`, `enabled`, `bot_token`, `bot_id`, `base_url`, `bot_agent`, `bind_type`, `bind_agent`, `whitelist_enabled`, and `whitelist`. |
 | `telegram_bots[]` | Telegram account fields: `id`, `name`, `enabled`, `bot_token`, `bot_id`, `username`, `bind_type`, `bind_agent`, `whitelist_enabled`, and `whitelist`. |
-| `embedding.enabled`, `embedding.min_similarity`, `embedding.provider`, `embedding.model_name` | Enable vector embeddings, set the similarity threshold (default: `0.65`), provider type (`none` or `openai`), and model name. Embedding is disabled by default. |
+| `embedding.enabled`, `embedding.min_similarity`, `embedding.provider`, `embedding.model_name` | Control long-term memory (off by default), set the similarity threshold (default: `0.65`), embedding source (`none`: BM25 + knowledge graph only; `onnx`: add local vectors; `openai`: add remote vectors), and remote model name. |
 | `embedding.providers[]` | Embedding provider fields: `id`, `name`, `base_url`, `api_key`, `api_key_env`, and `enabled`. |
 | `embedding.models[]` | Embedding model fields: `id`, `provider_id`, `name`, `dimension`, `batch_size`, `normalize`, `enabled`, and `is_default`. |
 | `lspmcp.servers[]` | Overrides built-in LSP servers by `id`; entries have `command`, `args`, `languages`, `extensions`, and `disabled`. An empty list uses all built-in servers. |

@@ -53,7 +53,7 @@ model_routes:
 | `agent` | 内置工具与 MCP Server 授权许可 |
 | `qqbots` / `wechat_bots` / `telegram_bots` | QQ、微信和 Telegram 渠道的凭据及 Session 绑定 |
 | `lspmcp` | 语言服务器二进制路径、参数及语言/扩展名绑定 |
-| `embedding` | 向量 Embedding Provider 及模型设置（可选） |
+| `embedding` | 长期记忆检索及嵌入模型设置 |
 | `speech` | 基于 whisper.cpp 的可选本地语音转写设置 |
 
 ### 配置字段详解
@@ -122,7 +122,7 @@ model_routes:
 | `qqbots[]` | QQ 账号字段：`id`、`name`、`enabled`、`app_id`、`app_secret`、`intents`、`sandbox`、`bind_type`、`bind_agent`、`whitelist_enabled`、`whitelist`。 |
 | `wechat_bots[]` | 微信 iLink 账号字段：`id`、`name`、`enabled`、`bot_token`、`bot_id`、`base_url`、`bot_agent`、`bind_type`、`bind_agent`、`whitelist_enabled`、`whitelist`。 |
 | `telegram_bots[]` | Telegram 账号字段：`id`、`name`、`enabled`、`bot_token`、`bot_id`、`username`、`bind_type`、`bind_agent`、`whitelist_enabled`、`whitelist`。 |
-| `embedding.enabled`、`embedding.min_similarity`、`embedding.provider`、`embedding.model_name` | 启用向量 Embedding、设置相似度阈值（默认 `0.65`）、Provider 类型（`none` 或 `openai`）及模型名称。默认关闭。 |
+| `embedding.enabled`、`embedding.min_similarity`、`embedding.provider`、`embedding.model_name` | 控制长期记忆（默认关闭）、设置相似度阈值（默认 `0.65`）、嵌入来源（`none`：仅 BM25 + 知识图谱；`onnx`：增加本地向量；`openai`：增加远程向量）及远程模型名称。 |
 | `embedding.providers[]` | Embedding Provider 字段：`id`、`name`、`base_url`、`api_key`、`api_key_env`、`enabled`。 |
 | `embedding.models[]` | Embedding Model 字段：`id`、`provider_id`、`name`、`dimension`、`batch_size`、`normalize`、`enabled`、`is_default`。 |
 | `lspmcp.servers[]` | 按 `id` 覆盖内置 LSP Server；每项包含 `command`、`args`、`languages`、`extensions`、`disabled`。列表为空时使用全部内置 Server。 |

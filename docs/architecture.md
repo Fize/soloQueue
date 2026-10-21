@@ -114,7 +114,7 @@ These stores have distinct roles: the context window is the active model input; 
 
 - **Active context** (`internal/memory/ctxwin`) tracks tokens and compacts older history at configured thresholds. Before a request is sent to a provider, malformed orphaned tool-call/result pairs are filtered from the payload.
 - **Conversation summaries** (`internal/memory/conversation`) preserve selected context across compaction as Markdown under the work directory.
-- **Long-term retrieval** (`internal/memory/engine`) combines SQLite FTS5/BM25 search with a knowledge graph. Vector retrieval is optional and requires an embedding provider.
+- **Long-term retrieval** (`internal/memory/engine`) is off by default. When enabled, it combines SQLite FTS5/BM25 search with a knowledge graph, with optional semantic retrieval through local ONNX embeddings or a remote embedding service.
 - **Timeline** (`internal/memory/timeline`) stores append-only JSONL events for conversation replay and execution history. System prompts are not written to the timeline.
 
 ## Integrations

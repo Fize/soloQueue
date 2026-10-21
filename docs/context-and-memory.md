@@ -49,6 +49,8 @@ For the L1 path, the context summary hook also emits one consolidated summary ev
 
 ## Long-term memory engine
 
+Long-term memory is off by default. When enabled, it combines BM25 keyword search with a knowledge graph. Optional vector search adds semantic matching through local ONNX embeddings or a remote embedding service. Local ONNX inference runs on the device and can work offline after the model is downloaded. Turning long-term memory off stops its reads and writes while preserving saved memories.
+
 ### Admission and ownership
 
 Long-term memory is separate from the daily Markdown summaries. The engine validates candidate content, owner, scope, type, source, time fields, and replacement metadata before storing it. It canonicalizes content for deduplication; automatic candidates have a size limit, and routine task-result records are skipped unless explicitly requested by the user. Supported memory types include preferences, decisions, stable facts, and reusable solutions.
@@ -59,7 +61,7 @@ Agent tools receive an immutable `Access` capability bound to an owner and scope
 
 The hybrid searcher runs BM25, knowledge-graph, and (when configured) vector search concurrently. It fuses ranked lists with Reciprocal Rank Fusion, hydrates results from the authoritative memory store, filters by time, lifecycle status, and scope, applies query-time salience decay, and trims to the requested limit. Entity queries may also return relevant graph edges.
 
-The graph and BM25 search run without an embedding provider. Vector retrieval is optional: runtime construction enables it only when an embedding provider/model is configured and available. Vector search fails closed when the store cannot enforce owner/scope filters. Shared SQLite stores memory entries and graph records; optional vector entries use the configured vector table in that shared database.
+When long-term memory is enabled, the graph and BM25 search work without an embedding provider. Vector retrieval is added when the selected local ONNX model or remote embedding service is ready. Vector search fails closed when the store cannot enforce owner/scope filters. Shared SQLite stores memory entries and graph records; optional vector entries use the configured vector table in that shared database.
 
 ## Storage and code map
 
