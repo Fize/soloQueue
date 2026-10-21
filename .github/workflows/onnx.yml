@@ -2,7 +2,7 @@ name: Native ONNX embedding
 on:
   workflow_dispatch:
   push:
-    branches: [codex/onnx-embedding]
+    branches: [main]
     paths: &onnx-paths
       - 'native/embedding/**'
       - 'internal/memory/engine/**'

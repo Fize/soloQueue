@@ -4,6 +4,58 @@ Notable changes are recorded here for each release in English and Simplified Chi
 
 ## [Unreleased]
 
+### Added
+
+- Added local ONNX embeddings using the pinned official `multilingual-e5-small` model. First activation downloads the model and ONNX Runtime with SHA-256 verification; cached artifacts support offline restarts. Available GPU acceleration is preferred automatically, with CPU fallback.
+- Added isolated, resumable memory indexing and settings-page preparation/indexing status, retry, cancellation, and index rebuilding. Raw memories are preserved; changing remote model profiles isolates their vectors without automatically reindexing through a paid API.
+- Added four mutually exclusive long-term-memory modes: OFF (default), BM25 + knowledge graph, BM25 + knowledge graph + local ONNX, and BM25 + knowledge graph + remote API.
+- Added native worker packaging for macOS ARM64, Linux x86_64, and Windows x86_64, plus a three-platform CI gate for real CPU/reference parity, exact tokenization and truncation, automatic-provider fallback, managed indexing, and offline restart.
+
+### Fixed
+
+- Split chat replies at queued-input boundaries and made Stop cancel all message sources in the current session.
+- Restored WeChat proactive notifications using saved credentials and established recipient routes after restart. A valid account binding and route are still required; acceptance by WeChat does not guarantee delivery.
+- Fixed embedding model/provider activation on hot reload, kept healthy workers running after queued-query cancellation or rejected input, and corrected runtime-library discovery and backend state after failed CPU fallback.
+- Preserved executable permissions in cross-platform release archives.
+
+### Improved
+
+- Persisted context-compaction status across history reloads, serialized compaction runs, and added a 16K-token output limit, bounded retries, and a five-minute timeout. Completion notices dismiss after five seconds.
+- Replaced forced JSON clarification responses with concise natural-language questions for unresolved blocking information.
+- Made OFF drain admitted memory operations before returning, so already-bound L1/L2 tools cannot continue reading or writing long-term memory after OFF completes.
+
+### Compatibility notes
+
+- `embedding.enabled=false` now disables the entire durable long-term-memory engine, including BM25, knowledge graph, and vectors. Previously, remote embeddings could remain active with this flag false. Select an enabled mode to resume; stored memories, indexes, provider credentials, and model settings are preserved. Short-term conversation memory and event timeline logging are unchanged.
+- The macOS Intel application remains available, but its local ONNX mode is unsupported by the pinned Runtime package. Linux ARM64 Docker packaging uses CPU inference and is outside the three-runner native gate.
+- CUDA and DirectML acceleration depend on compatible hardware and runtime dependencies. Provider-capable packages and CPU fallback are tested; hosted CI does not establish CUDA or DirectML GPU hardware execution.
+
+### 新增
+
+- 新增基于固定版本官方 `multilingual-e5-small` 模型的本地 ONNX 嵌入。首次启用时下载模型与 ONNX Runtime，并校验 SHA-256；缓存完成后支持离线重启。默认自动优先使用可用的 GPU 加速，不可用时回退 CPU。
+- 新增隔离、可恢复的记忆索引，以及设置页中的准备和索引状态、重试、取消与重建索引操作。保留原始记忆；切换远程模型配置时隔离向量，不自动调用付费 API 重建索引。
+- 新增四项互斥的长期记忆模式：关闭（默认）、BM25 + 知识图谱、BM25 + 知识图谱 + 本地 ONNX、BM25 + 知识图谱 + 远程 API。
+- 新增 macOS ARM64、Linux x86_64 和 Windows x86_64 原生 worker 打包，以及覆盖真实 CPU/参考模型一致性、精确分词与截断、自动执行后端回退、托管索引和离线重启的三平台 CI 门禁。
+
+### 修复
+
+- 按排队输入边界拆分聊天回复，并使“停止”取消当前会话中所有消息来源的任务。
+- 恢复微信主动通知：重启后复用已保存的凭证与已建立的接收方路由。仍需有效的账号绑定和路由；微信接口受理不代表消息必定送达。
+- 修复嵌入模型和提供商启用状态的热重载；排队查询取消或输入被拒绝时保留健康 worker；修正 Runtime 库定位及 CPU 回退失败后的执行后端状态。
+- 保留跨平台发布归档中的可执行权限。
+
+### 改进
+
+- 持久化上下文压缩状态并在加载历史时恢复，串行执行压缩，增加 16K token 输出上限、有界重试和五分钟超时；完成提示在五秒后自动消失。
+- 不再强制使用 JSON 请求澄清；对无法自行确定的阻塞信息，改用简洁的自然语言提问。
+- 关闭长期记忆时等待已获准操作完成，保证关闭返回后，既有 L1/L2 工具不再继续读取或写入长期记忆。
+
+### 兼容性说明
+
+- `embedding.enabled=false` 现在关闭整个长期记忆引擎，包括 BM25、知识图谱和向量检索。此前该标志为 false 时，远程嵌入仍可能运行。选择任一启用模式即可恢复；已存记忆、索引、提供商凭证和模型设置均保留。短期会话记忆和事件时间线日志不受影响。
+- macOS Intel 应用仍可使用，但固定版本的 Runtime 包不支持其本地 ONNX 模式。Linux ARM64 Docker 打包使用 CPU 推理，不在三平台原生门禁范围内。
+- CUDA 和 DirectML 加速取决于兼容硬件及运行依赖。测试覆盖支持相应执行后端的 Runtime 包与 CPU 回退，但托管 CI 不证明 CUDA 或 DirectML GPU 硬件上的执行。
+
 ## [0.2.2] - 2026-10-16
 
 ### Fixed
