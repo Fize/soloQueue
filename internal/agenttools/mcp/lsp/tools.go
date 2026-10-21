@@ -44,28 +44,31 @@ func (t *LSPTool) Execute(ctx context.Context, args string) (string, error) {
 	var err error
 	var uri string
 	var pos Position
+	var release func()
 
 	if in.File != "" {
-		client, err = t.manager.clientForFile(ctx, in.File)
+		client, release, err = t.manager.acquireForFile(ctx, in.File)
 		if err != nil {
 			t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "file", in.File, "err", err.Error())
 			return "", err
 		}
+		defer release()
 		uri = PathToURI(in.File)
 		pos = Position{
 			Line:      in.Line - 1,
 			Character: in.Character - 1,
 		}
-		if err := t.manager.ensureOpen(client, in.File, uri); err != nil {
+		if err := t.manager.ensureOpenContext(ctx, client, in.File, uri); err != nil {
 			t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "file", in.File, "err", err.Error())
 			return "", fmt.Errorf("ensureOpen: %w", err)
 		}
 	} else {
-		client, err = t.manager.GetAnyClient(ctx)
+		client, release, err = t.manager.acquireAny(ctx)
 		if err != nil {
 			t.log.Warn(logger.CatMCP, "lsp tool error", "tool", t.action, "err", err.Error())
 			return "", err
 		}
+		defer release()
 	}
 
 	t.log.Debug(logger.CatMCP, "lsp tool called",

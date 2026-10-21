@@ -273,9 +273,10 @@ type TextDocumentClientCapabilities struct {
 		DynamicRegistration               bool `json:"dynamicRegistration,omitempty"`
 		HierarchicalDocumentSymbolSupport bool `json:"hierarchicalDocumentSymbolSupport,omitempty"`
 	} `json:"documentSymbol,omitempty"`
-	Implementation *BoolCapability `json:"implementation,omitempty"`
-	CallHierarchy  *BoolCapability `json:"callHierarchy,omitempty"`
-	Diagnostic     *BoolCapability `json:"diagnostic,omitempty"`
+	Implementation     *BoolCapability `json:"implementation,omitempty"`
+	CallHierarchy      *BoolCapability `json:"callHierarchy,omitempty"`
+	Diagnostic         *BoolCapability `json:"diagnostic,omitempty"`
+	PublishDiagnostics *struct{}       `json:"publishDiagnostics,omitempty"`
 }
 
 type SynchronizationCapability struct {
@@ -299,6 +300,9 @@ type InitializeResult struct {
 }
 
 type ServerCapabilities struct {
+	ExecuteCommandProvider *struct {
+		Commands []string `json:"commands"`
+	} `json:"executeCommandProvider,omitempty"`
 	TextDocumentSync        *TextDocumentSyncOptions `json:"textDocumentSync,omitempty"`
 	HoverProvider           any                      `json:"hoverProvider,omitempty"`
 	DefinitionProvider      any                      `json:"definitionProvider,omitempty"`
@@ -314,6 +318,22 @@ type TextDocumentSyncOptions struct {
 	OpenClose bool `json:"openClose,omitempty"`
 	Change    int  `json:"change,omitempty"` // 0=None, 1=Full, 2=Incremental
 	Save      any  `json:"save,omitempty"`
+}
+
+// UnmarshalJSON accepts both forms allowed by LSP: a sync kind or options.
+func (o *TextDocumentSyncOptions) UnmarshalJSON(data []byte) error {
+	var kind int
+	if err := json.Unmarshal(data, &kind); err == nil {
+		*o = TextDocumentSyncOptions{Change: kind}
+		return nil
+	}
+	type options TextDocumentSyncOptions
+	var decoded options
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*o = TextDocumentSyncOptions(decoded)
+	return nil
 }
 
 type ServerInfo struct {

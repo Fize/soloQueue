@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,12 @@ import (
 
 // DefaultTimeout is the default timeout for LSP requests.
 const DefaultTimeout = 30 * time.Second
+
+type documentDiagnostics struct {
+	version int
+	items   []Diagnostic
+	ready   chan struct{}
+}
 
 // Client manages a single LSP server connection.
 type Client struct {
@@ -35,11 +42,17 @@ type Client struct {
 	serverCaps  ServerCapabilities
 	reqID       atomic.Int64
 	pending     map[int64]chan *Response // request ID -> response channel
+	diagnostics map[string]*documentDiagnostics
 	shutdown    chan struct{}
 
-	languageID string
-	rootURI    string
-	done       chan struct{}
+	languageID            string
+	rootURI               string
+	done                  chan struct{}
+	processDone           chan struct{}
+	stopOnce              sync.Once
+	documentsMu           sync.Mutex
+	initializationOptions any
+	vue                   *vueBridge
 }
 
 // NewClient creates a new LSP client. Command and args are the LSP server binary.
@@ -59,23 +72,26 @@ func NewClientWithExecutor(
 		executor = tools.NewExecutor()
 	}
 	return &Client{
-		id:         id,
-		languageID: languageID,
-		rootURI:    rootURI,
-		command:    command,
-		args:       args,
-		workDir:    workDir,
-		executor:   executor,
-		pending:    make(map[int64]chan *Response),
-		shutdown:   make(chan struct{}),
-		done:       make(chan struct{}),
-		log:        log,
+		id:          id,
+		languageID:  languageID,
+		rootURI:     rootURI,
+		command:     command,
+		args:        args,
+		workDir:     workDir,
+		executor:    executor,
+		pending:     make(map[int64]chan *Response),
+		shutdown:    make(chan struct{}),
+		done:        make(chan struct{}),
+		processDone: make(chan struct{}),
+		log:         log,
 	}
 }
 
 // Start launches the LSP subprocess and sends initialize request.
 func (c *Client) Start(ctx context.Context) error {
-	process, err := c.executor.StartProcess(ctx, tools.ProcessSpec{
+	// A lazily started server outlives the tool call that first needs it.
+	// Initialization still uses ctx; Stop owns process cleanup on failure/shutdown.
+	process, err := c.executor.StartProcess(context.WithoutCancel(ctx), tools.ProcessSpec{
 		Command:          c.command,
 		Args:             c.args,
 		WorkingDirectory: c.workDir,
@@ -95,6 +111,7 @@ func (c *Client) Start(ctx context.Context) error {
 	go c.drainStderr(process.Stderr())
 	go func() {
 		_ = process.Wait()
+		close(c.processDone)
 	}()
 
 	if err := c.initialize(ctx); err != nil {
@@ -111,38 +128,56 @@ func (c *Client) Start(ctx context.Context) error {
 
 // Stop sends shutdown+exit and waits for the process to terminate.
 func (c *Client) Stop() {
+	c.stopOnce.Do(c.stop)
+}
+
+func (c *Client) alive() bool {
+	select {
+	case <-c.done:
+		return false
+	case <-c.processDone:
+		return false
+	case <-c.shutdown:
+		return false
+	default:
+		return c.vue == nil || c.vue.typescript.alive()
+	}
+}
+
+func (c *Client) stop() {
+	if c.vue != nil {
+		c.vue.cancel()
+		defer c.vue.close()
+	}
 	c.mu.Lock()
 	initialized := c.initialized
 	process := c.process
 	c.mu.Unlock()
-
-	if initialized {
-		// Best-effort protocol shutdown before terminating the runtime process.
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_ = c.sendRequest(shutdownCtx, c.reqID.Add(1), "shutdown", nil)
-		cancel()
-		c.sendNotification("exit", nil)
-	}
-
-	select {
-	case <-c.shutdown:
-	default:
-		close(c.shutdown)
-	}
-
-	if !initialized {
-		if process != nil {
-			_ = process.Kill()
-		}
+	wasAlive := c.alive()
+	close(c.shutdown)
+	if process == nil {
 		return
 	}
-
-	select {
-	case <-c.done:
-	case <-time.After(5 * time.Second):
-		if process != nil {
+	if !initialized || !wasAlive {
+		_ = process.Kill()
+	} else {
+		// A blocked protocol write must not prevent the forced-stop deadline.
+		go func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_ = c.sendRequest(shutdownCtx, c.reqID.Add(1), "shutdown", nil)
+			c.sendNotification("exit", nil)
+		}()
+		select {
+		case <-c.processDone:
+		case <-time.After(5 * time.Second):
 			_ = process.Kill()
 		}
+	}
+	// Reader EOF alone does not prove that the subprocess has been reaped.
+	if c.processDone != nil {
+		<-c.processDone
+		<-c.done
 	}
 
 	if c.log != nil {
@@ -152,9 +187,11 @@ func (c *Client) Stop() {
 
 func (c *Client) initialize(ctx context.Context) error {
 	params := InitializeParams{
-		ProcessID: os.Getpid(),
-		RootURI:   c.rootURI,
-		RootPath:  uriToPath(c.rootURI),
+		ProcessID:             os.Getpid(),
+		RootURI:               c.rootURI,
+		RootPath:              uriToPath(c.rootURI),
+		WorkspaceFolders:      []WorkspaceFolder{{URI: c.rootURI, Name: filepath.Base(c.workDir)}},
+		InitializationOptions: c.initializationOptions,
 		Capabilities: ClientCapabilities{
 			TextDocument: &TextDocumentClientCapabilities{
 				Synchronization: &SynchronizationCapability{
@@ -168,9 +205,10 @@ func (c *Client) initialize(ctx context.Context) error {
 					DynamicRegistration               bool `json:"dynamicRegistration,omitempty"`
 					HierarchicalDocumentSymbolSupport bool `json:"hierarchicalDocumentSymbolSupport,omitempty"`
 				}{HierarchicalDocumentSymbolSupport: true},
-				Implementation: &BoolCapability{DynamicRegistration: false},
-				CallHierarchy:  &BoolCapability{DynamicRegistration: false},
-				Diagnostic:     &BoolCapability{DynamicRegistration: false},
+				Implementation:     &BoolCapability{DynamicRegistration: false},
+				CallHierarchy:      &BoolCapability{DynamicRegistration: false},
+				Diagnostic:         &BoolCapability{DynamicRegistration: false},
+				PublishDiagnostics: &struct{}{},
 			},
 			Workspace: &WorkspaceClientCapabilities{
 				Symbol: &BoolCapability{DynamicRegistration: false},
@@ -224,6 +262,7 @@ func (c *Client) readLoop() {
 		}
 
 		var resp Response
+
 		if err := json.Unmarshal(raw, &resp); err != nil {
 			if c.log != nil {
 				c.log.Warn(logger.CatMCP, "LSP bad response", "server", c.id, "body", string(raw))
@@ -231,8 +270,33 @@ func (c *Client) readLoop() {
 			continue
 		}
 
-		// Skip responses without ID (notifications from server)
 		if resp.ID == nil {
+			var notification Notification
+			if err := json.Unmarshal(raw, &notification); err != nil {
+				continue
+			}
+			if c.vue != nil && notification.Method == "tsserver/request" {
+				c.vue.dispatch(notification.Params)
+			}
+			if notification.Method == "textDocument/publishDiagnostics" {
+				var params struct {
+					URI         string       `json:"uri"`
+					Version     *int         `json:"version"`
+					Diagnostics []Diagnostic `json:"diagnostics"`
+				}
+				if err := json.Unmarshal(notification.Params, &params); err == nil {
+					c.mu.Lock()
+					if state := c.diagnostics[params.URI]; state != nil && (params.Version == nil || *params.Version >= state.version) {
+						state.items = params.Diagnostics
+						select {
+						case <-state.ready:
+						default:
+							close(state.ready)
+						}
+					}
+					c.mu.Unlock()
+				}
+			}
 			continue
 		}
 
@@ -281,6 +345,11 @@ func (c *Client) drainStderr(r io.Reader) {
 
 // call sends a JSON-RPC request and waits for the response.
 func (c *Client) call(ctx context.Context, method string, params, result any) error {
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	if !c.alive() {
+		return fmt.Errorf("language server stopped")
+	}
 	id := c.reqID.Add(1)
 	ch := make(chan *Response, 1)
 
@@ -294,7 +363,7 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 		c.mu.Unlock()
 	}()
 
-	if err := c.transport.sendRequest(id, method, params); err != nil {
+	if err := c.write(ctx, func() error { return c.transport.sendRequest(id, method, params) }); err != nil {
 		return fmt.Errorf("send %q: %w", method, err)
 	}
 
@@ -303,6 +372,12 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 		return ctx.Err()
 	case <-c.shutdown:
 		return fmt.Errorf("client shutting down")
+	case <-c.done:
+		return fmt.Errorf("language server disconnected")
+	case <-c.processDone:
+		return fmt.Errorf("language server exited")
+	case <-c.dependencyDone():
+		return fmt.Errorf("Vue TypeScript service exited")
 	case resp, ok := <-ch:
 		if !ok || resp == nil {
 			return fmt.Errorf("no response for %q", method)
@@ -320,7 +395,36 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 }
 
 func (c *Client) sendNotification(method string, params any) {
-	_ = c.transport.sendNotification(method, params)
+	_ = c.notify(context.Background(), method, params)
+}
+
+// A canceled partial frame cannot safely be reused. Killing a process stuck on
+// stdin also releases its writer goroutine and lets the next call reload it.
+func (c *Client) write(ctx context.Context, write func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result := make(chan error, 1)
+	go func() { result <- write() }()
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		c.mu.Lock()
+		process := c.process
+		c.mu.Unlock()
+		if process != nil {
+			_ = process.Kill()
+		}
+		return ctx.Err()
+	}
+}
+
+func (c *Client) notify(ctx context.Context, method string, params any) error {
+
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	return c.write(ctx, func() error { return c.transport.sendNotification(method, params) })
 }
 
 func (c *Client) sendRequest(ctx context.Context, id int64, method string, params any) error {
@@ -331,10 +435,41 @@ func (c *Client) sendRequest(ctx context.Context, id int64, method string, param
 
 // DidOpen notifies the LSP server that a document is open.
 func (c *Client) DidOpen(uri, text string) {
-	c.sendNotification("textDocument/didOpen", DidOpenTextDocumentParams{
+	_ = c.didOpen(context.Background(), uri, text)
+}
+
+func (c *Client) didOpen(ctx context.Context, uri, text string) error {
+	if c.vue != nil {
+		if err := c.vue.typescript.didOpen(ctx, uri, text); err != nil {
+			return err
+		}
+	}
+	languageID := c.languageID
+	if c.id == "typescript" {
+		switch strings.ToLower(filepath.Ext(uriToPath(uri))) {
+		case ".js", ".mjs", ".cjs":
+			languageID = "javascript"
+		case ".jsx":
+			languageID = "javascriptreact"
+		case ".tsx":
+			languageID = "typescriptreact"
+		case ".ts":
+			languageID = "typescript"
+		}
+	}
+	if c.id == "clangd" {
+		switch strings.ToLower(filepath.Ext(uriToPath(uri))) {
+		case ".cpp", ".hpp", ".cc", ".cxx", ".hxx", ".c++", ".h++":
+			languageID = "cpp"
+		case ".c", ".h":
+			languageID = "c"
+		}
+	}
+	c.resetDiagnostics(uri, 1)
+	return c.notify(ctx, "textDocument/didOpen", DidOpenTextDocumentParams{
 		TextDocument: TextDocumentItem{
 			URI:        uri,
-			LanguageID: c.languageID,
+			LanguageID: languageID,
 			Version:    1,
 			Text:       text,
 		},
@@ -343,6 +478,10 @@ func (c *Client) DidOpen(uri, text string) {
 
 // DidChange notifies the LSP server that a document changed.
 func (c *Client) DidChange(uri, text string, version int) {
+	if c.vue != nil {
+		c.vue.typescript.DidChange(uri, text, version)
+	}
+	c.resetDiagnostics(uri, version)
 	c.sendNotification("textDocument/didChange", DidChangeTextDocumentParams{
 		TextDocument: VersionedTextDocumentIdentifier{
 			URI:     uri,
@@ -356,6 +495,19 @@ func (c *Client) DidChange(uri, text string, version int) {
 
 // DidClose notifies the LSP server that a document was closed.
 func (c *Client) DidClose(uri string) {
+	if c.vue != nil {
+		c.vue.typescript.DidClose(uri)
+	}
+	c.mu.Lock()
+	if state := c.diagnostics[uri]; state != nil {
+		select {
+		case <-state.ready:
+		default:
+			close(state.ready)
+		}
+	}
+	delete(c.diagnostics, uri)
+	c.mu.Unlock()
 	c.sendNotification("textDocument/didClose", DidCloseTextDocumentParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 	})
@@ -363,6 +515,12 @@ func (c *Client) DidClose(uri string) {
 
 // GotoDefinition returns the definition location(s) of a symbol.
 func (c *Client) GotoDefinition(ctx context.Context, uri string, pos Position) ([]Location, error) {
+	if c.vue != nil {
+		locations, err := c.vue.typescript.GotoDefinition(ctx, uri, pos)
+		if err != nil || len(locations) > 0 {
+			return locations, err
+		}
+	}
 	params := DefinitionParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 		Position:     pos,
@@ -376,6 +534,9 @@ func (c *Client) GotoDefinition(ctx context.Context, uri string, pos Position) (
 
 // FindReferences returns all reference locations of a symbol.
 func (c *Client) FindReferences(ctx context.Context, uri string, pos Position, includeDecl bool) ([]Location, error) {
+	if c.vue != nil {
+		return c.vue.typescript.FindReferences(ctx, uri, pos, includeDecl)
+	}
 	params := ReferenceParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 		Position:     pos,
@@ -390,6 +551,12 @@ func (c *Client) FindReferences(ctx context.Context, uri string, pos Position, i
 
 // Hover returns type and documentation info at a position.
 func (c *Client) Hover(ctx context.Context, uri string, pos Position) (*Hover, error) {
+	if c.vue != nil {
+		hover, err := c.vue.typescript.Hover(ctx, uri, pos)
+		if err != nil || hover != nil {
+			return hover, err
+		}
+	}
 	params := HoverParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 		Position:     pos,
@@ -424,6 +591,9 @@ func (c *Client) DocumentSymbols(ctx context.Context, uri string) ([]DocumentSym
 
 // WorkspaceSymbols searches for symbols across the entire workspace.
 func (c *Client) WorkspaceSymbols(ctx context.Context, query string) ([]SymbolInformation, error) {
+	if c.vue != nil {
+		return c.vue.typescript.WorkspaceSymbols(ctx, query)
+	}
 	params := WorkspaceSymbolParams{Query: query}
 	var result any
 	if err := c.call(ctx, "workspace/symbol", params, &result); err != nil {
@@ -439,6 +609,9 @@ func (c *Client) WorkspaceSymbols(ctx context.Context, query string) ([]SymbolIn
 
 // FindImplementations returns implementations of an interface/abstract method.
 func (c *Client) FindImplementations(ctx context.Context, uri string, pos Position) ([]Location, error) {
+	if c.vue != nil {
+		return c.vue.typescript.FindImplementations(ctx, uri, pos)
+	}
 	params := ImplementationParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 		Position:     pos,
@@ -452,21 +625,69 @@ func (c *Client) FindImplementations(ctx context.Context, uri string, pos Positi
 
 // Diagnostics returns diagnostics (errors, warnings) for a document.
 func (c *Client) Diagnostics(ctx context.Context, uri string) ([]Diagnostic, error) {
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	if c.vue != nil {
+		own, err := c.documentDiagnosticSnapshot(ctx, uri)
+		if err != nil {
+			return nil, err
+		}
+		typescript, err := c.vue.typescript.Diagnostics(ctx, uri)
+		if err != nil {
+			return nil, err
+		}
+		return append(own, typescript...), nil
+	}
+	if (c.id == "typescript" || c.id == "vue-typescript") && c.supportsTSRequests() {
+		return c.typescriptDiagnostics(ctx, uri)
+	}
+	return c.documentDiagnosticSnapshot(ctx, uri)
+}
+
+func (c *Client) documentDiagnosticSnapshot(ctx context.Context, uri string) ([]Diagnostic, error) {
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	// Servers such as typescript-language-server publish diagnostics instead of
+	// implementing pull diagnostics. Wait for the current document's first push.
+	if c.serverCaps.DiagnosticProvider == nil || c.serverCaps.DiagnosticProvider == false {
+		for {
+			c.mu.Lock()
+			state := c.diagnostics[uri]
+			c.mu.Unlock()
+			if state == nil {
+				return nil, fmt.Errorf("document %q is not open", uri)
+			}
+			select {
+			case <-state.ready:
+				c.mu.Lock()
+				if c.diagnostics[uri] != state {
+					c.mu.Unlock()
+					continue
+				}
+				items := append([]Diagnostic(nil), state.items...)
+				c.mu.Unlock()
+				return items, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-c.done:
+				return nil, fmt.Errorf("language server stopped before publishing diagnostics")
+			case <-c.processDone:
+				return nil, fmt.Errorf("language server exited before publishing diagnostics")
+			case <-c.dependencyDone():
+				return nil, fmt.Errorf("Vue TypeScript service exited before publishing diagnostics")
+			case <-c.shutdown:
+				return nil, fmt.Errorf("client shutting down")
+			}
+		}
+	}
 	params := DocumentDiagnosticParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 	}
 
-	// Try textDocument/diagnostic first (newer LSP 3.17+)
 	var report any
 	err := c.call(ctx, "textDocument/diagnostic", params, &report)
 	if err != nil {
-		// Fall back: some servers use pull diagnostics via textDocument/diagnostic
-		// but older servers might not support it. Return empty.
-		if c.log != nil {
-			c.log.Debug(logger.CatMCP, "LSP diagnostic not supported, returning empty",
-				"server", c.id, "err", err.Error())
-		}
-		return nil, nil
+		return nil, err
 	}
 
 	data, _ := json.Marshal(report)
@@ -477,8 +698,27 @@ func (c *Client) Diagnostics(ctx context.Context, uri string) ([]Diagnostic, err
 	return dr.Items, nil
 }
 
+func (c *Client) resetDiagnostics(uri string, version int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.diagnostics == nil {
+		c.diagnostics = make(map[string]*documentDiagnostics)
+	}
+	if previous := c.diagnostics[uri]; previous != nil {
+		select {
+		case <-previous.ready:
+		default:
+			close(previous.ready)
+		}
+	}
+	c.diagnostics[uri] = &documentDiagnostics{version: version, ready: make(chan struct{})}
+}
+
 // CallHierarchyIncoming returns incoming calls (who calls this symbol).
 func (c *Client) CallHierarchyIncoming(ctx context.Context, uri string, pos Position) ([]CallHierarchyIncomingCall, error) {
+	if c.vue != nil {
+		return c.vue.typescript.CallHierarchyIncoming(ctx, uri, pos)
+	}
 	// Step 1: prepare call hierarchy
 	prepareParams := CallHierarchyPrepareParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
@@ -503,6 +743,9 @@ func (c *Client) CallHierarchyIncoming(ctx context.Context, uri string, pos Posi
 
 // CallHierarchyOutgoing returns outgoing calls (what this symbol calls).
 func (c *Client) CallHierarchyOutgoing(ctx context.Context, uri string, pos Position) ([]CallHierarchyOutgoingCall, error) {
+	if c.vue != nil {
+		return c.vue.typescript.CallHierarchyOutgoing(ctx, uri, pos)
+	}
 	prepareParams := CallHierarchyPrepareParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 		Position:     pos,
@@ -525,6 +768,9 @@ func (c *Client) CallHierarchyOutgoing(ctx context.Context, uri string, pos Posi
 
 // Rename requests the server to rename the symbol at the given position and returns the workspace edit.
 func (c *Client) Rename(ctx context.Context, uri string, pos Position, newName string) (*WorkspaceEdit, error) {
+	if c.vue != nil {
+		return c.vue.typescript.Rename(ctx, uri, pos, newName)
+	}
 	params := RenameParams{
 		TextDocument: TextDocumentIdentifier{URI: uri},
 		Position:     pos,
@@ -603,4 +849,156 @@ func PathToURI(path string) string {
 		return "file://" + path
 	}
 	return "file://" + abs
+}
+
+// Vue 3 delegates TypeScript analysis to a plugin-hosting companion. Owning it
+// with the Vue client keeps both processes under one idle/operation lease and
+// avoids changing the configuration of an existing plain JS/TS service.
+type vueBridge struct {
+	owner      *Client
+	typescript *Client
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+}
+
+func newVueBridge(ctx context.Context, owner *Client) (*vueBridge, error) {
+	command := resolveTypescript(owner.workDir)
+	if command == "" {
+		return nil, fmt.Errorf("Vue 3 requires typescript-language-server")
+	}
+	serverPackage, err := nodePackage(owner.workDir, owner.command, "@vue/language-server")
+	if err != nil {
+		return nil, err
+	}
+	// Resolve the package itself, not a pnpm .bin shell wrapper, before
+	// looking for dependencies private to the language-server installation.
+	packageFile, err := filepath.EvalSymlinks(filepath.Join(serverPackage, "package.json"))
+	if err != nil {
+		return nil, err
+	}
+	plugin, err := nodePackage(filepath.Dir(packageFile), packageFile, "@vue/typescript-plugin")
+	if err != nil {
+		return nil, err
+	}
+	sdk := ""
+	for _, arg := range owner.args {
+		if strings.HasPrefix(arg, "--tsdk=") {
+			sdk = strings.TrimPrefix(arg, "--tsdk=")
+			break
+		}
+	}
+	if sdk == "" {
+		typescript, err := nodePackage(owner.workDir, packageFile, "typescript")
+		if err != nil {
+			return nil, err
+		}
+		sdk = filepath.Join(typescript, "lib")
+		owner.args = append(append([]string(nil), owner.args...), "--tsdk="+sdk)
+	} else if !filepath.IsAbs(sdk) {
+		sdk = filepath.Join(owner.workDir, sdk)
+	}
+	companion := NewClientWithExecutor("vue-typescript", "vue", owner.rootURI, command, []string{"--stdio"}, owner.workDir, owner.executor, owner.log)
+	companion.initializationOptions = map[string]any{
+		"tsserver":                          map[string]any{"path": filepath.Join(sdk, "tsserver.js")},
+		"plugins":                           []any{map[string]any{"name": "@vue/typescript-plugin", "location": plugin, "languages": []string{"vue"}}},
+		"disableAutomaticTypingAcquisition": true,
+	}
+	if err := companion.Start(ctx); err != nil {
+		companion.Stop()
+		return nil, err
+	}
+	if !companion.supportsTSRequests() {
+		companion.Stop()
+		return nil, fmt.Errorf("Vue 3 requires a typescript-language-server supporting typescript.tsserverRequest")
+	}
+	bridgeCtx, cancel := context.WithCancel(context.Background())
+	return &vueBridge{owner: owner, typescript: companion, ctx: bridgeCtx, cancel: cancel}, nil
+}
+
+func (c *Client) dependencyDone() <-chan struct{} {
+	if c.vue == nil {
+		return nil
+	}
+	return c.vue.typescript.done
+}
+
+// Search project dependencies first, then the server installation's ancestors.
+// This also reaches pnpm's package-local dependency symlinks without a scan.
+func nodePackage(workDir, serverCommand, name string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(serverCommand)
+	if err != nil {
+		return "", err
+	}
+	for _, base := range []string{workDir, filepath.Dir(resolved)} {
+		for {
+			candidate := filepath.Join(base, "node_modules", filepath.FromSlash(name))
+			if _, err := os.Stat(filepath.Join(candidate, "package.json")); err == nil {
+				return candidate, nil
+			}
+			parent := filepath.Dir(base)
+			if parent == base {
+				break
+			}
+			base = parent
+		}
+	}
+	return "", fmt.Errorf("Vue 3 requires Node package %q in the project or language-server installation", name)
+}
+
+func (b *vueBridge) dispatch(params json.RawMessage) {
+	var args []json.RawMessage
+	if err := json.Unmarshal(params, &args); err != nil {
+		return
+	}
+	nested := len(args) == 1
+	if nested {
+		var unpacked []json.RawMessage
+		if err := json.Unmarshal(args[0], &unpacked); err != nil {
+			return
+		}
+		args = unpacked
+	}
+	if len(args) != 3 {
+		return
+	}
+	var command string
+	if err := json.Unmarshal(args[1], &command); err != nil {
+		return
+	}
+	if b.owner.log != nil {
+		b.owner.log.Debug(logger.CatMCP, "Vue TypeScript request", "command", command)
+	}
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		ctx, cancel := context.WithTimeout(b.ctx, DefaultTimeout)
+		defer cancel()
+		var response struct {
+			Body json.RawMessage `json:"body"`
+		}
+		err := b.typescript.call(ctx, "workspace/executeCommand", map[string]any{
+			"command":   "typescript.tsserverRequest",
+			"arguments": []any{command, args[2], map[string]any{"isAsync": true, "lowPriority": true}},
+		}, &response)
+		if err != nil && b.owner.log != nil {
+			b.owner.log.Warn(logger.CatMCP, "Vue TypeScript bridge failed", "command", command, "err", err.Error())
+		}
+		if b.owner.log != nil {
+			b.owner.log.Debug(logger.CatMCP, "Vue TypeScript response", "command", command, "body_bytes", len(response.Body))
+		}
+		// Vue must receive a response even on failure, otherwise its pending
+		// request remains unresolved. Keep the response shape of Vue 3's wire API.
+		var reply any = []any{args[0], response.Body}
+		if nested {
+			reply = []any{reply}
+		}
+		_ = b.owner.notify(b.ctx, "tsserver/response", reply)
+	}()
+}
+
+func (b *vueBridge) close() {
+	// The owner's read loop has ended, so no dispatcher can add new work.
+	b.wg.Wait()
+	b.typescript.Stop()
 }

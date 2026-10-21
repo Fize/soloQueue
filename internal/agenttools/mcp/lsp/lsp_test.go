@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -62,6 +63,77 @@ func TestManagerStartsServersOnlyOnFirstUse(t *testing.T) {
 	}
 	if reused != client || resolutions != 1 {
 		t.Fatal("subsequent use must reuse the running language server")
+	}
+}
+
+func TestDidOpenUsesDocumentLanguage(t *testing.T) {
+	for ext, language := range map[string]string{
+		".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+		".jsx": "javascriptreact", ".ts": "typescript", ".tsx": "typescriptreact",
+		".c": "c", ".h": "c", ".cpp": "cpp", ".hpp": "cpp", ".cc": "cpp",
+		".cxx": "cpp", ".hxx": "cpp", ".c++": "cpp", ".h++": "cpp",
+	} {
+		t.Run(ext, func(t *testing.T) {
+			var output bytes.Buffer
+			server, fallback := "typescript", "typescript"
+			if language == "c" || language == "cpp" {
+				server, fallback = "clangd", "c"
+			}
+			client := &Client{id: server, languageID: fallback, transport: newTransport(strings.NewReader(""), &output)}
+			client.DidOpen(PathToURI(filepath.Join(t.TempDir(), "main"+ext)), "")
+			raw, err := newTransport(&output, io.Discard).readMessage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var notification Notification
+			if err := json.Unmarshal(raw, &notification); err != nil {
+				t.Fatal(err)
+			}
+			var params DidOpenTextDocumentParams
+			if err := json.Unmarshal(notification.Params, &params); err != nil {
+				t.Fatal(err)
+			}
+			if params.TextDocument.LanguageID != language {
+				t.Fatalf("language = %q, want %q", params.TextDocument.LanguageID, language)
+			}
+		})
+	}
+}
+
+func TestTextDocumentSyncAcceptsBothProtocolForms(t *testing.T) {
+	for _, raw := range []string{`{"textDocumentSync":2}`, `{"textDocumentSync":{"openClose":true,"change":2}}`} {
+		var capabilities ServerCapabilities
+		if err := json.Unmarshal([]byte(raw), &capabilities); err != nil {
+			t.Fatal(err)
+		}
+		if capabilities.TextDocumentSync == nil || capabilities.TextDocumentSync.Change != 2 {
+			t.Fatalf("sync = %+v, want incremental sync", capabilities.TextDocumentSync)
+		}
+	}
+}
+
+func TestManagerMissingServerReportsInstallHintOnUse(t *testing.T) {
+	manager := NewManager(t.TempDir(), nil)
+	def := ServerDef{ID: "typescript", Extensions: []string{".js"}, InstallHint: "install test server", Resolve: func(string) string { return "" }}
+	ctx := context.Background()
+	if err := manager.Start(ctx, []ServerDef{def}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		_, err := manager.clientForFile(ctx, filepath.Join(t.TempDir(), "main.js"))
+		if err == nil || !strings.Contains(err.Error(), def.InstallHint) {
+			t.Fatalf("missing binary error = %v, want install hint", err)
+		}
+	}
+}
+
+func TestPushDiagnosticsHonorsCancellation(t *testing.T) {
+	client := &Client{}
+	client.resetDiagnostics("file:///main.js", 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := client.Diagnostics(ctx, "file:///main.js"); err != context.Canceled {
+		t.Fatalf("diagnostics error = %v, want cancellation", err)
 	}
 }
 
@@ -135,6 +207,7 @@ func TestLSPHelperProcess(t *testing.T) {
 			continue
 		}
 		reader := bufio.NewReader(os.Stdin)
+		documents := make(map[string]string)
 		for {
 			body, err := readLSPHelperMessage(reader)
 			if err != nil {
@@ -143,8 +216,30 @@ func TestLSPHelperProcess(t *testing.T) {
 			var request struct {
 				ID     json.RawMessage `json:"id"`
 				Method string          `json:"method"`
+				Params json.RawMessage `json:"params"`
 			}
 			if err := json.Unmarshal(body, &request); err != nil || len(request.ID) == 0 {
+				if request.Method == "initialized" && len(os.Args) > 0 && os.Args[len(os.Args)-1] == "stop-reading" {
+					for {
+						time.Sleep(time.Hour)
+					}
+				}
+				switch request.Method {
+				case "textDocument/didOpen":
+					var params DidOpenTextDocumentParams
+					_ = json.Unmarshal(request.Params, &params)
+					documents[params.TextDocument.URI] = params.TextDocument.Text
+				case "textDocument/didChange":
+					var params DidChangeTextDocumentParams
+					_ = json.Unmarshal(request.Params, &params)
+					if len(params.ContentChanges) > 0 {
+						documents[params.TextDocument.URI] = params.ContentChanges[0].Text
+					}
+				case "textDocument/didClose":
+					var params DidCloseTextDocumentParams
+					_ = json.Unmarshal(request.Params, &params)
+					delete(documents, params.TextDocument.URI)
+				}
 				if request.Method == "exit" {
 					return
 				}
@@ -154,9 +249,28 @@ func TestLSPHelperProcess(t *testing.T) {
 			result := map[string]any{}
 			if request.Method == "initialize" {
 				result = map[string]any{
-					"capabilities": map[string]any{},
+					"capabilities": map[string]any{"diagnosticProvider": map[string]any{}},
 					"serverInfo":   map[string]any{"name": "test-lsp", "version": "1.0.0"},
 				}
+			}
+			if request.Method == "test/hang" || (request.Method == "textDocument/hover" && strings.Contains(string(request.Params), "hold")) {
+				notification, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": map[string]any{"uri": "file:///pending", "diagnostics": []any{}}})
+				fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n%s", len(notification), notification)
+				continue
+			}
+			if request.Method == "textDocument/diagnostic" {
+				var params DocumentDiagnosticParams
+				_ = json.Unmarshal(request.Params, &params)
+				text, opened := documents[params.TextDocument.URI]
+				items := []map[string]any{}
+				if !opened || strings.Contains(text, "broken") {
+					message := "broken document"
+					if !opened {
+						message = "document was not reopened"
+					}
+					items = append(items, map[string]any{"message": message, "severity": 1})
+				}
+				result = map[string]any{"kind": "full", "items": items}
 			}
 			response, _ := json.Marshal(map[string]any{
 				"jsonrpc": "2.0",
