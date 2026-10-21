@@ -4,6 +4,34 @@ Notable changes are recorded here for each release in English and Simplified Chi
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-21
+
+### Added
+
+- Added lazy language-server startup and Vue 3, React JSX, and React TSX language support, including diagnostics, hover, navigation, references, and rename operations.
+
+### Fixed
+
+- Fixed L2 team groups and leader names staying stale after teams are installed or reloaded while the server is running.
+- Fixed language-server clients remaining unavailable after an unexpected process exit; clients now restart on the next request.
+
+### Improved
+
+- Stop idle language-server clients after ten minutes and reuse active clients across requests.
+
+### 新增
+
+- 新增语言服务器懒启动，并支持 Vue 3、React JSX 和 React TSX，包括诊断、悬停提示、代码跳转、引用查找和重命名。
+
+### 修复
+
+- 修复服务运行期间安装或重载团队后，L2 团队分组和负责人名称仍显示旧数据的问题。
+- 修复语言服务器进程异常退出后客户端无法继续使用的问题；下次请求会重新启动客户端。
+
+### 改进
+
+- 语言服务器空闲十分钟后自动退出，并在活跃期间复用客户端。
+
 ## [0.2.3] - 2026-10-21
 
 ### Added
