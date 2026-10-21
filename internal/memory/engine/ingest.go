@@ -27,6 +27,10 @@ var allowedEntityTypes = map[string]bool{
 // Ingest applies the long-term memory write policy and stores accepted
 // candidates. Routine task logs stay in the timeline and short-term memory.
 func (e *Engine) Ingest(ctx context.Context, candidate MemoryCandidate) (IngestResult, error) {
+	if !e.beginOperation() {
+		return IngestResult{}, ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	normalized, reason := normalizeCandidate(candidate)
 	if reason != "" {
 		return IngestResult{Action: "skip", Reason: reason}, nil

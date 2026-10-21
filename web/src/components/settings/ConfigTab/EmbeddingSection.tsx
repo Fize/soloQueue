@@ -37,6 +37,10 @@ export function EmbeddingSection({
   onUpdateModel,
 }: EmbeddingSectionProps) {
   const { t } = useTranslation()
+  const mode = !config.enabled ? 'off' : config.provider === 'onnx' || config.provider === 'openai' ? config.provider : 'none'
+  const vectorEnabled = mode === 'onnx' || mode === 'openai'
+  const combination = mode === 'off' ? 'config.embedCombinationOff' : mode === 'none' ? 'config.embedCombinationBase'
+    : mode === 'onnx' ? 'config.embedCombinationLocal' : 'config.embedCombinationRemote'
   return (
     <div className="rounded-xl border bg-card p-6 shadow-sm space-y-8">
       <div className="flex items-center justify-between border-b pb-3">
@@ -54,31 +58,21 @@ export function EmbeddingSection({
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={config.enabled}
-            onCheckedChange={(val) => onChange({ ...config, enabled: val })}
-          />
-          <span className="text-xs font-semibold text-foreground">
-            {t('config.embedEnablePermanent')}
-          </span>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Select
-            label={t('config.embedProvider')}
-            value={config.provider || ''}
-            onChange={(v) => onChange({ ...config, provider: v })}
-            placeholder={t('config.embedProviderNone')}
-            options={[
-              { value: '', label: t('config.embedProviderNone') },
-              { value: 'none', label: t('config.embedProviderNoneDesc') },
-              { value: 'openai', label: t('config.embedProviderOpenai') },
-              { value: 'onnx', label: t('config.embedProviderOnnx') },
-            ]}
-          />
-        </div>
-        {config.provider !== 'onnx' && <div className="flex flex-col gap-1.5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Select
+          label={t('config.embedProvider')}
+          value={mode}
+          onChange={(mode) => onChange(mode === 'off'
+            ? { ...config, enabled: false }
+            : { ...config, enabled: true, provider: mode })}
+          options={[
+            { value: 'off', label: t('config.embedCombinationOff') },
+            { value: 'none', label: t('config.embedCombinationBase') },
+            { value: 'onnx', label: t('config.embedCombinationLocal') },
+            { value: 'openai', label: t('config.embedCombinationRemote') },
+          ]}
+        />
+        {vectorEnabled && config.provider === 'openai' && <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
             {t('config.embedApiModel')}
           </label>
@@ -89,7 +83,7 @@ export function EmbeddingSection({
             onChange={(e) => onChange({ ...config, modelName: e.target.value })}
           />
         </div>}
-        <div className="flex flex-col gap-1.5">
+        {vectorEnabled && <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
             {t('config.embedMinSimilarity')}
           </label>
@@ -101,15 +95,18 @@ export function EmbeddingSection({
             value={config.minSimilarity ?? 0.65}
             onChange={(e) => onChange({ ...config, minSimilarity: Number(e.target.value) })}
           />
-        </div>
+        </div>}
       </div>
+      <p className="text-sm text-muted-foreground" aria-live="polite">
+        {t('config.embedCombination')}: {t(combination)}
+      </p>
 
-      {(config.provider === 'onnx' || savedConfig?.provider === 'onnx') && (
+      {(mode === 'onnx' || (savedConfig?.enabled && savedConfig.provider === 'onnx')) && (
         <LocalEmbeddingSection config={config} savedConfig={savedConfig} revision={revision} onChange={onChange} />
       )}
 
       {/* Embedding Providers Section */}
-      {config.provider === 'openai' && (
+      {mode === 'openai' && (
         <>
           <div className="space-y-4 pt-4 border-t">
             <div className="flex items-center justify-between">

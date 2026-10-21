@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
@@ -14,10 +15,12 @@ import (
 
 // Engine is the top-level memory engine combining BM25 + KG [+ optional Vector] search.
 type Engine struct {
-	store    *MemoryStore
-	graph    *GraphStore
-	searcher *HybridSearcher
-	vector   *VectorSearcher
+	lifecycle sync.RWMutex
+	disabled  atomic.Bool
+	store     *MemoryStore
+	graph     *GraphStore
+	searcher  *HybridSearcher
+	vector    *VectorSearcher
 
 	db  *sql.DB
 	mu  *sync.Mutex
@@ -51,13 +54,42 @@ func (e *Engine) SetVectorManager(manager *VectorManager) {
 	e.vector.manager = manager
 }
 
+// SetEnabled drains admitted operations before changing the durable-memory
+// gate. Once OFF returns, preceding operations have completed and new operations
+// are rejected. The engine, bound capabilities, and stored data are retained.
+func (e *Engine) SetEnabled(enabled bool) {
+	e.lifecycle.Lock()
+	defer e.lifecycle.Unlock()
+	e.disabled.Store(!enabled)
+}
+func (e *Engine) Enabled() bool { return !e.disabled.Load() }
+
+// Only the operation that directly touches stores takes admission. Public
+// delegators must not nest RLock: a pending OFF writer would deadlock recursion.
+func (e *Engine) beginOperation() bool {
+	e.lifecycle.RLock()
+	if !e.Enabled() {
+		e.lifecycle.RUnlock()
+		return false
+	}
+	return true
+}
+
 // Save stores a memory and returns its content hash.
 func (e *Engine) Save(ctx context.Context, content, date, tags, eventTime string) (string, bool, error) {
+	if !e.beginOperation() {
+		return "", false, ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	return e.store.Save(ctx, content, date, tags, eventTime)
 }
 
 // SaveWithEntities saves a memory and indexes entities/relations in the KG.
 func (e *Engine) SaveWithEntities(ctx context.Context, content, date, tags, eventTime string, entities []EntityExtraction) (string, bool, error) {
+	if !e.beginOperation() {
+		return "", false, ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	hash, isNew, err := e.store.Save(ctx, content, date, tags, eventTime)
 	if err != nil {
 		return hash, isNew, err
@@ -98,6 +130,10 @@ func (e *Engine) indexEntities(ctx context.Context, ownerType, ownerID, content,
 
 // Search performs a hybrid search across all configured pipelines.
 func (e *Engine) Search(ctx context.Context, query SearchQuery) (*SearchResultSet, error) {
+	if !e.beginOperation() {
+		return nil, ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	query.OwnerType, query.OwnerID = normalizeOwner(query.OwnerType, query.OwnerID)
 	if !validOwner(query.OwnerType, query.OwnerID) {
 		return nil, ErrMemoryOwnerInvalid
@@ -107,6 +143,10 @@ func (e *Engine) Search(ctx context.Context, query SearchQuery) (*SearchResultSe
 
 // IndexEntity indexes an entity in the knowledge graph.
 func (e *Engine) IndexEntity(ctx context.Context, name, nodeType string) (int64, error) {
+	if !e.beginOperation() {
+		return 0, ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	if nodeType == "" {
 		nodeType = "entity"
 	}
@@ -116,6 +156,10 @@ func (e *Engine) IndexEntity(ctx context.Context, name, nodeType string) (int64,
 
 // ConnectEntities creates a relationship between two entities.
 func (e *Engine) ConnectEntities(ctx context.Context, sourceName, targetName, relType string, weight float64, evidence, sourceHash string, eventTime time.Time, validFrom, validUntil *time.Time) error {
+	if !e.beginOperation() {
+		return ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	srcID, _, err := e.graph.UpsertNode(ctx, sourceName, "entity", 0.5)
 	if err != nil {
 		return fmt.Errorf("connect: source: %w", err)
@@ -139,6 +183,10 @@ func (e *Engine) ConnectEntities(ctx context.Context, sourceName, targetName, re
 
 // AddAlias registers an alias for an entity.
 func (e *Engine) AddAlias(ctx context.Context, alias, canonical string) error {
+	if !e.beginOperation() {
+		return ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	return e.graph.AddAlias(ctx, alias, canonical)
 }
 
@@ -169,32 +217,52 @@ func (e *Engine) Graph() *GraphStore {
 
 // ShortestPath finds the shortest path between two entities in the KG.
 func (e *Engine) ShortestPath(ctx context.Context, source, target string, maxDepth int) ([]GraphNode, []GraphEdge, error) {
+	if !e.beginOperation() {
+		return nil, nil, ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	return e.graph.ShortestPath(ctx, source, target, maxDepth)
 }
 
 // Timeline returns memories chronologically within a date range.
 func (e *Engine) Timeline(ctx context.Context, from, to string, limit int) ([]MemoryEntry, error) {
+	if !e.beginOperation() {
+		return nil, ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	return e.store.Timeline(ctx, from, to, limit)
 }
 
 func (e *Engine) TimelineScoped(ctx context.Context, from, to string, limit int, scopeType, scopeID string, includeGlobal bool) ([]MemoryEntry, error) {
+	if !e.beginOperation() {
+		return nil, ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	return e.store.TimelineScoped(ctx, from, to, limit, scopeType, scopeID, includeGlobal)
 }
 
 // Consolidate runs maintenance operations.
 func (e *Engine) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
+	if !e.beginOperation() {
+		return nil, ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	c := NewConsolidator(e.store, e.graph, e.log)
 	return c.Run(ctx, 30, 90)
 }
 
 // BoostSalience manually boosts a memory's salience.
 func (e *Engine) BoostSalience(ctx context.Context, contentHash string) error {
+	if !e.beginOperation() {
+		return ErrMemoryDisabled
+	}
+	defer e.lifecycle.RUnlock()
 	return e.store.BoostSalience(ctx, contentHash)
 }
 
 // HasVector returns true if vector search is enabled.
 func (e *Engine) HasVector() bool {
-	return e.vector != nil && e.vector.Enabled()
+	return e.Enabled() && e.vector != nil && e.vector.Enabled()
 }
 
 func (e *Engine) logWarn(msg string, err error) {

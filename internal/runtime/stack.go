@@ -407,11 +407,14 @@ func (s *Stack) rebuildMemoryEngine(settings config.Settings) {
 		return
 	}
 	cfg := settings.Embedding
+	if s.MemoryEngine != nil && !cfg.Enabled {
+		s.MemoryEngine.SetEnabled(false)
+	}
 
 	var emb embedding.Embedder
 	var vecStore vectorstore.VectorStore
 
-	switch cfg.Provider {
+	switch vectorConfiguration(cfg).Provider {
 	case "openai":
 		embModel := defaultEmbeddingModelSettings(settings)
 		if embModel != nil && embModel.Enabled {
@@ -463,6 +466,7 @@ func (s *Stack) rebuildMemoryEngine(settings config.Settings) {
 		}
 	}
 	s.Embedding.Apply(vectorConfiguration(cfg), emb, vecStore)
+	s.MemoryEngine.SetEnabled(cfg.Enabled)
 }
 func vectorConfiguration(cfg config.EmbeddingConfig) engine.VectorConfig {
 	normalized := config.NormalizeEmbedding(cfg)
@@ -484,7 +488,11 @@ func vectorConfiguration(cfg config.EmbeddingConfig) engine.VectorConfig {
 			key = fmt.Sprintf("remote-%x", sha256.Sum256(identity))
 		}
 	}
-	return engine.VectorConfig{Provider: cfg.Provider, Enabled: cfg.Enabled, Model: normalized.Local.Model, Device: normalized.Local.Device, RemoteKey: key}
+	provider := cfg.Provider
+	if !cfg.Enabled {
+		provider = "none"
+	}
+	return engine.VectorConfig{Provider: provider, Enabled: cfg.Enabled, Model: normalized.Local.Model, Device: normalized.Local.Device, RemoteKey: key}
 }
 
 func modelForTaskSettings(settings config.Settings, task tasktype.TaskType) *config.LLMModel {

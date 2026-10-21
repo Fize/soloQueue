@@ -10,6 +10,7 @@ import (
 )
 
 var (
+	ErrMemoryDisabled           = errors.New("memory_disabled")
 	ErrMemoryAccessDenied       = errors.New("memory_access_denied")
 	ErrMemoryOwnerInvalid       = errors.New("memory_owner_invalid")
 	ErrMemorySubjectConflict    = errors.New("memory_subject_conflict")
@@ -65,6 +66,9 @@ func (a *boundAccess) validate() error {
 	if a == nil || a.engine == nil {
 		return ErrMemoryAccessDenied
 	}
+	if !a.engine.Enabled() {
+		return ErrMemoryDisabled
+	}
 	if a.ownerType == OwnerL1 && a.ownerID == "" {
 		return nil
 	}
@@ -107,6 +111,10 @@ func (a *boundAccess) Timeline(ctx context.Context, from, to string, limit int) 
 	if err := a.validate(); err != nil {
 		return nil, err
 	}
+	if !a.engine.beginOperation() {
+		return nil, ErrMemoryDisabled
+	}
+	defer a.engine.lifecycle.RUnlock()
 	return a.engine.store.TimelineOwned(ctx, from, to, limit, a.ownerType, a.ownerID, a.scopeType, a.scopeID, a.includeGlobal)
 }
 

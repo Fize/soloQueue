@@ -45,7 +45,7 @@ func (bc *buildContext) buildMemoryEngine() {
 	var emb embedding.Embedder
 	var vecStore vectorstore.VectorStore
 
-	provider := cfg.Provider
+	provider := vectorConfiguration(cfg).Provider
 
 	switch provider {
 	case "openai":
@@ -71,6 +71,7 @@ func (bc *buildContext) buildMemoryEngine() {
 	bc.embeddingManager = engine.NewVectorManager(bc.sharedDB.DB, &bc.sharedDB.WMu, bc.workDir, engine.VectorOptions{})
 	bc.embeddingManager.Apply(vectorConfiguration(cfg), emb, vecStore)
 	bc.memoryEngine.SetVectorManager(bc.embeddingManager)
+	bc.memoryEngine.SetEnabled(cfg.Enabled)
 	bc.log.Debug(logger.CatApp, "build: memory engine ready",
 		"duration", time.Since(start).String(),
 		"has_vector", emb != nil,

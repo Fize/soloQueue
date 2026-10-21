@@ -14,7 +14,7 @@ function setup(config = local) {
   vi.mocked(getEmbeddingConfig).mockResolvedValue(config)
   vi.mocked(getLSPMCPConfig).mockResolvedValue({ servers: [] })
   vi.mocked(getEmbeddingStatus).mockResolvedValue({ provider: 'onnx', state: 'downloading', model: 'multilingual-e5-small', device: 'auto', backend: '', dimension: 384, downloadedBytes: 1, totalBytes: 2, indexed: 0, pending: 3, failed: 0 })
-  render(<MemoryTab />)
+  return render(<MemoryTab />)
 }
 afterEach(() => vi.clearAllMocks())
 describe('embedding settings save flow', () => {
@@ -31,6 +31,32 @@ describe('embedding settings save flow', () => {
     expect(screen.getByLabelText('Local model')).toHaveValue('multilingual-e5-small')
     expect(getEmbeddingConfig).toHaveBeenCalledTimes(1)
   })
+  it.each([
+    ['off', false, 'onnx'],
+    ['none', true, 'none'],
+    ['onnx', true, 'onnx'],
+    ['openai', true, 'openai'],
+  ] as const)('saves and reloads mutually exclusive mode %s', async (mode, enabled, provider) => {
+    vi.mocked(updateEmbeddingConfig).mockImplementation(async config => config)
+    const view = setup({ ...local, enabled: false })
+    const source = await screen.findByLabelText('Long-term memory mode')
+    expect(source).toHaveValue('off')
+    expect([...source.querySelectorAll('option')].map(o => o.value)).toEqual(['off', 'none', 'onnx', 'openai'])
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+    fireEvent.change(source, { target: { value: mode } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Embedding Settings' }))
+    await waitFor(() => expect(updateEmbeddingConfig).toHaveBeenCalledWith(expect.objectContaining({ enabled, provider })))
+    const saved = vi.mocked(updateEmbeddingConfig).mock.calls[0][0]
+    view.unmount()
+    setup(saved)
+    expect(await screen.findByLabelText('Long-term memory mode')).toHaveValue(mode)
+  })
+  it.each(['onnx', 'openai', 'none', ''])('master off overrides saved provider %s', async provider => {
+    setup({ ...local, provider, enabled: false })
+    expect(await screen.findByLabelText('Long-term memory mode')).toHaveValue('off')
+    expect(screen.queryByLabelText('Local model')).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+  })
   it('preserves unsaved input after save failure and permits retry', async () => {
     vi.mocked(updateEmbeddingConfig).mockRejectedValueOnce(new Error('raw error')).mockImplementation(async config => config)
     setup()
@@ -46,7 +72,7 @@ describe('embedding settings save flow', () => {
     const remote = { ...local, provider: 'openai', modelName: 'remote-model', providers: [{ id: 'remote', name: 'Remote', baseUrl: 'https://remote.test', apiKeyEnv: 'KEY', enabled: true }] }
     vi.mocked(updateEmbeddingConfig).mockImplementation(async config => config)
     setup(remote)
-    const provider = await screen.findByLabelText('Provider')
+    const provider = await screen.findByLabelText('Long-term memory mode')
     expect(screen.getByDisplayValue('remote-model')).toBeInTheDocument()
     fireEvent.change(provider, { target: { value: 'onnx' } })
     expect(screen.queryByDisplayValue('remote-model')).not.toBeInTheDocument()

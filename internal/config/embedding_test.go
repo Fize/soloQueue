@@ -54,3 +54,39 @@ func TestPublicEmbeddingDeviceAlwaysAutomatic(t *testing.T) {
 		t.Fatal("public settings forced CPU")
 	}
 }
+
+func TestMemoryModesPersistWithoutNewFields(t *testing.T) {
+	if DefaultSettings().Embedding.Enabled {
+		t.Fatal("long-term memory must default off")
+	}
+	for _, mode := range []struct {
+		name, provider string
+		enabled        bool
+	}{{"off", "onnx", false}, {"base", "none", true}, {"local", "onnx", true}, {"remote", "openai", true}} {
+		t.Run(mode.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg, err := New(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := cfg.Get().Embedding
+			value.Provider = mode.provider
+			value.Enabled = mode.enabled
+			value.Providers[0].APIKey = "test-preserved-credential"
+			if err := cfg.UpdateEmbedding(value); err != nil {
+				t.Fatal(err)
+			}
+			reloaded, err := New(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := reloaded.Load(); err != nil {
+				t.Fatal(err)
+			}
+			got := reloaded.Get().Embedding
+			if got.Enabled != mode.enabled || got.Provider != mode.provider || got.Local.Model != value.Local.Model || got.Providers[0].APIKey != value.Providers[0].APIKey || got.Models[0].ID != value.Models[0].ID {
+				t.Fatal("mode/settings did not survive reload")
+			}
+		})
+	}
+}

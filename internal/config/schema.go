@@ -272,6 +272,8 @@ type LocalEmbeddingConfig struct {
 	Device string `json:"device" yaml:"device,omitempty"`
 }
 
+// EmbeddingConfig selects durable long-term memory: disabled, BM25+KG only,
+// or BM25+KG plus local/remote vectors. Enabled gates the entire memory engine.
 type EmbeddingConfig struct {
 	Local         LocalEmbeddingConfig `json:"local" yaml:"local,omitempty"`
 	Enabled       bool                 `json:"enabled"       yaml:"enabled,omitempty"`
