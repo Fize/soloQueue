@@ -71,9 +71,9 @@ func NewManagerWithExecutor(rootPath string, executor *tools.Executor, log *logg
 	}
 }
 
-// Start launches all configured LSP servers that match files in the workspace.
-// If no workspace files match, servers are started lazily on first tool call.
-func (m *Manager) Start(ctx context.Context, defs []ServerDef) error {
+// Start registers definitions without scanning the workspace or launching processes.
+// Language servers are started on demand so unused tooling cannot delay startup.
+func (m *Manager) Start(_ context.Context, defs []ServerDef) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -90,32 +90,10 @@ func (m *Manager) Start(ctx context.Context, defs []ServerDef) error {
 		}
 	}
 
-	// Auto-start servers whose extensions match files in the workspace.
-	exts := m.scanWorkspaceExtensions(ctx)
-	started := make(map[string]bool)
-	for ext := range exts {
-		if serverID, ok := m.extToServer[ext]; ok {
-			if !started[serverID] {
-				if err := m.startClient(ctx, serverID, m.rootURI); err != nil {
-					if m.log != nil {
-						m.log.Warn(logger.CatMCP, "LSP server start failed, will start lazily",
-							"server", serverID, "err", err.Error())
-					}
-				} else {
-					started[serverID] = true
-				}
-			}
-		}
-	}
-
 	m.started = true
 	if m.log != nil {
-		var serverNames []string
-		for id := range started {
-			serverNames = append(serverNames, id)
-		}
 		m.log.Info(logger.CatMCP, "LSP manager started",
-			"root", m.rootURI, "servers_started", len(started), "servers", strings.Join(serverNames, ", "))
+			"root", m.rootURI, "servers_started", 0)
 	}
 	return nil
 }
@@ -134,8 +112,8 @@ func (m *Manager) Shutdown() {
 	m.started = false
 }
 
-// Restart terminates all active language servers and starts them again through
-// the shared process launcher.
+// Restart terminates active language servers and registers their definitions
+// again; processes are recreated on demand.
 func (m *Manager) Restart(ctx context.Context) error {
 	m.mu.RLock()
 	defs := make([]ServerDef, 0, len(m.defs))
@@ -169,7 +147,7 @@ func (m *Manager) clientForFile(ctx context.Context, filePath string) (*Client, 
 		return nil, fmt.Errorf("no LSP server registered for extension %q (file: %s)", ext, filePath)
 	}
 
-	// If binary was not found during startup, skip lazy-start and give actionable hint.
+	// If an earlier start could not find the binary, return an actionable hint.
 	if isUnavailable {
 		msg := fmt.Sprintf("LSP server %q binary not found", serverID)
 		if installHint != "" {
@@ -358,25 +336,4 @@ func (m *Manager) startClient(ctx context.Context, serverID string, rootURI stri
 			"server", serverID, "command", command, "root", rootPath)
 	}
 	return nil
-}
-
-// scanWorkspaceExtensions scans the workspace root for file extensions.
-func (m *Manager) scanWorkspaceExtensions(ctx context.Context) map[string]bool {
-	rootPath := uriToPath(m.rootURI)
-	exts := make(map[string]bool)
-
-	paths, err := m.executor.Glob(ctx, rootPath, "**/*", tools.GlobOptions{MaxItems: 5000})
-	if err != nil {
-		if m.log != nil {
-			m.log.Warn(logger.CatMCP, "LSP workspace scan failed", "root", rootPath, "err", err.Error())
-		}
-		return exts
-	}
-	for _, path := range paths {
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != "" {
-			exts[ext] = true
-		}
-	}
-	return exts
 }

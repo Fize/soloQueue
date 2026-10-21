@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,50 @@ import (
 type stopTestProcess struct {
 	done chan struct{}
 	once sync.Once
+}
+
+func TestManagerStartsServersOnlyOnFirstUse(t *testing.T) {
+	workDir := t.TempDir()
+	filePath := filepath.Join(workDir, "main.go")
+	if err := os.WriteFile(filePath, []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(workDir, nil)
+	t.Cleanup(manager.Shutdown)
+	resolutions := 0
+	def := ServerDef{
+		ID: "test-lsp", Languages: []string{"go"}, Extensions: []string{".go"},
+		Args: []string{"-test.run=TestLSPHelperProcess", "--"},
+		Resolve: func(string) string {
+			resolutions++
+			return os.Args[0]
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := manager.Start(ctx, []ServerDef{def}); err != nil {
+		t.Fatal(err)
+	}
+	if resolutions != 0 || len(manager.RunningServerIDs()) != 0 {
+		t.Fatal("Start must register definitions without resolving or starting language servers")
+	}
+	if ids := manager.ServerIDs(); len(ids) != 1 || ids[0] != def.ID {
+		t.Fatalf("configured servers = %v, want [%s]", ids, def.ID)
+	}
+	client, err := manager.clientForFile(ctx, filePath)
+	if err != nil {
+		t.Fatalf("first use: %v", err)
+	}
+	if resolutions != 1 || len(manager.RunningServerIDs()) != 1 {
+		t.Fatal("first use must start the matching language server")
+	}
+	reused, err := manager.clientForFile(ctx, filePath)
+	if err != nil {
+		t.Fatalf("subsequent use: %v", err)
+	}
+	if reused != client || resolutions != 1 {
+		t.Fatal("subsequent use must reuse the running language server")
+	}
 }
 
 func (p *stopTestProcess) Stdin() io.WriteCloser { return nil }
