@@ -4,6 +4,8 @@ Notable changes are recorded here for each release in English and Simplified Chi
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-21
+
 ### Added
 
 - Added local ONNX embeddings using the pinned official `multilingual-e5-small` model. First activation downloads the model and ONNX Runtime with SHA-256 verification; cached artifacts support offline restarts. Available GPU acceleration is preferred automatically, with CPU fallback.
