@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
@@ -222,10 +223,19 @@ func generateSessionTitle(prompt, response string) string {
 // ─── L2 Session Management ─────────────────────────────────────────────────
 
 // leaderAgentName returns the display name of the leader agent for the given group.
-func (m *Mux) leaderAgentName(group string) string {
-	for _, t := range m.templates {
-		if t.IsLeader && t.Group == group {
-			return t.Name
+// The team store is read on every call so teams installed at runtime resolve
+// without a restart.
+func (m *Mux) leaderAgentName(ctx context.Context, group string) string {
+	if m.teamstore == nil {
+		return ""
+	}
+	leaders, err := m.teamstore.ListLeaders(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, a := range leaders {
+		if strings.EqualFold(a.TeamName, group) {
+			return a.Name
 		}
 	}
 	return ""
@@ -351,7 +361,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				Type:            "l2",
 				Name:            name,
 				Group:           info.Group,
-				AgentName:       m.leaderAgentName(info.Group),
+				AgentName:       m.leaderAgentName(r.Context(), info.Group),
 				AgentInstanceID: info.AgentInstanceID,
 				ProjectPath:     info.WorkDir,
 				DesignDir:       resolveDesignDir(info.WorkDir, info.Group),
@@ -430,7 +440,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				Type:        "l2",
 				Name:        name,
 				Group:       group,
-				AgentName:   m.leaderAgentName(group),
+				AgentName:   m.leaderAgentName(r.Context(), group),
 				ProjectPath: projectPath,
 				DesignDir:   resolveDesignDir(projectPath, group),
 				CreatedAt:   createdAt,
@@ -482,7 +492,7 @@ func (m *Mux) handleCreateL2Session(w http.ResponseWriter, r *http.Request) {
 		"id":           info.ID,
 		"name":         info.Name,
 		"group":        info.Group,
-		"agent_name":   m.leaderAgentName(info.Group),
+		"agent_name":   m.leaderAgentName(r.Context(), info.Group),
 		"project_path": info.WorkDir,
 		"design_dir":   designDir,
 		"created_at":   info.CreatedAt,
@@ -527,28 +537,41 @@ func (m *Mux) handleDeleteL2Session(w http.ResponseWriter, r *http.Request) {
 // handleListL2Groups returns the available leader groups for L2 session creation.
 func (m *Mux) handleListL2Groups(w http.ResponseWriter, r *http.Request) {
 	var groups []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		key := strings.ToLower(name)
+		if name == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		groups = append(groups, name)
+	}
 	if m.l2Store != nil {
-		// Collect unique groups from all existing sessions.
-		seen := map[string]bool{}
+		// Existing sessions stay selectable even if their team file was removed.
 		for _, s := range m.l2Store.List() {
-			if !seen[s.Group] {
-				seen[s.Group] = true
-				groups = append(groups, s.Group)
-			}
+			add(s.Group)
 		}
 	}
-	// Also include groups from templates that have leaders.
-	for _, t := range m.templates {
-		if t.IsLeader {
-			found := false
-			for _, g := range groups {
-				if g == t.Group {
-					found = true
-					break
+	// Teams are read per request: a team installed at runtime must be
+	// selectable without restarting the backend.
+	if m.teamstore != nil {
+		teams, err := m.teamstore.ListTeams(r.Context())
+		if err != nil {
+			m.logCatalogError("list teams for L2 groups", err)
+		} else {
+			leaders, lerr := m.teamstore.ListLeaders(r.Context())
+			if lerr != nil {
+				m.logCatalogError("list leader agents for L2 groups", lerr)
+			} else {
+				leaderTeams := make(map[string]bool, len(leaders))
+				for _, a := range leaders {
+					leaderTeams[strings.ToLower(a.TeamName)] = true
 				}
-			}
-			if !found {
-				groups = append(groups, t.Group)
+				for _, t := range teams {
+					if leaderTeams[strings.ToLower(t.Name)] {
+						add(t.Name)
+					}
+				}
 			}
 		}
 	}
@@ -556,6 +579,13 @@ func (m *Mux) handleListL2Groups(w http.ResponseWriter, r *http.Request) {
 		groups = []string{}
 	}
 	m.writeJSON(w, http.StatusOK, map[string]interface{}{"groups": groups})
+}
+
+func (m *Mux) logCatalogError(action string, err error) {
+	if m.log == nil {
+		return
+	}
+	m.log.Warn(logger.CatApp, action+" failed", "err", err.Error())
 }
 
 // ─── Cancel / Clear (with session_id support) ──────────────────────────────
