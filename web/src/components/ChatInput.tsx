@@ -52,6 +52,8 @@ export interface ChatInputProps {
 
   // Autocomplete: skill names fetched from /api/skills
   skillNames?: string[]
+  // Refetches skill names when the "/" popup opens (hot reload after install)
+  onRefreshSkills?: () => void
 
   // @ file completion: root directory (usually session project_path)
   atRootDir?: string
@@ -85,6 +87,7 @@ export function ChatInput({
   ctxwinLimit = 0,
   sessionUsage,
   skillNames = [],
+  onRefreshSkills,
   atRootDir = '',
   selectedTarget,
   onClearSelectedTarget,
@@ -605,6 +608,7 @@ export function ChatInput({
                 atRootDir={atRootDir}
                 onSelectMention={handleSelectMention}
                 onValueChange={handleAutocompleteValueChange}
+                onRefreshSkills={onRefreshSkills}
               />
 
               {/* Backdrop: renders highlighted tokens behind transparent textarea.

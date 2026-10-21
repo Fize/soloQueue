@@ -147,6 +147,12 @@ export function AssistantPage() {
     return skills.map((s) => s.name);
   }, [skills]);
 
+  const refreshSkills = useCallback(() => {
+    getSkills()
+      .then((resp) => setSkills(resp.skills || []))
+      .catch(() => {});
+  }, []);
+
   // Context window tokens
   const selectedRuntimeRequestId = routeSessions["l1"]?.requestId || Object.values(activeRequests ?? {}).find((request) => request.sessionId === "l1")?.requestId;
   const runtimeRequests = Object.entries(runtimeStatus?.sessions ?? {})
@@ -456,6 +462,7 @@ export function AssistantPage() {
             modelName={inputModelName}
             taskLevel={inputTaskLevel}
             skillNames={filteredSkillNames}
+            onRefreshSkills={refreshSkills}
             activeSessionId="l1"
           />
         </div>

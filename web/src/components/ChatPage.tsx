@@ -765,6 +765,12 @@ export function ChatPage() {
     );
   }, [activeAgent, registeredAgents]);
 
+  const refreshSkills = useCallback(() => {
+    getSkills()
+      .then((resp) => setSkills(resp.skills || []))
+      .catch(() => {});
+  }, []);
+
   const filteredSkillNames = useMemo(() => {
     if (isL1Session || !activeSessionId) {
       // L1 session (Chief Secretary) or Welcome/Empty Screen (before selecting an L2 agent session)
@@ -799,6 +805,7 @@ export function ChatPage() {
     onGroupChange: setSelectedGroup,
     onProjectChange: setSelectedProjectPath,
     skillNames: filteredSkillNames,
+    onRefreshSkills: refreshSkills,
     selectedTarget: designSelectedTarget,
     onClearSelectedTarget: () => setDesignSelectedTarget(null),
   };

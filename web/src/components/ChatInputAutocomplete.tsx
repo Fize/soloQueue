@@ -38,12 +38,15 @@ export interface ChatInputAutocompleteProps {
   atRootDir: string
   onSelectMention: (path: string, name: string) => void
   onValueChange: () => void
+  // Refetches the skill catalog when the "/" popup opens, so skills installed
+  // while the page is already mounted show up without a reload.
+  onRefreshSkills?: () => void
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export const ChatInputAutocomplete = forwardRef<ChatInputAutocompleteHandle, ChatInputAutocompleteProps>(
-  function ChatInputAutocomplete({ value: _value, inputRef, skillNames, atRootDir, onSelectMention, onValueChange }, ref) {
+  function ChatInputAutocomplete({ value: _value, inputRef, skillNames, atRootDir, onSelectMention, onValueChange, onRefreshSkills }, ref) {
     const { t } = useTranslation()
     // ─── Slash autocomplete state ────────────────────────────────────────────
     const autocompleteRef = useRef<HTMLDivElement>(null)
@@ -236,11 +239,12 @@ export const ChatInputAutocomplete = forwardRef<ChatInputAutocompleteHandle, Cha
       // Detect / slash token
       const slashMatch = segment.match(/(?:^|\s)\/([a-z0-9-]*)$/i)
       if (slashMatch) {
+        if (acQuery === null) onRefreshSkills?.()
         setAcQuery(slashMatch[1])
       } else {
         setAcQuery(null)
       }
-    }, [atRootDir, inputRef])
+    }, [acQuery, atRootDir, inputRef, onRefreshSkills])
 
     const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
       // @ file popup keyboard navigation (takes priority)
