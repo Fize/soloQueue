@@ -3,9 +3,11 @@ package runtime
 import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/skill"
+	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
+	"github.com/xiaobaitu/soloqueue/internal/router/laya"
 )
 
 // buildAgentInfra initializes the Agent Registry, Factory, Compactor, and Task Router.
@@ -71,6 +73,19 @@ func (bc *buildContext) buildAgentInfra() {
 		classifierModel = classifierModelConfig.ID
 	}
 	classifierConfig := router.DefaultClassifierConfig()
-	classifier := router.NewDefaultClassifier(classifierConfig, bc.llmClient, classifierModelConfig.ProviderID, classifierModel, bc.log)
+	// NewDefaultClassifier normalizes an empty engine in both startup and reload paths.
+	classifierConfig.Engine = router.Engine(bc.settings.Classifier.Engine)
+	bc.classifierManager = laya.New(bc.workDir, bc.log)
+	classifier := router.NewDefaultClassifier(classifierConfig, bc.llmClient, classifierModelConfig.ProviderID, classifierModel, bc.classifierManager, bc.log)
 	bc.taskRouter = router.NewRouter(classifier, bc.cfg, bc.log)
+	bc.classifierManager.Apply(layaConfig(bc.settings.Classifier))
+}
+
+// layaConfig maps the persisted classifier settings onto the local manager.
+func layaConfig(c config.ClassifierConfig) laya.Config {
+	return laya.Config{
+		Enabled:  c.Engine == string(router.EngineLaya),
+		ModelDir: c.ModelDir,
+		Device:   "cpu",
+	}
 }

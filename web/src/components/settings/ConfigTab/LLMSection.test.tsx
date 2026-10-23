@@ -23,6 +23,8 @@ function renderLLMSection(
       providers={providers}
       models={[]}
       defaultModels={{ general: '', engineering: '', research: '', classifier: '', fallback: '' }}
+      classifier={{ engine: 'llm' }}
+      onClassifierChange={vi.fn()}
       providerFilter="all"
       onProviderFilterChange={vi.fn()}
       onSaveDefaults={vi.fn()}

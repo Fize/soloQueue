@@ -138,6 +138,23 @@ export interface EmbeddingConfig {
   models: EmbeddingModel[];
 }
 
+export interface ClassifierConfig {
+  engine: 'llm' | 'laya';
+  modelDir?: string;
+}
+
+export interface ClassifierStatus {
+  state: 'disabled' | 'preparing' | 'downloading' | 'loading' | 'ready' | 'error';
+  model: string;
+  device: string;
+  backend: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  error?: string;
+}
+
+export type ClassifierAction = 'retry' | 'cancel';
+
 export interface ModelRoutesConfig {
 	general: string;
 	engineering: string;

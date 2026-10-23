@@ -43,6 +43,13 @@ func (r *Router) UpdateClassifierModel(provider, model string) {
 	}
 }
 
+// UpdateClassifierEngine changes the engine used by future routing requests.
+func (r *Router) UpdateClassifierEngine(engine Engine) {
+	if c, ok := r.classifier.(*DefaultClassifier); ok {
+		c.SetEngine(engine)
+	}
+}
+
 // Route classifies the task input and resolves the corresponding configured execution model.
 func (r *Router) Route(ctx context.Context, input ClassifyInput, history []ctxwin.PayloadMessage) (RouteDecision, error) {
 	if r.classifier == nil {

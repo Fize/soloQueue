@@ -17,5 +17,8 @@ soloqueue
 soloqueue.exe
 soloqueue-embedding
 soloqueue-embedding.exe
+soloqueue-decide
+soloqueue-decide.exe
 native/embedding/target
+native/decide/target
 .DS_Store

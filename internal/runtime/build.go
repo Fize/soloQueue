@@ -30,6 +30,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
+	"github.com/xiaobaitu/soloqueue/internal/router/laya"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
@@ -223,6 +224,7 @@ type buildContext struct {
 	sharedDB          *db.DB
 	memoryEngine      *engine.Engine
 	embeddingManager  *engine.VectorManager
+	classifierManager *laya.Manager
 	planDir           string
 	mcpServers        []string
 	systemPrompt      string
@@ -342,6 +344,7 @@ func (bc *buildContext) assembleStack() *Stack {
 		MemoryManager:       bc.memoryMgr,
 		MemoryEngine:        bc.memoryEngine,
 		Embedding:           bc.embeddingManager,
+		Classifier:          bc.classifierManager,
 		SharedDB:            bc.sharedDB,
 		MCPManager:          bc.mcpMgr,
 		LSPManager:          bc.lspMgr,

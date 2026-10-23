@@ -10,8 +10,9 @@ import {
   deleteModel,
 	getModelRoutes,
 	updateModelRoutes,
+	getClassifierConfig,
 } from '@/lib/api'
-import type { LLMProvider, LLMModel, ModelRoutesConfig } from '@/types'
+import type { LLMProvider, LLMModel, ModelRoutesConfig, ClassifierConfig } from '@/types'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
@@ -33,15 +34,18 @@ export function ModelsTab() {
 		fallback: '',
 	})
 	const [providerFilter, setProviderFilter] = useState('all')
+	const [classifier, setClassifier] = useState<ClassifierConfig>({ engine: 'llm' })
 
 	const loadData = async () => {
 		setLoading(true)
 		try {
-			const [dbProviders, dbModels, dbDefaults] = await Promise.all([
+			const [dbProviders, dbModels, dbDefaults, dbClassifier] = await Promise.all([
 				listProviders(),
 				listModels(),
 				getModelRoutes(),
+				getClassifierConfig(),
 			])
+			if (dbClassifier) setClassifier(dbClassifier)
 			setProviders(dbProviders || [])
 			setModels(dbModels || [])
 			setModelRoutes(
@@ -171,6 +175,8 @@ export function ModelsTab() {
         providers={providers}
         models={models}
 		defaultModels={modelRoutes}
+        classifier={classifier}
+        onClassifierChange={setClassifier}
         providerFilter={providerFilter}
         onProviderFilterChange={setProviderFilter}
         onSaveDefaults={handleSaveDefaults}

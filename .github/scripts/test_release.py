@@ -95,9 +95,10 @@ class ReleaseTests(unittest.TestCase):
     def test_native_archives_include_sibling_worker_and_notices(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            binary, worker = root / "app", root / "worker"
+            binary, worker, decide = root / "app", root / "worker", root / "decide"
             binary.write_bytes(b"app bytes")
             worker.write_bytes(b"worker bytes")
+            decide.write_bytes(b"decide bytes")
             crate = root / "crate"
             crate.mkdir()
             (crate / "LICENSE-MIT").write_text("A third party copyright notice")
@@ -111,7 +112,8 @@ class ReleaseTests(unittest.TestCase):
                     # Windows chmod cannot set Unix executable bits. Archive
                     # metadata must remain correct when chmod has no effect.
                     with patch.object(Path, "chmod", return_value=None):
-                        bundle = release.archive("1.2.3", system, arch, binary, worker, manifest, root / "out")
+                        bundle = release.archive("1.2.3", system, arch, binary, worker, manifest, root / "out",
+                                                decide=decide)
                     suffix = ".exe" if system == "windows" else ""
                     if system == "windows":
                         with zipfile.ZipFile(bundle) as source:
@@ -120,11 +122,14 @@ class ReleaseTests(unittest.TestCase):
                         with tarfile.open(bundle) as source:
                             files = {member.name: source.extractfile(member).read() for member in source.getmembers()}
                             for name, mode in {"soloqueue": 0o755, "soloqueue-embedding": 0o755,
+                                               "soloqueue-decide": 0o755,
                                                "LICENSE": 0o644, "THIRD_PARTY_LICENSES.txt": 0o644}.items():
                                 self.assertEqual(source.getmember(name).mode, mode, name)
                     self.assertEqual(set(files), {"soloqueue" + suffix, "soloqueue-embedding" + suffix,
+                                                  "soloqueue-decide" + suffix,
                                                   "LICENSE", "THIRD_PARTY_LICENSES.txt"})
                     self.assertEqual(files["soloqueue-embedding" + suffix], b"worker bytes")
+                    self.assertEqual(files["soloqueue-decide" + suffix], b"decide bytes")
                     self.assertEqual(files["soloqueue" + suffix], b"app bytes")
                     self.assertIn(b"A third party copyright notice", files["THIRD_PARTY_LICENSES.txt"])
                     self.assertIn(b"Vendored native code notice", files["THIRD_PARTY_LICENSES.txt"])
@@ -151,6 +156,12 @@ class ReleaseTests(unittest.TestCase):
             for system, arch in [("windows", "amd64"), ("darwin", "arm64"), ("linux", "amd64")]:
                 with self.subTest(system=system), self.assertRaises(ValueError):
                     release.archive("1.2.3", system, arch, binary, None, None, root / "out")
+            worker = root / "worker"
+            worker.write_bytes(b"worker")
+            manifest = root / "metadata.json"
+            manifest.write_text(json.dumps({"packages": []}))
+            with self.assertRaises(ValueError):
+                release.archive("1.2.3", "linux", "amd64", binary, worker, manifest, root / "out")
             with self.assertRaises(ValueError):
                 release.archive("1.2.3", "linux", "other", binary, None, None, root / "out")
 

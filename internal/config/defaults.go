@@ -7,6 +7,9 @@ func DefaultSettings() Settings {
 		Session: SessionConfig{
 			TimelineMaxFileMB: 50,
 		},
+		Classifier: ClassifierConfig{
+			Engine: "llm",
+		},
 		Log: LogConfig{
 			Level:   "info",
 			Console: false,

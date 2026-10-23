@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths: &onnx-paths
       - 'native/embedding/**'
+      - 'native/decide/**'
       - 'internal/memory/engine/**'
       - 'internal/config/**'
       - 'internal/runtime/**'
@@ -69,6 +70,9 @@ jobs:
           cargo +1.88.0 test --locked --manifest-path native/embedding/Cargo.toml
           cargo +1.88.0 clippy --locked --manifest-path native/embedding/Cargo.toml --all-targets -- -D warnings
           cargo +1.88.0 build --locked --release --manifest-path native/embedding/Cargo.toml
+          cargo +1.88.0 fmt --manifest-path native/decide/Cargo.toml --check
+          cargo +1.88.0 clippy --locked --manifest-path native/decide/Cargo.toml --all-targets -- -D warnings
+          cargo +1.88.0 build --locked --release --manifest-path native/decide/Cargo.toml
           go test -race ./internal/memory/engine/embedding/local/...
           python -m unittest discover -s native/embedding/scripts -v
       - name: Install pinned CPU reference dependencies

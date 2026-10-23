@@ -272,6 +272,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				}),
 				server.WithSharedDB(rt.SharedDB),
 				server.WithEmbeddingManager(rt.Embedding),
+				server.WithClassifierManager(rt.Classifier),
 			)
 
 			// Create and start WebSocket Hub for real-time state updates.

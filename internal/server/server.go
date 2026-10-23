@@ -51,6 +51,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/llm/chatgpt"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
+	"github.com/xiaobaitu/soloqueue/internal/router/laya"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
@@ -58,6 +59,7 @@ import (
 // Mux is the root HTTP handler.
 type Mux struct {
 	embedding         *engine.VectorManager
+	classifier        *laya.Manager
 	log               *logger.Logger
 	mux               chi.Router
 	workDir           string
@@ -206,6 +208,11 @@ func WithSessionManager(mgr *session.SessionManager) MuxOption {
 // WithL2SessionStore sets the L2 session store for /api/session/l2 endpoints.
 func WithL2SessionStore(store *session.L2SessionStore) MuxOption {
 	return func(m *Mux) { m.l2Store = store }
+}
+
+// WithClassifierManager exposes the local task classifier's lifecycle status and actions.
+func WithClassifierManager(manager *laya.Manager) MuxOption {
+	return func(m *Mux) { m.classifier = manager }
 }
 
 // WithEmbeddingManager exposes local lifecycle status and actions.
@@ -434,6 +441,13 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Route("/lspmcp", func(r chi.Router) {
 			r.Get("/", m.handleGetLSPMCPConfig)
 			r.Put("/", m.handleUpdateLSPMCPConfig)
+		})
+
+		r.Route("/classifier", func(r chi.Router) {
+			r.Get("/", m.handleGetClassifierConfig)
+			r.Put("/", m.handleUpdateClassifierConfig)
+			r.Get("/status", m.handleClassifierStatus)
+			r.Post("/actions", m.handleClassifierAction)
 		})
 
 		r.Route("/embedding", func(r chi.Router) {

@@ -8,6 +8,9 @@ import type {
   EmbeddingConfig,
   EmbeddingStatus,
   EmbeddingAction,
+  ClassifierConfig,
+  ClassifierStatus,
+  ClassifierAction,
   QQBotConfig,
   WeChatAccountView,
   WeChatLoginSnapshot,
@@ -308,6 +311,32 @@ export async function fetchSkillDetail(id: string): Promise<SkillInfo> {
 
 export async function fetchSkillFiles(id: string): Promise<{ files: SkillFileEntry[] }> {
   return request<{ files: SkillFileEntry[] }>(`/skills/${encodeURIComponent(id)}/files`)
+}
+
+export async function getClassifierConfig(): Promise<ClassifierConfig> {
+  return request<ClassifierConfig>('/config/classifier')
+}
+
+export async function updateClassifierConfig(config: ClassifierConfig): Promise<ClassifierConfig> {
+  return request<ClassifierConfig>('/config/classifier', {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+}
+
+export async function getClassifierStatus(options?: RequestInit): Promise<ClassifierStatus> {
+  return request<ClassifierStatus>('/config/classifier/status', options)
+}
+
+export async function runClassifierAction(
+  action: ClassifierAction,
+  options?: RequestInit
+): Promise<ClassifierStatus> {
+  return request<ClassifierStatus>('/config/classifier/actions', {
+    ...options,
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  })
 }
 
 export async function getEmbeddingStatus(options?: RequestInit): Promise<EmbeddingStatus> {

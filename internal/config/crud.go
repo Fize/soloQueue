@@ -236,6 +236,36 @@ func (s *GlobalService) UpdateEmbedding(emb EmbeddingConfig) error {
 	return err
 }
 
+// NormalizeClassifier fills the engine default.
+func NormalizeClassifier(c ClassifierConfig) ClassifierConfig {
+	if c.Engine == "" {
+		c.Engine = "llm"
+	}
+	return c
+}
+
+// ValidateClassifier rejects engines the classifier cannot run.
+func ValidateClassifier(c ClassifierConfig) error {
+	switch NormalizeClassifier(c).Engine {
+	case "llm", "laya":
+		return nil
+	default:
+		return fmt.Errorf("unsupported classifier engine: %s", c.Engine)
+	}
+}
+
+// UpdateClassifier replaces the classifier engine configuration.
+func (s *GlobalService) UpdateClassifier(c ClassifierConfig) error {
+	if err := ValidateClassifier(c); err != nil {
+		return err
+	}
+	c = NormalizeClassifier(c)
+	_, err := s.Set(func(st *Settings) {
+		st.Classifier = c
+	})
+	return err
+}
+
 // UpdateSession replaces the session configuration.
 func (s *GlobalService) UpdateSession(sess SessionConfig) error {
 	_, err := s.Set(func(st *Settings) {

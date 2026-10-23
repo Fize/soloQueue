@@ -39,6 +39,13 @@ type SpeechConfig struct {
 	ModelDir string `json:"modelDir" yaml:"model_dir,omitempty"` // "" = ~/.soloqueue/models
 }
 
+// ClassifierConfig selects how the task classifier runs. Engine "laya" uses the local ONNX decision
+// model instead of the configured LLM; the two are alternatives, never a chain.
+type ClassifierConfig struct {
+	Engine   string `json:"engine" yaml:"engine,omitempty"`      // llm | laya
+	ModelDir string `json:"modelDir" yaml:"model_dir,omitempty"` // "" = work dir default
+}
+
 type Settings struct {
 	Session      SessionConfig       `json:"session" yaml:"session,omitempty"`
 	Log          LogConfig           `json:"log" yaml:"log,omitempty"`
@@ -47,6 +54,7 @@ type Settings struct {
 	Models       []LLMModel          `json:"models" yaml:"models,omitempty"`
 	Embedding    EmbeddingConfig     `json:"embedding" yaml:"embedding,omitempty"`
 	ModelRoutes  ModelRoutesConfig   `json:"modelRoutes" yaml:"model_routes,omitempty"`
+	Classifier   ClassifierConfig    `json:"classifier" yaml:"classifier,omitempty"`
 	QQBots       []QQBotConfig       `json:"qqbots" yaml:"qqbots,omitempty"`
 	WechatBots   []WechatBotConfig   `json:"wechatBots" yaml:"wechat_bots,omitempty"`
 	TelegramBots []TelegramBotConfig `json:"telegramBots" yaml:"telegram_bots,omitempty"`
@@ -393,6 +401,7 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"providers", "LLM providers", s.Providers},
 		{"models", "LLM models", s.Models},
 		{"model_routes", "Task model routing", s.ModelRoutes},
+		{"classifier", "Task classifier engine", s.Classifier},
 		{"embedding", "Embedding settings", s.Embedding},
 		{"qqbots", "QQ bot integrations", s.QQBots},
 		{"wechat_bots", "WeChat iLink bot integrations", s.WechatBots},

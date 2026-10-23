@@ -1,4 +1,4 @@
-.PHONY: help build build-web build-status build-assets build-go build-native build-with-local start web clean
+.PHONY: help build build-web build-status build-assets build-go build-native build-decide build-with-local start web clean
 
 RUST_TOOLCHAIN ?= 1.88.0
 EXE_SUFFIX := $(if $(filter Windows_NT,$(OS)),.exe,)
@@ -26,7 +26,11 @@ build-native: ## Build the optional local ONNX worker (Rust 1.88.0 required)
 	rustup run $(RUST_TOOLCHAIN) cargo build --locked --release --manifest-path native/embedding/Cargo.toml
 	cp native/embedding/target/release/soloqueue-embedding$(EXE_SUFFIX) soloqueue-embedding$(EXE_SUFFIX)
 
-build-with-local: build build-native ## Build browser assets, Go binary and sibling local ONNX worker
+build-decide: ## Build the optional local laya decision worker (Rust 1.88.0 required)
+	rustup run $(RUST_TOOLCHAIN) cargo build --locked --release --manifest-path native/decide/Cargo.toml
+	cp native/decide/target/release/soloqueue-decide$(EXE_SUFFIX) soloqueue-decide$(EXE_SUFFIX)
+
+build-with-local: build build-native build-decide ## Build browser assets, Go binary and both sibling workers
 
 start: build ## Build and start backend + both browser UIs on one port
 	./soloqueue start
@@ -35,4 +39,4 @@ web: build-web ## Build and start standalone Web Console
 	./soloqueue web
 
 clean: ## Remove generated binaries and embedded frontend bundles
-	rm -rf soloqueue soloqueue.exe soloqueue-embedding soloqueue-embedding.exe web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status
+	rm -rf soloqueue soloqueue.exe soloqueue-embedding soloqueue-embedding.exe soloqueue-decide soloqueue-decide.exe web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status

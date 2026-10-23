@@ -111,7 +111,9 @@ The router classifies each user prompt by work nature (not difficulty) to select
 | `engineering` | Code, debugging, testing, API, deployment |
 | `research` | Web search, documentation lookup, current info |
 
-The classifier uses Local FastTrack rules (code blocks, tracebacks, commands) first, falling back to a lightweight LLM classifier when ambiguous. `priorLevel` preserves session context for follow-up prompts.
+The classifier uses Local FastTrack rules (code blocks, tracebacks, commands) first. After that, `classifier.engine` picks the engine: `llm` (default) calls the configured classifier model, `laya` runs the local ONNX decision model and never calls the LLM — a failure degrades to the previous/default fallback. `priorLevel` preserves session context for follow-up prompts.
+
+The local engine downloads a pinned 1.3GB checkpoint into `models/laya/laya-multilingual-fp32/` and provisions ONNX Runtime 1.30.0 (the embedding worker's 1.24.2 is rejected by the `ort` binding). Disabling it parks the worker for 60s so toggling does not reload the model. `make build-decide` builds the worker; `make build`/`build-go` stay Rust-free. Status and actions are exposed at `/api/config/classifier/{status,actions}`.
 
 ### Dependency container (`internal/runtime/`)
 
@@ -143,11 +145,15 @@ internal/memory/engine/       long-term memory: BM25 (FTS5) + KG + optional vect
 internal/memory/timeline/     append-only JSONL event sourcing
 internal/prompt/        prompt assembly, templates, team management
 internal/router/        task classification & model routing (TaskType: general/engineering/research)
+internal/router/laya/   local ONNX decision engine (classifier.engine: laya) + manager lifecycle
+internal/infra/onnxruntime/ pinned ONNX Runtime provisioning (1.24.2 embedding, 1.30.0 decide)
 internal/runtime/       shared dependency container (Stack, built once)
 internal/server/        REST + WebSocket HTTP router (chi/v5)
 internal/session/       session manager (single active, inFlight atomic CAS)
 internal/team/          auto-reload for LLM-written agent/group files
 internal/team/store/    filesystem-backed team & agent persistence
+native/embedding/       Rust ONNX worker for local embeddings (`soloqueue-embedding`)
+native/decide/          Rust ONNX worker for the local classifier (`soloqueue-decide`), vendored laya-rust
 web/                    Full browser Web Console (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
 status-ui/              Independent read-only backend status page
 skills/                 Skill source packages maintained independently from this runtime

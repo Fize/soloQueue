@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
@@ -15,23 +16,40 @@ type Classifier interface {
 }
 
 type DefaultClassifier struct {
-	config ClassifierConfig
-	local  *LocalClassifier
-	llm    *LLMClassifier
-	logger *logger.Logger
+	mu      sync.RWMutex
+	config  ClassifierConfig
+	local   *LocalClassifier
+	llm     *LLMClassifier
+	decider Decider
+	logger  *logger.Logger
 }
 
-func NewDefaultClassifier(config ClassifierConfig, client agent.LLMClient, providerID, model string, l *logger.Logger) *DefaultClassifier {
+// NewDefaultClassifier builds the configured engine. decider is required for EngineLaya and ignored
+// otherwise; a nil decider makes the local engine degrade to the previous/default fallback.
+func NewDefaultClassifier(config ClassifierConfig, client agent.LLMClient, providerID, model string, decider Decider, l *logger.Logger) *DefaultClassifier {
 	var semantic *LLMClassifier
 	if config.EnableLLM && client != nil && model != "" {
 		semantic = NewLLMClassifier(client, providerID, model)
 	}
-	return &DefaultClassifier{
-		config: config,
-		local:  NewLocalClassifier(),
-		llm:    semantic,
-		logger: l,
+	c := &DefaultClassifier{
+		config:  config,
+		local:   NewLocalClassifier(),
+		llm:     semantic,
+		decider: decider,
+		logger:  l,
 	}
+	c.SetEngine(config.Engine)
+	return c
+}
+
+// SetEngine changes the engine for subsequent classifications. In-flight requests keep their snapshot.
+func (c *DefaultClassifier) SetEngine(engine Engine) {
+	if engine == "" {
+		engine = EngineLLM
+	}
+	c.mu.Lock()
+	c.config.Engine = engine
+	c.mu.Unlock()
 }
 
 func (c *DefaultClassifier) SetModelAndProvider(providerID, model string) {
@@ -41,12 +59,29 @@ func (c *DefaultClassifier) SetModelAndProvider(providerID, model string) {
 }
 
 func (c *DefaultClassifier) Classify(ctx context.Context, input ClassifyInput, history []ctxwin.PayloadMessage) ClassificationResult {
-	if c.config.EnableLocal {
+	c.mu.RLock()
+	cfg := c.config
+	c.mu.RUnlock()
+	if cfg.EnableLocal {
 		if result := c.local.Classify(input.Text); result.Matched {
 			return ClassificationResult{TaskType: result.TaskType, Source: SourceLocal, ReasonCode: result.ReasonCode}
 		}
 	}
-	if c.config.EnableLLM && c.llm != nil {
+	if cfg.Engine == EngineLaya {
+		if c.decider != nil {
+			if t, err := c.decider.Decide(ctx, input.Text); err == nil && t.Valid() {
+				return ClassificationResult{TaskType: t, Source: SourceLaya, ReasonCode: "laya"}
+			}
+		}
+		// The local engine is the configured alternative to the LLM, so a failure degrades to the
+		// existing fallback instead of a network call.
+		if c.logger != nil {
+			c.logger.WarnContext(ctx, logger.CatApp, "local task classifier unavailable; using fallback",
+				"prompt_len", len(input.Text), "previous_task_type", input.PreviousTaskType)
+		}
+		return fallbackResult(input, SourceLayaUnavailable)
+	}
+	if cfg.EnableLLM && c.llm != nil {
 		if t, err := c.llm.Classify(ctx, input, history); err == nil {
 			return ClassificationResult{TaskType: t, Source: SourceLLM, ReasonCode: "llm"}
 		} else {
@@ -62,10 +97,24 @@ func (c *DefaultClassifier) Classify(ctx context.Context, input ClassifyInput, h
 			return ClassificationResult{TaskType: fallbackType, Source: fallbackSource, ReasonCode: fallbackReason}
 		}
 	}
+	return fallbackResult(input, "")
+}
+
+// fallbackResult returns the previous task type, or general when there is none. source overrides the
+// reported source so the caller can see which engine gave up; empty keeps the historical values.
+func fallbackResult(input ClassifyInput, source ClassificationSource) ClassificationResult {
 	if input.PreviousTaskType.Valid() {
-		return ClassificationResult{TaskType: input.PreviousTaskType, Source: SourcePreviousFallback, ReasonCode: "previous"}
+		reported := SourcePreviousFallback
+		if source != "" {
+			reported = source
+		}
+		return ClassificationResult{TaskType: input.PreviousTaskType, Source: reported, ReasonCode: "previous"}
 	}
-	return ClassificationResult{TaskType: tasktype.General, Source: SourceDefaultFallback, ReasonCode: "general"}
+	reported := SourceDefaultFallback
+	if source != "" {
+		reported = source
+	}
+	return ClassificationResult{TaskType: tasktype.General, Source: reported, ReasonCode: "general"}
 }
 
 func (c *DefaultClassifier) logFallback(ctx context.Context, input ClassifyInput, history []ctxwin.PayloadMessage, err error, fallbackType tasktype.TaskType, fallbackSource ClassificationSource) {

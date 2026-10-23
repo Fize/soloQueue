@@ -35,16 +35,25 @@ def fingerprint():
     # Root docs, deploy docs, and skills are not Docker build inputs.
     paths = ["cmd", "internal", "web", "status-ui", "go.mod", "go.sum", "LICENSE",
              "native/embedding/Cargo.toml", "native/embedding/Cargo.lock", "native/embedding/src",
+             "native/decide/Cargo.toml", "native/decide/Cargo.lock", "native/decide/src", "native/decide/vendor",
              "deploy/docker/Dockerfile", ".dockerignore", ".github"]
     tree = subprocess.check_output(["git", "ls-tree", "-r", "-z", "HEAD", "--", *paths])
     return hashlib.sha256(tree).hexdigest()
 
 
-def native_licenses(metadata_path, output_path):
+def native_licenses(metadata_paths, output_path):
     """Preserve the license/notice files shipped by every pinned Rust crate."""
-    packages = json.loads(Path(metadata_path).read_text(encoding="utf-8"))["packages"]
+    if isinstance(metadata_paths, (str, Path)):
+        metadata_paths = [metadata_paths]
+    packages = [package for metadata_path in metadata_paths
+                for package in json.loads(Path(metadata_path).read_text(encoding="utf-8"))["packages"]]
     sections = []
+    seen = set()
     for package in sorted(packages, key=lambda p: (p["name"], p["version"])):
+        identity = (package["name"], package["version"])
+        if identity in seen:
+            continue
+        seen.add(identity)
         root = Path(package["manifest_path"]).parent
         # Vendored native code can carry additional notices (e.g. Oniguruma's
         # COPYING). Registry packages have no build output; avoid recursively
@@ -62,16 +71,16 @@ def native_licenses(metadata_path, output_path):
     Path(output_path).write_text("\n\n".join(sections) + "\n", encoding="utf-8")
 
 
-def archive(version, system, arch, binary, worker, license_metadata, output_dir):
+def archive(version, system, arch, binary, worker, license_metadata, output_dir, decide=None):
     """Package only the app, its optional sibling worker, and required notices."""
     metadata("v" + version, "unused/unused")
     supported = {("darwin", "arm64"), ("linux", "amd64"), ("windows", "amd64")}
     legacy = (system, arch) == ("darwin", "amd64")
     if (system, arch) not in supported and not legacy:
         raise ValueError("unsupported release platform")
-    if not legacy and (not worker or not license_metadata):
-        raise ValueError("local ONNX releases require worker and license metadata")
-    if legacy and (worker or license_metadata):
+    if not legacy and (not worker or not decide or not license_metadata):
+        raise ValueError("local ONNX releases require both workers and license metadata")
+    if legacy and (worker or decide or license_metadata):
         raise ValueError("macOS Intel release does not support the pinned local ONNX runtime")
     suffix = ".exe" if system == "windows" else ""
     output = Path(output_dir)
@@ -84,6 +93,8 @@ def archive(version, system, arch, binary, worker, license_metadata, output_dir)
         if worker:
             shutil.copyfile(worker, stage / ("soloqueue-embedding" + suffix))
             native_licenses(license_metadata, stage / "THIRD_PARTY_LICENSES.txt")
+        if decide:
+            shutil.copyfile(decide, stage / ("soloqueue-decide" + suffix))
         else:
             (stage / "LOCAL_ONNX_UNSUPPORTED.txt").write_text(
                 "Local ONNX embedding is unavailable on macOS Intel: no official ONNX Runtime 1.24.2 package.\n"
@@ -98,7 +109,7 @@ def archive(version, system, arch, binary, worker, license_metadata, output_dir)
             with tarfile.open(destination, "w:gz") as bundle:
                 for path in sorted(stage.iterdir()):
                     info = bundle.gettarinfo(str(path), arcname=path.name)
-                    info.mode = 0o755 if path.name in {"soloqueue", "soloqueue-embedding"} else 0o644
+                    info.mode = 0o755 if path.name in {"soloqueue", "soloqueue-embedding", "soloqueue-decide"} else 0o644
                     with path.open("rb") as content:
                         bundle.addfile(info, content)
     return destination
@@ -164,7 +175,7 @@ if __name__ == "__main__":
         output({"cache_tag": cache_tag, "digest": digest,
                 "build": str(not digest).lower()})
     elif sys.argv[1] == "licenses":
-        native_licenses(sys.argv[2], sys.argv[3])
+        native_licenses(sys.argv[2:-1], sys.argv[-1])
     elif sys.argv[1] == "checksums":
         checksums(sys.argv[2])
     elif sys.argv[1] == "archive":
@@ -174,7 +185,8 @@ if __name__ == "__main__":
         parser.add_argument("--arch", required=True)
         parser.add_argument("--binary", type=Path, required=True)
         parser.add_argument("--worker", type=Path)
-        parser.add_argument("--license-metadata", type=Path)
+        parser.add_argument("--decide", type=Path, help="local task classifier worker")
+        parser.add_argument("--license-metadata", type=Path, nargs="+")
         parser.add_argument("--output-dir", type=Path, required=True)
         print(archive(**vars(parser.parse_args(sys.argv[2:]))))
     else:

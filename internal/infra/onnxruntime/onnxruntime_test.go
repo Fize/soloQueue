@@ -1,4 +1,4 @@
-package managed
+package onnxruntime
 
 import (
 	"archive/tar"
@@ -21,31 +21,32 @@ func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f
 func TestDownloadHashOfflineAndCancellation(t *testing.T) {
 	content := "verified artifact"
 	sum := sha256.Sum256([]byte(content))
-	a := artifact{name: "model", hash: hex.EncodeToString(sum[:]), url: "https://test.invalid/model"}
+	hash := hex.EncodeToString(sum[:])
 	calls := 0
-	installer := Installer{Client: &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+	client := &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 		calls++
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(content)), ContentLength: int64(len(content))}, nil
-	})}}
+	})}
 	path := filepath.Join(t.TempDir(), "model")
+	url := "https://test.invalid/model"
 	progress := func(string, int64, int64) {}
-	if err := installer.download(context.Background(), path, a, progress); err != nil {
+	if err := Download(context.Background(), client, path, "model", url, hash, progress); err != nil {
 		t.Fatal(err)
 	}
-	installer.Client.Transport = roundTrip(func(*http.Request) (*http.Response, error) {
+	client.Transport = roundTrip(func(*http.Request) (*http.Response, error) {
 		t.Error("verified offline cache requested network")
 		return nil, errors.New("offline")
 	})
-	if err := installer.download(context.Background(), path, a, progress); err != nil || calls != 1 {
+	if err := Download(context.Background(), client, path, "model", url, hash, progress); err != nil || calls != 1 {
 		t.Fatal(err, calls)
 	}
 	if err := os.WriteFile(path, []byte("corrupted"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	installer.Client.Transport = roundTrip(func(*http.Request) (*http.Response, error) {
+	client.Transport = roundTrip(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("wrong"))}, nil
 	})
-	if err := installer.download(context.Background(), path, a, progress); err == nil {
+	if err := Download(context.Background(), client, path, "model", url, hash, progress); err == nil {
 		t.Fatal("bad hash accepted")
 	}
 	data, _ := os.ReadFile(path)
@@ -54,7 +55,7 @@ func TestDownloadHashOfflineAndCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := installer.download(ctx, path, a, progress); !errors.Is(err, context.Canceled) {
+	if err := Download(ctx, client, path, "model", url, hash, progress); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	parts, _ := filepath.Glob(filepath.Join(filepath.Dir(path), ".download-*"))
@@ -83,13 +84,23 @@ func TestExtractRejectsTraversal(t *testing.T) {
 	}
 }
 func TestSupportedRuntimePolicy(t *testing.T) {
-	for _, test := range []struct{ os, arch, contains string }{{"darwin", "arm64", "osx-arm64"}, {"linux", "amd64", "gpu"}, {"linux", "arm64", "aarch64"}, {"windows", "amd64", "directml"}} {
-		packages, library, err := runtimeArtifacts(test.os, test.arch)
+	embedding := []struct{ os, arch, contains string }{{"darwin", "arm64", "osx-arm64"}, {"linux", "amd64", "gpu"}, {"linux", "arm64", "aarch64"}, {"windows", "amd64", "directml"}}
+	for _, test := range embedding {
+		packages, library, err := artifacts("1.24.2", test.os, test.arch)
 		if err != nil || len(packages) == 0 || library == "" || !strings.Contains(packages[0].name, test.contains) {
 			t.Fatal(test, packages, library, err)
 		}
 	}
-	if _, _, err := runtimeArtifacts("darwin", "amd64"); err == nil {
-		t.Fatal("unsupported runtime accepted")
+	decide := []struct{ os, arch, contains string }{{"darwin", "arm64", "osx-arm64-1.30.0"}, {"linux", "amd64", "linux-x64-1.30.0"}, {"linux", "arm64", "aarch64-1.30.0"}, {"windows", "amd64", "onnxruntime.1.30.0.nupkg"}}
+	for _, test := range decide {
+		packages, library, err := artifacts("1.30.0", test.os, test.arch)
+		if err != nil || len(packages) == 0 || library == "" || !strings.Contains(packages[0].name, test.contains) {
+			t.Fatal(test, packages, library, err)
+		}
+	}
+	for _, test := range []struct{ version, os, arch string }{{"1.24.2", "darwin", "amd64"}, {"1.30.0", "darwin", "amd64"}, {"1.30.1", "linux", "amd64"}} {
+		if _, _, err := artifacts(test.version, test.os, test.arch); err == nil {
+			t.Fatal("unsupported runtime accepted", test)
+		}
 	}
 }

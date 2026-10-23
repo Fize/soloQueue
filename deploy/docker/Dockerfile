@@ -50,12 +50,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/*
 COPY native/embedding/Cargo.toml native/embedding/Cargo.lock ./native/embedding/
 COPY native/embedding/src ./native/embedding/src
+COPY native/decide/Cargo.toml native/decide/Cargo.lock ./native/decide/
+COPY native/decide/src ./native/decide/src
+COPY native/decide/vendor ./native/decide/vendor
 COPY .github/scripts/release.py ./.github/scripts/release.py
 RUN cargo build --locked --release --manifest-path native/embedding/Cargo.toml \
-    && cargo metadata --locked --format-version 1 --manifest-path native/embedding/Cargo.toml > /tmp/native-metadata.json \
+    && cargo build --locked --release --manifest-path native/decide/Cargo.toml \
+    && cargo metadata --locked --format-version 1 --manifest-path native/embedding/Cargo.toml > /tmp/embedding-metadata.json \
+    && cargo metadata --locked --format-version 1 --manifest-path native/decide/Cargo.toml > /tmp/decide-metadata.json \
     && mkdir -p /out \
     && cp native/embedding/target/release/soloqueue-embedding /out/soloqueue-embedding \
-    && python3 .github/scripts/release.py licenses /tmp/native-metadata.json /out/THIRD_PARTY_LICENSES.txt
+    && cp native/decide/target/release/soloqueue-decide /out/soloqueue-decide \
+    && python3 .github/scripts/release.py licenses /tmp/embedding-metadata.json /tmp/decide-metadata.json /out/THIRD_PARTY_LICENSES.txt
 
 FROM node:24-bookworm-slim
 
@@ -86,6 +92,7 @@ RUN apt-get update \
 COPY --from=go-runtime /usr/local/go /usr/local/go
 COPY --from=go-build /out/soloqueue /usr/local/bin/soloqueue
 COPY --from=native-build /out/soloqueue-embedding /usr/local/bin/soloqueue-embedding
+COPY --from=native-build /out/soloqueue-decide /usr/local/bin/soloqueue-decide
 COPY --from=native-build /out/THIRD_PARTY_LICENSES.txt /usr/local/share/licenses/soloqueue/THIRD_PARTY_LICENSES.txt
 COPY LICENSE /usr/local/share/licenses/soloqueue/LICENSE
 ENV HOME=/root \

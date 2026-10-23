@@ -51,12 +51,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import type { LLMProvider, LLMModel, ModelRoutesConfig } from '@/types'
+import type { LLMProvider, LLMModel, ClassifierConfig, ModelRoutesConfig } from '@/types'
+import { ClassifierEngineControl } from './ClassifierEngineControl'
 
 interface LLMSectionProps {
   providers: LLMProvider[]
   models: LLMModel[]
 	defaultModels: ModelRoutesConfig
+  classifier: ClassifierConfig
+  onClassifierChange: (config: ClassifierConfig) => void
   providerFilter: string
   onProviderFilterChange: (value: string) => void
   onSaveDefaults: () => void
@@ -76,6 +79,8 @@ export function LLMSection({
   providers,
   models,
   defaultModels,
+  classifier,
+  onClassifierChange,
   providerFilter,
   onProviderFilterChange,
   onSaveDefaults,
@@ -442,25 +447,35 @@ export function LLMSection({
             { role: 'fallback', title: 'config.modelRouteFallback', desc: 'config.modelRouteFallbackDesc', required: true, filterVision: false },
           ] as const).map(({ role, title, desc, required, filterVision }) => (
             <div key={role} className="grid gap-2 rounded-lg bg-muted/30 p-3 md:grid-cols-[minmax(9rem,0.8fr)_minmax(0,1.25fr)_minmax(14rem,1fr)] md:items-center">
-              <label htmlFor={`role-select-${role}`} className="text-sm font-semibold text-foreground">{t(title)}</label>
+              <label
+                htmlFor={role === 'classifier' && classifier.engine === 'laya' ? undefined : `role-select-${role}`}
+                className="text-sm font-semibold text-foreground"
+              >
+                {t(title)}
+              </label>
               <div className="min-w-0">
                 <p className="text-xs text-muted-foreground leading-relaxed">{t(desc)}</p>
                 {required && <p className="mt-1 text-xs text-destructive">{t('config.modelRouteRequired')}</p>}
               </div>
-              <div className="min-w-0">
-              <Select
-                id={`role-select-${role}`}
-                value={defaultModels[role] || ''}
-                onChange={(v) => {
-                  if (required && !v) return
-                  onDefaultModelsChange({ ...defaultModels, [role]: v })
-                }}
-                placeholder={required ? t('config.llmSelectModel') : t('config.llmUnsetConfigured')}
-                options={[
-                  ...(required ? [] : [{ value: '', label: t('config.llmUnsetConfigured') }]),
-                  ...models.filter((m) => m.enabled && (!filterVision || m.vision)).map((m) => ({ value: `${m.providerId}:${m.id}`, label: `${m.providerId}:${m.id} (${m.name})` })),
-                ]}
-              />
+              <div className="min-w-0 space-y-2">
+              {role === 'classifier' && (
+                <ClassifierEngineControl config={classifier} onChange={onClassifierChange} />
+              )}
+              {!(role === 'classifier' && classifier.engine === 'laya') && (
+                <Select
+                  id={`role-select-${role}`}
+                  value={defaultModels[role] || ''}
+                  onChange={(v) => {
+                    if (required && !v) return
+                    onDefaultModelsChange({ ...defaultModels, [role]: v })
+                  }}
+                  placeholder={required ? t('config.llmSelectModel') : t('config.llmUnsetConfigured')}
+                  options={[
+                    ...(required ? [] : [{ value: '', label: t('config.llmUnsetConfigured') }]),
+                    ...models.filter((m) => m.enabled && (!filterVision || m.vision)).map((m) => ({ value: `${m.providerId}:${m.id}`, label: `${m.providerId}:${m.id} (${m.name})` })),
+                  ]}
+                />
+              )}
               </div>
             </div>
           ))}

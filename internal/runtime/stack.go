@@ -27,6 +27,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/vectorstore"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
+	"github.com/xiaobaitu/soloqueue/internal/router/laya"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
@@ -59,6 +60,7 @@ type Stack struct {
 	SkillRegistry *skill.SkillRegistry
 	MemoryManager *conversation.Manager // Short-term memory manager
 	Embedding     *engine.VectorManager
+	Classifier    *laya.Manager     // Local task classifier engine (engine: laya)
 	MemoryEngine  *engine.Engine    // Memory engine (BM25 + KG + optional vector)
 	SharedDB      *db.DB            // Shared SQLite connection
 	MCPManager    *mcp.Manager      // MCP server manager
@@ -201,6 +203,10 @@ func (s *Stack) Shutdown() {
 		s.Embedding.Close()
 	}
 
+	if s.Classifier != nil {
+		s.Classifier.Close()
+	}
+
 	// Close the shared SQLite DB last so any flush performed by the stores
 	// above (e.g. future scheduled writes) can still reach disk.
 	if s.SharedDB != nil {
@@ -335,6 +341,9 @@ func (s *Stack) OnSettingsChange(settings config.Settings) error {
 	if err := config.ValidateEmbedding(settings.Embedding); err != nil {
 		return err
 	}
+	if err := config.ValidateClassifier(settings.Classifier); err != nil {
+		return err
+	}
 	s.CfgMu.Lock()
 	defer s.CfgMu.Unlock()
 
@@ -394,12 +403,24 @@ func (s *Stack) OnSettingsChange(settings config.Settings) error {
 	}
 
 	s.rebuildMemoryEngine(settings)
+	s.rebuildClassifier(settings)
 
 	if s.AgentFactory != nil {
 		s.AgentFactory.UpdateLLM(s.LLMClient)
 	}
 	s.Log.Info(logger.CatConfig, "LLM provider, default model, and tools configurations hot-reloaded successfully from DB")
 	return nil
+}
+
+// rebuildClassifier updates routing before starting or stopping the local decision worker.
+func (s *Stack) rebuildClassifier(settings config.Settings) {
+	if s.TaskRouter != nil {
+		s.TaskRouter.UpdateClassifierEngine(router.Engine(settings.Classifier.Engine))
+	}
+	if s.Classifier == nil {
+		return
+	}
+	s.Classifier.Apply(layaConfig(settings.Classifier))
 }
 
 func (s *Stack) rebuildMemoryEngine(settings config.Settings) {
