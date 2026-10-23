@@ -4,89 +4,72 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // ─── SummarizeSkill ─────────────────────────────────────────────────────────
 
-func TestSummarizeSkill_TriggersPriority(t *testing.T) {
-	s := &Skill{
-		ID:          "pdf",
-		Description: "Extracts text and tables from PDF files.",
-		WhenToUse:   "Trigger when the user mentions: PDF file, extract text from PDF",
-		Triggers:    []string{"pdf", "提取", "OCR"},
-	}
-	got := SummarizeSkill(s)
-	if !strings.HasPrefix(got, "当任务提到 pdf、提取、OCR 时使用") {
-		t.Errorf("triggers should lead the summary: got %q", got)
-	}
-	if !strings.Contains(got, "Extracts text and tables") {
-		t.Errorf("description first line should follow triggers: got %q", got)
+func TestSummarizeSkill_DescriptionOnly(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		description string
+	}{
+		{"single-line", "Extract text from PDF files."},
+		{"multi-line", "Testing strategy.\n\nUse for integration checks.\nDo not use for translation."},
+		{"empty", ""},
+		{"whitespace", " \n\t "},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Skill{
+				ID:          "x",
+				Description: tt.description,
+				WhenToUse:   "Legacy condition must not be listed.",
+				Triggers:    []string{"legacy-trigger", "OCR"},
+			}
+			if got, want := SummarizeSkill(s), strings.TrimSpace(tt.description); got != want {
+				t.Errorf("description = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
-func TestSummarizeSkill_TriggersCappedAtThree(t *testing.T) {
-	s := &Skill{
-		ID:          "x",
-		Description: "desc",
-		Triggers:    []string{"a", "b", "c", "d", "e"},
-	}
-	got := SummarizeSkill(s)
-	// "desc" contains a stray "d", so assert on separator-joined pairs instead.
-	for _, banned := range []string{"c、d", "d、e", "、d、"} {
-		if strings.Contains(got, banned) {
-			t.Errorf("triggers beyond the first 3 should be dropped: got %q", got)
+func TestSummarizeSkill_DescriptionCharacterLimit(t *testing.T) {
+	for _, char := range []string{"a", "字", "🛠"} {
+		for _, size := range []int{1535, 1536, 1537} {
+			t.Run(fmt.Sprintf("%s-%d", char, size), func(t *testing.T) {
+				description := strings.Repeat(char, size)
+				got := SummarizeSkill(&Skill{ID: "x", Description: description})
+				want := description
+				if size > 1536 {
+					want = strings.Repeat(char, 1535) + "…"
+				}
+				if got != want {
+					t.Errorf("description length = %d, want %d; content matches: %v", utf8.RuneCountInString(got), utf8.RuneCountInString(want), got == want)
+				}
+				if !utf8.ValidString(got) || utf8.RuneCountInString(got) > 1536 {
+					t.Errorf("description must be valid UTF-8 and at most 1536 characters")
+				}
+			})
 		}
 	}
-	if !strings.Contains(got, "a、b、c") {
-		t.Errorf("first 3 triggers should be joined with 、: got %q", got)
+}
+
+func TestSummarizeSkill_NilSkill(t *testing.T) {
+	if got := SummarizeSkill(nil); got != "" {
+		t.Errorf("nil skill should produce empty summary: got %q", got)
 	}
 }
 
-func TestSummarizeSkill_WhenToUseFallback(t *testing.T) {
-	s := &Skill{
-		ID:          "docx",
-		Description: "Create and edit Word documents.",
-		WhenToUse:   "Use when the user mentions: Word doc, .docx, tracked changes",
+func TestBuildSkillListing_MultilineDescriptionBudget(t *testing.T) {
+	description := "Testing strategy.\nUse for integration checks."
+	skills := []*Skill{{ID: "qa", Description: description}}
+	want := "- qa: " + description
+	budget := utf8.RuneCountInString(want) + 1 // Include the listing's newline.
+	if got := BuildSkillListing(skills, budget, nil); got != want {
+		t.Errorf("description should fit exactly: got %q, want %q", got, want)
 	}
-	got := SummarizeSkill(s)
-	if !strings.Contains(got, "Use when the user mentions") {
-		t.Errorf("when_to_use should be used when triggers absent: got %q", got)
-	}
-}
-
-func TestSummarizeSkill_DescriptionOnly(t *testing.T) {
-	s := &Skill{ID: "x", Description: "A generic description without triggers."}
-	if got := SummarizeSkill(s); got != "A generic description without triggers." {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestSummarizeSkill_TruncatesToMaxRunes(t *testing.T) {
-	long := strings.Repeat("很长的描述内容", 30) // 180 runes
-	s := &Skill{ID: "x", Description: long}
-	got := SummarizeSkill(s)
-	if n := len([]rune(got)); n > maxSummaryRunes+1 { // +1 for ellipsis
-		t.Errorf("summary exceeds %d runes: %d", maxSummaryRunes, n)
-	}
-	if !strings.HasSuffix(got, "…") {
-		t.Errorf("truncated summary should end with …: got %q", got)
-	}
-}
-
-func TestSummarizeSkill_RuneSafeTruncation(t *testing.T) {
-	// CJK chars are 3 bytes in UTF-8; byte truncation would corrupt them.
-	long := strings.Repeat("字", 100) // 100 runes, 300 bytes
-	s := &Skill{ID: "x", Description: long}
-	got := SummarizeSkill(s)
-	if !strings.HasPrefix(got, "字字字") {
-		t.Errorf("rune-safe truncation broken: got %q", got)
-	}
-}
-
-func TestSummarizeSkill_EmptySkill(t *testing.T) {
-	s := &Skill{ID: "x"}
-	if got := SummarizeSkill(s); got != "" {
-		t.Errorf("empty skill should produce empty summary: got %q", got)
+	if got := BuildSkillListing(skills, budget-1, nil); got != "- qa" {
+		t.Errorf("budget must count all description lines: got %q", got)
 	}
 }
 

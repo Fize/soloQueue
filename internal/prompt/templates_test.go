@@ -157,36 +157,91 @@ func TestBuildSkillForkSystemPrompt_ContainsSkillManagementRules(t *testing.T) {
 	}
 }
 
-func TestSharedAgentRules_L1SkillSelection(t *testing.T) {
-	if !strings.Contains(SharedAgentRules, "decide the executor before selecting Skills") {
-		t.Fatal("executor selection must precede Skill matching")
+func TestSharedAgentRules_SkillUseContract(t *testing.T) {
+	cases := []struct {
+		name     string
+		required []string
+	}{
+		{"matching before requested work", []string{
+			"Follow the executor-selection policy first",
+			"including for independently delegated tasks",
+			"match the available Skill descriptions to its goal, scope, and required method",
+			"You may first perform the read-only exploration needed to understand the task",
+			"before proceeding with execution or producing the requested analysis, advice, design, or other content",
+			"invoke it and read its instructions before the work it governs",
+			"do not batch the Skill load with that work",
+			"load it directly without unnecessary exploration",
+			"permission to skip planning does not waive this check",
+			"Keyword overlap alone is not a match",
+			"If no Skill applies, proceed directly",
+		}},
+		{"selection reuse and changes", []string{
+			"Use the Skill whose stated purpose best matches the current goal and required method",
+			"Reuse instructions already available when they cover the work",
+			"Reassess when the goal, scope, or required method changes materially",
+			"load only missing applicable instructions or required dependencies",
+			"Routine tool calls, retries, and follow-up turns for the same work do not require another selection or load",
+			"An additional Skill is needed only for an applicable explicit dependency or a requirement not covered",
+			"Do not load overlapping workflows merely to be thorough",
+		}},
+		{"assigned steps", []string{
+			"For an assigned step of an existing workflow, follow its supplied instructions",
+			"without restarting or replacing the workflow",
+			"load supporting guidance only when needed for that step",
+		}},
+		{"authorized scope", []string{
+			"relevant requirements and permitted adaptations within the user's authorized scope",
+			"does not authorize extra deliverables, implementation, delegation, or publication",
+			"Do not silently omit applicable mandatory requirements",
+		}},
+		{"no separate process", []string{
+			"No separate selection report, checklist, or approval step is required",
+		}},
+		{"behavior and evidence scope", []string{
+			"For fixes and fix suggestions, preserve existing behavior outside the requested correction",
+			"even within the same function",
+			"Names or conventions alone do not authorize semantic changes",
+			"Distinguish observed facts from hypotheses",
+			"do not present an unverified cause as established",
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, phrase := range tc.required {
+				if !strings.Contains(SharedAgentRules, phrase) {
+					t.Errorf("shared Skill Use contract missing %q", phrase)
+				}
+			}
+		})
+	}
+	skillUse := strings.Split(strings.SplitN(SharedAgentRules, "# Skill Use\n", 2)[1], "# Strict Scope Adherence")[0]
+	for _, phrase := range []string{
+		"Reuse instructions already available when they cover the work",
+		"Reassess when the goal, scope, or required method changes materially",
+		"Routine tool calls, retries, and follow-up turns for the same work",
+	} {
+		if strings.Count(skillUse, phrase) != 1 {
+			t.Errorf("Skill Use must state %q exactly once", phrase)
+		}
+	}
+	for _, example := range []string{"qa-suite", "scenario-standards", "workflow-orchestrator", "cart.go", "release.tar.gz", "release verification"} {
+		if strings.Contains(skillUse, example) {
+			t.Errorf("generic Skill Use must not specialize routing for %q", example)
+		}
 	}
 
-	required := []string{
-		"# Skill Selection",
-		"If this system prompt already contains a Skill's execution logic",
-		"If a Skill matches, invoke it",
-		"if none matches, use raw tools",
-	}
-	for _, phrase := range required {
-		if !strings.Contains(SharedAgentRules, phrase) {
-			t.Errorf("SharedAgentRules should contain %q", phrase)
-		}
-	}
-	for _, forbidden := range []string{"SKILL STEP", "upstream step", "This is step N of the <skill> SOP"} {
-		if strings.Contains(SharedAgentRules, forbidden) {
-			t.Errorf("SharedAgentRules must not contain supervisor-only Skill handoff %q", forbidden)
-		}
-	}
 }
 
-func TestL2SkillExecutionContract_ContainsUpstreamStepHandling(t *testing.T) {
+func TestL2SkillExecutionContract_PreservesHandoffScope(t *testing.T) {
 	for _, phrase := range []string{
-		"SKILL INSTANCE",
-		"SKILL STEP",
-		"STANDALONE",
-		"This is step N of the <skill> SOP",
-		"preserve the exact step marker",
+		"# Skill Handoff",
+		"For an independent delegated task",
+		"requested outcome, scope, relevant work context, and any explicit user-required Skill",
+		"Let the executor apply the shared Skill Use rules",
+		"identify the Skill and step",
+		"provide the relevant instructions and expected result",
+		"preserve these constraints through further delegation",
+		"Do not restart the parent workflow or expand the assigned step",
 	} {
 		if !strings.Contains(L2SkillExecutionContract, phrase) {
 			t.Errorf("L2SkillExecutionContract should contain %q", phrase)
@@ -196,10 +251,9 @@ func TestL2SkillExecutionContract_ContainsUpstreamStepHandling(t *testing.T) {
 
 func TestSharedAgentRules_ExplicitSkillRequest(t *testing.T) {
 	required := []string{
-		"If the user explicitly requests a skill",
-		"invoke that skill directly",
-		"Do NOT search for related skills first",
-		"preserve the explicit skill requirement in the delegated task or help request",
+		"When the user explicitly asks you to use a Skill, use it within the requested scope",
+		"Preserve that requirement when delegating",
+		"Do not invent Skill IDs or substitute a different Skill without justification",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(SharedAgentRules, phrase) {
@@ -208,26 +262,11 @@ func TestSharedAgentRules_ExplicitSkillRequest(t *testing.T) {
 	}
 }
 
-func TestSharedAgentRules_DelegationCarriesDomainSignals(t *testing.T) {
+func TestSharedAgentRules_UncertainSkillApplicability(t *testing.T) {
 	required := []string{
-		"When delegating a standalone task",
-		"file types/formats",
-		"artifact shape",
-		"Do not invent Skill IDs",
-	}
-	for _, phrase := range required {
-		if !strings.Contains(SharedAgentRules, phrase) {
-			t.Errorf("SharedAgentRules should contain %q", phrase)
-		}
-	}
-}
-
-func TestSharedAgentRules_LowCostInvocation(t *testing.T) {
-	// Breaks the cost/benefit asymmetry: invoking the Skill tool is cheap, so
-	// the model should call first and evaluate rather than skip.
-	required := []string{
-		"Invoking the Skill tool is cheap",
-		"invoke it first and evaluate",
+		"When applicability is uncertain, use the least inspection needed to decide",
+		"You may load an inline Skill to inspect its instructions when the description is insufficient",
+		"Invoking a [fork] Skill starts execution, so do not use it merely to preview instructions",
 	}
 	for _, phrase := range required {
 		if !strings.Contains(SharedAgentRules, phrase) {

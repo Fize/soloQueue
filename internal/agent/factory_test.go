@@ -886,21 +886,15 @@ func TestL3EnforcedDirectives_ContainsDesignDocumentStructure(t *testing.T) {
 	}
 }
 
-func TestL2L3Directives_ContainSkillUseRules(t *testing.T) {
-	if !strings.Contains(prompt.L2SkillExecutionContract, "SKILL STEP") {
-		t.Error("L2 Skill contract should contain the upstream-step mode")
-	}
+func TestL2L3Directives_UseSharedSkillPolicy(t *testing.T) {
 	if !strings.Contains(prompt.L2EnforcedDirectivesPart1, "Use the delegation policy for target choice") {
 		t.Error("prompt.L2EnforcedDirectivesPart1 should reference the shared delegation policy")
 	}
-	if !strings.Contains(prompt.L2SkillExecutionContract, "Never invent a Skill ID") || !strings.Contains(prompt.L2SkillExecutionContract, "preserve the exact step marker") {
-		t.Error("L2 delegation must avoid invented Skill IDs while preserving explicit user requirements")
+	if !strings.Contains(prompt.L2SkillExecutionContract, "shared Skill Use rules") {
+		t.Error("supervisor handoff must defer Skill selection to the shared policy")
 	}
-	if !strings.Contains(prompt.L3EnforcedDirectives, "Skill Execution for Workers") {
-		t.Error("prompt.L3EnforcedDirectives should contain the worker Skill section")
-	}
-	if strings.Contains(prompt.L3EnforcedDirectives, "SKILL STEP") {
-		t.Error("worker Skill directives must not classify upstream Skill steps")
+	if strings.Contains(prompt.L3EnforcedDirectives, "# Skill") {
+		t.Error("worker directives must not duplicate the shared Skill policy")
 	}
 }
 
@@ -910,11 +904,43 @@ func TestBuildSystemPromptsSkillInjectionBoundaries(t *testing.T) {
 	if !strings.Contains(l2, "visible Worker from your own Team") || !strings.Contains(l2, "visible peer Team") || !strings.Contains(l2, "dynamic Worker only when no suitable Worker or peer Team exists") {
 		t.Error("L2 prompt should receive the supervisor target-order policy")
 	}
-	if !strings.Contains(l2, "SKILL STEP") || !strings.Contains(l2, "This is step N of the <skill> SOP") {
-		t.Error("L2 prompt should receive upstream Skill-step instructions")
+	if strings.Count(l2, "# Skill Handoff\n") != 1 || !strings.Contains(l2, "identify the Skill and step") {
+		t.Error("L2 prompt should receive the supervisor Skill handoff contract once")
 	}
-	if strings.Contains(l3, "SKILL STEP") || strings.Contains(l3, "This is step N of the <skill> SOP") {
-		t.Error("L3 prompt must not receive supervisor-only upstream Skill-step classification")
+	if strings.Contains(l3, "# Skill Handoff") {
+		t.Error("L3 prompt must not receive the supervisor-only Skill handoff contract")
+	}
+	for name, got := range map[string]string{"L2": l2, "L3": l3} {
+		t.Run(name, func(t *testing.T) {
+			if strings.Count(got, "# Skill Use\n") != 1 {
+				t.Error("assembled prompt must inject the shared Skill Use policy exactly once")
+			}
+			for _, required := range []string{
+				"including for independently delegated tasks",
+				"before proceeding with execution or producing the requested analysis, advice, design, or other content",
+				"Reassess when the goal, scope, or required method changes materially",
+				"Reuse instructions already available when they cover the work",
+				"load only missing applicable instructions or required dependencies",
+				"without restarting or replacing the workflow",
+				"load supporting guidance only when needed for that step",
+			} {
+				if !strings.Contains(got, required) {
+					t.Errorf("assembled prompt missing shared Skill requirement %q", required)
+				}
+			}
+			for _, forbidden := range []string{
+				"# Skill Selection",
+				"# Skill Execution for Workers",
+				"SKILL INSTANCE:", "SKILL STEP:", "STANDALONE:",
+				"do not invoke another Skill",
+				"follow its full SOP",
+				"Invoking the Skill tool is cheap",
+			} {
+				if strings.Contains(got, forbidden) {
+					t.Errorf("assembled prompt retains conflicting Skill instruction %q", forbidden)
+				}
+			}
+		})
 	}
 }
 

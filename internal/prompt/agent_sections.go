@@ -11,18 +11,13 @@ const SkillManagementRules = `
 - If a required Skill is missing, report its Skill ID and requirement to the caller.
 `
 
-// L2SkillExecutionContract is injected only into supervisor prompts. A
-// supervisor may receive a task that is an explicitly marked step of a Skill
-// selected by an upstream executor; L1 never receives this intermediate-step
-// contract.
+// L2SkillExecutionContract adds supervisor handoff requirements. Skill selection
+// and reuse are governed by SharedAgentRules for all agent roles.
 const L2SkillExecutionContract = `
-# Skill Execution for Supervisors
-Classify each incoming delegated task before selecting tools:
-1. SKILL INSTANCE: if the task includes a Skill's execution logic, execute that SOP end-to-end and do not invoke another Skill.
-2. SKILL STEP: if the task is explicitly marked as a step of a Skill workflow (for example, "This is step N of the <skill> SOP — execute this step as specified; do not re-select skills"), execute that step exactly and do not re-match or invoke another Skill.
-3. STANDALONE: otherwise inspect the Skill catalog and match the task's domain signals. Invoke a matching Skill and follow its SOP; if none matches, use raw tools.
+# Skill Handoff
+For an independent delegated task, include the requested outcome, scope, relevant work context, and any explicit user-required Skill. Let the executor apply the shared Skill Use rules.
 
-When delegating a standalone task, include its goal, file types/formats, artifact shape, and domain keywords so the receiver can select its own Skill. Never invent a Skill ID. When delegating a Skill step, preserve the exact step marker and the selected Skill requirement.
+For a step of an existing Skill workflow, identify the Skill and step, provide the relevant instructions and expected result, and preserve these constraints through further delegation. Do not restart the parent workflow or expand the assigned step.
 `
 
 // BuildSkillForkSystemPrompt keeps Skill management rules on every temporary
@@ -149,11 +144,6 @@ Questions, read-only investigation, and simple narrow changes do not require a n
    - Mark the task completed using its Markdown checkbox ('- [x]') or native task status. This step is MANDATORY — you MUST NOT skip it.
 6. Repeat from step 2 for the next uncompleted task.
 7. When ALL tasks in the checklist are marked completed, report the completion to the leader.
-
-
-# Skill Execution for Workers
-- If the task prompt contains a Skill's execution logic, execute that SOP end-to-end and do not invoke another Skill.
-- Otherwise execute the assigned task directly. Do not reroute an assigned task or select a different Skill for it; use the shared Skill Selection rules only when the task is standalone.
 `
 
 const L3EnforcedPostPlan = `

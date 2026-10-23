@@ -179,8 +179,8 @@ func (SkillTool) Name() string { return "Skill" }
 const ForkResultPrefix = "[Fork result] "
 
 // Description dynamically generates the skill listing for the LLM:
-// a usage directive prioritizing skills, then a trigger-first one-line index
-// (BuildSkillListing). This is the primary proactive-usage mechanism.
+// a short invocation guide referring to the system prompt's Skill Use rules,
+// then an index of IDs and character-limited descriptions (BuildSkillListing).
 //
 // The listing has no budget cap (budget 0 = unbounded): every visible skill
 // gets a full summary, because ID-only lines carry no trigger signal and are
@@ -215,7 +215,7 @@ func (t *SkillTool) Description() string {
 	listing := BuildSkillListing(visible, 0, counts) // 0 = no budget cap
 	listing = markForkSkills(listing, byID)
 
-	return "Invoke a skill to load specialized workflows and methodologies. Skills contain mandatory step-by-step instructions for specific domains. When your task matches a skill's description, you MUST call this tool BEFORE using raw tools (Read, Write, Bash, etc.). Treat skills as your highest-priority execution guide — they encode battle-tested workflows. Skipping a matching skill is a protocol violation.\n\nAvailable skills:\n" + listing
+	return "Invoke a Skill by its listed ID, following the system prompt's Skill Use rules. An inline Skill loads workflow instructions; a Skill marked [fork] runs in a child agent. A [fork] invocation is execution, not a preview.\n\nAvailable skills:\n" + listing
 }
 
 // markForkSkills appends " [fork]" to listing lines for fork-mode skills so

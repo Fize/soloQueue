@@ -71,18 +71,27 @@ func TestMergedSkillResolver_ProjectOverridesGlobal(t *testing.T) {
 	}
 }
 
-func TestSkillToolDescription_KeepsDirectiveAndHeader(t *testing.T) {
+func TestSkillToolDescription_DefersPolicyAndExplainsInvocation(t *testing.T) {
 	reg := NewSkillRegistry()
 	_ = reg.Register(&Skill{ID: "x", Description: "d"})
 	st := NewSkillTool(reg, nil)
 	got := st.Description()
 	for _, phrase := range []string{
-		"protocol violation",
-		"highest-priority",
+		"Invoke a Skill by its listed ID",
+		"following the system prompt's Skill Use rules",
+		"An inline Skill loads workflow instructions",
+		"a Skill marked [fork] runs in a child agent",
+		"A [fork] invocation is execution, not a preview",
 		"Available skills:",
+		"- x: d",
 	} {
 		if !strings.Contains(got, phrase) {
 			t.Errorf("directive should contain %q: got %q", phrase, got)
+		}
+	}
+	for _, forbidden := range []string{"protocol violation", "highest-priority", "mandatory step-by-step", "BEFORE using raw tools"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("tool description must not redefine the system Skill policy with %q", forbidden)
 		}
 	}
 }
@@ -141,17 +150,24 @@ func TestSkillToolDescription_ForkSkillsMarked(t *testing.T) {
 	}
 }
 
-func TestSkillToolDescription_TriggerFirstSummary(t *testing.T) {
+func TestSkillToolDescription_FullDescriptionWithoutLegacyTriggers(t *testing.T) {
 	reg := NewSkillRegistry()
+	description := strings.Repeat("Testing strategy. ", 10) + "\nUse for integration checks.\nDo not use for translation."
 	_ = reg.Register(&Skill{
-		ID:          "pdf",
-		Description: "Extracts text and tables from PDF files.",
-		Triggers:    []string{"pdf", "OCR"},
+		ID:          "qa",
+		Description: description,
+		WhenToUse:   "legacy-condition",
+		Triggers:    []string{"legacy-trigger"},
 	})
 	st := NewSkillTool(reg, nil)
 	got := st.Description()
-	if !strings.Contains(got, "- pdf: 当任务提到 pdf、OCR 时使用 — Extracts text") {
-		t.Errorf("trigger-first summary missing: %q", got)
+	if !strings.Contains(got, "- qa: "+description) {
+		t.Errorf("complete multiline description missing: %q", got)
+	}
+	for _, legacy := range []string{"legacy-condition", "legacy-trigger"} {
+		if strings.Contains(got, legacy) {
+			t.Errorf("legacy field leaked into description: %q", got)
+		}
 	}
 }
 

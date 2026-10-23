@@ -376,7 +376,7 @@ func TestAssembledContractsDoNotOverrideRoutingOrReadOnlyWork(t *testing.T) {
 			t.Errorf("contradictory instruction: %s", obsolete)
 		}
 	}
-	for _, required := range []string{"Available Teams for matching-domain work or explicit Team requests", "research-lead", "decide the executor before selecting Skills", "read-only", "PLAN_REVIEW_REQUIRED", "optional", "### Memory Use"} {
+	for _, required := range []string{"Available Teams for matching-domain work or explicit Team requests", "research-lead", "Follow the executor-selection policy first", "read-only", "PLAN_REVIEW_REQUIRED", "optional", "### Memory Use"} {
 		if !strings.Contains(got, required) {
 			t.Errorf("missing instruction: %s", required)
 		}
@@ -395,6 +395,7 @@ func TestAssembledPromptHidesRuntimeArchitecture(t *testing.T) {
 func TestAssembledL1PromptOmitsSupervisorSkillSteps(t *testing.T) {
 	got := assembleWithXML("soul", "", "", "", "teams", "", "/plans", "/work", "/explore", nil, nil)
 	for _, forbidden := range []string{
+		"# Skill Handoff",
 		"SKILL STEP",
 		"upstream step",
 		"This is step N of the <skill> SOP",
@@ -407,8 +408,29 @@ func TestAssembledL1PromptOmitsSupervisorSkillSteps(t *testing.T) {
 			t.Errorf("L1 prompt must not contain supervisor-only Skill handoff %q", forbidden)
 		}
 	}
-	if !strings.Contains(got, "# Skill Selection") {
-		t.Fatal("L1 prompt should retain direct Skill selection guidance")
+	for _, required := range []string{
+		"before proceeding with execution or producing the requested analysis, advice, design, or other content",
+		"Reassess when the goal, scope, or required method changes materially",
+		"Reuse instructions already available when they cover the work",
+		"load only missing applicable instructions or required dependencies",
+	} {
+		if !strings.Contains(got, required) {
+			t.Errorf("assembled L1 prompt missing %q", required)
+		}
+	}
+	if strings.Count(got, "# Skill Use\n") != 1 {
+		t.Fatal("L1 prompt should inject the shared Skill Use policy exactly once")
+	}
+	for _, forbidden := range []string{
+		"# Skill Selection",
+		"# Delegated Skill Signals",
+		"follow its full SOP",
+		"do not invoke another Skill",
+		"Invoking the Skill tool is cheap",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("L1 prompt retains conflicting Skill instruction %q", forbidden)
+		}
 	}
 	if strings.Count(got, "# Strict Scope Adherence") != 1 {
 		t.Fatalf("L1 prompt should inject strict-scope guidance once, got %d", strings.Count(got, "# Strict Scope Adherence"))

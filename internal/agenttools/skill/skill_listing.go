@@ -11,40 +11,18 @@ import (
 // overflow degrades to ID-only lines so every ID stays visible, and ordering
 // follows invocation counts (desc) so used skills surface first.
 
-// maxSummaryRunes caps a single summary line.
-const maxSummaryRunes = 120
+// maxSummaryRunes caps each description, including the truncation marker,
+// at Claude Code's 1,536-character listing limit.
+const maxSummaryRunes = 1536
 
-// maxTriggerKeywords caps the rendered frontmatter triggers.
-const maxTriggerKeywords = 3
-
-// SummarizeSkill renders a single-line trigger-first summary.
-// Trigger source priority: Triggers → when_to_use first line → description first line.
+// SummarizeSkill renders the complete description up to the character limit.
+// Internal line breaks are preserved; legacy trigger fields are not included.
 func SummarizeSkill(s *Skill) string {
 	if s == nil {
 		return ""
 	}
 
-	var parts []string
-
-	if len(s.Triggers) > 0 {
-		kws := s.Triggers
-		if len(kws) > maxTriggerKeywords {
-			kws = kws[:maxTriggerKeywords]
-		}
-		parts = append(parts, "当任务提到 "+strings.Join(kws, "、")+" 时使用")
-	} else if s.WhenToUse != "" {
-		parts = append(parts, firstLine(s.WhenToUse))
-	}
-
-	if desc := firstLine(s.Description); desc != "" {
-		parts = append(parts, desc)
-	}
-
-	summary := strings.Join(parts, " — ")
-	if summary == "" {
-		return ""
-	}
-	return truncateRunes(summary, maxSummaryRunes)
+	return truncateRunes(strings.TrimSpace(s.Description), maxSummaryRunes)
 }
 
 // BuildSkillListing renders the budgeted listing; overflow degrades to ID-only
@@ -84,20 +62,12 @@ func BuildSkillListing(skills []*Skill, budgetRunes int, counts map[string]int) 
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
-
-// truncateRunes cuts to n runes, so multibyte characters are never split.
+// truncateRunes caps text at n runes including the ellipsis, without splitting
+// multibyte characters.
 func truncateRunes(text string, n int) string {
 	runes := []rune(text)
 	if len(runes) <= n {
 		return text
 	}
-	return string(runes[:n]) + "…"
+	return string(runes[:n-1]) + "…"
 }
