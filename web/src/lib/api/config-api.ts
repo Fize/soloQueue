@@ -350,3 +350,7 @@ export async function runEmbeddingAction(action: EmbeddingAction, options?: Requ
     body: JSON.stringify({ action }),
   })
 }
+
+export async function patchToolsConfig(data: Partial<ToolsConfig>): Promise<ToolsConfig> {
+  return request<ToolsConfig>('/config/tools', { method: 'PATCH', body: JSON.stringify(data) })
+}

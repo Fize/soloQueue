@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   getToolsConfig,
-  updateToolsConfig,
+  patchToolsConfig,
   getSessionConfig,
   updateSessionConfig,
 } from '@/lib/api'
@@ -43,7 +43,15 @@ export function SafetyTab() {
   const handleSaveTools = async () => {
     if (!toolsConfig) return
     try {
-      await updateToolsConfig(toolsConfig)
+      await patchToolsConfig({
+        maxFileSize: toolsConfig.maxFileSize, maxMatches: toolsConfig.maxMatches,
+        maxLineLen: toolsConfig.maxLineLen, maxGlobItems: toolsConfig.maxGlobItems,
+        maxWriteSize: toolsConfig.maxWriteSize, maxMultiWriteBytes: toolsConfig.maxMultiWriteBytes,
+        maxMultiWriteFiles: toolsConfig.maxMultiWriteFiles, maxReplaceEdits: toolsConfig.maxReplaceEdits,
+        httpAllowedHosts: toolsConfig.httpAllowedHosts || [], httpMaxBody: toolsConfig.httpMaxBody,
+        httpTimeoutMs: toolsConfig.httpTimeoutMs, httpBlockPrivate: toolsConfig.httpBlockPrivate,
+        shellBlockRegexes: toolsConfig.shellBlockRegexes || [], shellMaxOutput: toolsConfig.shellMaxOutput,
+      })
       toast.success(t('config.toastToolsUpdated'))
       loadData()
     } catch (err) {

@@ -55,6 +55,8 @@ import type { LLMProvider, LLMModel, ClassifierConfig, ModelRoutesConfig } from 
 import { ClassifierEngineControl } from './ClassifierEngineControl'
 
 interface LLMSectionProps {
+  view?: 'conversation' | 'routes'
+
   providers: LLMProvider[]
   models: LLMModel[]
 	defaultModels: ModelRoutesConfig
@@ -76,6 +78,7 @@ interface LLMSectionProps {
 }
 
 export function LLMSection({
+  view,
   providers,
   models,
   defaultModels,
@@ -96,6 +99,10 @@ export function LLMSection({
   onToggleModelStatus,
 }: LLMSectionProps) {
   const { t } = useTranslation()
+  const [search, setSearch] = useState('')
+  const activeProvider = providers.find(p => p.id === providerFilter) || providers[0]
+  const activeProviderId = activeProvider?.id || ''
+  const visibleModels = models.filter(m => m.providerId === activeProviderId && `${m.name} ${m.id} ${m.apiModel || ''}`.toLowerCase().includes(search.toLowerCase()))
   // Provider form state
   const [isAddingProvider, setIsAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(null)
@@ -118,6 +125,7 @@ export function LLMSection({
   // Model form state
   const [isAddingModel, setIsAddingModel] = useState(false)
   const [editingModel, setEditingModel] = useState<LLMModel | null>(null)
+  const [isSavingModel, setIsSavingModel] = useState(false)
   const [modelError, setModelError] = useState<string | null>(null)
   const [modelForm, setModelForm] = useState<Partial<LLMModel>>({
     generation: { temperature: 0.7, maxTokens: 4096 },
@@ -291,7 +299,7 @@ export function LLMSection({
       enabled: providerForm.enabled ?? true,
       isDefault: providerForm.isDefault ?? false,
       timeoutMs: normalizeProviderTimeoutMs(providerForm.timeoutMs),
-      retry: { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2.0 },
+      retry: providerForm.retry ?? { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2.0 },
       headers: isChatGPT ? {} : headers,
     }
 
@@ -332,7 +340,7 @@ export function LLMSection({
     setModelError(null)
     setModelForm({
       id: '',
-      providerId: providers[0]?.id || '',
+      providerId: activeProviderId,
       name: '',
       apiModel: '',
       contextWindow: 128000,
@@ -357,6 +365,8 @@ export function LLMSection({
   }
 
   const saveModelForm = async () => {
+    if (isSavingModel) return
+    setIsSavingModel(true)
     const payload: LLMModel = {
       id: modelForm.id || '',
       providerId: modelForm.providerId || '',
@@ -387,13 +397,15 @@ export function LLMSection({
       setEditingModel(null)
     } catch (err) {
       setModelError((err as Error).message)
+    } finally {
+      setIsSavingModel(false)
     }
   }
 
   return (
     <div className="space-y-8">
       {/* Model routing */}
-      <div className="rounded-xl border bg-card p-5 shadow-sm space-y-4">
+      {view !== 'conversation' && <div className="rounded-xl border bg-card p-5 shadow-sm space-y-4">
         <div className="flex flex-col border-b pb-3">
           <div className="flex items-center gap-2">
             <Settings className="h-4 w-4 text-primary" />
@@ -403,7 +415,7 @@ export function LLMSection({
             {t('config.modelRoutesDesc')}
           </p>
         </div>
-        <div className="space-y-3">
+        <div className="grid gap-3 xl:grid-cols-2">
           {([
 			{ role: 'general', title: 'config.taskTypeGeneral', desc: 'config.taskTypeGeneralDesc' },
 			{ role: 'engineering', title: 'config.taskTypeEngineering', desc: 'config.taskTypeEngineeringDesc' },
@@ -411,7 +423,7 @@ export function LLMSection({
           ] as const).map(({ role, title, desc }) => {
             const val = defaultModels[role] || ''
             return (
-              <div key={role} className="grid gap-2 rounded-lg border bg-muted/30 p-3 md:grid-cols-[minmax(9rem,0.8fr)_minmax(0,1.25fr)_minmax(14rem,1fr)] md:items-center">
+              <div key={role} className="grid gap-2 rounded-lg border bg-muted/30 p-3 ">
                 <label htmlFor={`role-select-${role}`} className="text-sm font-semibold text-foreground">
                   {t(title)}
                 </label>
@@ -439,14 +451,14 @@ export function LLMSection({
             )
           })}
         </div>
-        <div className="border-t pt-4 space-y-3">
-          <h4 className="text-sm font-medium text-foreground">{t('config.modelRouteSupportTitle')}</h4>
+        <div className="border-t pt-4 grid gap-3 xl:grid-cols-2">
+          <h4 className="text-sm font-medium text-foreground xl:col-span-2">{t('config.modelRouteSupportTitle')}</h4>
           {([
             { role: 'classifier', title: 'config.modelRouteClassifier', desc: 'config.modelRouteClassifierDesc', required: false, filterVision: false },
             { role: 'vision', title: 'config.modelRouteVision', desc: 'config.modelRouteVisionDesc', required: false, filterVision: true },
             { role: 'fallback', title: 'config.modelRouteFallback', desc: 'config.modelRouteFallbackDesc', required: true, filterVision: false },
           ] as const).map(({ role, title, desc, required, filterVision }) => (
-            <div key={role} className="grid gap-2 rounded-lg bg-muted/30 p-3 md:grid-cols-[minmax(9rem,0.8fr)_minmax(0,1.25fr)_minmax(14rem,1fr)] md:items-center">
+            <div key={role} className="grid gap-2 rounded-lg bg-muted/30 p-3 ">
               <label
                 htmlFor={role === 'classifier' && classifier.engine === 'laya' ? undefined : `role-select-${role}`}
                 className="text-sm font-semibold text-foreground"
@@ -485,9 +497,10 @@ export function LLMSection({
             {t('config.llmUpdateDefaults')}
           </Button>
         </div>
-      </div>
+      </div>}
 
       {/* ─── LLM Providers ─── */}
+      {view !== 'routes' && <div className="grid gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
       <div className="space-y-4">
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between">
@@ -506,6 +519,10 @@ export function LLMSection({
         </div>
         {chatGPTError && <p role="alert" className="text-xs text-destructive">{chatGPTError}</p>}
 
+        <div className="lg:hidden"><Select label={t('config.llmProviderLabel')} value={activeProviderId} onChange={onProviderFilterChange} options={providers.map(p => ({ value: p.id, label: p.name }))} /></div>
+        <div className="hidden lg:flex flex-col gap-1" aria-label={t('config.llmProviders')}>
+          {providers.map(p => <button key={p.id} aria-pressed={p.id === activeProviderId} onClick={() => onProviderFilterChange(p.id)} className={`rounded-lg border p-3 text-left min-w-0 ${p.id === activeProviderId ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-muted'}`}><span className="block font-medium truncate">{p.name}</span><span className="text-xs text-muted-foreground">{t(p.enabled ? 'common.enabled' : 'common.disabled')} · {models.filter(m => m.providerId === p.id).length} {t('config.llmModels')}</span></button>)}
+        </div>
         {/* Provider Form (modal dialog) */}
         <Dialog
           open={isAddingProvider || !!editingProvider}
@@ -645,10 +662,10 @@ export function LLMSection({
 
         {/* Provider List */}
         <div className="space-y-2">
-          {providers.map((p) => (
+          {providers.filter(p => p.id === activeProviderId).map((p) => (
             <div
               key={p.id}
-              className="flex items-center justify-between p-3 rounded-lg border border-border/80 bg-card/40 hover:bg-muted/20 transition-colors"
+              className="flex flex-col gap-3 p-3 rounded-lg border border-border/80 bg-card/40"
             >
               <div className="flex items-center gap-3 min-w-0">
                 <div className="flex flex-col min-w-0">
@@ -666,9 +683,9 @@ export function LLMSection({
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {p.id === 'chatgpt' ? (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground break-all">
                     <span>{chatGPTConnected ? `Connected${chatGPTEmail ? ` · ${chatGPTEmail}` : ''}` : 'Not connected'}</span>
                     <Button size="xs" variant="outline" onClick={() => void connectChatGPT()} disabled={chatGPTBusy}>
                       {chatGPTConnected ? 'Reconnect' : 'Sign in with ChatGPT'}
@@ -714,22 +731,13 @@ export function LLMSection({
       </div>
 
       {/* ─── LLM Models ─── */}
-      <div className="space-y-4">
+      <div className="space-y-4 min-w-0">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Database className="h-4 w-4 text-primary" />
             <h3 className="font-semibold text-foreground">{t('config.llmModels')}</h3>
           </div>
           <div className="flex items-center gap-2">
-            <Select
-              value={providerFilter}
-              onChange={onProviderFilterChange}
-              className="w-[160px]"
-              options={[
-                { value: 'all', label: t('config.llmAllProviders') },
-                ...providers.map((p) => ({ value: p.id, label: p.name })),
-              ]}
-            />
             <Button size="sm" variant="outline" className="h-8 gap-1" onClick={startAddModel}>
               <Plus className="h-3.5 w-3.5" />
               {t('config.llmAddModel')}
@@ -737,11 +745,12 @@ export function LLMSection({
           </div>
         </div>
 
+        <Input aria-label={t('common.search')} placeholder={t('common.search')} value={search} onChange={e => setSearch(e.target.value)} />
         {/* Model Form (modal dialog) */}
         <Dialog
           open={isAddingModel || !!editingModel}
           onOpenChange={(open) => {
-            if (!open) cancelModelForm()
+            if (!open && !isSavingModel) cancelModelForm()
           }}
         >
           <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
@@ -887,6 +896,7 @@ export function LLMSection({
                   <span className="text-xs font-semibold text-foreground">{t('common.enabled')}</span>
                 </div>
               </div>
+              <details className="sm:col-span-2 border-t pt-3"><summary className="cursor-pointer text-sm font-medium">{t('config.modelAdvanced')}</summary><div className="grid gap-4 sm:grid-cols-2 pt-4">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-muted-foreground">
                   {t('config.llmTemperature', { val: modelForm.generation?.temperature ?? 0.7 })}
@@ -992,6 +1002,7 @@ export function LLMSection({
                 </div>
               </div>
 
+              </div></details>
               {/* Vision config */}
               <div className="sm:col-span-2 border-t pt-3 mt-1">
                 <h5 className="text-xs font-semibold text-foreground mb-2">{t('config.llmVisionMultimodal')}</h5>
@@ -1013,10 +1024,10 @@ export function LLMSection({
               </div>
             </div>
             <DialogFooter>
-              <Button size="sm" onClick={saveModelForm}>
+              <Button size="sm" disabled={isSavingModel} onClick={saveModelForm}>
                 {isAddingModel ? t('config.llmCreateModel') : t('config.llmUpdateModel')}
               </Button>
-              <Button variant="outline" size="sm" onClick={cancelModelForm}>
+              <Button variant="outline" size="sm" disabled={isSavingModel} onClick={cancelModelForm}>
                 {t('common.cancel')}
               </Button>
             </DialogFooter>
@@ -1024,63 +1035,17 @@ export function LLMSection({
         </Dialog>
 
         {/* Model List */}
-        <div className="space-y-2">
-          {(() => {
-            const filteredModels = providerFilter === 'all'
-              ? models
-              : models.filter((m) => m.providerId === providerFilter)
-            return filteredModels.map((m) => (
-            <div
-              key={`${m.providerId}:${m.id}`}
-              className="flex items-center justify-between p-3 rounded-lg border border-border/80 bg-card/40 hover:bg-muted/20 transition-colors"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold text-foreground truncate">{m.name}</span>
-                    <span className="text-[10px] font-mono text-muted-foreground">{m.id}</span>
-                    <span className="text-[9px] font-medium bg-muted-foreground/10 text-muted-foreground px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                      {providers.find((p) => p.id === m.providerId)?.name || m.providerId}
-                    </span>
-                    {m.thinking?.enabled && (
-                      <span className="text-[9px] bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20 px-1 py-0.5 rounded font-medium">
-                        {t('config.llmThinkingBadge')}
-                      </span>
-                    )}
-                    {m.vision && (
-                      <span className="text-[9px] bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/20 px-1 py-0.5 rounded font-medium">
-                        {t('config.llmVisionBadge')}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-muted-foreground/70 truncate font-mono">
-                    {m.apiModel} · {t('config.llmContextLabel', { count: m.contextWindow?.toLocaleString() || 0 })}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <Switch checked={m.enabled} onCheckedChange={() => onToggleModelStatus(m)} />
-                <Button size="xs" variant="ghost" onClick={() => startEditModel(m)}>
-                  {t('common.edit')}
-                </Button>
-                <Button size="xs" variant="ghost" onClick={() => onDeleteModel(m.providerId, m.id)}>
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-            ))
-          })()}
-          {(() => {
-            const filteredModels = providerFilter === 'all'
-              ? models
-              : models.filter((m) => m.providerId === providerFilter)
-            return filteredModels.length === 0 && !isAddingModel && (
-            <div className="text-center p-8 border border-dashed rounded-xl text-sm text-muted-foreground">
-              {t('config.llmNoModels')}
-            </div>
-          )})()}
+        <div className="rounded-lg border overflow-hidden">
+          <div className="hidden md:grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem_4rem_8rem] gap-3 border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground"><span>{t('common.name')}</span><span>{t('config.llmApiModelName')}</span><span>{t('config.llmContextWindow')}</span><span>{t('config.llmVisionBadge')}</span><span>{t('common.actions')}</span></div>
+          {visibleModels.map(m => <div key={`${m.providerId}:${m.id}`} className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem_4rem_8rem] gap-2 md:gap-3 items-center border-b last:border-0 p-3 text-xs">
+            <div className="min-w-0"><p className="font-semibold truncate" title={m.name}>{m.name}</p><p className="text-muted-foreground truncate" title={m.id}>{m.id}</p>{m.thinking?.enabled && <span className="text-purple-500">{t('config.llmThinkingBadge')}</span>}</div>
+            <span className="truncate font-mono text-muted-foreground" title={m.apiModel}>{m.apiModel || m.id}</span><span>{m.contextWindow?.toLocaleString()}</span><span>{m.vision ? t('config.llmVisionBadge') : '—'}</span>
+            <div className="flex items-center gap-1"><label className="flex"><span className="sr-only">{`${t('common.enabled')} ${m.name}`}</span><Switch checked={m.enabled} onCheckedChange={() => onToggleModelStatus(m)} /></label><Button size="xs" variant="ghost" onClick={() => startEditModel(m)}>{t('common.edit')}</Button><Button size="xs" variant="ghost" aria-label={`${t('common.delete')} ${m.name}`} onClick={() => onDeleteModel(m.providerId, m.id)}><X className="h-3 w-3" /></Button></div>
+          </div>)}
+          {visibleModels.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">{t('config.llmNoModels')}</p>}
         </div>
       </div>
+      </div>}
     </div>
   )
 }

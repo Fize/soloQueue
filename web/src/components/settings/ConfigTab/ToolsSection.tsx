@@ -140,7 +140,7 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
       {/* Web Search & Fetch */}
       <div>
         <h4 className="text-sm font-semibold text-foreground border-b pb-1 mb-3">
-          {t('config.toolsWebSearch')}
+          {t('config.toolsHttpAccess')}
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           <div className="flex flex-col gap-1.5">
@@ -163,38 +163,6 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
               onChange={(e) => onChange({ ...config, httpTimeoutMs: Number(e.target.value) })}
             />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">
-              {t('config.toolsWebSearchTimeout')}
-            </label>
-            <Input
-              type="number"
-              value={config.webSearchTimeoutMs}
-              onChange={(e) => onChange({ ...config, webSearchTimeoutMs: Number(e.target.value) })}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">
-              {t('config.toolsTavilyApiKey')}
-            </label>
-            <Input
-              type="password"
-              placeholder={t('config.toolsTavilyApiKeyPlaceholder')}
-              value={config.tavilyApiKey || ''}
-              onChange={(e) => onChange({ ...config, tavilyApiKey: e.target.value })}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">
-              {t('config.toolsTavilyApiKeyEnv')}
-            </label>
-            <Input
-              type="text"
-              placeholder="TAVILY_API_KEY"
-              value={config.tavilyApiKeyEnv || ''}
-              onChange={(e) => onChange({ ...config, tavilyApiKeyEnv: e.target.value })}
-            />
-          </div>
           <div className="flex items-center gap-2 pt-4">
             <Switch
               checked={config.httpBlockPrivate}
@@ -205,7 +173,6 @@ export function ToolsSection({ config, onChange, onSave }: ToolsSectionProps) {
             </span>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground mt-2">{t('config.toolsTavilyProviderHint')}</p>
         <div className="mt-4 flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
             {t('config.toolsAllowedHosts')}

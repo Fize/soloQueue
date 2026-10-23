@@ -77,7 +77,7 @@ it('keeps core navigation and safety settings usable without simulation', async 
   await waitFor(() =>
     expect(fetchSpy).toHaveBeenCalledWith(
       '/api/config/tools',
-      expect.objectContaining({ method: 'PUT' })
+      expect.objectContaining({ method: 'PATCH' })
     )
   )
   await screen.findByRole('button', { name: 'config.sessionSave' })

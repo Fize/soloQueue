@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1407,4 +1408,72 @@ Please retry installation or download manually:
 	}
 
 	return "", nil
+}
+
+// PATCH /api/config/tools accepts a strict partial object. Null is not a clear operation:
+// clients use empty strings/arrays or false explicitly instead.
+func (m *Mux) handlePatchToolsConfig(w http.ResponseWriter, r *http.Request) {
+	if m.configSvc == nil {
+		m.writeJSON(w, 503, map[string]string{"error": "config service not available"})
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		m.writeJSON(w, 400, map[string]string{"error": "invalid tools patch"})
+		return
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil || fields == nil {
+		m.writeJSON(w, 400, map[string]string{"error": "tools patch must be an object"})
+		return
+	}
+	var containsNull func(any) bool
+	containsNull = func(value any) bool {
+		if value == nil {
+			return true
+		}
+		switch v := value.(type) {
+		case map[string]any:
+			for _, child := range v {
+				if containsNull(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if containsNull(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, raw := range fields {
+		var value any
+		_ = json.Unmarshal(raw, &value)
+		if containsNull(value) {
+			m.writeJSON(w, 400, map[string]string{"error": "null fields are not supported"})
+			return
+		}
+	}
+	var patch config.ToolsPatch
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&patch) != nil {
+		m.writeJSON(w, 400, map[string]string{"error": "invalid or unknown tools field"})
+		return
+	}
+	if patch.ImageModels != nil {
+		if err := config.ValidateImageModels(*patch.ImageModels); err != nil {
+			m.writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	cfg, err := m.configSvc.PatchTools(patch)
+	if err != nil {
+		m.writeJSON(w, 500, map[string]string{"error": "failed to save tools configuration"})
+		return
+	}
+	m.triggerOnConfigChange()
+	m.writeJSON(w, 200, cfg)
 }

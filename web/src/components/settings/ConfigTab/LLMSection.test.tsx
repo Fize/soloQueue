@@ -16,7 +16,8 @@ vi.mock('@/lib/api/config-api', () => ({
 
 function renderLLMSection(
   onCreateProvider = vi.fn().mockResolvedValue(undefined),
-  providers: LLMProvider[] = []
+  providers: LLMProvider[] = [],
+  onUpdateProvider = vi.fn().mockResolvedValue(undefined)
 ) {
   render(
     <LLMSection
@@ -30,7 +31,7 @@ function renderLLMSection(
       onSaveDefaults={vi.fn()}
       onDefaultModelsChange={vi.fn()}
       onCreateProvider={onCreateProvider}
-      onUpdateProvider={vi.fn().mockResolvedValue(undefined)}
+      onUpdateProvider={onUpdateProvider}
       onDeleteProvider={vi.fn()}
       onToggleProviderStatus={vi.fn().mockResolvedValue(undefined)}
       onSetProviderAsDefault={vi.fn().mockResolvedValue(undefined)}
@@ -203,4 +204,32 @@ describe('ChatGPT connection status', () => {
     expect(popup.opener).toBeNull()
     expect(popup.location.href).toBe('https://auth.openai.com/authorize?state=test')
   })
+})
+
+
+describe('provider retry preservation', () => {
+ it('keeps custom retry values including zero when editing a provider', async () => {
+  const retry = { maxRetries: 0, initialDelayMs: 0, maxDelayMs: 6789, backoffMultiplier: 0 }
+  const provider: LLMProvider = { id: 'demo', name: 'Demo', baseUrl: 'https://example.test', apiKeyEnv: '', enabled: true, isDefault: true, timeoutMs: 0, retry }
+  const update = vi.fn().mockResolvedValue(undefined)
+  renderLLMSection(vi.fn(), [provider], update)
+  fireEvent.click(screen.getByRole('button', { name: 'Edit', exact: true }))
+  fireEvent.change(screen.getByDisplayValue('Demo'), { target: { value: 'Renamed' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Update Provider' }))
+  await waitFor(() => expect(update).toHaveBeenCalledWith('demo', expect.objectContaining({ name: 'Renamed', retry })))
+ })
+})
+
+describe('compact model layout', () => {
+ it('shows only the active provider models and searches the table without rendering routes', () => {
+  const retry = { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2 }
+  const providers = ['first', 'second'].map(id => ({ id, name: id, baseUrl: 'https://example.test', apiKeyEnv: '', enabled: true, isDefault: false, timeoutMs: 0, retry }))
+  const models = ['first', 'second'].map(providerId => ({ providerId, id: providerId + '-model', name: providerId + ' model', apiModel: providerId + '-remote', contextWindow: 128000, enabled: true, generation: { temperature: 0.7, maxTokens: 4096 }, thinking: { enabled: false, reasoningEffort: 'medium' } }))
+  render(<LLMSection view="conversation" providers={providers} models={models} providerFilter="second" onProviderFilterChange={vi.fn()} defaultModels={{ general: '', engineering: '', research: '', classifier: '', vision: '', fallback: '' }} classifier={{ engine: 'llm' }} onClassifierChange={vi.fn()} onSaveDefaults={vi.fn()} onDefaultModelsChange={vi.fn()} onCreateProvider={vi.fn()} onUpdateProvider={vi.fn()} onDeleteProvider={vi.fn()} onToggleProviderStatus={vi.fn()} onSetProviderAsDefault={vi.fn()} onCreateModel={vi.fn()} onUpdateModel={vi.fn()} onDeleteModel={vi.fn()} onToggleModelStatus={vi.fn()} />)
+  expect(screen.getByText('second model')).toBeInTheDocument()
+  expect(screen.queryByText('first model')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('General')).not.toBeInTheDocument()
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search...' }), { target: { value: 'no match' } })
+  expect(screen.queryByText('second model')).not.toBeInTheDocument()
+ })
 })

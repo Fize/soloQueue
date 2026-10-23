@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { SkillsTab } from './SkillsTab'
+import { SearchToolsSection } from './ConfigTab/SearchToolsSection'
 import { MCPTab } from './MCPTab'
 
 export function CapabilitiesTab() {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<'skills' | 'mcp'>('skills')
+  const [activeTab, setActiveTab] = useState<'builtin' | 'skills' | 'mcp'>('builtin')
 
   const subTabButtons = [
+    { key: 'builtin' as const, label: t('config.builtinTools') },
     { key: 'skills' as const, label: t('skills.title') || '智能体技能' },
     { key: 'mcp' as const, label: t('mcp.title') || 'MCP 服务' },
   ]
@@ -34,6 +36,7 @@ export function CapabilitiesTab() {
 
       {/* Sub-tab Content */}
       <div className="space-y-6">
+        {activeTab === 'builtin' && <SearchToolsSection />}
         {activeTab === 'skills' && <SkillsTab />}
         {activeTab === 'mcp' && <MCPTab />}
       </div>

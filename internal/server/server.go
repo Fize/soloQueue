@@ -419,6 +419,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Route("/tools", func(r chi.Router) {
 			r.Get("/", m.handleGetToolsConfig)
 			r.Put("/", m.handleUpdateToolsConfig)
+			r.Patch("/", m.handlePatchToolsConfig)
 		})
 
 		r.Route("/qqbots", func(r chi.Router) {

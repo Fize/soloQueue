@@ -16,11 +16,14 @@ import type { LLMProvider, LLMModel, ModelRoutesConfig, ClassifierConfig } from 
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/i18n'
+import { ImageModelsSection } from './ConfigTab/ImageModelsSection'
 import { LLMSection } from './ConfigTab/LLMSection'
 
 export function ModelsTab() {
   const { t } = useTranslation()
+  const [tab, setTab] = useState<'conversation' | 'images' | 'routes'>('conversation')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [providers, setProviders] = useState<LLMProvider[]>([])
   const [models, setModels] = useState<LLMModel[]>([])
   const [deleteProviderTarget, setDeleteProviderTarget] = useState<LLMProvider | null>(null)
@@ -38,6 +41,7 @@ export function ModelsTab() {
 
 	const loadData = async () => {
 		setLoading(true)
+    setLoadError('')
 		try {
 			const [dbProviders, dbModels, dbDefaults, dbClassifier] = await Promise.all([
 				listProviders(),
@@ -53,6 +57,7 @@ export function ModelsTab() {
 			)
 		} catch (err) {
       toast.error((err as Error).message)
+      setLoadError((err as Error).message)
     } finally {
       setLoading(false)
     }
@@ -169,9 +174,15 @@ export function ModelsTab() {
     )
   }
 
+  if (loadError) return <div className="space-y-3"><p role="alert" className="text-destructive">{loadError}</p><button className="rounded-md border px-3 py-2" onClick={() => void loadData()}>{t('config.retryLoad')}</button></div>
+
   return (
     <div className="space-y-6 pb-10">
-      <LLMSection
+      <div role="tablist" className="flex flex-wrap gap-2 rounded-lg bg-muted p-1 w-fit">
+        {(['conversation', 'images', 'routes'] as const).map(key => <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`rounded-md px-3 py-2 text-sm ${tab === key ? 'bg-background shadow-sm' : 'text-muted-foreground'}`}>{t(`config.modelsTab_${key}`)}</button>)}
+      </div>
+      {tab === 'images' ? <ImageModelsSection /> : <LLMSection
+        view={tab}
         providers={providers}
         models={models}
 		defaultModels={modelRoutes}
@@ -190,7 +201,7 @@ export function ModelsTab() {
         onUpdateModel={handleUpdateModelAction}
         onDeleteModel={handleDeleteModelAction}
         onToggleModelStatus={handleToggleModelStatus}
-      />
+      />}
 
       <ConfirmDialog
         open={!!deleteProviderTarget}
