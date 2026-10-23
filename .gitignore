@@ -43,6 +43,8 @@ __pycache__
 soloqueue.exe
 /soloqueue-embedding
 /soloqueue-embedding.exe
+/soloqueue-decide
+/soloqueue-decide.exe
 node_modules/
 package-lock.json
 dist
