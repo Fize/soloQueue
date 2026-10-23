@@ -51,6 +51,10 @@ type VectorOptions struct {
 	Prepare func(context.Context, managed.Progress) (managed.Paths, error)
 	Start   func(context.Context, local.Config) (LocalWorker, error)
 }
+
+// stopGrace is how long a suspended local worker is kept alive; tests shorten it.
+var stopGrace = 60 * time.Second
+
 type localBinding struct {
 	worker     LocalWorker
 	space      string
@@ -72,13 +76,18 @@ type VectorManager struct {
 	generation uint64
 	cancel     context.CancelFunc
 	lastDone   chan struct{}
-	wake       chan struct{}
-	closed     bool
-	wg         sync.WaitGroup
-	profileErr error
-	dataErr    error
-	initErr    error
-	options    VectorOptions
+	// suspended keeps a loaded worker alive briefly after local embeddings are switched off, so
+	// toggling the setting does not pay a full model reload.
+	suspended       bool
+	suspendedStatus EmbeddingStatus
+	stopTimer       *time.Timer
+	wake            chan struct{}
+	closed          bool
+	wg              sync.WaitGroup
+	profileErr      error
+	dataErr         error
+	initErr         error
+	options         VectorOptions
 }
 
 func NewVectorManager(db *sql.DB, writeMu *sync.Mutex, workDir string, options VectorOptions) *VectorManager {
@@ -179,6 +188,19 @@ func (m *VectorManager) apply(cfg VectorConfig, remote embedding.Embedder, legac
 		m.mu.Unlock()
 		return
 	}
+	if !force && !rebuild && m.resume(cfg) {
+		m.mu.Unlock()
+		return
+	}
+	if m.suspend(cfg, force, rebuild) {
+		m.mu.Unlock()
+		return
+	}
+	if m.stopTimer != nil {
+		m.stopTimer.Stop()
+		m.stopTimer = nil
+	}
+	m.suspended = false
 	if m.cancel != nil {
 		m.cancel()
 	}
@@ -219,6 +241,75 @@ func (m *VectorManager) apply(cfg VectorConfig, remote embedding.Embedder, legac
 		m.run(ctx, generation, cfg, rebuild)
 	}()
 }
+
+// resume reactivates a suspended worker without reloading it. Called with m.mu held.
+func (m *VectorManager) resume(cfg VectorConfig) bool {
+	if !m.suspended || cfg.Provider != "onnx" || !cfg.Enabled || m.binding == nil || m.binding.ctx.Err() != nil {
+		return false
+	}
+	if cfg.Model != m.cfg.Model || cfg.Device != m.cfg.Device {
+		return false
+	}
+	if m.stopTimer != nil {
+		m.stopTimer.Stop()
+		m.stopTimer = nil
+	}
+	m.suspended = false
+	m.cfg = cfg
+	m.status = m.suspendedStatus
+	m.status.State = "ready"
+	return true
+}
+
+// suspend parks a loaded worker when local embeddings are switched off. Called with m.mu held.
+func (m *VectorManager) suspend(cfg VectorConfig, force, rebuild bool) bool {
+	// Reapplying a disabled configuration must preserve the original grace deadline.
+	if m.suspended && !force && !rebuild && !cfg.Enabled &&
+		(cfg.Provider == "none" || cfg.Provider == "onnx") && cfg.Model == m.cfg.Model && cfg.Device == m.cfg.Device {
+		m.cfg = cfg
+		m.status.Provider = cfg.Provider
+		return true
+	}
+	if force || rebuild || m.suspended || m.binding == nil || m.cancel == nil || m.binding.ctx.Err() != nil || m.status.State != "ready" {
+		return false
+	}
+	if !m.cfg.Enabled || cfg.Enabled || m.cfg.Provider != "onnx" {
+		return false
+	}
+	// A disabled configuration reaches us as provider "none"; switching to a live remote provider
+	// is a real backend change and must cancel the local worker immediately.
+	if cfg.Provider != "onnx" && cfg.Provider != "none" {
+		return false
+	}
+	if m.cfg.Model != cfg.Model || m.cfg.Device != cfg.Device {
+		return false
+	}
+	m.suspendedStatus = m.status
+	m.suspended = true
+	m.cfg = cfg
+	m.status = EmbeddingStatus{Provider: cfg.Provider, State: "disabled", Model: cfg.Model, Device: cfg.Device}
+	generation := m.generation
+	var timer *time.Timer
+	timer = time.AfterFunc(stopGrace, func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if !m.suspended || m.closed || m.cfg.Enabled || m.generation != generation || m.stopTimer != timer {
+			return
+		}
+		m.stopTimer = nil
+		m.suspended = false
+		m.binding = nil
+		if m.cancel != nil {
+			m.cancel()
+			m.cancel = nil
+		}
+		m.generation++
+		m.status = EmbeddingStatus{Provider: m.cfg.Provider, State: "disabled", Model: m.cfg.Model, Device: m.cfg.Device}
+	})
+	m.stopTimer = timer
+	return true
+}
+
 func (m *VectorManager) Status() EmbeddingStatus { m.mu.Lock(); defer m.mu.Unlock(); return m.status }
 func (m *VectorManager) Action(action string) (EmbeddingStatus, error) {
 	m.applyMu.Lock()
@@ -252,6 +343,11 @@ func (m *VectorManager) Close() {
 	m.applyMu.Lock()
 	m.mu.Lock()
 	m.closed = true
+	if m.stopTimer != nil {
+		m.stopTimer.Stop()
+		m.stopTimer = nil
+	}
+	m.suspended = false
 	if m.cancel != nil {
 		m.cancel()
 	}
@@ -263,7 +359,7 @@ func (m *VectorManager) Close() {
 func (m *VectorManager) update(generation uint64, fn func(*EmbeddingStatus)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if generation == m.generation && !m.closed && m.status.State != "cancelled" && m.status.State != "error" {
+	if generation == m.generation && !m.closed && !m.suspended && m.status.State != "cancelled" && m.status.State != "error" {
 		fn(&m.status)
 	}
 }
@@ -271,6 +367,22 @@ func (m *VectorManager) fail(generation uint64, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.generation != generation || m.closed || m.status.State == "cancelled" || m.status.State == "error" {
+		return
+	}
+	if m.suspended {
+		// A parked worker can still fail an in-flight query or catchup. Keep the
+		// disabled presentation, but make the failed generation impossible to resume.
+		if m.stopTimer != nil {
+			m.stopTimer.Stop()
+			m.stopTimer = nil
+		}
+		m.suspended = false
+		m.binding = nil
+		if m.cancel != nil {
+			m.cancel()
+			m.cancel = nil
+		}
+		m.generation++
 		return
 	}
 	m.status.State = "error"
@@ -415,7 +527,12 @@ func (m *VectorManager) Enabled() bool {
 func (m *VectorManager) IndexSaved(ctx context.Context, id, hash, content, ownerType, ownerID, scopeType, scopeID string) {
 	_, remote, legacy, cfg := m.active()
 	if cfg.Provider == "onnx" {
-		m.Notify()
+		m.mu.Lock()
+		suspended := m.suspended
+		m.mu.Unlock()
+		if !suspended {
+			m.Notify()
+		}
 		return
 	}
 	if cfg.Provider != "openai" || remote == nil || legacy == nil {
