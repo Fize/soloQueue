@@ -7,6 +7,21 @@ import {
 } from "./recoverInFlightMessages";
 
 describe("recoverInFlightMessages", () => {
+  it("does not recreate manual compact errors from runtime snapshots", () => {
+    const messages: ChatMessage[] = [{
+      id: "compact-user",
+      requestId: "compact-request",
+      role: "user",
+      timestamp: "2026-10-26T06:00:00Z",
+      segments: [{ type: "content", text: " /COMPACT " }],
+    }];
+    const error: ChatSegment[] = [{ type: "error", text: "Provider failure" }];
+    expect(recoverInFlightMessages(messages, error, true, "compact-request")).toBe(messages);
+
+    const ordinary = [{ ...messages[0], segments: [{ type: "content" as const, text: "Continue working" }] }];
+    expect(recoverInFlightMessages(ordinary, error, true, "compact-request").at(-1)?.segments).toEqual(error);
+  });
+
   const history: ChatMessage[] = [
     {
       id: "old-assistant",

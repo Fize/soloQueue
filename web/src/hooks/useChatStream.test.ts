@@ -29,6 +29,8 @@ beforeEach(() => {
     ],
     activeSessionId: 'l2:session-A',
     messages: {},
+    compactions: {},
+    compactionClearWatermarks: {},
     activeRequests: {},
     streamingSessions: {},
     delegatingSessions: {},
@@ -46,6 +48,58 @@ beforeEach(() => {
 })
 
 describe('useChatStream', () => {
+  it.each([
+    { status: 'failed', runtime: false },
+    { status: 'interrupted', runtime: false },
+    { status: 'failed', runtime: true },
+    { status: 'interrupted', runtime: true },
+  ] as const)(
+    'keeps manual compact $status out of permanent messages (runtime=$runtime)',
+    async ({ status, runtime }) => {
+      const sid = 'l2:session-A'
+      const { result } = renderHook(() => useChatStream())
+      await act(async () => {
+        await result.current.send('/compact', undefined, sid)
+      })
+      const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
+      const row = { id: 'manual', reason: 'user_command', started_at: new Date().toISOString() }
+      act(() => {
+        useChatStore.getState().setCompactionStatus(sid, { ...row, status: 'running' })
+        useChatStore.getState().setCompactionStatus(sid, { ...row, status, error: 'Timeout' })
+        if (runtime)
+          handler.onRuntimeTerminal?.({
+            terminal_code: 'error',
+            error: 'session: compact: Timeout',
+          })
+        else handler.onError?.('session: compact: Timeout')
+      })
+      expect(useChatStore.getState().messages[sid].map((message) => message.role)).toEqual(['user'])
+      expect(useChatStore.getState().compactions[sid][0]).toMatchObject({
+        status,
+        noticeExpiresAt: expect.any(Number),
+      })
+      expect(useChatStore.getState().streamingSessions[sid]).toBe(false)
+      expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(0)
+      await act(async () => {
+        await useChatStore.getState().loadHistory(sid)
+      })
+      expect(useChatStore.getState().messages[sid]).toEqual([])
+    }
+  )
+
+  it('still reports manual compact errors that happen before a compaction lifecycle starts', async () => {
+    const sid = 'l2:session-A'
+    const { result } = renderHook(() => useChatStream())
+    await act(async () => {
+      await result.current.send('/compact', undefined, sid)
+    })
+    const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
+    act(() => handler.onError?.('Session unavailable'))
+    expect(useChatStore.getState().messages[sid][1].segments).toEqual([
+      { type: 'error', text: 'Session unavailable' },
+    ])
+  })
+
   it('stops every source in session A without stopping session B', async () => {
     const { result } = renderHook(() => useChatStream())
 

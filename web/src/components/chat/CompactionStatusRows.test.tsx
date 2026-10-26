@@ -20,7 +20,11 @@ describe('CompactionStatusRows', () => {
     const { container, rerender } = render(<CompactionStatusRows rows={[running]} />)
     act(() => vi.advanceTimersByTime(60_000))
     expect(screen.getByText('Compressing conversation context…')).toBeVisible()
-    rerender(<CompactionStatusRows rows={[{ ...running, status: 'completed', finished_at: new Date().toISOString() }]} />)
+    rerender(
+      <CompactionStatusRows
+        rows={[{ ...running, status: 'completed', finished_at: new Date().toISOString() }]}
+      />
+    )
     expect(screen.getByText('Context compression completed.')).toBeVisible()
     act(() => vi.advanceTimersByTime(4_999))
     expect(screen.getByText('Context compression completed.')).toBeVisible()
@@ -29,22 +33,54 @@ describe('CompactionStatusRows', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('hides older completions without a history entry while retaining errors', () => {
+  it('hides historical terminal notices without a live expiration', () => {
     vi.setSystemTime(new Date('2026-10-16T10:01:00.000Z'))
-    render(<CompactionStatusRows rows={[
-      { ...running, status: 'completed', finished_at: startedAt },
-      { ...running, id: 'two', status: 'failed', error: 'Provider timeout' },
-    ]} />)
+    render(
+      <CompactionStatusRows
+        rows={[
+          { ...running, status: 'completed', finished_at: startedAt },
+          { ...running, id: 'two', status: 'failed', error: 'Provider timeout' },
+          { ...running, id: 'three', status: 'interrupted', error: 'Process ended' },
+        ]}
+      />
+    )
     expect(screen.queryByText('Context compression completed.')).not.toBeInTheDocument()
     expect(screen.queryByText(/Compression history/)).not.toBeInTheDocument()
-    expect(screen.getByText('Provider timeout')).toBeVisible()
+    expect(screen.queryByText('Provider timeout')).not.toBeInTheDocument()
+    expect(screen.queryByText('Process ended')).not.toBeInTheDocument()
     expect(vi.getTimerCount()).toBe(0)
   })
 
   it('cleans up the expiration timer when unmounted', () => {
-    const { unmount } = render(<CompactionStatusRows rows={[{ ...running, status: 'completed', finished_at: startedAt }]} />)
+    const { unmount } = render(
+      <CompactionStatusRows rows={[{ ...running, status: 'completed', finished_at: startedAt }]} />
+    )
     expect(vi.getTimerCount()).toBe(1)
     unmount()
     expect(vi.getTimerCount()).toBe(0)
   })
+
+  it.each(['failed', 'interrupted'] as const)(
+    'expires a live %s after thirty seconds across remounts',
+    (status) => {
+      const row: CompactionStatus = {
+        ...running,
+        status,
+        error: 'Timeout',
+        noticeExpiresAt: Date.now() + 30_000,
+      }
+      const first = render(<CompactionStatusRows rows={[row]} />)
+      expect(screen.getByText('Timeout')).toBeVisible()
+      act(() => vi.advanceTimersByTime(20_000))
+      first.unmount()
+      const { container, rerender } = render(<CompactionStatusRows rows={[row]} />)
+      act(() => vi.advanceTimersByTime(9_999))
+      expect(screen.getByText('Timeout')).toBeVisible()
+      act(() => vi.advanceTimersByTime(1))
+      expect(container).toBeEmptyDOMElement()
+      rerender(<CompactionStatusRows rows={[{ ...row }]} />)
+      expect(container).toBeEmptyDOMElement()
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  )
 })

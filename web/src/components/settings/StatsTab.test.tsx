@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { StatsTab } from './StatsTab'
@@ -12,6 +12,8 @@ const api = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/api/stats-api', () => api)
+const routerApi = vi.hoisted(() => ({ getRouterStats: vi.fn() }))
+vi.mock('@/lib/api/chat-api', () => routerApi)
 
 vi.mock('recharts', () => ({
   CartesianGrid: () => null,
@@ -62,6 +64,7 @@ const meta = {
 describe('StatsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    routerApi.getRouterStats.mockResolvedValue([])
     window.history.replaceState(null, '', '/')
     api.getStatsOverview.mockResolvedValue({
       meta,
@@ -125,6 +128,96 @@ describe('StatsTab', () => {
     )
   })
 
+  it('places related task statistics together after the overview and trend with separate units', async () => {
+    routerApi.getRouterStats.mockResolvedValueOnce([
+      {
+        period: '2026-10-26',
+        classification_source: 'laya',
+        classification_level: 'engineering',
+        count: 8,
+      },
+      {
+        period: '2026-10-26',
+        classification_source: 'laya_unavailable',
+        classification_level: 'general',
+        count: 2,
+      },
+    ])
+    api.getStatsBreakdown.mockImplementation((dimension: string) =>
+      Promise.resolve({
+        meta,
+        dimension,
+        items:
+          dimension === 'task_type'
+            ? [
+                {
+                  key: 'engineering',
+                  label: 'engineering',
+                  metrics: { ...metrics, request_count: 42, total_tokens: 125000 },
+                },
+              ]
+            : [],
+      })
+    )
+    render(<StatsTab />)
+    const success = await screen.findByTestId('laya-success')
+    const analysis = screen.getByRole('region', { name: 'Task classification and usage' })
+    const laya = within(analysis).getByRole('region', { name: 'Laya Task Classification' })
+    const usage = within(analysis).getByRole('region', { name: 'Task types' })
+    const trend = screen.getByRole('heading', { name: 'Usage trend' })
+    const overview = screen.getAllByTestId('stats-kpi')[0]
+    expect(
+      overview.compareDocumentPosition(analysis) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(trend.compareDocumentPosition(analysis) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(laya.parentElement).toBe(usage.parentElement)
+    expect(within(analysis).getAllByRole('region')).toHaveLength(2)
+    expect(success).toHaveTextContent('8')
+    expect(within(laya).getByTestId('laya-fallback')).toHaveTextContent('2')
+    await waitFor(() => expect(within(usage).getByText('42 Calls')).toBeInTheDocument())
+    expect(within(usage).getByText('Engineering')).toBeInTheDocument()
+    expect(
+      within(usage).getByText(
+        `${new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(125000)} Tokens`
+      )
+    ).toBeInTheDocument()
+    expect(within(usage).getByText(/One task can generate multiple LLM calls/)).toBeInTheDocument()
+  })
+
+  it('keeps local task analysis visible when there are no LLM task details', async () => {
+    api.getStatsOverview.mockResolvedValueOnce({
+      meta: {
+        ...meta,
+        coverage: { ...meta.coverage, task_type: { known_rows: 0, applicable_rows: 0 } },
+      },
+      summary: { ...metrics, request_count: 0 },
+      comparison: {},
+      series: [],
+      insights: [],
+    })
+    render(<StatsTab />)
+    expect(await screen.findByText('No Laya classifications in this period.')).toBeInTheDocument()
+    const analysis = screen.getByRole('region', { name: 'Task classification and usage' })
+    expect(
+      await within(analysis).findByText('No LLM calls with a known task type in this selection.')
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole('region', { name: 'Laya Task Classification' })).toHaveLength(1)
+  })
+
+  it('distinguishes unavailable LLM task details from an empty result while retaining Laya counts', async () => {
+    api.getStatsBreakdown.mockImplementation((dimension: string) =>
+      dimension === 'task_type'
+        ? Promise.reject(new Error('breakdown unavailable'))
+        : Promise.resolve({ meta, dimension, items: [] })
+    )
+    render(<StatsTab />)
+    expect(await screen.findByText('LLM task usage is currently unavailable.')).toBeInTheDocument()
+    expect(screen.getByTestId('laya-success')).toHaveTextContent('0')
+    expect(
+      screen.queryByText('No LLM calls with a known task type in this selection.')
+    ).not.toBeInTheDocument()
+  })
+
   it('hides inapplicable reliability panels for legacy-only data', async () => {
     api.getStatsOverview.mockResolvedValueOnce({
       meta: {
@@ -155,6 +248,29 @@ describe('StatsTab', () => {
     expect(screen.queryByText('Cache Hit Ratio')).not.toBeInTheDocument()
   })
 
+  it('shows Laya history even when the LLM statistics request fails', async () => {
+    api.getStatsOverview.mockRejectedValueOnce(new Error('LLM stats unavailable'))
+    routerApi.getRouterStats.mockResolvedValueOnce([
+      {
+        period: '2026-10-26',
+        classification_source: 'laya',
+        classification_level: 'engineering',
+        count: 8,
+      },
+    ])
+    window.history.replaceState(null, '', '/?stats_team=team-only')
+    render(<StatsTab />)
+    expect(await screen.findByTestId('laya-success')).toHaveTextContent('8')
+    expect(screen.getByRole('alert')).toHaveTextContent('LLM stats unavailable')
+    expect(routerApi.getRouterStats.mock.calls[0][1]).toBe('team-only')
+    fireEvent.click(screen.getByRole('button', { name: '24h' }))
+    await waitFor(() => expect(routerApi.getRouterStats).toHaveBeenCalledTimes(2))
+    const [, , from, to] = routerApi.getRouterStats.mock.calls[1]
+    expect(Date.parse(to.replace(' ', 'T') + 'Z') - Date.parse(from.replace(' ', 'T') + 'Z')).toBe(
+      24 * 60 * 60 * 1000
+    )
+  })
+
   it('advances the rolling query window when refreshed', async () => {
     render(<StatsTab />)
 
@@ -166,6 +282,10 @@ describe('StatsTab', () => {
 
     await waitFor(() => expect(api.getStatsOverview).toHaveBeenCalledTimes(2))
     expect(new Date(api.getStatsOverview.mock.calls[1][0].to).getTime()).toBe(firstTo + 60_000)
+    await waitFor(() => expect(routerApi.getRouterStats).toHaveBeenCalledTimes(2))
+    expect(routerApi.getRouterStats.mock.calls[1][3]).toBe(
+      new Date(firstTo + 60_000).toISOString().slice(0, 19).replace('T', ' ')
+    )
     now.mockRestore()
   })
 })

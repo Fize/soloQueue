@@ -145,6 +145,10 @@ export interface CompactionStatus {
   started_at: string;
   finished_at?: string;
   error?: string;
+  /** Browser-only deadline; history snapshots must never create an error notice. */
+  noticeExpiresAt?: number;
+  /** Browser-only ownership for suppressing the matching /compact error message. */
+  requestId?: string;
 }
 
 export interface WSCompactionStatusMessage {

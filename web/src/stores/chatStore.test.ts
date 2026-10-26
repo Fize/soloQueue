@@ -26,6 +26,7 @@ beforeEach(() => {
     messages: {},
     compactions: {},
     compactionClearWatermarks: {},
+    activeRequests: {},
     streamingSessions: {},
     delegatingSessions: {},
     routeSessions: {},
@@ -42,6 +43,127 @@ beforeEach(() => {
 })
 
 describe('chatStore', () => {
+  it.each(['failed', 'interrupted'] as const)(
+    'does not turn historical %s statuses into live notices',
+    async (status) => {
+      const sid = 'l2:history'
+      const row = { id: 'old', status, started_at: new Date().toISOString(), error: 'Old timeout' }
+      vi.mocked(fetchSessionHistory).mockResolvedValue({
+        messages: [],
+        has_more: true,
+        cursor: 'older',
+        compactions: [row],
+      })
+      await useChatStore.getState().loadHistory(sid)
+      await useChatStore.getState().loadMoreHistory(sid)
+      useChatStore.getState().setCompactionStatus(sid, row)
+      expect(useChatStore.getState().compactions[sid]).toEqual([row])
+    }
+  )
+
+  it.each(['failed', 'interrupted'] as const)(
+    'suppresses only the matching manual compact %s error',
+    (status) => {
+      const sid = 'l2:manual'
+      useChatStore.setState({
+        messages: {
+          [sid]: [
+            {
+              id: 'user',
+              requestId: 'manual',
+              role: 'user',
+              timestamp: '',
+              segments: [{ type: 'content', text: '/compact' }],
+            },
+            {
+              id: 'assistant',
+              requestId: 'manual',
+              role: 'assistant',
+              timestamp: '',
+              segments: [],
+            },
+            {
+              id: 'other',
+              requestId: 'other-request',
+              role: 'assistant',
+              timestamp: '',
+              segments: [],
+            },
+          ],
+        },
+        compactions: {
+          [sid]: [
+            {
+              id: 'one',
+              requestId: 'manual',
+              status,
+              reason: 'user_command',
+              started_at: '',
+              error: 'Timeout',
+            },
+          ],
+        },
+      })
+      useChatStore.getState().failAssistantMessage(sid, 'assistant', 'session: compact: Timeout')
+      expect(useChatStore.getState().messages[sid].map((message) => message.id)).toEqual([
+        'user',
+        'other',
+      ])
+      expect(useChatStore.getState().historyPreservedMessageIds[sid]).toBeUndefined()
+      useChatStore.getState().failAssistantMessage(sid, 'other', 'Unrelated failure')
+      expect(useChatStore.getState().messages[sid][1].segments).toEqual([
+        { type: 'error', text: 'Unrelated failure' },
+      ])
+    }
+  )
+
+  it('gives live failures one fixed thirty-second deadline and scopes manual ownership', async () => {
+    const sid = 'l2:manual'
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    useChatStore.setState({
+      messages: {
+        [sid]: [
+          {
+            id: 'user',
+            requestId: 'manual',
+            role: 'user',
+            timestamp: '',
+            segments: [{ type: 'content', text: ' /COMPACT ' }],
+          },
+        ],
+      },
+      activeRequests: {
+        manual: { requestId: 'manual', sessionId: sid, status: 'streaming' },
+      },
+    })
+    const running = {
+      id: 'one',
+      status: 'running' as const,
+      reason: 'user_command',
+      started_at: new Date(now).toISOString(),
+    }
+    useChatStore.getState().setCompactionStatus(sid, running)
+    const failed = { ...running, status: 'failed' as const, error: 'Timeout' }
+    useChatStore.getState().setCompactionStatus(sid, failed)
+    expect(useChatStore.getState().compactions[sid][0]).toMatchObject({
+      requestId: 'manual',
+      noticeExpiresAt: now + 30_000,
+    })
+    vi.mocked(Date.now).mockReturnValue(now + 10_000)
+    useChatStore.getState().setCompactionStatus(sid, failed)
+    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
+      messages: [],
+      has_more: false,
+      compactions: [failed],
+    })
+    await useChatStore.getState().loadHistory(sid)
+    expect(useChatStore.getState().compactions[sid][0]).toMatchObject({
+      requestId: 'manual',
+      noticeExpiresAt: now + 30_000,
+    })
+  })
+
   it('stores route metadata atomically and clears only the matching request', () => {
     useChatStore.setState({
       sessions: [{ id: 'l2:s1', type: 'l2', name: '', createdAt: '' }],

@@ -101,6 +101,7 @@ interface ChatState {
 
 const PAGE_SIZE = 30 // number of messages to load per page
 const ACTIVE_CHAT_ROUTES_STORAGE_KEY = 'soloqueue_active_chat_routes'
+const COMPACTION_ERROR_NOTICE_MS = 30_000
 
 function isAfterCompactionClear(status: CompactionStatus, watermark?: string) {
   if (!watermark) return true
@@ -135,6 +136,14 @@ function mergeCompactionStatuses(
     if (liveTerminal && savedTerminal && (live.finished_at || '') > (saved.finished_at || '')) {
       merged.set(live.id, live)
     }
+    // Hydration may update the lifecycle, but cannot restart a live notice or
+    // discard the request ownership needed to suppress a duplicate error.
+    const selected = merged.get(live.id)!
+    merged.set(live.id, {
+      ...selected,
+      noticeExpiresAt: live.noticeExpiresAt,
+      requestId: live.requestId,
+    })
   }
   return Array.from(merged.values())
 }
@@ -203,8 +212,37 @@ export const useChatStore = create<ChatState>((set) => ({
       if (!isAfterCompactionClear(status, s.compactionClearWatermarks[sessionId])) return {}
       const rows = [...(s.compactions[sessionId] || [])]
       const i = rows.findIndex((r) => r.id === status.id)
-      if (i < 0) rows.push(status)
-      else if (!['completed', 'failed', 'interrupted'].includes(rows[i].status)) rows[i] = status
+      const previous = rows[i]
+      if (previous && ['completed', 'failed', 'interrupted'].includes(previous.status)) return {}
+      const requestId =
+        previous?.requestId ??
+        (status.reason === 'user_command'
+          ? Object.values(s.activeRequests).find(
+              (request) =>
+                request.sessionId === sessionId &&
+                request.status !== 'queued' &&
+                (s.messages[sessionId] || []).some(
+                  (message) =>
+                    message.role === 'user' &&
+                    message.requestId === request.requestId &&
+                    message.segments.some(
+                      (segment) =>
+                        segment.type === 'content' &&
+                        segment.text.trim().toLowerCase() === '/compact'
+                    )
+                )
+            )?.requestId
+          : undefined)
+      const row: CompactionStatus = {
+        ...status,
+        requestId,
+        noticeExpiresAt:
+          status.status === 'failed' || status.status === 'interrupted'
+            ? Date.now() + COMPACTION_ERROR_NOTICE_MS
+            : undefined,
+      }
+      if (i < 0) rows.push(row)
+      else rows[i] = row
       return { compactions: { ...s.compactions, [sessionId]: rows } }
     }),
   clearCompactions: (sessionId) =>
@@ -941,6 +979,29 @@ export const useChatStore = create<ChatState>((set) => ({
   failAssistantMessage: (sessionId: string, messageId: string, error: string) => {
     set((s) => {
       const messages = s.messages[sessionId] || []
+      const assistant = messages.find(
+        (message) => message.id === messageId && message.role === 'assistant'
+      )
+      if (
+        assistant?.requestId &&
+        (s.compactions[sessionId] || []).some(
+          (row) =>
+            row.requestId === assistant.requestId &&
+            row.reason === 'user_command' &&
+            (row.status === 'failed' || row.status === 'interrupted')
+        )
+      ) {
+        // The lifecycle notice already reports this request's failure. An empty
+        // assistant bubble must not turn the same error into permanent chat content.
+        return assistant.segments.length === 0
+          ? {
+              messages: {
+                ...s.messages,
+                [sessionId]: messages.filter((message) => message.id !== messageId),
+              },
+            }
+          : {}
+      }
       let changed = false
       const updated = messages.map((message) => {
         if (message.id !== messageId || message.role !== 'assistant') return message

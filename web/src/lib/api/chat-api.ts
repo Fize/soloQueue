@@ -222,14 +222,15 @@ export async function getRouterStats(
   timeframe: string,
   teamId?: string,
   fromDate?: string,
-  toDate?: string
+  toDate?: string,
+  signal?: AbortSignal
 ): Promise<RouterStat[]> {
   const query = new URLSearchParams()
   query.append('timeframe', timeframe)
   if (teamId) query.append('team_id', teamId)
   if (fromDate) query.append('from', fromDate)
   if (toDate) query.append('to', toDate)
-  return request<RouterStat[]>(`/stats/router?${query.toString()}`)
+  return request<RouterStat[]>(`/stats/router?${query.toString()}`, { signal })
 }
 
 export async function getStatTeams(): Promise<string[]> {

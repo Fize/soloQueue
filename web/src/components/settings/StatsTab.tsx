@@ -21,6 +21,7 @@ import {
   YAxis,
 } from 'recharts'
 
+import { LayaStats } from './LayaStats'
 import { ActivityHeatmap, type ActivityDay } from '@/components/ActivityHeatmap'
 import { GlassCard } from '@/components/ui/glass-card'
 import { Select } from '@/components/ui/select'
@@ -181,20 +182,49 @@ function KpiCard({
   )
 }
 
-function BreakdownList({ title, data }: { title: string; data?: StatsBreakdown }) {
+function BreakdownList({
+  title,
+  data,
+  description,
+  showCalls = false,
+  emptyMessage,
+}: {
+  title: string
+  data?: StatsBreakdown
+  description?: string
+  showCalls?: boolean
+  emptyMessage?: string
+}) {
+  const { t } = useTranslation()
+  const taskLabels: Record<string, string> = showCalls
+    ? {
+        general: t('config.taskTypeGeneral'),
+        engineering: t('config.taskTypeEngineering'),
+        research: t('config.taskTypeResearch'),
+      }
+    : {}
   const maximum = Math.max(...(data?.items.map((item) => item.metrics.total_tokens) ?? [0]), 1)
   return (
-    <GlassCard variant="flat" className="p-4">
+    <GlassCard variant="flat" className="min-w-0 p-4" role="region" aria-label={title}>
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
       <div className="mt-4 space-y-3">
         {data?.items.slice(0, 6).map((item) => (
           <div key={item.key}>
             <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
-              <span className="truncate text-foreground" title={item.label}>
-                {item.label}
+              <span className="truncate text-foreground" title={taskLabels[item.key] ?? item.label}>
+                {taskLabels[item.key] ?? item.label}
               </span>
-              <span className="shrink-0 font-mono text-muted-foreground tabular-nums">
-                {formatCompact(item.metrics.total_tokens)}
+              <span className="shrink-0 text-right text-muted-foreground">
+                <span className="font-mono tabular-nums">
+                  {formatCompact(item.metrics.total_tokens)}
+                  {showCalls && ` ${t('stats.tokens')}`}
+                </span>
+                {showCalls && (
+                  <span className="mt-0.5 block text-[11px] tabular-nums">
+                    {item.metrics.request_count.toLocaleString()} {t('stats.calls')}
+                  </span>
+                )}
               </span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -207,7 +237,7 @@ function BreakdownList({ title, data }: { title: string; data?: StatsBreakdown }
         ))}
         {(!data || data.items.length === 0) && (
           <p className="py-8 text-center text-xs text-muted-foreground">
-            No data for this selection.
+            {emptyMessage ?? 'No data for this selection.'}
           </p>
         )}
       </div>
@@ -752,13 +782,37 @@ export function StatsTab() {
               </ResponsiveContainer>
             </div>
           </GlassCard>
+        </>
+      ) : null}
 
+      <section aria-label={t('stats.taskAnalysis')} className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">{t('stats.taskAnalysis')}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{t('stats.taskAnalysisDesc')}</p>
+        </div>
+        <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+          <LayaStats from={rangeValues.from} to={rangeValues.to} team={filters.team} />
+          <BreakdownList
+            title={t('stats.taskTypes')}
+            description={t('stats.taskUsageDesc')}
+            data={hasTaskTypes ? breakdowns.task_type : undefined}
+            showCalls
+            emptyMessage={
+              loading || refreshing
+                ? t('common.loading')
+                : !overview || !breakdowns.task_type
+                  ? t('stats.taskUsageUnavailable')
+                  : t('stats.noTaskUsage')
+            }
+          />
+        </div>
+      </section>
+
+      {overview && summary ? (
+        <>
           <div className="grid gap-4 xl:grid-cols-3">
             <BreakdownList title={t('stats.topModels')} data={breakdowns.model} />
             <BreakdownList title={t('stats.usageTypes')} data={breakdowns.usage_type} />
-            {hasTaskTypes && (
-              <BreakdownList title={t('stats.taskTypes')} data={breakdowns.task_type} />
-            )}
             {hasOrigins && <BreakdownList title={t('stats.origins')} data={breakdowns.origin} />}
             {hasReliability && (
               <BreakdownList title={t('stats.reliability')} data={breakdowns.status} />

@@ -180,6 +180,7 @@ export function useChatStream() {
           asstId = `msg-${requestId}`
           const assistantMessage = {
             id: asstId,
+            ...(isCompact ? { requestId } : {}),
             role: 'assistant' as const,
             segments: [],
             timestamp: new Date().toISOString(),

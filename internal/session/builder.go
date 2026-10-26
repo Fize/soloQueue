@@ -913,7 +913,7 @@ func FormatCtxwinMessages(msgs []ctxwin.Message) string {
 // and timeline writer. It uses the leader template matching the given group.
 //
 // The returned Session has full infrastructure: timeline persistence at
-// logs/timelines/l2-<id>/, context window compaction, memory hooks, idle reaper,
+// logs/timelines/l2-<id>/, context window compaction, memory hooks,
 // and timeline replay on restart.
 //
 // L1→L2 delegation is NOT affected — this creates an independent session
@@ -1101,9 +1101,8 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	s.SetSupervisorPublisher(b.RT.AddSupervisor)
 	s.SetGenerationRebuilder(createGeneration)
 	s.PublishInitialGeneration()
-	// Enable auto-compression for idle L2 sessions (same thresholds as L1).
-	s.idleTimeout = 30 * time.Minute
-	s.compactThreshold = 200000
+	// Direct L2 conversations compact only on user command or CW waterlines.
+	// Idle time must not interrupt the user's next message with compression.
 
 	// Wire router (same as L1).
 	if b.RT.TaskRouter != nil {
@@ -1162,7 +1161,7 @@ func (b *Builder) BuildL1ForCron(ctx context.Context, id, cronLogDir string) (*S
 }
 
 // BuildL2ForCron builds a simplified L2 session for cron/scheduled tasks.
-// Compared to BuildL2, it skips timeline replay, idle reaper, memory hooks,
+// Compared to BuildL2, it skips timeline replay, memory hooks,
 // supervisor registration, router, level file restore, meta file, and baseline
 // capture — cron sessions are short-lived and start fresh every time.
 func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir string) (*Session, error) {

@@ -49,6 +49,16 @@ export function recoverInFlightMessages(
     return currentMessages;
   }
 
+  // Compaction failures belong to the transient lifecycle notice. Runtime
+  // snapshots outlive the direct handler and must not recreate its error bubble,
+  // including after a refresh has restored the /compact prompt from history.
+  if (streamSegments.every((segment) => segment.type === "error") && currentMessages.some((message) =>
+    message.role === "user" && message.requestId === requestId &&
+    proseText(message.segments).trim().toLowerCase() === "/compact"
+  )) {
+    return currentMessages;
+  }
+
   const streamMessageId = `msg-${requestId}`;
 
   // Once history has persisted non-empty output for this exact request, it is
