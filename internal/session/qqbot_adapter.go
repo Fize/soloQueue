@@ -558,6 +558,12 @@ func (a *L2ChannelAdapter) getSession(ctx context.Context) (*Session, error) {
 		}
 	}
 
+	// WeCom accounts retain one shared session across binding reloads. Refuse
+	// access to a previous team's history, including command and sender paths.
+	if a.channelID == "wecom" && sess.TeamID != a.bindAgent {
+		return nil, fmt.Errorf("wecom session binding mismatch: session team %q, configured team %q", sess.TeamID, a.bindAgent)
+	}
+
 	if a.memoryManager != nil {
 		sess.SetMemoryManager(a.memoryManager)
 	}

@@ -597,6 +597,7 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 			l1ch.Channels = make(map[string]string)
 		}
 		oldTelegramID := l1ch.Channels["telegram"]
+		oldWecomID := l1ch.Channels["wecom"]
 		if req.Channels != nil {
 			l1ch.Channels = *req.Channels
 		}
@@ -609,6 +610,7 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		var telegramBots []config.TelegramBotConfig
+		var wecomBots []config.WecomBotConfig
 		if req.Channels != nil {
 			var err error
 			telegramBots, err = m.prepareTelegramBinding(r.Context(), "", oldTelegramID, l1ch.Channels["telegram"], "")
@@ -616,6 +618,12 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 				m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}
+			wecomBots, err = m.prepareWecomBinding(r.Context(), "", oldWecomID, l1ch.Channels["wecom"], "")
+			if err != nil {
+				m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+
 		}
 		out, err := yaml.Marshal(l1ch)
 		if err != nil {
@@ -630,7 +638,7 @@ func (m *Mux) handleUpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
 			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to write channels.yaml: " + err.Error()})
 			return
 		}
-		if err := m.saveTelegramBinding(telegramBots); err != nil {
+		if err := m.saveBotBindings(telegramBots, wecomBots); err != nil {
 			if previousChannelsExists {
 				_ = os.WriteFile(chPath, previousChannels, 0644)
 			} else {

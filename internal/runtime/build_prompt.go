@@ -218,6 +218,21 @@ func validateAndWarnChannelBindings(log *logger.Logger, templates []agent.AgentT
 						"agent", tmpl.ID, "channel_type", "wechat", "instance_id", instID,
 						"hint", "ensure wechat bot config has bind_agent="+tmpl.ID)
 				}
+			case "wecom":
+				found := false
+				for _, wb := range settings.WecomBots {
+					if wb.ID == instID {
+						if wb.BindAgent != "" && strings.EqualFold(wb.BindAgent, tmpl.ID) {
+							found = true
+						}
+						break
+					}
+				}
+				if !found {
+					log.Warn(logger.CatConfig, "agent channel binding mismatch",
+						"agent", tmpl.ID, "channel_type", "wecom", "instance_id", instID,
+						"hint", "ensure wecom bot config has bind_agent="+tmpl.ID)
+				}
 			}
 		}
 	}

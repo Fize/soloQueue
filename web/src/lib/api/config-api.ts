@@ -15,6 +15,7 @@ import type {
   WeChatAccountView,
   WeChatLoginSnapshot,
   TelegramBotConfig,
+  WecomBotConfig,
   StartWeChatLoginRequest,
   LSPMCPConfig,
   SpeechConfig,
@@ -353,4 +354,16 @@ export async function runEmbeddingAction(action: EmbeddingAction, options?: Requ
 
 export async function patchToolsConfig(data: Partial<ToolsConfig>): Promise<ToolsConfig> {
   return request<ToolsConfig>('/config/tools', { method: 'PATCH', body: JSON.stringify(data) })
+}
+
+export async function getWecomBotsConfig(): Promise<WecomBotConfig[]> {
+  return request<WecomBotConfig[]>('/config/wecom-bots')
+}
+
+export async function updateWecomBotsConfig(data: Array<WecomBotConfig & { secret?: string }>): Promise<WecomBotConfig[]> {
+  return request<WecomBotConfig[]>('/config/wecom-bots', { method: 'PUT', body: JSON.stringify(data) })
+}
+
+export async function deleteWecomBotConfig(id: string): Promise<void> {
+  await request(`/config/wecom-bots/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }

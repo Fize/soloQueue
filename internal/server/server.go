@@ -46,6 +46,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/assets"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
+	"github.com/xiaobaitu/soloqueue/internal/channel/wecom"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
@@ -67,6 +68,7 @@ type Mux struct {
 	supervisorsFn     func() []*agent.Supervisor
 	configSvc         *config.GlobalService
 	wechatLogin       *wechat.LoginManager
+	wecomStatus       func(string) wecom.Status
 	runtimeMetrics    *RuntimeMetrics
 	accessLogger      *httpAccessLogger
 	templates         []agent.AgentTemplate
@@ -117,6 +119,11 @@ func WithSupervisors(fn func() []*agent.Supervisor) MuxOption {
 // WithConfigService sets the config service for /api/config endpoints.
 func WithConfigService(svc *config.GlobalService) MuxOption {
 	return func(m *Mux) { m.configSvc = svc }
+}
+
+// WithWecomStatus reports authentication state rather than credential presence.
+func WithWecomStatus(status func(string) wecom.Status) MuxOption {
+	return func(m *Mux) { m.wecomStatus = status }
 }
 
 // WithWechatLoginManager enables the desktop WeChat QR login endpoints.
@@ -433,6 +440,11 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 			r.Delete("/{accountID}", m.handleDeleteWechatBotConfig)
 		})
 
+		r.Route("/wecom-bots", func(r chi.Router) {
+			r.Get("/", m.handleGetWecomBotsConfig)
+			r.Put("/", m.handleUpdateWecomBotsConfig)
+			r.Delete("/{accountID}", m.handleDeleteWecomBotConfig)
+		})
 		r.Route("/telegram-bots", func(r chi.Router) {
 			r.Get("/", m.handleGetTelegramBotsConfig)
 			r.Put("/", m.handleUpdateTelegramBotsConfig)

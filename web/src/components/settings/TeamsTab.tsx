@@ -14,7 +14,7 @@ import {
   getSkills,
   getQQBotsConfig,
   getWeChatBotsConfig,
-  getTelegramBotsConfig,
+  getTelegramBotsConfig, getWecomBotsConfig,
 } from '@/lib/api'
 import type { TeamResponse, AgentResponse, LLMModel } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -410,10 +410,12 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [qqChannel, setQqChannel] = useState(() => editAgent?.channels?.qq || '')
   const [wechatChannel, setWechatChannel] = useState(() => editAgent?.channels?.wechat || '')
   const [telegramChannel, setTelegramChannel] = useState(() => editAgent?.channels?.telegram || '')
+  const [wecomChannel, setWecomChannel] = useState(() => editAgent?.channels?.wecom || '')
   const [notifyChannel, setNotifyChannel] = useState(() => editAgent?.notify_channel || '')
   const [qqBotOptions, setQqBotOptions] = useState<{ id: string; name: string; bind_agent?: string }[]>([])
   const [wechatBotOptions, setWechatBotOptions] = useState<{ id: string; name: string; bind_agent?: string }[]>([])
   const [telegramBotOptions, setTelegramBotOptions] = useState<{ id: string; name: string; username?: string; bind_agent?: string }[]>([])
+  const [wecomBotOptions, setWecomBotOptions] = useState<{ id: string; name: string; username?: string; bind_agent?: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { t } = useTranslation()
@@ -446,6 +448,9 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
       .catch(console.error)
     getTelegramBotsConfig()
       .then((bots) => setTelegramBotOptions(bots.map(b => ({ id: b.id, name: b.name, username: b.username, bind_agent: b.bind_agent }))))
+      .catch(console.error)
+    getWecomBotsConfig()
+      .then((bots) => setWecomBotOptions(bots.map(b => ({ id: b.id, name: b.name, bind_agent: b.bind_agent }))))
       .catch(console.error)
   }, [open])
 
@@ -495,6 +500,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
       if (qqChannel) channels.qq = qqChannel
       if (wechatChannel) channels.wechat = wechatChannel
       if (telegramChannel) channels.telegram = telegramChannel
+      if (wecomChannel) channels.wecom = wecomChannel
       const channelsPayload = channels
 
       if (isEdit) {
@@ -528,7 +534,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
     } finally {
       setSaving(false)
     }
-  }, [name, description, teamName, isLeader, model, systemPrompt, mcpServers, qqChannel, wechatChannel, telegramChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
+  }, [name, description, teamName, isLeader, model, systemPrompt, mcpServers, qqChannel, wechatChannel, telegramChannel, wecomChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -690,7 +696,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           </div>
 
           {/* Channel Binding */}
-          {(qqBotOptions.length > 0 || wechatBotOptions.length > 0 || telegramBotOptions.length > 0) && (
+          {(qqBotOptions.length > 0 || wechatBotOptions.length > 0 || telegramBotOptions.length > 0 || wecomBotOptions.length > 0) && (
             <div className="flex flex-col gap-3 rounded-lg border border-border p-4 bg-muted/5">
               <Label className="text-xs font-semibold text-foreground">Channel Binding</Label>
               <p className="text-[10px] text-muted-foreground -mt-1">
@@ -741,8 +747,11 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
               {telegramBotOptions.length > 0 && (
                 <div className="flex flex-col gap-1"><Label className="text-xs text-muted-foreground">Telegram</Label><select value={telegramChannel} onChange={(e) => { setTelegramChannel(e.target.value); if (notifyChannel === 'telegram' && !e.target.value) setNotifyChannel('') }} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"><option value="">无</option>{telegramBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.username ? `@${bot.username}` : bot.id}{bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}</option>)}</select></div>
               )}
+              {wecomBotOptions.length > 0 && (
+                <div className="flex flex-col gap-1"><Label className="text-xs text-muted-foreground">Wecom</Label><select value={wecomChannel} onChange={(e) => { setWecomChannel(e.target.value); if (notifyChannel === 'wecom' && !e.target.value) setNotifyChannel('') }} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"><option value="">无</option>{wecomBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.id}{bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}</option>)}</select></div>
+              )}
 
-              {(qqChannel || wechatChannel || telegramChannel) && (
+              {(qqChannel || wechatChannel || telegramChannel || wecomChannel) && (
                 <div className="flex flex-col gap-1.5 pt-1 border-t border-border/50">
                   <Label className="text-xs text-muted-foreground">Notification Channel (for cron task results)</Label>
                   <div className="flex gap-4">
@@ -774,6 +783,9 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                     )}
                     {telegramChannel && (
                       <label className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="radio" name="notifyChannel" value="telegram" checked={notifyChannel === 'telegram'} onChange={() => setNotifyChannel('telegram')} className="h-3 w-3" />Telegram</label>
+                    )}
+                    {wecomChannel && (
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="radio" name="notifyChannel" value="wecom" checked={notifyChannel === 'wecom'} onChange={() => setNotifyChannel('wecom')} className="h-3 w-3" />Wecom</label>
                     )}
                     <label className="flex items-center gap-1.5 text-xs cursor-pointer text-muted-foreground">
                       <input

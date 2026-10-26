@@ -16,6 +16,7 @@ flowchart LR
   QQ[QQ] --> Bridge[Channel bridges]
   WeChat[WeChat] --> Bridge
   Telegram[Telegram] --> Bridge
+  WeCom[WeCom] --> Bridge
   Cron[Scheduled jobs] --> Sessions[Session Manager]
   Bridge --> Sessions
   Core --> Sessions
@@ -67,7 +68,7 @@ sequenceDiagram
   API-->>Browser: stream updates over /ws
 ```
 
-Other Web Console pages use REST endpoints for configuration, sessions, teams, scheduled jobs, and status data. QQ, WeChat, and Telegram adapters normalize inbound messages; scheduled jobs start work through the same session and agent runtime. They differ at the entry and delivery edges, while sharing the Core's execution path.
+Other Web Console pages use REST endpoints for configuration, sessions, teams, scheduled jobs, and status data. QQ, WeChat, Telegram, and WeCom adapters normalize inbound messages; scheduled jobs start work through the same session and agent runtime. They differ at the entry and delivery edges, while sharing the Core's execution path.
 
 ## Components and responsibilities
 
@@ -120,7 +121,7 @@ These stores have distinct roles: the context window is the active model input; 
 ## Integrations
 
 - **Web:** REST for resources and settings; WebSocket for live chat and runtime events.
-- **Channels:** QQ, WeChat, and Telegram adapters translate platform messages to Core sessions and deliver responses through platform-specific APIs.
+- **Channels:** QQ, WeChat, Telegram, and WeCom adapters translate platform messages to Core sessions and deliver responses through platform-specific APIs.
 - **Tools:** built-in tools run in the Core process; Skills provide packaged instructions and workflows; MCP connects configured external tool servers; LSP support is configured as an MCP integration.
 - **Providers:** model routing and provider communication are handled by the router and LLM client layers.
 

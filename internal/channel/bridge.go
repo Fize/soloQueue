@@ -59,19 +59,35 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 		}
 	}
 
+	fallback := "Done."
+	if lifecycle, ok := b.sender.(ResponseLifecycle); ok {
+		if err := lifecycle.BeginResponse(ctx, msg); err != nil {
+			b.log.WarnContext(ctx, logger.CatApp, "channel response start failed", "channel", msg.Channel, "err", err.Error())
+			return
+		}
+		defer func() {
+			if err := lifecycle.FinishResponse(ctx, msg, fallback); err != nil {
+				b.log.WarnContext(ctx, logger.CatApp, "channel response finish failed", "channel", msg.Channel, "err", err.Error())
+			}
+		}()
+	}
+
 	// Register channel sender for system notifications (cron, etc.).
 	if s, ok := b.sess.(interface {
 		SetChannelSenderData(string, []byte, func(context.Context, string) error)
 	}); ok {
 		route := msg
+		if msg.Channel == "wecom" {
+			route = Message{Channel: msg.Channel, AccountID: msg.AccountID, AccountIdentity: msg.AccountIdentity, ConversationID: msg.ConversationID, UserID: msg.UserID}
+		}
 		if msg.Channel == "wechat" {
 			route = Message{Channel: msg.Channel, AccountID: msg.AccountID, ConversationID: msg.ConversationID, UserID: msg.UserID, ReplyToken: msg.ReplyToken}
 		}
 		msgBytes, _ := json.Marshal(route)
-		registeredMsg := msg
+		registeredMsg := route
 		s.SetChannelSenderData(msg.Channel, msgBytes, func(ctx context.Context, text string) error {
-			if msg.Channel == "wechat" {
-				if factory := GetSenderFactory("wechat"); factory != nil {
+			if msg.Channel == "wechat" || msg.Channel == "wecom" {
+				if factory := GetSenderFactory(msg.Channel); factory != nil {
 					data, _ := json.Marshal(registeredMsg)
 					return factory(ctx, data, text)
 				}
@@ -87,8 +103,8 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 	}); ok {
 		registeredMsg := msg
 		s.SetChannelSender(msg.Channel, func(ctx context.Context, text string) error {
-			if msg.Channel == "wechat" {
-				if factory := GetSenderFactory("wechat"); factory != nil {
+			if msg.Channel == "wechat" || msg.Channel == "wecom" {
+				if factory := GetSenderFactory(msg.Channel); factory != nil {
 					data, _ := json.Marshal(registeredMsg)
 					return factory(ctx, data, text)
 				}
@@ -149,7 +165,11 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 		switch {
 		case errors.Is(err, ErrSessionBusy):
 			b.send(ctx, msg, busyReply)
-		case errors.Is(err, ErrQueued), errors.Is(err, ErrTaskCancelled):
+		case errors.Is(err, ErrQueued):
+			fallback = "Task queued."
+			return
+		case errors.Is(err, ErrTaskCancelled):
+			fallback = "Task cancelled."
 			return
 		default:
 			b.log.WarnContext(ctx, logger.CatApp, "channel session request failed", "channel", msg.Channel, "err", err.Error())
@@ -162,6 +182,9 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 			mediaSender, ok := b.sender.(MediaSender)
 			if !ok {
 				b.log.WarnContext(ctx, logger.CatApp, "channel media sender unavailable", "channel", msg.Channel)
+				if msg.Channel == "wecom" {
+					b.send(ctx, msg, "This channel supports text only. Open the Web Console to view generated files.")
+				}
 			} else if err := mediaSender.SendMedia(ctx, msg, result.MediaList); err != nil {
 				b.log.WarnContext(ctx, logger.CatApp, "channel media reply failed", "channel", msg.Channel, "err", err.Error())
 			}

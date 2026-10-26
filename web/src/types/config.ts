@@ -193,6 +193,21 @@ export interface WeChatAccountView {
   whitelist: string[];
 }
 
+export interface WecomBotConfig {
+  id: string
+  name: string
+  enabled: boolean
+  botId: string
+  credentialConfigured: boolean
+  connected: boolean
+  state: string
+  error?: string
+  bind_type: 'l1' | 'l2'
+  bind_agent?: string
+  whitelist_enabled?: boolean
+  whitelist?: string[]
+}
+
 export interface TelegramBotConfig {
   id: string
   name: string
@@ -282,6 +297,7 @@ export interface AppConfig {
   qqbots: QQBotConfig[];
   wechatBots?: WeChatAccountView[];
   telegramBots?: TelegramBotConfig[];
+  wecomBots?: WecomBotConfig[];
   agent: L1AgentSettings;
   lspmcp: LSPMCPConfig;
   speech: SpeechConfig;

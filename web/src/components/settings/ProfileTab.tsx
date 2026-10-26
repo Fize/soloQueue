@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getAgentProfile, updateAgentProfile, getQQBotsConfig, getWeChatBotsConfig, getTelegramBotsConfig, listGlobalRules, getGlobalRule, saveGlobalRule, deleteGlobalRule } from '@/lib/api'
+import { getAgentProfile, updateAgentProfile, getQQBotsConfig, getWeChatBotsConfig, getTelegramBotsConfig, getWecomBotsConfig, listGlobalRules, getGlobalRule, saveGlobalRule, deleteGlobalRule } from '@/lib/api'
 import type { AgentProfile, GlobalRuleFile } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -317,11 +317,13 @@ export function ProfileTab() {
   const [qqChannel, setQqChannel] = useState('')
   const [wechatChannel, setWechatChannel] = useState('')
   const [telegramChannel, setTelegramChannel] = useState('')
+  const [wecomChannel, setWecomChannel] = useState('')
   const [notifyChannel, setNotifyChannel] = useState('')
   const [savingChannels, setSavingChannels] = useState(false)
   const [qqBotOptions, setQqBotOptions] = useState<{ id: string; name: string }[]>([])
   const [wechatBotOptions, setWechatBotOptions] = useState<{ id: string; name: string }[]>([])
   const [telegramBotOptions, setTelegramBotOptions] = useState<{ id: string; name: string; username?: string }[]>([])
+  const [wecomBotOptions, setWecomBotOptions] = useState<{ id: string; name: string; username?: string }[]>([])
   const { t } = useTranslation()
 
   const fetchProfile = useCallback(async () => {
@@ -334,6 +336,7 @@ export function ProfileTab() {
       setQqChannel(ch.qq || '')
       setWechatChannel(ch.wechat || '')
       setTelegramChannel(ch.telegram || '')
+      setWecomChannel(ch.wecom || '')
       setNotifyChannel(data.notify_channel || '')
     } catch {
       setError('Failed to load profile')
@@ -355,6 +358,9 @@ export function ProfileTab() {
     getTelegramBotsConfig()
       .then((bots) => setTelegramBotOptions(bots.map(b => ({ id: b.id, name: b.name, username: b.username }))))
       .catch(() => {})
+    getWecomBotsConfig()
+      .then((bots) => setWecomBotOptions(bots.map(b => ({ id: b.id, name: b.name, bind_agent: b.bind_agent }))))
+      .catch(console.error)
   }, [fetchProfile])
 
   const handleSaveSoul = async (soul: string) => {
@@ -384,6 +390,7 @@ export function ProfileTab() {
       if (qqChannel) channels.qq = qqChannel
       if (wechatChannel) channels.wechat = wechatChannel
       if (telegramChannel) channels.telegram = telegramChannel
+      if (wecomChannel) channels.wecom = wecomChannel
       await updateAgentProfile('main', {
         channels,
         notify_channel: notifyChannel || null,
@@ -409,7 +416,7 @@ export function ProfileTab() {
   return (
     <div className="space-y-6">
       {/* Assistant notification channel config */}
-      {(qqBotOptions.length > 0 || wechatBotOptions.length > 0 || telegramBotOptions.length > 0) && (
+      {(qqBotOptions.length > 0 || wechatBotOptions.length > 0 || telegramBotOptions.length > 0 || wecomBotOptions.length > 0) && (
         <div className="border rounded-lg bg-card p-5 shadow-sm">
           <h3 className="text-sm font-bold mb-3">通知渠道 (Notification Channels)</h3>
           <p className="text-xs text-muted-foreground mb-4">
@@ -456,9 +463,18 @@ export function ProfileTab() {
                 </select>
               </div>
             )}
+            {wecomBotOptions.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Wecom</label>
+                <select value={wecomChannel} onChange={(e) => setWecomChannel(e.target.value)} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs">
+                  <option value="">无</option>
+                  {wecomBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.id}</option>)}
+                </select>
+              </div>
+            )}
           </div>
 
-          {(qqChannel || wechatChannel || telegramChannel) && (
+          {(qqChannel || wechatChannel || telegramChannel || wecomChannel) && (
             <div className="flex flex-col gap-1.5 mb-3 pt-2 border-t border-border/50">
               <label className="text-xs text-muted-foreground">通知通道 (用于定时任务结果通知)</label>
               <div className="flex gap-4">
@@ -478,6 +494,9 @@ export function ProfileTab() {
                 )}
                 {telegramChannel && (
                   <label className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="radio" name="l1NotifyChannel" value="telegram" checked={notifyChannel === 'telegram'} onChange={() => setNotifyChannel('telegram')} className="h-3 w-3" />Telegram</label>
+                )}
+                {wecomChannel && (
+                  <label className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="radio" name="l1NotifyChannel" value="wecom" checked={notifyChannel === 'wecom'} onChange={() => setNotifyChannel('wecom')} className="h-3 w-3" />Wecom</label>
                 )}
                 <label className="flex items-center gap-1.5 text-xs cursor-pointer text-muted-foreground">
                   <input type="radio" name="l1NotifyChannel" value=""

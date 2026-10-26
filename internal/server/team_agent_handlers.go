@@ -445,6 +445,11 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	wecomBots, err := m.prepareWecomBinding(r.Context(), req.Name, "", req.Channels["wecom"], req.TeamName)
+	if err != nil {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	a := &store.Agent{
 		Name:          req.Name,
 		Description:   req.Description,
@@ -460,7 +465,7 @@ func (m *Mux) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := m.saveTelegramBinding(telegramBots); err != nil {
+	if err := m.saveBotBindings(telegramBots, wecomBots); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -518,6 +523,7 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	oldTelegramID := existing.Channels["telegram"]
+	oldWecomID := existing.Channels["wecom"]
 	if req.Description != nil {
 		existing.Description = *req.Description
 	}
@@ -548,19 +554,26 @@ func (m *Mux) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var telegramBots []config.TelegramBotConfig
+	var wecomBots []config.WecomBotConfig
 	if req.Channels != nil || req.TeamName != nil {
 		telegramBots, err = m.prepareTelegramBinding(r.Context(), existing.Name, oldTelegramID, existing.Channels["telegram"], existing.TeamName)
 		if err != nil {
 			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		wecomBots, err = m.prepareWecomBinding(r.Context(), existing.Name, oldWecomID, existing.Channels["wecom"], existing.TeamName)
+		if err != nil {
+			m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
 	}
 
 	if err := m.teamstore.UpdateAgent(r.Context(), name, existing); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := m.saveTelegramBinding(telegramBots); err != nil {
+	if err := m.saveBotBindings(telegramBots, wecomBots); err != nil {
 		if rollbackErr := m.teamstore.UpdateAgent(r.Context(), name, &previous); rollbackErr != nil && m.log != nil {
 			m.log.Warn("failed to roll back agent after channel binding save failure", "agent", name, "err", rollbackErr.Error())
 		}

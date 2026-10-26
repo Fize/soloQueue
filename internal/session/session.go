@@ -1042,6 +1042,9 @@ func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.Outbo
 	if notifyChannel == "wechat" {
 		return s.sendWechatNotification(ctx, "", media)
 	}
+	if notifyChannel == "wecom" {
+		return errors.New("wecom currently supports text notifications only")
+	}
 	s.channelSendersMu.RLock()
 	fn := s.channelMediaSenders[notifyChannel]
 	s.channelSendersMu.RUnlock()
@@ -1090,6 +1093,9 @@ func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 
 	if notifyChannel == "wechat" {
 		return s.sendWechatNotification(ctx, text, nil)
+	}
+	if notifyChannel == "wecom" {
+		return s.sendBoundNotification(ctx, "wecom", text, nil)
 	}
 
 	s.channelSendersMu.RLock()
@@ -1149,29 +1155,33 @@ func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 // sendWechatNotification applies current account bindings to live and restored
 // senders alike. Route persistence never contains the authentication credential.
 func (s *Session) sendWechatNotification(ctx context.Context, text string, media []channel.OutboundMedia) error {
+	return s.sendBoundNotification(ctx, "wechat", text, media)
+}
+
+func (s *Session) sendBoundNotification(ctx context.Context, channelType, text string, media []channel.OutboundMedia) error {
 	binding := channel.NotificationBinding{}
 	if a := s.CurrentAgent(); a != nil {
-		binding.AccountID = a.Def.Channels["wechat"]
+		binding.AccountID = a.Def.Channels[channelType]
 	}
 	if s.l1NotifyChannelPath != "" {
 		data, err := os.ReadFile(s.l1NotifyChannelPath)
 		if err != nil {
-			return fmt.Errorf("wechat_notification_config_unavailable: cannot read notification binding")
+			return errors.New(channelType + "_notification_config_unavailable: cannot read notification binding")
 		}
 		var cfg struct {
 			Channels map[string]string `yaml:"channels"`
 		}
 		if yaml.Unmarshal(data, &cfg) != nil {
-			return fmt.Errorf("wechat_notification_config_invalid: cannot parse notification binding")
+			return errors.New(channelType + "_notification_config_invalid: cannot parse notification binding")
 		}
-		binding.AccountID = cfg.Channels["wechat"]
+		binding.AccountID = cfg.Channels[channelType]
 	} else if s.TargetID != "l1-session" && s.TeamID != "L1" {
 		binding.Group = s.TeamID
 	}
 	ctx = channel.ContextWithNotificationBinding(ctx, binding)
 	s.channelSendersMu.RLock()
-	textSender := s.channelSenders["wechat"]
-	mediaSender := s.channelMediaSenders["wechat"]
+	textSender := s.channelSenders[channelType]
+	mediaSender := s.channelMediaSenders[channelType]
 	s.channelSendersMu.RUnlock()
 	if media != nil && mediaSender != nil {
 		return mediaSender(ctx, media)
@@ -1180,29 +1190,29 @@ func (s *Session) sendWechatNotification(ctx context.Context, text string, media
 		return textSender(ctx, text)
 	}
 	if s.metaStore == nil {
-		return fmt.Errorf("wechat_notification_store_unavailable: saved recipient store is not configured")
+		return errors.New(channelType + "_notification_store_unavailable: saved recipient store is not configured")
 	}
 	target := s.TargetID
 	if s.notificationTargetID != "" {
 		target = s.notificationTargetID
 	}
-	metadata, err := s.metaStore.GetChannelSenderData(target, "wechat")
+	metadata, err := s.metaStore.GetChannelSenderData(target, channelType)
 	if err != nil {
-		return fmt.Errorf("wechat_notification_route_load_failed: cannot read saved recipient route")
+		return errors.New(channelType + "_notification_route_load_failed: cannot read saved recipient route")
 	}
 	if metadata == "" {
-		return fmt.Errorf("wechat_notification_route_missing: send a WeChat message to establish a recipient and context")
+		return errors.New(channelType + "_notification_route_missing: send a message to establish a recipient route")
 	}
 	if media != nil {
-		factory := channel.GetMediaSenderFactory("wechat")
+		factory := channel.GetMediaSenderFactory(channelType)
 		if factory == nil {
-			return fmt.Errorf("wechat_notification_unavailable: media sender factory is not registered")
+			return errors.New(channelType + "_notification_unavailable: media sender factory is not registered")
 		}
 		return factory(ctx, []byte(metadata), media)
 	}
-	factory := channel.GetSenderFactory("wechat")
+	factory := channel.GetSenderFactory(channelType)
 	if factory == nil {
-		return fmt.Errorf("wechat_notification_unavailable: sender factory is not registered")
+		return errors.New(channelType + "_notification_unavailable: sender factory is not registered")
 	}
 	return factory(ctx, []byte(metadata), text)
 }

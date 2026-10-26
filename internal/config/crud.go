@@ -281,3 +281,9 @@ func (s *GlobalService) UpdateSpeech(speech SpeechConfig) error {
 	})
 	return err
 }
+
+// UpdateWecomBots persists accepted WeCom account settings.
+func (s *GlobalService) UpdateWecomBots(bots []WecomBotConfig) error {
+	_, err := s.Set(func(st *Settings) { st.WecomBots = bots })
+	return err
+}

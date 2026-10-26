@@ -1,3 +1,4 @@
+import { WecomSection } from './WecomSection'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CircleCheck, Clock3, Loader2, MessageCircle, Pencil, Plus, RefreshCw, ScanLine, Trash2 } from 'lucide-react'
 import QRCode from 'qrcode'
@@ -613,6 +614,8 @@ export function ChannelsTab() {
           </div>
         )}
       </section>
+
+      <WecomSection />
 
       {telegramDialogOpen && <TelegramBotDialog open account={telegramEditingAccount} accounts={telegramAccounts} onOpenChange={setTelegramDialogOpen} onSaved={setTelegramAccounts} />}
       {loginOpen && <WeChatLoginDialog open account={loginAccount} onOpenChange={setLoginOpen} onConnected={loadData} />}

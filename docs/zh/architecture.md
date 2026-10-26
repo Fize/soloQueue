@@ -16,6 +16,7 @@ flowchart LR
   QQ[QQ] --> Bridge[渠道桥接]
   WeChat[微信] --> Bridge
   Telegram[Telegram] --> Bridge
+  WeCom[企业微信] --> Bridge
   Cron[定时任务] --> Sessions[Session Manager]
   Bridge --> Sessions
   Core --> Sessions
@@ -67,7 +68,7 @@ sequenceDiagram
   API-->>Browser: 通过 /ws 推送更新
 ```
 
-Web Console 的其他页面通过 REST 接口读写配置、会话、团队、定时任务和状态数据。QQ、微信和 Telegram 适配器会规范化外部消息；定时任务则通过同一会话与 Agent 运行时启动工作。它们的入口和结果投递方式不同，但执行阶段共享 Core。
+Web Console 的其他页面通过 REST 接口读写配置、会话、团队、定时任务和状态数据。QQ、微信、Telegram 和企业微信适配器会规范化外部消息；定时任务则通过同一会话与 Agent 运行时启动工作。它们的入口和结果投递方式不同，但执行阶段共享 Core。
 
 ## 组件与职责
 
@@ -120,7 +121,7 @@ Core 的工作目录默认为 `~/.soloqueue`，也可通过 `SOLOQUEUE_WORK_DIR`
 ## 外部集成
 
 - **Web：** REST 用于资源和设置；WebSocket 用于实时对话和运行事件。
-- **消息渠道：** QQ、微信和 Telegram 适配器将平台消息转换为 Core 会话请求，并通过各平台 API 投递答复。
+- **消息渠道：** QQ、微信、Telegram 和企业微信适配器将平台消息转换为 Core 会话请求，并通过各平台 API 投递答复。
 - **工具：** 内置工具在 Core 进程中运行；Skills 提供可复用的指令和工作流；MCP 连接配置的外部工具服务；LSP 支持作为 MCP 集成配置。
 - **模型 Provider：** 由路由和 LLM 客户端层负责模型选择与通信。
 

@@ -322,3 +322,39 @@ func TestTextBridgeSendsMediaWithoutFinalTextOnOriginalRoute(t *testing.T) {
 		t.Fatalf("unexpected text reply %q", sender.text)
 	}
 }
+
+type lifecycleSender struct {
+	fakeSender
+	begun, finished bool
+	fallback        string
+}
+
+func (s *lifecycleSender) BeginResponse(context.Context, Message) error { s.begun = true; return nil }
+func (s *lifecycleSender) FinishResponse(_ context.Context, _ Message, fallback string) error {
+	s.finished = true
+	s.fallback = fallback
+	return nil
+}
+func TestTextBridgeFinishesResponsesForEveryTerminalPath(t *testing.T) {
+	for _, tc := range []struct {
+		name, text string
+		err        error
+		fallback   string
+	}{
+		{"command", "/help", nil, "Done."}, {"answer", "hello", nil, "Done."},
+		{"cancelled", "hello", ErrTaskCancelled, "Task cancelled."}, {"queued", "hello", ErrQueued, "Task queued."},
+		{"busy", "hello", ErrSessionBusy, "Done."}, {"failure", "hello", errors.New("model failed"), "Done."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			log, _ := logger.New(t.TempDir(), logger.WithFile(false))
+			defer log.Close()
+			sender := &lifecycleSender{}
+			sess := &fakeSession{askErr: tc.err}
+			bridge := NewTextBridge(sess, sender, log, "test", false, nil)
+			bridge.OnMessage(context.Background(), Message{Channel: "wecom", Text: tc.text, ReplyToken: "req"})
+			if !sender.begun || !sender.finished || sender.fallback != tc.fallback {
+				t.Fatalf("lifecycle=%+v", sender)
+			}
+		})
+	}
+}

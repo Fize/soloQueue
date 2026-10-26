@@ -106,6 +106,11 @@ func teamHasChannelBinding(settings config.Settings, team string) bool {
 			return true
 		}
 	}
+	for _, bot := range settings.WecomBots {
+		if bot.BindAgent == team {
+			return true
+		}
+	}
 	for _, bot := range settings.TelegramBots {
 		if bot.BindAgent == team {
 			return true

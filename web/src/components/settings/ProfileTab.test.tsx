@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   updateAgentProfile: vi.fn(),
   getQQBotsConfig: vi.fn(),
   getWeChatBotsConfig: vi.fn(),
-  getTelegramBotsConfig: vi.fn(),
+  getTelegramBotsConfig: vi.fn(), getWecomBotsConfig: vi.fn(),
   listGlobalRules: vi.fn(),
   getGlobalRule: vi.fn(),
   saveGlobalRule: vi.fn(),
@@ -52,6 +52,7 @@ describe('ProfileTab custom rule deletion', () => {
     mocks.getQQBotsConfig.mockResolvedValue([])
     mocks.getWeChatBotsConfig.mockResolvedValue([])
     mocks.getTelegramBotsConfig.mockResolvedValue([])
+    mocks.getWecomBotsConfig.mockResolvedValue([])
     mocks.listGlobalRules.mockResolvedValue([{ filename: 'custom.md', size: 42 }])
   })
 

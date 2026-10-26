@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -910,5 +911,85 @@ func TestL1ChannelAllowsWechatWhileQQDelegatesWithoutCrossingResponses(t *testin
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for QQ response after delegation release")
+	}
+}
+
+func TestWecomL2BindingGuard(t *testing.T) {
+	for _, restored := range []bool{false, true} {
+		t.Run(fmt.Sprintf("restored_%v", restored), func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+			log := newTestLog(t)
+			store := NewL2SessionStore(nil, dir, log)
+			sess := NewSession("wecom-account", "team-a", nil, nil, nil, log)
+			store.buildL2 = func(context.Context, string, string, string) (*Session, error) { return sess, nil }
+			if restored {
+				tlDir := filepath.Join(dir, "logs", "timelines", "l2-wecom-account")
+				if err := os.MkdirAll(tlDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(tlDir, MetaFileName), []byte(`{"schema_version":1,"group":"team-a"}`), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				store.sessions["wecom-account"] = &L2SessionEntry{TargetID: "wecom-account", Group: "team-a", Session: sess, state: l2StateActive}
+			}
+			adapter := NewL2ChannelAdapter(store, "wecom", "account", "team-b", log, nil)
+			if got, err := adapter.getSession(ctx); err == nil || got != nil {
+				t.Fatal("rebound adapter acquired the previous team's session")
+			}
+			for name, call := range map[string]func() error{
+				"ask":     func() error { _, err := adapter.AskStream(ctx, "hello", nil); return err },
+				"cancel":  func() error { return adapter.CancelCurrent("stop") },
+				"clear":   func() error { return adapter.Clear(ctx) },
+				"compact": func() error { return adapter.Compact(ctx) },
+				"upload":  func() error { _, err := adapter.SaveUploadedFile(ctx, "file.txt", []byte("data")); return err },
+			} {
+				if err := call(); err == nil || !strings.Contains(err.Error(), "binding mismatch") {
+					t.Errorf("%s error = %v, want binding mismatch", name, err)
+				}
+			}
+			fn := func(context.Context, string) error { return nil }
+			adapter.SetChannelSender("wecom", fn)
+			adapter.SetChannelSenderData("wecom", []byte(`{"route":"new-team"}`), fn)
+			adapter.SetChannelMediaSender("wecom", func(context.Context, []channel.OutboundMedia) error { return nil })
+			if len(sess.channelSenders) != 0 || len(sess.channelMediaSenders) != 0 || len(store.channelSenders) != 0 || len(store.channelMediaSenders) != 0 {
+				t.Fatal("mismatched binding registered a sender")
+			}
+			matching := NewL2ChannelAdapter(store, "wecom", "account", "team-a", log, nil)
+			if got, err := matching.getSession(ctx); err != nil || got != sess {
+				t.Fatalf("matching binding session = %p, %v", got, err)
+			}
+			matching.SetChannelSender("wecom", fn)
+			if sess.channelSenders["wecom"] == nil || store.channelSenders["team-a"]["wecom"] == nil {
+				t.Fatal("matching binding did not register sender")
+			}
+			if got, err := matching.getSession(ctx); err != nil || got != sess {
+				t.Fatal("matching account did not retain the shared session")
+			}
+			if entry := store.GetEntry("wecom-account"); entry == nil || entry.Group != "team-a" || store.GetActivated("wecom-account") != sess {
+				t.Fatal("binding mismatch replaced or removed session history")
+			}
+			if restored {
+				if _, err := os.Stat(filepath.Join(dir, "logs", "timelines", "l2-wecom-account", MetaFileName)); err != nil {
+					t.Fatalf("restored history removed: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestWecomL2BindingGuardPreservesOtherChannels(t *testing.T) {
+	for _, name := range []string{"qqbot", "wechat", "telegram"} {
+		t.Run(name, func(t *testing.T) {
+			log := newTestLog(t)
+			store := NewL2SessionStore(nil, t.TempDir(), log)
+			sess := NewSession(name+"-account", "team-a", nil, nil, nil, log)
+			store.sessions[name+"-account"] = &L2SessionEntry{TargetID: name + "-account", Group: "team-a", Session: sess, state: l2StateActive}
+			adapter := NewL2ChannelAdapter(store, name, "account", "team-b", log, nil)
+			if got, err := adapter.getSession(context.Background()); err != nil || got != sess {
+				t.Fatalf("existing %s behavior changed: session = %p, error = %v", name, got, err)
+			}
+		})
 	}
 }

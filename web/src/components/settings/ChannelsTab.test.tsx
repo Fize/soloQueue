@@ -4,7 +4,7 @@ import { ChannelsTab } from './ChannelsTab'
 import type { TelegramBotConfig } from '@/types'
 
 const api = vi.hoisted(() => ({
-  getQQBotsConfig: vi.fn(), getWeChatBotsConfig: vi.fn(), getTelegramBotsConfig: vi.fn(),
+  getQQBotsConfig: vi.fn(), getWeChatBotsConfig: vi.fn(), getTelegramBotsConfig: vi.fn(), getWecomBotsConfig: vi.fn(),
   getSpeechConfig: vi.fn(), getSpeechStatus: vi.fn(), updateTelegramBotsConfig: vi.fn(),
   deleteTelegramBotConfig: vi.fn(),
 }))
@@ -20,6 +20,7 @@ const bots: TelegramBotConfig[] = [
 
 beforeEach(() => {
   vi.resetAllMocks()
+  api.getWecomBotsConfig.mockResolvedValue([])
   api.getQQBotsConfig.mockResolvedValue([])
   api.getWeChatBotsConfig.mockResolvedValue([])
   api.getTelegramBotsConfig.mockResolvedValue(bots)

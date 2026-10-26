@@ -27,14 +27,15 @@ type Attachment struct {
 // Message is the transport-neutral part of an inbound channel message.
 // ReplyToken is opaque and must be passed back to the originating transport.
 type Message struct {
-	MessageID      string
-	Channel        string
-	AccountID      string
-	ConversationID string
-	UserID         string
-	Text           string
-	Attachments    []Attachment
-	ReplyToken     string
+	MessageID       string
+	Channel         string
+	AccountID       string
+	AccountIdentity string `json:",omitempty"` // Optional platform identity, distinct from the logical settings account.
+	ConversationID  string
+	UserID          string
+	Text            string
+	Attachments     []Attachment
+	ReplyToken      string
 }
 
 // Handler receives normalized inbound messages.
@@ -50,6 +51,13 @@ func (f HandlerFunc) OnMessage(ctx context.Context, msg Message) { f(ctx, msg) }
 // TextSender sends a text response using the reply context in msg.
 type TextSender interface {
 	SendText(ctx context.Context, msg Message, text string) error
+}
+
+// ResponseLifecycle lets transports close an in-place reply after commands,
+// errors and cancellation without changing the session's output contract.
+type ResponseLifecycle interface {
+	BeginResponse(context.Context, Message) error
+	FinishResponse(context.Context, Message, string) error
 }
 
 // MediaSender sends media using the immutable reply route carried by msg.
@@ -73,10 +81,11 @@ type TextFormatter interface {
 
 // ChatMeta carries channel source metadata through context for cron task creation.
 type ChatMeta struct {
-	Channel        string // "qq" | "wechat" | "" (web)
-	AccountID      string
-	UserID         string
-	ConversationID string
+	Channel         string // "qq" | "wechat" | "" (web)
+	AccountID       string
+	AccountIdentity string `json:",omitempty"` // Optional platform identity, distinct from the logical settings account.
+	UserID          string
+	ConversationID  string
 }
 
 type chatCtxKeyType struct{}

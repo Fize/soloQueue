@@ -60,3 +60,36 @@ func TestWechatNotificationMissingRoutesAreDiagnostic(t *testing.T) {
 		})
 	}
 }
+
+func TestWecomNotificationRestoresGroupRouteWithCurrentBinding(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "notifications.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	s := NewSession("temporary-task", "devs", &agent.Agent{Def: agent.Definition{NotifyChannel: "wecom", Channels: map[string]string{"wecom": "account"}}}, nil, nil, nil)
+	defer s.Close()
+	s.metaStore = database
+	s.notificationTargetID = "wecom-account"
+	route := `{"Channel":"wecom","AccountID":"account","AccountIdentity":"bot","UserID":"recipient","ConversationID":"group"}`
+	if err := database.SaveChannelSenderData("wecom-account", "wecom", route); err != nil {
+		t.Fatal(err)
+	}
+	previous := channel.GetSenderFactory("wecom")
+	defer channel.RegisterSenderFactory("wecom", previous)
+	called := false
+	channel.RegisterSenderFactory("wecom", func(ctx context.Context, data []byte, text string) error {
+		called = true
+		binding, ok := channel.NotificationBindingFromContext(ctx)
+		if !ok || binding.AccountID != "account" || binding.Group != "devs" || string(data) != route || text != "result" {
+			t.Fatalf("binding=%+v route=%s text=%s", binding, data, text)
+		}
+		return nil
+	})
+	if err := s.SendViaChannel(context.Background(), "result"); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("saved factory not called")
+	}
+}

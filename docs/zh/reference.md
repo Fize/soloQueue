@@ -51,7 +51,7 @@ model_routes:
 | `model_routes` | 任务路由 (`general`, `engineering`, `research`) 及辅助路由 `classifier`、`vision`、`fallback` |
 | `tools` | 文件路径、Shell 过滤、HTTP Host 白名单、输出限制及图像生成模型 (`image_models`) |
 | `agent` | 内置工具与 MCP Server 授权许可 |
-| `qqbots` / `wechat_bots` / `telegram_bots` | QQ、微信和 Telegram 渠道的凭据及 Session 绑定 |
+| `qqbots` / `wechat_bots` / `telegram_bots` / `wecom_bots` | QQ、微信、Telegram 和企业微信渠道的凭据及 Session 绑定 |
 | `lspmcp` | 语言服务器二进制路径、参数及语言/扩展名绑定 |
 | `embedding` | 长期记忆检索及嵌入模型设置 |
 | `speech` | 基于 whisper.cpp 的可选本地语音转写设置 |
@@ -122,13 +122,18 @@ model_routes:
 | `qqbots[]` | QQ 账号字段：`id`、`name`、`enabled`、`app_id`、`app_secret`、`intents`、`sandbox`、`bind_type`、`bind_agent`、`whitelist_enabled`、`whitelist`。 |
 | `wechat_bots[]` | 微信 iLink 账号字段：`id`、`name`、`enabled`、`bot_token`、`bot_id`、`base_url`、`bot_agent`、`bind_type`、`bind_agent`、`whitelist_enabled`、`whitelist`。 |
 | `telegram_bots[]` | Telegram 账号字段：`id`、`name`、`enabled`、`bot_token`、`bot_id`、`username`、`bind_type`、`bind_agent`、`whitelist_enabled`、`whitelist`。 |
+| `wecom_bots[]` | 企业微信智能机器人账号字段：`id`、`name`、`enabled`、`bot_id`、`secret`、`bind_type`、`bind_agent`、`whitelist_enabled`、`whitelist`。 |
 | `embedding.enabled`、`embedding.min_similarity`、`embedding.provider`、`embedding.model_name` | 控制长期记忆（默认关闭）、设置相似度阈值（默认 `0.65`）、嵌入来源（`none`：仅 BM25 + 知识图谱；`onnx`：增加本地向量；`openai`：增加远程向量）及远程模型名称。 |
 | `embedding.providers[]` | Embedding Provider 字段：`id`、`name`、`base_url`、`api_key`、`api_key_env`、`enabled`。 |
 | `embedding.models[]` | Embedding Model 字段：`id`、`provider_id`、`name`、`dimension`、`batch_size`、`normalize`、`enabled`、`is_default`。 |
 | `lspmcp.servers[]` | 按 `id` 覆盖内置 LSP Server；每项包含 `command`、`args`、`languages`、`extensions`、`disabled`。列表为空时使用全部内置 Server。 |
 | `speech.enabled`、`speech.model`、`speech.model_dir` | 启用本地语音转写、选择 `tiny`、`base`、`small` 或 `medium` 模型，并指定模型目录（默认 `<工作目录>/models`，通常为 `~/.soloqueue/models`）。默认关闭。 |
 
-QQ、微信和 Telegram 的凭据及渠道绑定也可以通过 Web Console 管理。外部 MCP Server 定义保存在独立的 `mcp.json` 中，不属于 `settings.yaml`。
+QQ、微信、Telegram 和企业微信的凭据及渠道绑定也可以通过 Web Console 的**设置 → Channels** 管理。在 L1 配置或团队 Agent 的渠道设置中选择账号，并指定接收定时任务结果的通知渠道。L1 使用全局会话，L2 按渠道／账号共享会话。通知需要先由白名单允许的用户发送消息建立收件人路由，并受平台权限和投递限制约束。
+
+企业微信需创建智能机器人并选择 **API 模式 → 使用长连接**，然后在 **WeCom · 企业微信** 中填写 Bot ID 和 Secret。Core 主动连接 `wss://openws.work.weixin.qq.com`，无需公网回调地址。等待状态显示 **Connected** 后，可单聊发送文本或在群内 @ 机器人。首期支持文本，包括原位更新的流式回复和主动通知；收到附件会提示暂不支持，生成的文件可在 Web Console 查看。API 不返回 Secret，编辑时留空会保留已保存的值。修改 Bot ID 时必须填写新 Secret，并发送消息建立新的通知路由。渠道凭据保存在 `settings.yaml` 中，请妥善保护该文件。
+
+外部 MCP Server 定义保存在独立的 `mcp.json` 中，不属于 `settings.yaml`。
 
 ---
 

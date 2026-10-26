@@ -46,3 +46,18 @@ func TestWechatSavedNotificationRouteIsMinimal(t *testing.T) {
 		t.Fatal("saved route contains message content")
 	}
 }
+
+func TestWecomNotificationRouteOmitsEphemeralReplyAndContent(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithFile(false))
+	defer log.Close()
+	sess := &notificationSession{}
+	bridge := NewTextBridge(sess, &fakeSender{}, log, "test", false, nil)
+	bridge.OnMessage(context.Background(), Message{Channel: "wecom", AccountID: "logical", AccountIdentity: "bot", ConversationID: "group", UserID: "user", ReplyToken: "temporary", Text: "/help"})
+	var route Message
+	if err := json.Unmarshal(sess.metadata, &route); err != nil {
+		t.Fatal(err)
+	}
+	if route.ReplyToken != "" || route.Text != "" || route.AccountIdentity != "bot" || route.ConversationID != "group" {
+		t.Fatalf("route=%+v", route)
+	}
+}

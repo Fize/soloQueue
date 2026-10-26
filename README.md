@@ -18,7 +18,7 @@ SoloQueue is an open-source, local-first AI workspace for personal use. Work wit
 
 SoloQueue draws inspiration from OpenClaw and my exploration of multi-agent orchestration and collaboration. After studying and practicing with a range of Agent Harness approaches, I built SoloQueue's core in Go and optimized it for DeepSeek, aiming to balance execution performance, cost, and everyday usability. It is also an ongoing engineering practice in building an Agent Harness.
 
-SoloQueue has been running on my personal computer for a long time. It is lightweight and easy to deploy and extend. Connect a compatible model provider to run it on a personal computer or server, then use the web interface, QQ, WeChat, or Telegram to start tasks, track progress, and receive results.
+SoloQueue has been running on my personal computer for a long time. It is lightweight and easy to deploy and extend. Connect a compatible model provider to run it on a personal computer or server, then use the web interface, QQ, WeChat, Telegram, or WeCom to start tasks, track progress, and receive results.
 
 ## Quick Start
 

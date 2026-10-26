@@ -51,7 +51,7 @@ model_routes:
 | `model_routes` | Task routes (`general`, `engineering`, `research`) and auxiliary `classifier`, `vision`, and `fallback` routes |
 | `tools` | File paths, shell filters, HTTP host allowlists, output limits, and image-generation models (`image_models`) |
 | `agent` | Internal agent tool and MCP server settings |
-| `qqbots` / `wechat_bots` / `telegram_bots` | Credentials and session bindings for QQ, WeChat, and Telegram channels |
+| `qqbots` / `wechat_bots` / `telegram_bots` / `wecom_bots` | Credentials and session bindings for QQ, WeChat, Telegram, and WeCom channels |
 | `lspmcp` | Language server binary paths, arguments, and language/file extension bindings |
 | `embedding` | Long-term memory retrieval and embedding model settings |
 | `speech` | Optional local speech-to-text settings using whisper.cpp |
@@ -122,13 +122,18 @@ Route values use `provider-id:model-id` and must refer to enabled entries above.
 | `qqbots[]` | QQ account fields: `id`, `name`, `enabled`, `app_id`, `app_secret`, `intents`, `sandbox`, `bind_type`, `bind_agent`, `whitelist_enabled`, and `whitelist`. |
 | `wechat_bots[]` | WeChat iLink account fields: `id`, `name`, `enabled`, `bot_token`, `bot_id`, `base_url`, `bot_agent`, `bind_type`, `bind_agent`, `whitelist_enabled`, and `whitelist`. |
 | `telegram_bots[]` | Telegram account fields: `id`, `name`, `enabled`, `bot_token`, `bot_id`, `username`, `bind_type`, `bind_agent`, `whitelist_enabled`, and `whitelist`. |
+| `wecom_bots[]` | WeCom intelligent bot account fields: `id`, `name`, `enabled`, `bot_id`, `secret`, `bind_type`, `bind_agent`, `whitelist_enabled`, and `whitelist`. |
 | `embedding.enabled`, `embedding.min_similarity`, `embedding.provider`, `embedding.model_name` | Control long-term memory (off by default), set the similarity threshold (default: `0.65`), embedding source (`none`: BM25 + knowledge graph only; `onnx`: add local vectors; `openai`: add remote vectors), and remote model name. |
 | `embedding.providers[]` | Embedding provider fields: `id`, `name`, `base_url`, `api_key`, `api_key_env`, and `enabled`. |
 | `embedding.models[]` | Embedding model fields: `id`, `provider_id`, `name`, `dimension`, `batch_size`, `normalize`, `enabled`, and `is_default`. |
 | `lspmcp.servers[]` | Overrides built-in LSP servers by `id`; entries have `command`, `args`, `languages`, `extensions`, and `disabled`. An empty list uses all built-in servers. |
 | `speech.enabled`, `speech.model`, `speech.model_dir` | Enable local speech-to-text, select `tiny`, `base`, `small`, or `medium`, and set the model directory (default: `<work-directory>/models`, usually `~/.soloqueue/models`). Disabled by default. |
 
-QQ, WeChat, and Telegram credentials and channel bindings can also be managed from the Web Console. `mcp.json` is a separate file for external MCP server definitions; it is not a `settings.yaml` section.
+QQ, WeChat, Telegram, and WeCom credentials and channel bindings can also be managed from the Web Console under **Settings → Channels**. Select an account in the L1 profile or a team agent's channel settings, and choose its notification channel for scheduled task results. L1 uses the global conversation; L2 shares a session per channel/account. Notifications require a recipient route established by an allowed incoming message and remain subject to platform permissions and delivery limits.
+
+For WeCom, create an intelligent bot in **API mode → long connection**, then enter its Bot ID and Secret under **WeCom · 企业微信**. Core connects outward to `wss://openws.work.weixin.qq.com`; no public callback URL is needed. Wait for **Connected**, then send a direct text message or @ the bot in a group. The initial integration supports text, including in-place stream replies and active notifications. Inbound attachments receive an unsupported-message reply; generated files remain available in the Web Console. The API omits Secret, and leaving it empty when editing preserves the saved value. Changing Bot ID requires a new Secret and an incoming message to establish a new notification route. Protect `settings.yaml`, which stores channel credentials.
+
+`mcp.json` is a separate file for external MCP server definitions; it is not a `settings.yaml` section.
 
 ---
 

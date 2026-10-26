@@ -203,10 +203,12 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			qqBotManager := NewQQBotManager(cfg, mgr, l2Store, rt, workDir, version, log, rt.SupervisorsSnapshot, rt.AgentRegistry)
 			wechatBotManager := NewWechatBotManager(cfg, mgr, l2Store, rt, workDir, version, log, rt.SupervisorsSnapshot, rt.AgentRegistry)
 			telegramBotManager := NewTelegramBotManager(cfg, mgr, l2Store, rt, workDir, version, log, rt.SupervisorsSnapshot, rt.AgentRegistry)
+			wecomBotManager := NewWecomBotManager(cfg, mgr, l2Store, rt, workDir, version, log, rt.SupervisorsSnapshot, rt.AgentRegistry)
 			qqBotManager.Reload()
 			wechatBotManager.Reload()
 			telegramBotManager.Reload()
-			installChannelConfigReload(cfg, qqBotManager.ReloadWithSettings, wechatBotManager.ReloadWithSettings, telegramBotManager.ReloadWithSettings)
+			wecomBotManager.Reload()
+			installChannelConfigReload(cfg, qqBotManager.ReloadWithSettings, wechatBotManager.ReloadWithSettings, telegramBotManager.ReloadWithSettings, wecomBotManager.ReloadWithSettings)
 			wechatLoginManager := wechat.NewLoginManager(
 				wechat.NewClient(wechat.Config{Version: version, BotAgent: "SoloQueue/" + version}),
 				&wechatCredentialStore{cfg: cfg, version: version},
@@ -255,6 +257,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				server.WithSupervisors(rt.SupervisorsSnapshot),
 				server.WithConfigService(cfg),
 				server.WithWechatLoginManager(wechatLoginManager),
+				server.WithWecomStatus(wecomBotManager.Status),
 				server.WithRuntimeMetrics(runtimeMetrics),
 				server.WithTemplates(rt.AllTemplates),
 				server.WithGroupsDir(filepath.Join(workDir, "groups")),
@@ -363,6 +366,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				qqBotManager.Shutdown()
 				wechatBotManager.Shutdown()
 				telegramBotManager.Shutdown()
+				wecomBotManager.Shutdown()
 				wechatLoginManager.Close()
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()

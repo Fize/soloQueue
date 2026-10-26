@@ -57,10 +57,24 @@ type Settings struct {
 	Classifier   ClassifierConfig    `json:"classifier" yaml:"classifier,omitempty"`
 	QQBots       []QQBotConfig       `json:"qqbots" yaml:"qqbots,omitempty"`
 	WechatBots   []WechatBotConfig   `json:"wechatBots" yaml:"wechat_bots,omitempty"`
+	WecomBots    []WecomBotConfig    `json:"wecomBots" yaml:"wecom_bots,omitempty"`
 	TelegramBots []TelegramBotConfig `json:"telegramBots" yaml:"telegram_bots,omitempty"`
 	Agent        AgentConfig         `json:"agent" yaml:"agent,omitempty"`
 	LSPMCP       LSPMCPConfig        `json:"lspmcp" yaml:"lspmcp,omitempty"`
 	Speech       SpeechConfig        `json:"speech" yaml:"speech,omitempty"`
+}
+
+// WecomBotConfig mirrors channel account settings; API responses omit Secret.
+type WecomBotConfig struct {
+	ID               string   `json:"id" yaml:"id,omitempty"`
+	Name             string   `json:"name" yaml:"name,omitempty"`
+	Enabled          bool     `json:"enabled" yaml:"enabled,omitempty"`
+	BotID            string   `json:"botId" yaml:"bot_id,omitempty"`
+	Secret           string   `json:"-" yaml:"secret,omitempty"`
+	BindType         string   `json:"bind_type" yaml:"bind_type,omitempty"`
+	BindAgent        string   `json:"bind_agent,omitempty" yaml:"bind_agent,omitempty"`
+	WhitelistEnabled bool     `json:"whitelist_enabled" yaml:"whitelist_enabled,omitempty"`
+	Whitelist        []string `json:"whitelist,omitempty" yaml:"whitelist,omitempty"`
 }
 
 // TelegramBotConfig stores the minimal user-facing Telegram account settings.
@@ -406,6 +420,7 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"qqbots", "QQ bot integrations", s.QQBots},
 		{"wechat_bots", "WeChat iLink bot integrations", s.WechatBots},
 		{"telegram_bots", "Telegram bot integrations", s.TelegramBots},
+		{"wecom_bots", "WeCom AI bot integrations", s.WecomBots},
 		{"lspmcp", "Built-in LSP-based MCP servers", s.LSPMCP},
 		{"tools", "Tool execution limits", s.Tools},
 		{"speech", "Local speech-to-text via whisper.cpp", s.Speech},
