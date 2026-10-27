@@ -41,18 +41,29 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  placement = 'center',
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  placement?: 'center' | 'right'
 }) {
   const { t } = useTranslation()
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay
+        className={
+          placement === 'right'
+            ? 'bg-black/20 supports-backdrop-filter:backdrop-blur-none'
+            : undefined
+        }
+      />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
+        data-placement={placement}
         className={cn(
           'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-1rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[var(--radius-lg)] border bg-popover p-5 text-sm text-popover-foreground shadow-lg duration-200 outline-none max-w-[min(90vw,560px)] overflow-x-hidden max-h-[95vh] sm:max-h-[90vh] overflow-y-auto data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+          placement === 'right' &&
+            'inset-y-0 right-0 left-auto top-0 flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-y-0 border-r-0 p-0 sm:max-h-dvh sm:max-w-[min(78vw,1120px)] overflow-hidden data-open:slide-in-from-right data-closed:slide-out-to-right motion-reduce:animate-none motion-reduce:duration-0',
           className
         )}
         {...props}
@@ -98,7 +109,9 @@ function DialogFooter({
     >
       {children}
       {showCloseButton && (
-        <DialogPrimitive.Close render={<Button variant="outline" />}>{t('common.closeDialog')}</DialogPrimitive.Close>
+        <DialogPrimitive.Close render={<Button variant="outline" />}>
+          {t('common.closeDialog')}
+        </DialogPrimitive.Close>
       )}
     </div>
   )

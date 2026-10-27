@@ -261,6 +261,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			deliveryRequestID := pendingRequestIDs[len(pendingRequestIDs)-1]
 			metadata := telemetryctx.FromContext(ctx)
 			metadata.RequestID = deliveryRequestID
+			metadata.RequestIDs = append([]string(nil), pendingRequestIDs...)
 			ctx = telemetryctx.WithMetadata(ctx, metadata)
 			boundary := PendingInputStartedEvent{
 				RequestID:         deliveryRequestID,
@@ -330,6 +331,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 			a.emit(ctx, out, ErrorEvent{Err: watchErr})
 			return
 		}
+		modelCtx = telemetryctx.WithMetadata(modelCtx, telemetryctx.Metadata{AgentID: a.InstanceID})
 		evCh, err := a.LLM.ChatStream(modelCtx, req)
 		if err != nil {
 			if modelWatch != nil {
@@ -842,6 +844,7 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 //   - Returning false means ctx is cancelled; the caller should return immediately (usually paired with defer close(out))
 func (a *Agent) emit(ctx context.Context, out chan<- AgentEvent, ev AgentEvent) bool {
 	ev = attachRequestID(ctx, ev)
+	a.observeTool(ctx, ev)
 	// Fan-out to watchers (non-blocking, drop if slow).
 	a.emitToWatchers(ev)
 
@@ -1024,6 +1027,10 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	args := tc.Function.Arguments
 	defer a.clearWorkTool()
 
+	a.emit(ctx, out, ToolExecStartEvent{
+		Iter: iter, CallID: tc.ID, Name: name, Args: args,
+	})
+
 	var tool tools.Tool
 	var ok bool
 	if a.tools != nil {
@@ -1047,9 +1054,6 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 		"tool_call_id", tc.ID,
 		"arg_len", len(args),
 	)
-	a.emit(ctx, out, ToolExecStartEvent{
-		Iter: iter, CallID: tc.ID, Name: name, Args: args,
-	})
 	a.setWorkTool(name, args)
 
 	// Apply per-tool timeout in priority order:
@@ -1098,6 +1102,7 @@ func (a *Agent) execToolStream(ctx context.Context, iter int, tc llm.ToolCall, o
 	// Build tool execution context and inject a typed event relay for child agents.
 	relayCh := make(chan iface.AgentEvent, 16)
 	toolCtx := tools.WithToolEventChannel(execCtx, relayCh)
+	toolCtx = telemetryctx.WithMetadata(toolCtx, telemetryctx.Metadata{ToolCallID: tc.ID})
 
 	// Propagate working directory to child agents via context (for L2→L3 passthrough).
 	if a.WorkDir != "" {

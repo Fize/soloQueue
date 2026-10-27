@@ -180,7 +180,7 @@ export function useChatStream() {
           asstId = `msg-${requestId}`
           const assistantMessage = {
             id: asstId,
-            ...(isCompact ? { requestId } : {}),
+            requestId,
             role: 'assistant' as const,
             segments: [],
             timestamp: new Date().toISOString(),
@@ -281,6 +281,7 @@ export function useChatStream() {
             args: data.args,
             done: false,
             agentInstanceId: data.target_agent_id,
+            dispatchId: data.dispatch_id,
           })
         },
         onToolDone: (data) => {

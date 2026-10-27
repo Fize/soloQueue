@@ -28,6 +28,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/server"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/storage"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
@@ -83,6 +84,9 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			if err != nil {
 				return fmt.Errorf("init config: %w", err)
 			}
+
+			releaseStoragePolicy := storage.InstallWriterPolicies(workDir, func() config.StorageConfig { return cfg.Get().EffectiveStorage() })
+			defer releaseStoragePolicy()
 
 			log, err := runtime.InitLogger(workDir, cfg, verbose)
 			if err != nil {

@@ -15,6 +15,9 @@ const dateLayout = "2006-01-02"
 
 type DateSizeOption func(*DateSizeWriter)
 
+// WithDateSizeMaxFiles limits historical files, excluding the current file; zero is unlimited.
+func WithDateSizeMaxFiles(n int) DateSizeOption { return func(w *DateSizeWriter) { w.maxFiles = n } }
+
 func WithDateSizeNow(now func() time.Time) DateSizeOption {
 	return func(w *DateSizeWriter) {
 		if now != nil {
@@ -34,6 +37,7 @@ type DateSizeWriter struct {
 	curSize  int64
 	maxSize  int64
 	maxDays  int
+	maxFiles int
 	closed   bool
 	now      func() time.Time
 }
@@ -56,10 +60,11 @@ func OpenDateSize(dir, baseName string, maxSize int64, maxDays int, opts ...Date
 		opt(w)
 	}
 
-	w.cleanupLocked()
+	w.refreshPolicy()
 	if err := w.openLatestForDate(w.today()); err != nil {
 		return nil, err
 	}
+	w.cleanupLocked()
 	return w, nil
 }
 
@@ -71,6 +76,7 @@ func (w *DateSizeWriter) Write(p []byte) (int, error) {
 		return 0, nil
 	}
 
+	w.refreshPolicy()
 	date := w.today()
 	if date != w.curDate {
 		if err := w.openLatestForDate(date); err != nil {
@@ -87,6 +93,7 @@ func (w *DateSizeWriter) Write(p []byte) (int, error) {
 		if err := w.openSeq(w.curDate, w.curSeq+1); err != nil {
 			return 0, err
 		}
+		w.cleanupLocked()
 	}
 
 	n, err := w.current.Write(p)
@@ -106,8 +113,12 @@ func (w *DateSizeWriter) Write(p []byte) (int, error) {
 func (w *DateSizeWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.closed {
+		return nil
+	}
 	w.closed = true
 	if w.current != nil {
+		markActive(w.pathFor(w.curDate, w.curSeq), -1)
 		return w.current.Close()
 	}
 	return nil
@@ -156,16 +167,20 @@ func (w *DateSizeWriter) openSeq(date string, seq int) error {
 		seq = 1
 	}
 	path := w.pathFor(date, seq)
+	markActive(path, 1)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
+		markActive(path, -1)
 		return fmt.Errorf("open file %s: %w", path, err)
 	}
 	info, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
+		markActive(path, -1)
 		return err
 	}
 	if w.current != nil {
+		markActive(w.pathFor(w.curDate, w.curSeq), -1)
 		_ = w.current.Close()
 	}
 	w.current = f
@@ -179,30 +194,43 @@ func (w *DateSizeWriter) pathFor(date string, seq int) string {
 	return filepath.Join(w.dir, dateSizeFileName(w.baseName, date, seq))
 }
 
-func (w *DateSizeWriter) cleanupLocked() {
-	if w.maxDays <= 0 {
-		return
+func (w *DateSizeWriter) refreshPolicy() {
+	if p, ok := resolvePolicy(w.dir, w.baseName); ok {
+		w.maxSize = p.MaxBytes
+		w.maxDays = p.MaxDays
+		w.maxFiles = p.MaxFiles
 	}
-	cutoff := w.now().AddDate(0, 0, -w.maxDays)
-	entries, err := os.ReadDir(w.dir)
+}
+func (w *DateSizeWriter) cleanupLocked() {
+	files, err := ListDateSizeFiles(w.dir, w.baseName)
 	if err != nil {
 		return
 	}
-	re := dateSizePattern(w.baseName)
-	for _, e := range entries {
-		if e.IsDir() {
+	cutoff := startOfDay(w.now()).AddDate(0, 0, 1-w.maxDays)
+	var historical []string
+	for _, path := range files {
+		if IsActive(path) {
 			continue
 		}
-		m := re.FindStringSubmatch(e.Name())
-		if m == nil {
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		fileDate, err := time.ParseInLocation(dateLayout, m[1], time.Local)
+		m := dateSizePattern(w.baseName).FindStringSubmatch(filepath.Base(path))
+		d, err := time.ParseInLocation(dateLayout, m[1], w.now().Location())
 		if err != nil {
 			continue
 		}
-		if fileDate.Before(startOfDay(cutoff)) {
-			_ = os.Remove(filepath.Join(w.dir, e.Name()))
+		if w.maxDays > 0 && d.Before(cutoff) {
+			_ = RemoveInactive(path, func() error { return os.Remove(path) })
+			continue
+		}
+		historical = append(historical, path)
+	}
+	if w.maxFiles > 0 {
+		for len(historical) > w.maxFiles {
+			_ = RemoveInactive(historical[0], func() error { return os.Remove(historical[0]) })
+			historical = historical[1:]
 		}
 	}
 }

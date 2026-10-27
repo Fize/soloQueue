@@ -91,20 +91,21 @@ func (t *Task) IsOneTime() bool {
 // ExecutionRecord is a single execution history entry for a scheduled task.
 // The full execution trace is stored in a timeline file at TimelineDir.
 type ExecutionRecord struct {
-	ID            string    `json:"id"`
-	TaskID        string    `json:"task_id"`
-	ExecutedAt    time.Time `json:"executed_at"`
-	CompletedAt   time.Time `json:"completed_at"`
-	DurationMs    int64     `json:"duration_ms"`
-	Status        string    `json:"status"` // 'success' | 'failed' | 'panic'
-	ResultSummary string    `json:"result_summary"`
-	ErrorMessage  string    `json:"error_message"`
-	TaskType      string    `json:"task_type"`
-	TargetAgent   string    `json:"target_agent"`
-	ModelID       string    `json:"model_id"`
-	ProviderID    string    `json:"provider_id"`
-	TimelineDir   string    `json:"timeline_dir"`
-	TerminalCode  string    `json:"terminal_code"`
+	ID             string    `json:"id"`
+	TaskID         string    `json:"task_id"`
+	ExecutedAt     time.Time `json:"executed_at"`
+	CompletedAt    time.Time `json:"completed_at"`
+	DurationMs     int64     `json:"duration_ms"`
+	Status         string    `json:"status"` // 'success' | 'failed' | 'panic'
+	ResultSummary  string    `json:"result_summary"`
+	ErrorMessage   string    `json:"error_message"`
+	TaskType       string    `json:"task_type"`
+	TargetAgent    string    `json:"target_agent"`
+	ModelID        string    `json:"model_id"`
+	ProviderID     string    `json:"provider_id"`
+	TimelineDir    string    `json:"timeline_dir"`
+	DetailsExpired bool      `json:"details_expired"`
+	TerminalCode   string    `json:"terminal_code"`
 }
 
 const maxSummaryLen = 500
@@ -502,7 +503,7 @@ func (s *DBStore) ListExecutionHistory(ctx context.Context, taskID string, limit
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_type, target_agent, model_id, provider_id, timeline_dir, terminal_code
+		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_type, target_agent, model_id, provider_id, timeline_dir, terminal_code, details_expired
 		 FROM cron_execution_history WHERE task_id = ?
 		 ORDER BY executed_at DESC LIMIT ? OFFSET ?`, taskID, limit, offset)
 	if err != nil {
@@ -514,7 +515,7 @@ func (s *DBStore) ListExecutionHistory(ctx context.Context, taskID string, limit
 	for rows.Next() {
 		var r ExecutionRecord
 		var eAt, cAt string
-		err := rows.Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskType, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir, &r.TerminalCode)
+		err := rows.Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskType, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir, &r.TerminalCode, &r.DetailsExpired)
 		if err != nil {
 			return nil, fmt.Errorf("cron store: scan execution record: %w", err)
 		}
@@ -530,9 +531,9 @@ func (s *DBStore) GetExecutionHistory(ctx context.Context, taskID, execID string
 	var r ExecutionRecord
 	var eAt, cAt string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_type, target_agent, model_id, provider_id, timeline_dir, terminal_code
+		`SELECT id, task_id, executed_at, completed_at, duration_ms, status, result_summary, error_message, task_type, target_agent, model_id, provider_id, timeline_dir, terminal_code, details_expired
 			 FROM cron_execution_history WHERE task_id = ? AND id = ?`, taskID, execID).
-		Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskType, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir, &r.TerminalCode)
+		Scan(&r.ID, &r.TaskID, &eAt, &cAt, &r.DurationMs, &r.Status, &r.ResultSummary, &r.ErrorMessage, &r.TaskType, &r.TargetAgent, &r.ModelID, &r.ProviderID, &r.TimelineDir, &r.TerminalCode, &r.DetailsExpired)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("cron store: execution record %q not found", execID)
 	}

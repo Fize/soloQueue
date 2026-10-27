@@ -19,7 +19,7 @@ import (
 
 // schemaVersion is written to PRAGMA user_version as a marker that the
 // snapshot migration has completed.
-const schemaVersion = 24
+const schemaVersion = 25
 
 // DB wraps a shared *sql.DB together with a write mutex used to serialize
 // writes across all logical stores that share the same underlying SQLite
@@ -974,6 +974,9 @@ func (d *DB) migrate() error {
 		name  string
 		ddl   string
 	}{
+		{"cron_execution_history", "details_expired", `ALTER TABLE cron_execution_history ADD COLUMN details_expired INTEGER NOT NULL DEFAULT 0`},
+		{"llm_call_metrics", "attempt_count", `ALTER TABLE llm_call_metrics ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`},
+		{"llm_call_metrics", "attempts_reported", `ALTER TABLE llm_call_metrics ADD COLUMN attempts_reported INTEGER NOT NULL DEFAULT 0`},
 		{"cron_execution_history", "terminal_code", `ALTER TABLE cron_execution_history ADD COLUMN terminal_code TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, column := range cronHistoryColumns {

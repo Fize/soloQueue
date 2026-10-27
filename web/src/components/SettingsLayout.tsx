@@ -10,6 +10,7 @@ export function SettingsLayout() {
   
   const tabLabels: Record<string, string> = {
     '/settings/general': t('sidebar.general'),
+    '/settings/storage': t('storage.title'),
     '/settings/connection': t('connection.title'),
     '/settings/projects': t('projects.title'),
     '/settings/models': t('sidebar.models'),
@@ -27,8 +28,8 @@ export function SettingsLayout() {
     <div className="h-full w-full overflow-hidden flex flex-col bg-background">
       {/* macOS Style Preferences Header Bar */}
       <header className={cn(
-        "flex h-12 items-center justify-between border-b border-border/30 px-6 bg-card/20 shrink-0 select-none",
-        sidebarCollapsed && "pl-[115px]"
+        "flex h-12 items-center justify-between border-b border-border/30 px-4 sm:px-6 bg-card/20 shrink-0 select-none",
+        sidebarCollapsed && "pl-16 sm:pl-[115px]"
       )}>
         <div className="flex items-center gap-2.5">
           <Settings className="h-4 w-4 text-muted-foreground" />
@@ -38,8 +39,8 @@ export function SettingsLayout() {
 
       {/* Preferences Content Canvas */}
       <div className="flex-1 overflow-y-auto bg-background">
-        <div className="flex justify-center p-6 md:p-8">
-          <div className="w-full max-w-4xl bg-card rounded-lg border border-border/40 p-6 md:p-8 shadow-sm">
+        <div className="flex justify-center p-3 sm:p-6 md:p-8">
+          <div className="w-full max-w-4xl bg-card rounded-lg border border-border/40 p-4 sm:p-6 md:p-8 shadow-sm">
             <Outlet />
           </div>
         </div>

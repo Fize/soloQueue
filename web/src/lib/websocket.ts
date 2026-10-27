@@ -30,6 +30,7 @@ export interface ChatHandler {
     name: string
     args: string
     target_agent_id?: string
+    dispatch_id?: string
   }) => void
   onToolDone?: (data: {
     call_id: string
@@ -366,6 +367,7 @@ class WebSocketManager {
           name: msg.name,
           args: msg.args,
           target_agent_id: msg.target_agent_id,
+          dispatch_id: 'dispatch_id' in msg ? msg.dispatch_id : undefined,
         })
         return
       }
@@ -790,6 +792,7 @@ class WebSocketManager {
           args: data.args,
           done: false,
           agentInstanceId: data.target_agent_id,
+          dispatchId: data.dispatch_id,
         }),
       onToolDone: (data) =>
         useChatStore

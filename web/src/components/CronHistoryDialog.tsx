@@ -528,6 +528,13 @@ export function CronHistoryDialog({ open, task, onClose }: Props) {
                   )}
                 </GlassCard>
 
+                {detail.execution.details_expired && (
+                  <div role="status" className="space-y-2 rounded-lg border border-border/50 bg-muted/30 p-3 text-xs">
+                    <p>{t('observability.cronExpired')}</p>
+                    <a href="#/settings/storage?category=cron_history" className="text-primary underline underline-offset-2" onClick={onClose}>{t('observability.settings')}</a>
+                  </div>
+                )}
+
                 {/* Task prompt / instruction */}
                 {parsed.userContent && (
                   <UserInstructionCard content={parsed.userContent} />
@@ -541,8 +548,13 @@ export function CronHistoryDialog({ open, task, onClose }: Props) {
                 {/* Final Assistant Markdown Output */}
                 {parsed.assistantContent ? (
                   <AssistantOutputCard content={parsed.assistantContent} />
+                ) : detail.execution.result_summary ? (
+                  <section className="space-y-2">
+                    <h4 className="text-xs font-medium text-muted-foreground">{t('observability.resultSummary')}</h4>
+                    <AssistantOutputCard content={detail.execution.result_summary} />
+                  </section>
                 ) : (
-                  !parsed.workedSteps.length && !parsed.userContent && (
+                  !detail.execution.details_expired && !parsed.workedSteps.length && !parsed.userContent && (
                     <p className="text-center text-muted-foreground text-sm py-8">{t('cron.noExecutionDetail')}</p>
                   )
                 )}

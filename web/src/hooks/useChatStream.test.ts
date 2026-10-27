@@ -434,9 +434,9 @@ describe('useChatStream', () => {
     const messages = useChatStore.getState().messages['l2:session-A']
     expect(messages.map((message) => [message.role, message.requestId])).toEqual([
       ['user', sent[0].request_id],
-      ['assistant', undefined],
+      ['assistant', sent[0].request_id],
       ['user', secondRequestId],
-      ['assistant', undefined],
+      ['assistant', secondRequestId],
       ['user', thirdRequestId],
     ])
   })
@@ -463,7 +463,7 @@ describe('useChatStream', () => {
     const messages = useChatStore.getState().messages['l2:session-A']
     expect(messages.map((message) => [message.role, message.requestId])).toEqual([
       ['user', requestId],
-      ['assistant', undefined],
+      ['assistant', requestId],
     ])
     expect(messages[1].segments).toEqual([{ type: 'error', text: 'follow-up failed' }])
   })

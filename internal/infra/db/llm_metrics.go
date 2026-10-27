@@ -28,6 +28,8 @@ type LLMCallMetric struct {
 	FinishReason             string
 	ErrorCode                string
 	RetryCount               int
+	AttemptCount             int
+	AttemptsReported         bool
 	DurationMS               int64
 	PromptTokens             int
 	CompletionTokens         int
@@ -67,8 +69,8 @@ func (db *DB) InsertLLMCallMetric(ctx context.Context, metric LLMCallMetric) err
 			started_at, finished_at, status, finish_reason, error_code,
 			retry_count, duration_ms, prompt_tokens, completion_tokens,
 			reasoning_tokens, total_tokens, cache_hit_tokens, cache_miss_tokens,
-			reasoning_details_reported, cache_details_reported
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			reasoning_details_reported, cache_details_reported, attempt_count, attempts_reported
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		metric.CallID, metric.RequestID, metric.SessionID, metric.SegmentID, metric.RunID,
 		metric.AgentID, metric.TeamID, metric.Origin,
@@ -80,7 +82,7 @@ func (db *DB) InsertLLMCallMetric(ctx context.Context, metric LLMCallMetric) err
 		metric.RetryCount, metric.DurationMS, metric.PromptTokens,
 		metric.CompletionTokens, metric.ReasoningTokens, metric.TotalTokens,
 		metric.CacheHitTokens, metric.CacheMissTokens,
-		metric.ReasoningDetailsReported, metric.CacheDetailsReported,
+		metric.ReasoningDetailsReported, metric.CacheDetailsReported, metric.AttemptCount, metric.AttemptsReported,
 	)
 	if err != nil {
 		return fmt.Errorf("insert llm call metric: %w", err)

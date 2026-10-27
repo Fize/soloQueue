@@ -1114,6 +1114,8 @@ function convertHistorySegment(seg: SessionHistorySegment): ChatSegment {
         callId: seg.call_id || '',
         name: seg.name || '',
         args: seg.args || '',
+        dispatchId: seg.dispatch_id,
+        agentInstanceId: seg.agent_instance_id,
         result: seg.result,
         error: seg.error,
         durationMs: seg.duration_ms,

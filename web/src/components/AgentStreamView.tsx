@@ -203,6 +203,7 @@ function StreamDelegationGroup({
                     error={seg.error}
                     durationMs={seg.duration_ms}
                     agentInstanceId={seg.agent_instance_id}
+                    dispatchId={seg.dispatch_id}
                     requestId={requestId}
                   />
                )

@@ -45,7 +45,8 @@ type NotificationPayload struct {
 
 // WSMessage is the envelope for all WebSocket messages sent to clients.
 type WSMessage struct {
-	Type string `json:"type"`
+	DispatchID string `json:"dispatch_id,omitempty"`
+	Type       string `json:"type"`
 	// Origin identifies messages mirrored from a non-browser transport. Empty
 	// means the message belongs to the browser request that opened the stream.
 	Origin string `json:"origin,omitempty"`

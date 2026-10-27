@@ -357,7 +357,7 @@ func (s *Stack) OnSettingsChange(settings config.Settings) error {
 		if err != nil {
 			return fmt.Errorf("failed to rebuild LLM client for provider %q: %w", prov.ID, err)
 		}
-		clients[prov.ID] = llmsupervised.New(telemetry.NewTelemetryClient(client, s.SharedDB), s.RunWatch)
+		clients[prov.ID] = llmsupervised.New(telemetry.NewTelemetryClient(client, s.SharedDB, observationStore(s.workDir, s.Settings)), s.RunWatch)
 	}
 
 	if len(clients) == 0 {

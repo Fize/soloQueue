@@ -1,22 +1,28 @@
 import { useTranslation } from '@/lib/i18n'
 import { useRef, useState } from 'react'
-import { Bot, Loader2, CheckCircle2, XCircle, X, ExternalLink } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle, ExternalLink } from 'lucide-react'
 import { useAgentStore } from '@/stores/agentStore'
 import { useAgentStream } from '@/hooks/useAgentStream'
 import { AgentStreamView } from '@/components/AgentStreamView'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
+import { useChatStore } from '@/stores/chatStore'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { DelegationProcess } from './observability/DelegationProcess'
+import { ExecutionDetails } from './observability/ExecutionDetails'
 
 export function DelegationCard({
   name,
   args,
-  callId: _callId,
+  callId,
   done,
   result,
   error,
   durationMs,
   agentInstanceId,
   requestId,
+  dispatchId,
 }: {
   name: string
   args: string
@@ -27,9 +33,14 @@ export function DelegationCard({
   durationMs?: number
   agentInstanceId?: string
   requestId?: string
+  dispatchId?: string
 }) {
   const [modalOpen, setModalOpen] = useState(false)
   const streamScrollRef = useRef<HTMLDivElement>(null)
+  const [view, setView] = useState<'result' | 'process'>(done ? 'result' : 'process')
+  const activeSessionId = useChatStore((state) => state.activeSessionId)
+  const requestSessionId = useChatStore((state) => requestId ? state.activeRequests[requestId]?.sessionId : undefined)
+  const sessionId = requestSessionId || activeSessionId
   const agentsData = useAgentStore((state) => state.agents)
 
   const { t } = useTranslation()
@@ -60,7 +71,6 @@ export function DelegationCard({
   const instanceId = agentInstanceId || matchedAgent?.instance_id || null
   const agentStream = useAgentStream(instanceId, requestId)
   const streamIsLive = agentStream?.processing === true
-  const streamIsSnapshot = !!agentStream && !streamIsLive
 
   const running = !done
   const cancelled = done && error === 'Cancelled by user'
@@ -164,125 +174,30 @@ export function DelegationCard({
         </button>
       </div>
 
-      {modalOpen && isClickable && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-          onClick={() => setModalOpen(false)}
-        >
-          <div
-            className="bg-background border border-border/60 rounded-2xl shadow-2xl w-[90vw] max-w-4xl h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-border/50 bg-card/50">
-              <div className="flex items-center gap-2.5">
-                <div className="h-7 w-7 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Bot className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">
-                    {cleanName} Event Stream
-                  </h3>
-                  {instanceId && (
-                    <p className="text-[10px] text-muted-foreground/60 font-mono">
-                      Instance: {instanceId}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span
-                      className={cn(
-                        'h-1.5 w-1.5 rounded-full',
-                        streamIsLive
-                          ? 'bg-signal'
-                          : streamIsSnapshot
-                            ? 'bg-success/60'
-                            : 'bg-muted-foreground/40'
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        'text-[10px] font-medium',
-                        streamIsLive || streamIsSnapshot
-                          ? 'text-success'
-                          : 'text-muted-foreground/60'
-                      )}
-                    >
-                      {streamIsLive
-                        ? 'Stream live'
-                        : streamIsSnapshot
-                          ? 'Stream snapshot'
-                          : 'Stream unavailable'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => setModalOpen(false)}
-                className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div ref={streamScrollRef} className="flex-1 overflow-y-auto p-6 bg-card/20">
-              {done && (result || error) ? (
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-xs font-medium text-foreground/80">
-                      {agentStream
-                        ? 'Task result'
-                        : 'Task completed — agent stream no longer available'}
-                    </h4>
-                    {taskText && (
-                      <p className="text-[11px] text-muted-foreground mt-1">{taskText}</p>
-                    )}
-                  </div>
-                  {result && (
-                    <div>
-                      <div className="mb-1 text-xs font-medium text-muted-foreground">Result</div>
-                      <div className="rounded bg-muted/50 p-3 text-xs leading-relaxed max-h-96 overflow-y-auto border border-border/40">
-                        <MarkdownPreview content={result} />
-                      </div>
-                    </div>
-                  )}
-                  {error && (
-                    <div>
-                      <div className="mb-1 text-xs font-medium text-destructive">Error</div>
-                      <pre className="whitespace-pre-wrap break-all rounded bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">
-                        {error}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              ) : agentStream ? (
-                <div className="space-y-3">
-                  {streamIsSnapshot && (
-                    <p className="text-[11px] text-muted-foreground/70">
-                      {running
-                        ? 'The live stream ended; showing the latest available agent output while the task finishes.'
-                        : 'The live stream has ended; showing the latest available agent output.'}
-                    </p>
-                  )}
-                  <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} />
-                </div>
-              ) : running ? (
-                <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
-                  <Bot className="h-8 w-8" />
-                  <p className="text-xs text-center">
-                    Live stream unavailable. The task may still be running; close and reopen this card to refresh.
-                  </p>
-                  {taskText && <p className="text-[11px] max-w-md text-center">{taskText}</p>}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
-                  <CheckCircle2 className="h-8 w-8 text-success/60" />
-                  <p className="text-xs">Task completed — no result available</p>
-                  {taskText && <p className="text-[11px] max-w-md text-center">{taskText}</p>}
-                </div>
-              )}
-            </div>
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="sm:max-w-4xl max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle>{cleanName}</DialogTitle>
+            <DialogDescription>{taskText || cleanName}</DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2" role="group" aria-label={t('observability.title')}>
+            <Button size="xs" variant={view === 'result' ? 'secondary' : 'ghost'} onClick={() => setView('result')} aria-pressed={view === 'result'}>{t('observability.result')}</Button>
+            <Button size="xs" variant={view === 'process' ? 'secondary' : 'ghost'} onClick={() => setView('process')} aria-pressed={view === 'process'}>{t('observability.process')}</Button>
           </div>
-        </div>
-      )}
+          <div ref={streamScrollRef} className="min-w-0 overflow-y-auto">
+            {view === 'result' ? <div className="space-y-3 text-xs">
+              {result && <MarkdownPreview content={result} />}
+              {error && <pre role="alert" className="whitespace-pre-wrap break-words text-destructive">{error}</pre>}
+              {!result && !error && <p className="text-muted-foreground">{running ? t('observability.running') : t('observability.unrecorded')}</p>}
+            </div> : streamIsLive && agentStream ? <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} /> : sessionId && (dispatchId || requestId) ?
+              <DelegationProcess sessionId={sessionId} dispatchId={dispatchId} requestId={requestId} toolCallId={callId} /> : <div className="space-y-2">
+                {agentStream && <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} />}
+                <p className="text-xs text-muted-foreground">{t('observability.oldProcess')}</p>
+                {sessionId && requestId && <ExecutionDetails sessionId={sessionId} requestId={requestId} running={running} />}
+              </div>}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

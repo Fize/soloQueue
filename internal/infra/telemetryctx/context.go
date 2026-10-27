@@ -29,17 +29,20 @@ const (
 )
 
 type Metadata struct {
-	RequestID string
-	SessionID string
-	OwnerID   string
-	RunID     string
-	AgentID   string
-	TeamID    string
-	Origin    string
-	UsageType string
-	TaskType  string
-	SegmentID string
-	OnUsage   func(Usage)
+	RequestID        string
+	RequestIDs       []string
+	ToolCallID       string
+	ParentDispatchID string
+	SessionID        string
+	OwnerID          string
+	RunID            string
+	AgentID          string
+	TeamID           string
+	Origin           string
+	UsageType        string
+	TaskType         string
+	SegmentID        string
+	OnUsage          func(Usage)
 }
 
 // Usage is the token portion of one completed LLM call, passed back to the
@@ -63,6 +66,15 @@ func WithMetadata(ctx context.Context, metadata Metadata) context.Context {
 	current := FromContext(ctx)
 	if metadata.RequestID != "" {
 		current.RequestID = metadata.RequestID
+	}
+	if metadata.RequestIDs != nil {
+		current.RequestIDs = append([]string(nil), metadata.RequestIDs...)
+	}
+	if metadata.ToolCallID != "" {
+		current.ToolCallID = metadata.ToolCallID
+	}
+	if metadata.ParentDispatchID != "" {
+		current.ParentDispatchID = metadata.ParentDispatchID
 	}
 	if metadata.SessionID != "" {
 		current.SessionID = metadata.SessionID

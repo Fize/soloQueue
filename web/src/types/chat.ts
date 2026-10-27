@@ -48,6 +48,7 @@ export interface WSToolStart extends WSChatEnvelope {
   name: string;
   args: string;
   target_agent_id?: string;
+  dispatch_id?: string;
 }
 
 export interface WSToolDone extends WSChatEnvelope {
@@ -270,6 +271,7 @@ export type ChatSegment =
       durationMs?: number;
       done: boolean;
       agentInstanceId?: string;
+      dispatchId?: string;
     }
   | {
       type: "delegation";
@@ -297,6 +299,8 @@ export interface CreateL2SessionResponse {
 }
 
 export interface SessionHistorySegment {
+  dispatch_id?: string;
+  agent_instance_id?: string;
   type:
     | "content"
     | "thinking"

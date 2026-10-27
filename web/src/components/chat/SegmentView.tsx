@@ -113,6 +113,7 @@ function SegmentViewInner({
             error={segment.error}
             durationMs={segment.durationMs}
             agentInstanceId={segment.agentInstanceId}
+            dispatchId={segment.dispatchId}
             requestId={requestId}
           />
         )
@@ -135,6 +136,7 @@ function SegmentViewInner({
             error={segment.error}
             durationMs={segment.durationMs}
             agentInstanceId={segment.agentInstanceId}
+            dispatchId={segment.dispatchId}
             requestId={requestId}
           />
         )

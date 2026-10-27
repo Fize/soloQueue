@@ -700,6 +700,7 @@ func (dt *DelegateTool) beginDispatch(ctx context.Context, args delegateArgs) (s
 		kind = dispatch.KindPeerHelp
 	}
 	result, err := scope.Manager.Begin(dispatch.BeginInput{
+		RequestID: telemetryctx.FromContext(ctx).RequestID, ToolCallID: telemetryctx.FromContext(ctx).ToolCallID,
 		Kind: kind, TaskName: args.TaskName, Task: args.Task, Context: args.Context, Requester: dt.SelfName,
 		Executor: args.Target, RootID: scope.RootID, ParentID: scope.ParentID,
 		RunID: telemetryctx.FromContext(ctx).RunID, Phase: "delegating",
@@ -708,6 +709,7 @@ func (dt *DelegateTool) beginDispatch(ctx context.Context, args delegateArgs) (s
 		return "", false, ctx, err
 	}
 	childScope := dispatch.Scope{Manager: scope.Manager, RootID: result.Record.RootID, ParentID: result.Record.ID}
+	ctx = telemetryctx.WithMetadata(ctx, telemetryctx.Metadata{ParentDispatchID: scope.ParentID})
 	return result.Record.ID, result.Reused, dispatch.WithScope(ctx, childScope), nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/xiaobaitu/soloqueue/internal/observability"
 	"io"
 	"os"
 	"path/filepath"
@@ -50,6 +51,10 @@ type terminalIntent struct {
 }
 
 type Record struct {
+	DetailsTruncated   bool      `json:"details_truncated,omitempty"`
+	RequestID          string    `json:"request_id,omitempty"`
+	ToolCallID         string    `json:"tool_call_id,omitempty"`
+	DetailsExpired     bool      `json:"details_expired,omitempty"`
 	ID                 string    `json:"dispatch_id"`
 	Kind               Kind      `json:"kind"`
 	TaskName           string    `json:"task_name"`
@@ -75,16 +80,18 @@ type Record struct {
 }
 
 type BeginInput struct {
-	Kind      Kind
-	TaskName  string
-	Task      string
-	Context   string
-	Requester string
-	Executor  string
-	RootID    string
-	ParentID  string
-	RunID     string
-	Phase     string
+	RequestID  string
+	ToolCallID string
+	Kind       Kind
+	TaskName   string
+	Task       string
+	Context    string
+	Requester  string
+	Executor   string
+	RootID     string
+	ParentID   string
+	RunID      string
+	Phase      string
 }
 
 type BeginResult struct {
@@ -101,16 +108,17 @@ type Event struct {
 }
 
 type Manager struct {
-	mu           sync.Mutex
-	root         string
-	ownerID      string
-	records      map[string]Record
-	pending      map[string]terminalIntent
-	checkpointed map[string]time.Time
-	cancellers   map[string]context.CancelCauseFunc
-	cancelled    map[string]bool
-	writeEvent   func(*os.File, []byte) (int, error)
-	writeMeta    func(string, any) error
+	detailsTruncated map[string]bool
+	mu               sync.Mutex
+	root             string
+	ownerID          string
+	records          map[string]Record
+	pending          map[string]terminalIntent
+	checkpointed     map[string]time.Time
+	cancellers       map[string]context.CancelCauseFunc
+	cancelled        map[string]bool
+	writeEvent       func(*os.File, []byte) (int, error)
+	writeMeta        func(string, any) error
 }
 
 // NewManager constructs the single dispatch manager owned by one Session.
@@ -235,7 +243,7 @@ func (m *Manager) Begin(in BeginInput) (BeginResult, error) {
 		return BeginResult{}, err
 	}
 	now := time.Now().UTC()
-	rec := Record{ID: "dlg_" + id, Kind: in.Kind, TaskName: in.TaskName, Task: in.Task, Context: in.Context, OwnerSessionID: m.ownerID,
+	rec := Record{RequestID: in.RequestID, ToolCallID: in.ToolCallID, ID: "dlg_" + id, Kind: in.Kind, TaskName: in.TaskName, Task: in.Task, Context: in.Context, OwnerSessionID: m.ownerID,
 		Requester: in.Requester, Executor: in.Executor, ParentID: in.ParentID, RootID: in.RootID,
 		Status: StatusRunning, Revision: 1, CreatedAt: now, UpdatedAt: now, TaskKey: key, ContentHash: hash,
 		RunID: in.RunID, Phase: in.Phase, LastProgressAt: now}
@@ -452,6 +460,7 @@ func (m *Manager) Get(id string) (Record, bool) {
 		_ = m.retryTerminalLocked(id, intent)
 	}
 	rec, ok := m.records[id]
+	rec.DetailsTruncated = rec.DetailsTruncated || m.detailsTruncated[id]
 	return rec, ok
 }
 
@@ -487,6 +496,7 @@ func (m *Manager) List() []Record {
 	}
 	out := make([]Record, 0, len(m.records))
 	for _, rec := range m.records {
+		rec.DetailsTruncated = rec.DetailsTruncated || m.detailsTruncated[rec.ID]
 		out = append(out, rec)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
@@ -515,6 +525,30 @@ func (m *Manager) Tail(id string, limit int) ([]Event, error) {
 }
 
 func (m *Manager) appendLocked(id, eventType string, payload any, rec Record) (bool, error) {
+	fileMu.Lock()
+	defer fileMu.Unlock()
+	diskRecord := rec
+	for _, item := range []struct {
+		text  *string
+		limit int
+	}{{&diskRecord.TaskName, 256}, {&diskRecord.Requester, 256}, {&diskRecord.Executor, 256}, {&diskRecord.Error, 2048}, {&diskRecord.Phase, 128}, {&diskRecord.TerminalCode, 128}} {
+		if len(*item.text) > item.limit {
+			*item.text = (*item.text)[:item.limit]
+			diskRecord.DetailsTruncated = true
+		}
+	}
+	// Task/context text is optional display data. Hashes and state identifiers retain their original meaning.
+	if len(diskRecord.Task) > 4096 {
+		diskRecord.Task = diskRecord.Task[:4096]
+		diskRecord.DetailsTruncated = true
+	}
+	if len(diskRecord.Context) > 4096 {
+		diskRecord.Context = diskRecord.Context[:4096]
+		diskRecord.DetailsTruncated = true
+	}
+	if _, err := os.Stat(filepath.Join(m.root, id, "state.json")); err == nil {
+		diskRecord.DetailsTruncated = true
+	}
 	var raw json.RawMessage
 	if payload != nil {
 		data, err := json.Marshal(payload)
@@ -523,12 +557,49 @@ func (m *Manager) appendLocked(id, eventType string, payload any, rec Record) (b
 		}
 		raw = data
 	}
-	event := Event{Sequence: rec.Revision, Timestamp: rec.UpdatedAt, Type: eventType, Record: rec, Payload: raw}
+	event := Event{Sequence: rec.Revision, Timestamp: rec.UpdatedAt, Type: eventType, Record: diskRecord, Payload: raw}
 	data, err := json.Marshal(event)
 	if err != nil {
 		return false, err
 	}
 	streamPath := filepath.Join(m.root, id, "stream-"+event.Timestamp.Format("2006-01-02")+".jsonl")
+	var committed bool
+	write := func(policy observability.Policy, allowed bool) error {
+		currentSize := int64(0)
+		if st, e := os.Stat(streamPath); e == nil {
+			currentSize = st.Size()
+		}
+		if !allowed || (policy.MaxFileBytes > 0 && currentSize+int64(len(data))+1 > policy.MaxFileBytes) {
+			diskRecord.Task = ""
+			diskRecord.Context = ""
+			diskRecord.DetailsTruncated = true
+			event.Record = diskRecord
+			event.Payload = json.RawMessage(`{"truncated":true,"recording_status":"partial"}`)
+			// Recovery uses this single replaceable checkpoint after optional capture is exhausted.
+			if err := writeAtomicJSON(filepath.Join(m.root, id, "state.json"), event); err != nil {
+				return err
+			}
+			committed = true
+			return m.writeMeta(filepath.Join(m.root, id, "meta.json"), diskRecord)
+		}
+		var err error
+		committed, err = m.writeJournalEvent(id, streamPath, data, diskRecord)
+		return err
+	}
+	if store := observability.FromTimelineDir(filepath.Dir(m.root)); store != nil {
+		err = store.GuardOptional(rec.OwnerSessionID, rec.RequestID, int64(len(data))+1, write)
+	} else {
+		err = write(observability.Policy{MaxFileBytes: 50 << 20}, true)
+	}
+	if committed && diskRecord.DetailsTruncated {
+		if m.detailsTruncated == nil {
+			m.detailsTruncated = map[string]bool{}
+		}
+		m.detailsTruncated[id] = true
+	}
+	return committed, err
+}
+func (m *Manager) writeJournalEvent(id, streamPath string, data []byte, rec Record) (bool, error) {
 	f, err := os.OpenFile(streamPath, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return false, err
@@ -572,14 +643,14 @@ func (m *Manager) reconcile() error {
 		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "dlg_") {
 			continue
 		}
-		events, err := readEvents(filepath.Join(m.root, entry.Name()))
+		latest, err := readLatestEvent(filepath.Join(m.root, entry.Name()))
 		if err != nil {
 			return fmt.Errorf("dispatch: reconcile %s: %w", entry.Name(), err)
 		}
-		if len(events) == 0 {
+		if latest == nil {
 			continue
 		}
-		rec := events[len(events)-1].Record
+		rec := latest.Record
 		if rec.OwnerSessionID != m.ownerID {
 			continue
 		}
@@ -652,11 +723,11 @@ func terminalCode(status Status, errValue error) string {
 }
 
 func (m *Manager) loadRecord(id string) (Record, bool) {
-	events, err := readEvents(filepath.Join(m.root, id))
-	if err != nil || len(events) == 0 {
+	latest, err := readLatestEvent(filepath.Join(m.root, id))
+	if err != nil || latest == nil {
 		return Record{}, false
 	}
-	return events[len(events)-1].Record, true
+	return latest.Record, true
 }
 
 func readClaim(path string) (claim, error) {
@@ -670,31 +741,22 @@ func readClaim(path string) (claim, error) {
 }
 
 func readEvents(dir string) ([]Event, error) {
-	paths, err := filepath.Glob(filepath.Join(dir, "stream-*.jsonl"))
+	fileMu.Lock()
+	defer fileMu.Unlock()
+	return readEventsUnlocked(dir)
+}
+func readEventsUnlocked(dir string) ([]Event, error) {
+	page, err := readEventPageUnlocked(dir, nil, "", maxDispatchHistoryEvents, maxDispatchHistoryBytes)
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(paths)
-	var events []Event
-	for _, path := range paths {
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		decoder := json.NewDecoder(f)
-		for {
-			var event Event
-			if err := decoder.Decode(&event); errors.Is(err, io.EOF) {
-				break
-			} else if err != nil {
-				_ = f.Close()
-				return nil, fmt.Errorf("dispatch: decode %s: %w", path, err)
-			}
-			events = append(events, event)
-		}
-		_ = f.Close()
+	if page.NextCursor != "" {
+		return nil, ErrReadLimit
 	}
-	return events, nil
+	return page.Events, nil
+}
+func sameEventIdentity(a, b Record) bool {
+	return a.ID == b.ID && a.OwnerSessionID == b.OwnerSessionID && a.RequestID == b.RequestID && a.RootID == b.RootID && a.ParentID == b.ParentID && a.ToolCallID == b.ToolCallID
 }
 
 func writeAtomicJSON(path string, value any) error {

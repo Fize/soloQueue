@@ -29,11 +29,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"github.com/xiaobaitu/soloqueue/internal/storage"
 	"io/fs"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	_ "net/http/pprof"
 
@@ -59,6 +61,8 @@ import (
 
 // Mux is the root HTTP handler.
 type Mux struct {
+	storage           *storage.Manager
+	storageMu         sync.Mutex
 	embedding         *engine.VectorManager
 	classifier        *laya.Manager
 	log               *logger.Logger
@@ -301,6 +305,15 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		}
 	}
 
+	if m.configSvc != nil {
+		var database *db.DB
+		if m.sharedDB != nil {
+			database = m.sharedDB
+		}
+		m.storage = storage.New(workDir, func() config.StorageConfig { return m.configSvc.Get().EffectiveStorage() }, database)
+		m.storage.Start(context.Background())
+	}
+
 	// HTTP access logger — writes to logs/http/ with 15-day retention, 50MiB max per file
 	accessLogDir := filepath.Join(workDir, "logs", "http")
 	al, err := newHTTPAccessLogger(accessLogDir, 50, 15)
@@ -311,6 +324,12 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		m.accessLogger = al
 		r.Use(al.Middleware)
 	}
+
+	r.Get("/api/storage", m.handleStorage)
+	r.Put("/api/storage", m.handleStorageUpdate)
+	r.Post("/api/storage/preview", m.handleStoragePreview)
+	r.Post("/api/storage/cleanup", m.handleStorageCleanup)
+	m.registerObservabilityRoutes(r)
 
 	// WebSocket
 	r.Get("/ws", m.handleWebSocket)
@@ -596,6 +615,9 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Close closes any resources held by the Mux (e.g., the access logger).
 func (m *Mux) Close() error {
+	if m.storage != nil {
+		m.storage.Close()
+	}
 	if m.wechatLogin != nil {
 		m.wechatLogin.Close()
 	}

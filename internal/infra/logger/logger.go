@@ -49,7 +49,7 @@ func defaultOptions() options {
 		subdir:    "system",
 		maxSizeMB: 50,
 		maxDays:   15,
-		maxFiles:  5,
+		maxFiles:  30,
 	}
 }
 

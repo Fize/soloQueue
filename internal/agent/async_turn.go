@@ -13,6 +13,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 )
@@ -298,7 +299,7 @@ func (a *Agent) execToolsWithAsyncState(
 		}
 
 		// Inject model override + workDir + agent name into the context
-		asyncCtx := ctx
+		asyncCtx := telemetryctx.WithMetadata(ctx, telemetryctx.Metadata{ToolCallID: tc.ID})
 		if a.WorkDir != "" {
 			asyncCtx = iface.ContextWithWorkDir(asyncCtx, a.WorkDir)
 		}
@@ -310,9 +311,12 @@ func (a *Agent) execToolsWithAsyncState(
 		}
 
 		// Call ExecuteAsync to get the intent (without starting a goroutine)
+		preparedAt := time.Now()
 		action, err := at.ExecuteAsync(asyncCtx, tc.Function.Arguments)
 		if err != nil {
 			results[i] = "error: " + err.Error()
+			a.observeTool(ctx, ToolExecStartEvent{Iter: iter, CallID: tc.ID, Name: tc.Function.Name, Args: tc.Function.Arguments})
+			a.observeTool(ctx, ToolExecDoneEvent{Iter: iter, CallID: tc.ID, Name: tc.Function.Name, Result: results[i], Err: err, Duration: time.Since(preparedAt)})
 			continue
 		}
 		if action == nil {
@@ -337,6 +341,7 @@ func (a *Agent) execToolsWithAsyncState(
 			Name:          tc.Function.Name,
 			Args:          tc.Function.Arguments,
 			TargetAgentID: targetInstanceID,
+			DispatchID:    action.DispatchID,
 		})
 
 		turnState.pending.Add(1)
@@ -371,6 +376,13 @@ func (a *Agent) execToolsWithAsyncState(
 						result.err = errors.Join(result.err, callbackErr)
 					}
 					result.duration = time.Since(start)
+					// Record completion before handing results back: parent resume
+					// may be delayed or cancelled independently of the child execution.
+					body := result.content
+					if result.err != nil {
+						body = "error: " + result.err.Error()
+					}
+					a.observeTool(ctx, ToolExecDoneEvent{Iter: iter, CallID: tc.ID, Name: tc.Function.Name, Result: body, Err: result.err, Duration: result.duration})
 					replyCh <- result
 				})
 			}

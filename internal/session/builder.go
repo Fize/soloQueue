@@ -96,12 +96,9 @@ func (b *Builder) newSessionLogger() (*logger.Logger, error) {
 // newTimelineWriter creates a timeline writer for the given directory.
 func (b *Builder) newTimelineWriter(dir string, sessLog *logger.Logger) (*timeline.Writer, error) {
 	settings := b.Cfg.Get()
-	tlMaxFileMB := config.DefaultInt(settings.Session.TimelineMaxFileMB, 50)
-	if tlMaxFileMB > 50 {
-		tlMaxFileMB = 50
-	}
-	tlMaxBytes := int64(tlMaxFileMB) * 1024 * 1024
-	return timeline.NewWriter(dir, "timeline", tlMaxBytes, 15, timeline.WithWriterLogger(sessLog))
+	policy := settings.EffectiveStorage().SessionHistory
+	tlMaxBytes := int64(policy.MaxFileMB) * 1024 * 1024
+	return timeline.NewWriter(dir, "timeline", tlMaxBytes, policy.RetentionDays, timeline.WithWriterLogger(sessLog))
 }
 
 // Build creates a new session with its own agent, context window, and

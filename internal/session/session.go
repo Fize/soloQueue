@@ -35,6 +35,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/observability"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 	"gopkg.in/yaml.v3"
 )
@@ -1243,6 +1244,14 @@ func (s *Session) withSessionTelemetry(ctx context.Context) context.Context {
 	if metadata.SessionID == "" {
 		metadata.SessionID = s.TargetID
 	}
+	if metadata.SessionID == "l1-session" {
+		metadata.SessionID = "l1"
+	} else if strings.HasPrefix(metadata.SessionID, "l2-") && strings.HasSuffix(metadata.SessionID, "-session") {
+		canonical := "l2:" + strings.TrimSuffix(strings.TrimPrefix(metadata.SessionID, "l2-"), "-session")
+		if _, err := ParseSessionID(canonical); err == nil {
+			metadata.SessionID = canonical
+		}
+	}
 	if metadata.AgentID == "" {
 		if a := s.CurrentAgent(); a != nil {
 			metadata.AgentID = a.InstanceID
@@ -1255,7 +1264,13 @@ func (s *Session) withSessionTelemetry(ctx context.Context) context.Context {
 		metadata.SegmentID = strconv.Itoa(segment)
 		metadata.OnUsage = func(u telemetryctx.Usage) { s.recordUsage(segment, u) }
 	}
-	return telemetry.WithTelemetryMetadata(ctx, metadata)
+	ctx = telemetry.WithTelemetryMetadata(ctx, metadata)
+	if s.tl != nil {
+		if store := observability.FromTimelineDir(s.tl.Dir()); store != nil {
+			ctx = observability.WithStore(ctx, store)
+		}
+	}
+	return ctx
 }
 
 func (s *Session) recordUsage(segment int, usage telemetryctx.Usage) {
@@ -1403,7 +1418,7 @@ func (s *Session) applyWatchdogEvent(runHandle *runwatch.Handle, ev iface.AgentE
 // This is used by the cron scheduler so scheduled tasks run without polluting
 // the user's conversation history or being confused by stale context.
 // All system logs (actor/llm/tool) are still written normally.
-func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+func (s *Session) AskIsolated(ctx context.Context, prompt string) (result <-chan iface.AgentEvent, returnErr error) {
 	// Inject telemetry context
 	ctx = telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageChat)
 	ctx = s.withSessionTelemetry(ctx)
@@ -1419,6 +1434,20 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 	if !acquired {
 		return nil, ErrSessionBusy
 	}
+	meta := telemetry.MetadataFromContext(ctx)
+	if store := observability.FromContext(ctx); store != nil {
+		_ = store.Begin(meta.SessionID, meta.RequestID)
+	}
+	finishObservation := func(status string) {
+		if store := observability.FromContext(ctx); store != nil {
+			_ = store.Finish(meta.SessionID, meta.RequestID, status)
+		}
+	}
+	defer func() {
+		if returnErr != nil {
+			finishObservation("error")
+		}
+	}()
 	askCtx, askCancel := context.WithCancelCause(ctx)
 	var runHandle *runwatch.Handle
 	var runID string
@@ -1463,6 +1492,8 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 	// Wrap AgentEvent channel to iface.AgentEvent channel (they are the same type via embedding)
 	out := make(chan iface.AgentEvent, 64)
 	go func() {
+		status := "completed"
+		defer func() { finishObservation(status) }()
 		defer close(out)
 		defer s.releaseFlight(flightID)
 		defer s.unregisterActiveCancel(cancelID)
@@ -1473,6 +1504,7 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 		for {
 			select {
 			case <-askCtx.Done():
+				status = "cancelled"
 				s.recoverAgentAfterCancellation(context.Cause(askCtx), a, job)
 				if cause := context.Cause(askCtx); cause != nil && (!errors.Is(cause, context.Canceled) || runwatch.CodeOf(cause) != "") {
 					select {
@@ -1484,6 +1516,9 @@ func (s *Session) AskIsolated(ctx context.Context, prompt string) (<-chan iface.
 			case ev, ok := <-ch:
 				if !ok {
 					return
+				}
+				if _, ok := ev.(agent.ErrorEvent); ok {
+					status = "error"
 				}
 				s.applyWatchdogEvent(runHandle, ev)
 				select {
@@ -2005,7 +2040,7 @@ func (s *Session) checkAutoClear() {
 // Async delegation support: when L1 delegates a task to L2, DelegationStartedEvent releases inFlight,
 // allowing the user to send new messages during this time. The CW push of new messages will wait until the delegation round is completed,
 // to guarantee the correct message order in ContextWindow (delegation reply finishes first, then new user message appears).
-func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan iface.AgentEvent, returnErr error) {
 	if s.closed.Load() {
 		s.logger.DebugContext(ctx, logger.CatApp, "askstream rejected: session closed")
 		return nil, ErrSessionClosed
@@ -2023,12 +2058,34 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 	ctx = s.withDispatchScope(ctx)
 	metadata := telemetry.MetadataFromContext(ctx)
 	requestID := metadata.RequestID
+	defer func() {
+		if returnErr != nil {
+			if store := observability.FromContext(ctx); store != nil {
+				status := "error"
+				if errors.Is(returnErr, ErrQueued) {
+					status = "queued"
+				}
+				_ = store.Finish(metadata.SessionID, requestID, status)
+			}
+		}
+	}()
 	s.agentMu.RLock()
 	hooks := s.requestHooks
 	s.agentMu.RUnlock()
 	lifecycleStarted := false
 	terminalMessage := ""
+	if store := observability.FromContext(ctx); store != nil {
+		if err := store.Begin(metadata.SessionID, requestID); err != nil {
+			s.logger.Warn(logger.CatApp, "execution detail start failed", "err", err.Error())
+		}
+	}
 	finishLifecycle := func(code string) {
+		if store := observability.FromContext(ctx); store != nil {
+			if err := store.Finish(metadata.SessionID, requestID, code); err != nil {
+				s.logger.Warn(logger.CatApp, "execution detail finish failed", "err", err.Error())
+			}
+		}
+
 		if lifecycleStarted && hooks.OnFinish != nil {
 			lifecycleStarted = false
 			if code == "" {
@@ -2130,6 +2187,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
 			defer close(out)
+			defer finishLifecycle("completed")
 			text := "Available commands:\n" +
 				"- `/help` or `/?` — View available commands\n" +
 				"- `/cancel` — Cancel current task\n" +
@@ -2191,6 +2249,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (<-chan iface.Ag
 		out := make(chan iface.AgentEvent, 2)
 		go func() {
 			defer close(out)
+			defer finishLifecycle("completed")
 			v := Version
 			if v == "" {
 				v = "SoloQueue"
@@ -2499,6 +2558,14 @@ enqueued:
 			}
 		}()
 		terminalCode := ""
+		var queuedObservationIDs []string
+		defer func() {
+			if store := observability.FromContext(ctx); store != nil {
+				for _, id := range queuedObservationIDs {
+					_ = store.Finish(metadata.SessionID, id, terminalCode)
+				}
+			}
+		}()
 		defer func() { finishLifecycle(terminalCode) }()
 		defer s.releaseFlight(flightID)
 		defer s.touch()
@@ -2707,6 +2774,10 @@ enqueued:
 			errorEvent := false
 			if boundary, ok := ev.(agent.PendingInputStartedEvent); ok && boundary.RequestID != "" {
 				deliveryRequestID = boundary.RequestID
+				queuedObservationIDs = append(queuedObservationIDs, boundary.RequestIDs...)
+				if store := observability.FromContext(ctx); store != nil {
+					_ = store.Resume(metadata.SessionID, boundary.RequestIDs)
+				}
 				// The previous iteration is persisted before input is drained.
 				// Start a fresh visible reply, including its clock and partial
 				// buffers, so cancellation cannot mix output across user inputs.

@@ -14,6 +14,7 @@ export type { GroupedWorked, GroupedDelegation } from './chat/groupSegments'
 import { MessageAttachment } from './chat/MessageAttachment'
 import { DelegationGroupView } from './chat/DelegationGroupView'
 import { MessageImageGallery } from './chat/ToolCallSegment'
+import { ExecutionDetails } from './observability/ExecutionDetails'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 export interface ChatMessageProps {
@@ -345,6 +346,10 @@ function ChatMessageViewInner({
               </div>
             )}
           </div>
+
+          {!isUser && currentSessionId && effectiveRequestId && (
+            <ExecutionDetails sessionId={currentSessionId} requestId={effectiveRequestId} running={messageIsRunning} />
+          )}
 
           {/* Actions bar */}
           {!isEmpty && (

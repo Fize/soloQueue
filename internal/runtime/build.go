@@ -28,6 +28,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/conversation"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine"
+	"github.com/xiaobaitu/soloqueue/internal/observability"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/router/laya"
@@ -292,7 +293,7 @@ func (bc *buildContext) buildLLMClient() error {
 		if err != nil {
 			return fmt.Errorf("build llm client for provider %q: %w", prov.ID, err)
 		}
-		clients[prov.ID] = llmsupervised.New(telemetry.NewTelemetryClient(client, bc.sharedDB), bc.runWatch)
+		clients[prov.ID] = llmsupervised.New(telemetry.NewTelemetryClient(client, bc.sharedDB, observationStore(bc.workDir, bc.cfg)), bc.runWatch)
 	}
 
 	if len(clients) == 0 {
@@ -501,4 +502,13 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 		}
 	}()
 	log.Debug(logger.CatApp, "prompt hot-reload: watching directories", "roles", rolesDir, "groups", groupsDir, "agents", agentsDir)
+}
+
+func observationStore(workDir string, cfg *config.GlobalService) *observability.Store {
+	store := observability.ForWorkDir(workDir)
+	store.SetPolicy(func() observability.Policy {
+		p := cfg.Get().Storage.ExecutionDetails
+		return observability.Policy{MaxBytes: int64(p.MaxTotalMB) << 20, MaxTurnBytes: int64(p.MaxTurnMB) << 20, MaxFileBytes: int64(p.MaxFileMB) << 20}
+	})
+	return store
 }

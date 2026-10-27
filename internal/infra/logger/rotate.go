@@ -13,13 +13,13 @@ type rotateWriter struct {
 }
 
 // newRotateWriter creates a rotating writer and opens the initial file.
-// The byDate and maxFiles parameters are reserved for compatibility with old calls; currently all logs are uniformly rotated by date + size.
-func newRotateWriter(dir, prefix string, _ bool, maxSizeMB, maxDays, _ int) (*rotateWriter, error) {
+// Date rotation is always enabled; maxFiles excludes the active file.
+func newRotateWriter(dir, prefix string, _ bool, maxSizeMB, maxDays, maxFiles int) (*rotateWriter, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create log dir %s: %w", dir, err)
 	}
 	maxBytes := int64(maxSizeMB) * 1024 * 1024
-	w, err := rotating.OpenDateSize(dir, prefix, maxBytes, maxDays)
+	w, err := rotating.OpenDateSize(dir, prefix, maxBytes, maxDays, rotating.WithDateSizeMaxFiles(maxFiles))
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ package config
 // Corresponds to DEFAULT_CONFIGS and DEFAULT_LLM_CONFIGS in typescript seeds.ts
 func DefaultSettings() Settings {
 	return Settings{
+		Storage: DefaultStorageConfig(),
 		Session: SessionConfig{
 			TimelineMaxFileMB: 50,
 		},

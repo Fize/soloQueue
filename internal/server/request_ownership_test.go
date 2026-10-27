@@ -537,10 +537,16 @@ func TestBusySessionRejection(t *testing.T) {
 	def := agent.Definition{
 		Name: "test-agent",
 	}
-	// Delay keeps the first request in-flight so the second one queues.
+	// A latch makes the single-flight precondition independent of scheduler speed.
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var first sync.Once
+	var releaseOnce sync.Once
+	releaseFirst := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseFirst()
 	fakeLLM := &agenttest.FakeLLM{
 		StreamDeltas: [][]string{{"first"}},
-		Delay:        300 * time.Millisecond,
+		Hook:         func(agent.LLMRequest) { first.Do(func() { close(started); <-release }) },
 	}
 	a := agent.NewAgent(def, fakeLLM, log, agent.WithAgentWorkDir(workDir))
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
@@ -582,6 +588,11 @@ func TestBusySessionRejection(t *testing.T) {
 		t.Fatal("timeout waiting for chat_accepted message")
 	}
 
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first model call did not start")
+	}
 	// Second request to the same (now busy) session.
 	h.handleChatSend(client, &ClientMessage{
 		Type:      "chat_send",
@@ -626,8 +637,21 @@ func TestBusySessionRejection(t *testing.T) {
 		t.Fatal("expected chat_queued message")
 	}
 
-	// Let the first request finish cleanly.
-	time.Sleep(400 * time.Millisecond)
+	// Release only after queue/envelope assertions, then wait for the actual terminal event.
+	releaseFirst()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case data := <-client.send:
+			var message WSMessage
+			_ = json.Unmarshal(data, &message)
+			if message.Type == "chat_done" && message.RequestID == "req-first" {
+				return
+			}
+		case <-deadline:
+			t.Fatal("first request did not finish")
+		}
+	}
 }
 
 func TestMissingGenerationCaptureCancelsAndDrainsSuccessfulRun(t *testing.T) {

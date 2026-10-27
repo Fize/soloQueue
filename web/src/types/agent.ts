@@ -110,6 +110,7 @@ export type Segment =
       name: string;
       args: string;
       agent_instance_id?: string;
+      dispatch_id?: string;
       result: string;
       error: string;
       done: boolean;
@@ -130,6 +131,7 @@ export interface SessionRuntimeState {
   session_id: string;
 	request_id?: string;
 	agent_instance_id?: string;
+      dispatch_id?: string;
 	model_id?: string;
 	provider_id?: string;
 	task_type?: string;

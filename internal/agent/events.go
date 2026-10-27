@@ -41,6 +41,7 @@ type ToolCallDeltaEvent struct {
 
 // ToolExecStartEvent signals a tool execution start.
 type ToolExecStartEvent struct {
+	DispatchID    string
 	RequestID     string
 	Iter          int
 	CallID        string

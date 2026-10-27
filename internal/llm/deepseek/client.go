@@ -247,6 +247,7 @@ func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan l
 				for k, v := range c.headers {
 					req.Header.Set(k, v)
 				}
+				llm.ReportAttempt(ctx)
 				r, err := c.http.Do(req)
 				if err != nil {
 					return err
@@ -348,6 +349,7 @@ func (c *Client) doRetryRequest(ctx context.Context, newReq func(context.Context
 			if err != nil {
 				return err
 			}
+			llm.ReportAttempt(ctx)
 			r, err := c.http.Do(req)
 			if err != nil {
 				return err

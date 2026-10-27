@@ -13,6 +13,7 @@ import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useTranslation } from '@/lib/i18n'
+import { useWorkspaceCapabilities } from '@/hooks/useWorkspaceCapabilities'
 
 // Lazy-loaded route components — split into separate chunks for faster initial load
 const ChatPage = lazy(() => import('@/components/ChatPage').then((m) => ({ default: m.ChatPage })))
@@ -53,6 +54,7 @@ const ConnectionTab = lazy(() =>
 const StatsTab = lazy(() =>
   import('@/components/settings/StatsTab').then((m) => ({ default: m.StatsTab }))
 )
+const StorageTab = lazy(() => import('@/components/settings/StorageTab').then((m) => ({ default: m.StorageTab })))
 const GeneralTab = lazy(() =>
   import('@/components/settings/GeneralTab').then((m) => ({ default: m.GeneralTab }))
 )
@@ -137,6 +139,13 @@ function App() {
   const sidebarCollapsed = useRuntimeStore((s) => s.sidebarCollapsed)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const { t } = useTranslation()
+  const { workspace } = useWorkspaceCapabilities()
+  const mobileSettings = location.pathname.startsWith('/settings') && workspace === 'phone'
+
+  useEffect(() => {
+    // Settings need the full phone viewport; navigation remains available as a drawer.
+    if (mobileSettings) setSidebarCollapsed(true)
+  }, [mobileSettings, location.pathname, setSidebarCollapsed])
 
   const toggleCollapse = useCallback(() => {
     setSidebarCollapsed(!sidebarCollapsed)
@@ -267,12 +276,18 @@ function App() {
           </button>
         )}
 
+        {mobileSettings && !sidebarCollapsed && (
+          <button type="button" className="absolute inset-0 z-[105] bg-black/30"
+            aria-label={t('sidebar.collapse')} onClick={() => setSidebarCollapsed(true)} />
+        )}
+
         {/* Main layout: Sidebar (translucent, height 100vh) + Content Pane */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Sidebar shell; collapsed state is restored by explicit click. */}
           <div
             className={cn(
               'shrink-0 h-full border-r transition-all duration-300 ease-out relative',
+              mobileSettings && !sidebarCollapsed && 'absolute inset-y-0 left-0 z-[110] shadow-xl',
               sidebarCollapsed
                 ? 'w-0 border-transparent bg-transparent'
                 : 'w-[220px] border-border/40 bg-sidebar backdrop-blur-md overflow-hidden'
@@ -314,6 +329,7 @@ function App() {
                   />
                   <Route path="/settings" element={<SettingsLayout />}>
                     <Route index element={<Navigate to="general" replace />} />
+                    <Route path="storage" element={<StorageTab />} />
                     <Route path="general" element={<GeneralTab />} />
                     <Route path="connection" element={<ConnectionTab />} />
                     <Route path="projects" element={<ProjectsTab />} />

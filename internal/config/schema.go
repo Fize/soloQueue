@@ -47,6 +47,7 @@ type ClassifierConfig struct {
 }
 
 type Settings struct {
+	Storage      StorageConfig       `json:"storage" yaml:"storage,omitempty"`
 	Session      SessionConfig       `json:"session" yaml:"session,omitempty"`
 	Log          LogConfig           `json:"log" yaml:"log,omitempty"`
 	Tools        ToolsConfig         `json:"tools" yaml:"tools,omitempty"`

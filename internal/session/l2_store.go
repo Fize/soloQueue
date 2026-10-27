@@ -128,6 +128,8 @@ func (s *L2SessionStore) SetChannelMetadataStore(store ChannelMetadataStore) {
 // SetChannelSenderDataForGroup saves the sender closure and persists its metadata to the DB if a store is configured.
 func (s *L2SessionStore) SetChannelSenderDataForGroup(group, channelType string, metadata []byte, fn func(context.Context, string) error) {
 	s.SetChannelSenderForGroup(group, channelType, fn)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.metaStore != nil {
 		if err := s.metaStore.SaveChannelSenderData(group, channelType, string(metadata)); err != nil {
 			s.logger.WarnContext(context.Background(), logger.CatApp, "l2 store: failed to save channel metadata",

@@ -339,6 +339,8 @@ export interface UpdateCronTaskRequest {
 // ─── Cron Execution History Types ───────────────────────────────────────────
 
 export interface CronExecutionRecord {
+  details_expired?: boolean;
+  terminal_code?: string;
   id: string;
   task_id: string;
   executed_at: string;

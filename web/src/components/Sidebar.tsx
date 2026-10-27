@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import {
   FolderOpen,
+  HardDrive,
   Settings,
   ChevronDown,
   ChevronRight,
@@ -35,6 +36,7 @@ const mainNav = [
 ]
 
 const systemSettings = [
+  { to: '/settings/storage', icon: HardDrive, key: 'storage.title' as const },
   { to: '/settings/general', icon: Settings, key: 'sidebar.general' as const },
   { to: '/settings/connection', icon: Wifi, key: 'sidebar.connection' as const },
   { to: '/settings/projects', icon: FolderOpen, key: 'sidebar.projects' as const },

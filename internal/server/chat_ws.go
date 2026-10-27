@@ -823,6 +823,7 @@ func convertAgentEvent(ev agent.AgentEvent, requestID, sessionID string) *WSMess
 
 	case agent.ToolExecStartEvent:
 		return &WSMessage{
+			DispatchID:    e.DispatchID,
 			Type:          "tool_start",
 			RequestID:     requestID,
 			SessionID:     sessionID,
