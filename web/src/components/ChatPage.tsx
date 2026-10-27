@@ -321,8 +321,8 @@ export function ChatPage() {
 
 
 
-  // Dynamic message max-width: scales with main content area, capped at original 3xl (768px)
-  const MESSAGE_MAX_W = 768;
+  // 768 = ChatGPT/Claude body column, plus 32 container padding and 40 avatar gutter
+  const MESSAGE_MAX_W = 840;
   const messageMaxWidth = useMemo(() => {
     const panelVisible = (showInspector && activeSession) || designModeActive;
     const mainContentWidth =
@@ -330,7 +330,7 @@ export function ChatPage() {
     if (mainContentWidth <= 0) return MESSAGE_MAX_W;
     return Math.max(
       MIN_AREA_WIDTH - 32,
-      Math.min(mainContentWidth * 0.85, MESSAGE_MAX_W),
+      Math.min(mainContentWidth, MESSAGE_MAX_W),
     );
   }, [showInspector, designModeActive, activeSession, containerWidth, panelWidth]);
 
@@ -832,7 +832,7 @@ export function ChatPage() {
           </div>
 
           {/* ChatInput with selectors — available immediately for composing first message */}
-          <div className="w-full">
+          <div className="w-full px-8">
             <ChatInput
               {...sharedInputProps}
               activeSessionId={undefined}
@@ -1036,7 +1036,7 @@ export function ChatPage() {
                   )}
 
                   {/* Redesigned Input Card */}
-                  <div className="w-full">
+                  <div className="w-full px-4">
                     <ChatInput
                       {...sharedInputProps}
                       activeSessionId={activeSessionId || undefined}
@@ -1118,20 +1118,22 @@ export function ChatPage() {
                 </div>
 
 
-                <div className="chat-composer" data-chat-composer>
-                  <ChatInput
-                    {...sharedInputProps}
-                    activeSessionId={activeSessionId || undefined}
-                    showL2Selectors={!isL1Session}
-                    readOnlySelectors={true}
-                    ctxwinUsed={requestContextUsed}
-                    ctxwinLimit={requestContextLimit}
-                    sessionUsage={activeSession?.usage}
-                    atRootDir={activeSession?.project_path || ""}
-                    processing={requestActive}
-                    modelName={inputModelName}
-                    taskLevel={inputTaskLevel}
-                  />
+                <div className="chat-composer px-6" data-chat-composer>
+                  <div className="mx-auto w-full px-8" style={{ maxWidth: messageMaxWidth }}>
+                    <ChatInput
+                      {...sharedInputProps}
+                      activeSessionId={activeSessionId || undefined}
+                      showL2Selectors={!isL1Session}
+                      readOnlySelectors={true}
+                      ctxwinUsed={requestContextUsed}
+                      ctxwinLimit={requestContextLimit}
+                      sessionUsage={activeSession?.usage}
+                      atRootDir={activeSession?.project_path || ""}
+                      processing={requestActive}
+                      modelName={inputModelName}
+                      taskLevel={inputTaskLevel}
+                    />
+                  </div>
                 </div>
               </>
             )}

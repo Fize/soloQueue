@@ -230,12 +230,15 @@ function ChatMessageViewInner({
     return null
   }
 
+  // User meta lives in the hover overlay so it never inflates the bubble width.
+  const userMeta = isUser && !compact
+
   return (
     <div
       className={`group/message ${compact ? 'px-2 py-2' : 'px-4 py-3'} ${isUser ? 'flex justify-end' : ''}`}
     >
       <div
-        className={`flex ${compact ? 'gap-2' : 'gap-3'} w-full ${isUser ? (compact ? 'max-w-[92%] flex-row-reverse' : 'max-w-[80%] sm:max-w-[70%] lg:max-w-[60%] flex-row-reverse') : ''}`}
+        className={`flex ${compact ? 'gap-2' : 'gap-3'} w-full ${isUser ? (compact ? 'max-w-[92%] flex-row-reverse' : 'max-w-[80%] sm:max-w-[70%] lg:max-w-[70%] flex-row-reverse') : ''}`}
       >
         {/* Avatar */}
         <div className="shrink-0 self-start">
@@ -261,26 +264,30 @@ function ChatMessageViewInner({
         </div>
 
         {/* Bubble */}
-        <div className={`min-w-0 max-w-full ${isUser ? 'w-fit' : 'w-full'}`}>
+        <div
+          className={`min-w-0 max-w-full ${isUser ? (userMeta ? 'relative flex flex-col items-end' : 'w-fit') : 'w-full'}`}
+        >
           {/* Role label */}
-          <div
-            className={`flex items-center gap-2 mb-1 ${isUser ? 'justify-end flex-row-reverse' : ''}`}
-          >
-            <span className={`text-[11px] font-medium text-muted-foreground/80`}>
-              {isUser ? 'You' : agentName}
-            </span>
-            {message.timestamp && (
-              <span className="text-[10px] text-muted-foreground/40 font-normal select-none">
-                {formatTimestamp(message.timestamp)}
+          {!userMeta && (
+            <div
+              className={`flex items-center gap-2 mb-1 ${isUser ? 'justify-end flex-row-reverse' : ''}`}
+            >
+              <span className={`text-[11px] font-medium text-muted-foreground/80`}>
+                {isUser ? 'You' : agentName}
               </span>
-            )}
-          </div>
+              {message.timestamp && (
+                <span className="text-[10px] text-muted-foreground/40 font-normal select-none">
+                  {formatTimestamp(message.timestamp)}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Bubble content */}
           <div
             className={
               isUser
-                ? `${compact ? 'rounded-xl px-2.5 py-2' : 'rounded-2xl px-4 py-2.5'} bg-muted/60 text-foreground rounded-br-md shadow-sm border border-border/40`
+                ? `${compact ? 'rounded-xl px-2.5 py-2' : 'rounded-2xl px-4 py-2.5'} max-w-full bg-muted/60 text-foreground rounded-br-md shadow-sm border border-border/40`
                 : 'w-full text-foreground'
             }
           >
@@ -353,7 +360,16 @@ function ChatMessageViewInner({
 
           {/* Actions bar */}
           {!isEmpty && (
-            <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover/message:opacity-100 transition-opacity">
+            <div
+              className={`flex items-center gap-1 opacity-0 group-hover/message:opacity-100 transition-opacity ${userMeta ? 'absolute top-full right-0 pt-1' : 'mt-1.5'}`}
+            >
+              {userMeta && (
+                <span className="mr-1 text-[10px] text-muted-foreground/40 font-normal select-none">
+                  {['You', message.timestamp && formatTimestamp(message.timestamp)]
+                    .filter(Boolean)
+                    .join(' ')}
+                </span>
+              )}
               {isUser && message.timestamp && (
                 <>
                   <button

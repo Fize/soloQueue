@@ -451,22 +451,24 @@ export function AssistantPage() {
 
         {/* Input — same ChatInput as ChatPage */}
         <div className="chat-composer" data-chat-composer>
-          <ChatInput
-            onSend={handleSend}
-            onCancel={handleCancel}
-            streaming={streaming}
-            delegating={delegating}
-            disabled={connectionStatus !== "connected"}
-            showL2Selectors={false}
-            ctxwinUsed={ctxwinUsed}
-            ctxwinLimit={ctxwinLimit}
-            processing={requestActive}
-            modelName={inputModelName}
-            taskLevel={inputTaskLevel}
-            skillNames={filteredSkillNames}
-            onRefreshSkills={refreshSkills}
-            activeSessionId="l1"
-          />
+          <div className="mx-auto w-full max-w-3xl px-4">
+            <ChatInput
+              onSend={handleSend}
+              onCancel={handleCancel}
+              streaming={streaming}
+              delegating={delegating}
+              disabled={connectionStatus !== "connected"}
+              showL2Selectors={false}
+              ctxwinUsed={ctxwinUsed}
+              ctxwinLimit={ctxwinLimit}
+              processing={requestActive}
+              modelName={inputModelName}
+              taskLevel={inputTaskLevel}
+              skillNames={filteredSkillNames}
+              onRefreshSkills={refreshSkills}
+              activeSessionId="l1"
+            />
+          </div>
         </div>
       </div>
     </div>
