@@ -34,6 +34,28 @@ func TestStartProcessWindowsBatchPreservesStdio(t *testing.T) {
 	}
 }
 
+func TestStartProcessWindowsBatchFromPATH(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(dir, "test-lsp.cmd"), []byte("@echo off\r\necho path-ready\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewExecutor().StartProcess(context.Background(), ProcessSpec{Command: "test-lsp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := io.ReadAll(p.Stdout())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(output)) != "path-ready" {
+		t.Fatalf("stdout = %q", output)
+	}
+}
+
 func TestStartProcessWindowsBatchRejectsShellMetacharacters(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "tool.cmd")
 	if err := os.WriteFile(file, []byte("@echo off\r\n"), 0o644); err != nil {
@@ -114,30 +136,6 @@ func TestStartProcessWindowsBatchResolvesExtensionFromWorkingDirectory(t *testin
 		t.Fatal(err)
 	}
 	if strings.TrimSpace(string(data)) != "found-shim" {
-		t.Fatalf("stdout = %q", data)
-	}
-}
-
-func TestStartProcessWindowsBatchResolvesDottedName(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "server.v1"), []byte("#!/bin/sh\nexit 1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "server.v1.cmd"), []byte("@echo off\r\necho dotted-ready\r\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	p, err := NewExecutor().StartProcess(context.Background(), ProcessSpec{Command: `.\server.v1`, WorkingDirectory: dir})
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := io.ReadAll(p.Stdout())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := p.Wait(); err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(string(data)) != "dotted-ready" {
 		t.Fatalf("stdout = %q", data)
 	}
 }

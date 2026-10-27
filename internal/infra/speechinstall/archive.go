@@ -3,6 +3,7 @@ package speechinstall
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,7 +17,6 @@ import (
 )
 
 const maxArchiveBytes = 256 << 20
-const maxExtractBytes = 512 << 20
 
 type Archive struct {
 	URL, SHA256, Directory, Prefix, Executable string
@@ -69,7 +69,7 @@ func InstallArchive(ctx context.Context, client *http.Client, spec Archive, root
 	if n > maxArchiveBytes {
 		return "", fmt.Errorf("speech archive exceeds size limit")
 	}
-	if !bytesEqual(hash.Sum(nil), expected) {
+	if !bytes.Equal(hash.Sum(nil), expected) {
 		return "", fmt.Errorf("speech archive checksum mismatch")
 	}
 	archive, err := zip.OpenReader(archivePath)
@@ -82,8 +82,6 @@ func InstallArchive(ctx context.Context, client *http.Client, spec Archive, root
 		return "", err
 	}
 	found := false
-	var total uint64
-	seen := map[string]bool{}
 	for _, entry := range archive.File {
 		if entry.FileInfo().IsDir() {
 			continue
@@ -98,15 +96,6 @@ func InstallArchive(ctx context.Context, client *http.Client, spec Archive, root
 		if name != spec.Executable && !strings.HasSuffix(strings.ToLower(name), ".dll") {
 			continue
 		}
-		key := strings.ToLower(name)
-		if seen[key] || !entry.Mode().IsRegular() {
-			return "", fmt.Errorf("invalid duplicate or non-regular archive entry %q", entry.Name)
-		}
-		seen[key] = true
-		if entry.UncompressedSize64 > maxExtractBytes || total > maxExtractBytes-entry.UncompressedSize64 {
-			return "", fmt.Errorf("speech archive exceeds extraction limit")
-		}
-		total += entry.UncompressedSize64
 		source, err := entry.Open()
 		if err != nil {
 			return "", err
@@ -116,7 +105,7 @@ func InstallArchive(ctx context.Context, client *http.Client, spec Archive, root
 			source.Close()
 			return "", err
 		}
-		_, copyErr := io.Copy(dest, io.LimitReader(source, int64(entry.UncompressedSize64)+1))
+		_, copyErr := io.Copy(dest, source)
 		sourceErr := source.Close()
 		destErr := dest.Close()
 		if copyErr != nil {
@@ -140,15 +129,4 @@ func InstallArchive(ctx context.Context, client *http.Client, spec Archive, root
 		return "", fmt.Errorf("install speech archive: %w", err)
 	}
 	return filepath.Join(destination, spec.Executable), nil
-}
-
-func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var v byte
-	for i := range a {
-		v |= a[i] ^ b[i]
-	}
-	return v == 0
 }

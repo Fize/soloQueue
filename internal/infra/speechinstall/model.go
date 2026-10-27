@@ -1,6 +1,7 @@
 package speechinstall
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -56,7 +57,7 @@ func DownloadVerified(ctx context.Context, client *http.Client, url, sha, target
 	if n > maxBytes {
 		return fmt.Errorf("download exceeds size limit")
 	}
-	if !bytesEqual(hash.Sum(nil), expected) {
+	if !bytes.Equal(hash.Sum(nil), expected) {
 		return fmt.Errorf("download checksum mismatch")
 	}
 	return os.Rename(temp, target)

@@ -16,13 +16,6 @@ func InstallDecoder(sourcePath, root string) (string, error) {
 		return "", fmt.Errorf("open bundled SILK decoder: %w", err)
 	}
 	defer source.Close()
-	info, err := source.Stat()
-	if err != nil {
-		return "", err
-	}
-	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 32<<20 {
-		return "", fmt.Errorf("invalid bundled SILK decoder")
-	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", err
 	}
