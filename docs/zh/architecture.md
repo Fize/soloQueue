@@ -117,6 +117,7 @@ Core 的工作目录默认为 `~/.soloqueue`，也可通过 `SOLOQUEUE_WORK_DIR`
 - **对话摘要**（`internal/memory/conversation`）以 Markdown 形式保存在工作目录中，帮助上下文压缩后保留关键信息。
 - **长期检索**（`internal/memory/engine`）默认关闭；开启后结合 SQLite FTS5/BM25 检索和知识图谱，并可通过本地 ONNX 嵌入或远程嵌入服务增加语义检索。
 - **时间线**（`internal/memory/timeline`）以追加式 JSONL 记录对话重放和执行历史；系统 Prompt 不写入时间线。
+- **执行可观测性**复用请求级 LLM 指标与 dispatch 历史。私有 Prompt 快照独立于回放时间线保存；分类存储策略区分可过期的日志/详情与会话历史。
 
 ## 外部集成
 

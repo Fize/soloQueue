@@ -55,6 +55,7 @@ model_routes:
 | `lspmcp` | 语言服务器二进制路径、参数及语言/扩展名绑定 |
 | `embedding` | 长期记忆检索及嵌入模型设置 |
 | `speech` | 基于 whisper.cpp 的可选本地语音转写设置 |
+| `storage` | 分别管理运行日志、会话历史、执行详情和定时任务的保留策略 |
 
 ### 配置字段详解
 
@@ -95,11 +96,32 @@ model_routes:
 | `model_routes.vision` | 可选的图像模型；对应的 Model 需设置 `vision: true`。 |
 | `model_routes.fallback` | 任务路由无法解析时使用的回退模型。 |
 
+#### 执行详情与存储保留
+
+已采集的 Web 对话会在助手回复下方提供 **执行详情**：本轮 LLM 逻辑调用次数、总耗时、每次调用的 provider/模型、用途、状态、Token 及持久化委派过程。展开一次调用可查看当时采集的 system/developer 指令；provider 使用合并指令时展示相应的实际表示。网络请求尝试和重试与逻辑调用分开统计，未报告尝试次数的 provider 明确显示未知。并行调用的耗时之和不等于本轮总耗时。
+
+已完成的委派卡片同时提供 **结果** 和 **执行过程**。历史根据请求、dispatch 和工具调用 ID 关联，不通过显示名称猜测。缺少快照的旧调用显示未记录，已过期或部分缺失的详情也会明确说明。定时任务历史也会区分“详情已过期”和“没有已记录的事件”，继续展示可用的结果摘要、最终输出及执行状态，并提供对应的保留设置链接。重新打开页面不能还原从未采集的内容。
+
+在 **设置 → 存储与保留** 查看文件与数据库用量、分别调整策略、检查最近清理结果与下次检查时间，或预览手动清理。轮转大小与记录数放在高级设置中。收紧策略前须预览并确认；预览凭据有有效期，执行删除前服务端会重新检查运行中及受保护记录。历史遗留文件不参与自动清理，须在手动预览中明确勾选。
+
+| `storage` 分类 | 默认策略 |
+| --- | --- |
+| `runtime_logs` | `max_file_mb: 50`、`retention_days: 15`、`max_files: 30`、`max_total_mb: 1024`；HTTP 默认继承，设置 `http_override: true` 后单独配置 |
+| `session_history` | `max_file_mb: 50`、`retention_days: 0`、`warning_mb: 1024`；默认长期保留会话历史 |
+| `execution_details` | `max_file_mb: 50`、`retention_days: 30`、`max_files: 0`、`max_total_mb: 1024`、`max_turn_mb: 50` |
+| `cron_history` | `max_file_mb: 50`、`retention_days: 30`、`max_files: 0`、`max_total_mb: 512`、`max_per_task: 0` |
+
+容量单位均为 MiB。天数、记录数和容量设为 `0` 表示不限制；单文件及每轮正文大小范围为 1–1024 MiB。运行日志的 `max_files` 是每个前缀保留的历史文件数，不含当前文件；执行详情按已结束的完整详情单元计数，不会任意裁掉恢复日志的片段。保留天数包含当天。HTTP 覆盖字段为 `http_max_file_mb`、`http_retention_days` 和 `http_max_files`。
+
+会话历史支持显式保留期限和用量提醒，不支持按文件数或总容量自动删除。提醒阈值不是磁盘硬上限。其他分类达到保留限制后会淘汰符合条件的旧详情，受保护的恢复记录可能继续保留。额度不足时可选详细正文会被截断，执行状态仍保留；有限额度无法保证无限期保存完整历史。
+
+会话回放继续使用 timeline JSONL。System 指令以私有、去重快照单独保存，不写入回放时间线；LLM 用量指标继续保存在共享 SQLite 数据库中。委派状态及其重启恢复仍由 dispatch 管理器维护。清理会保护运行中的任务，并保留仍需恢复的 dispatch 状态。需要同时保留对话和可用执行详情时，请备份整个工作目录。
+
 #### 会话、日志与工具
 
 | YAML 字段 | 说明与默认值 |
 | --- | --- |
-| `session.timeline_max_file_mb` | 单个时间线文件的大小上限，单位 MiB（默认 `50`）。 |
+| `session.timeline_max_file_mb` | 兼容旧配置的时间线轮转大小，单位 MiB（默认 `50`）；显式配置 `storage.session_history.max_file_mb` 时以新字段为准。 |
 | `log.level` | 日志级别（默认 `info`）。 |
 | `log.console`、`log.file` | 是否输出到控制台和文件（默认分别为 `false`、`true`）。 |
 | `tools.max_file_size`、`tools.max_write_size` | 单次读取或写入文件的字节数上限（默认均为 `1048576`）。 |

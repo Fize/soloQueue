@@ -117,6 +117,7 @@ These stores have distinct roles: the context window is the active model input; 
 - **Conversation summaries** (`internal/memory/conversation`) preserve selected context across compaction as Markdown under the work directory.
 - **Long-term retrieval** (`internal/memory/engine`) is off by default. When enabled, it combines SQLite FTS5/BM25 search with a knowledge graph, with optional semantic retrieval through local ONNX embeddings or a remote embedding service.
 - **Timeline** (`internal/memory/timeline`) stores append-only JSONL events for conversation replay and execution history. System prompts are not written to the timeline.
+- **Execution observability** reuses request-level LLM metrics and dispatch histories. Private prompt snapshots stay outside the replay timeline; independent storage policies distinguish disposable logs/details from conversation history.
 
 ## Integrations
 

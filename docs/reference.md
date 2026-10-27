@@ -55,6 +55,7 @@ model_routes:
 | `lspmcp` | Language server binary paths, arguments, and language/file extension bindings |
 | `embedding` | Long-term memory retrieval and embedding model settings |
 | `speech` | Optional local speech-to-text settings using whisper.cpp |
+| `storage` | Independent retention for runtime logs, conversations, execution details, and scheduled tasks |
 
 ### Field-by-field reference
 
@@ -95,11 +96,32 @@ Route values use `provider-id:model-id` and must refer to enabled entries above.
 | `model_routes.vision` | Optional image-capable model; its model entry must set `vision: true`. |
 | `model_routes.fallback` | Fallback model used when a task route cannot be resolved. |
 
+#### Execution details and storage retention
+
+Each recorded Web conversation turn exposes **Execution details** below the assistant response: logical LLM call count, overall elapsed time, individual calls, provider/model, purpose, status, token usage, and persisted delegation progress. Open a call to inspect the system/developer instructions captured for that call. Provider-specific combined instructions are shown when applicable. Network request attempts and retries are separate from logical calls; providers without attempt reporting are marked as unknown. Parallel call durations do not add up to the turn's elapsed time.
+
+Completed delegation cards keep both **Result** and **Execution process** views. History is identified by request, dispatch, and tool-call IDs; a matching display name is not sufficient. Historical calls without snapshots are shown as unrecorded, and expired or partial details are explicit. Scheduled task history also distinguishes expired detail files from an execution with no recorded events; available result summaries, final output and execution status remain visible, with a link to the relevant retention settings. Opening the page cannot reconstruct data that was never captured.
+
+Use **Settings → Storage & retention** to inspect current file/database usage, configure each category, review the last cleanup and next check, or preview manual cleanup. Advanced settings include rotation sizes and counts. A tighter policy requires a preview and confirmation before it can be applied. Preview tokens expire; the server rechecks protected/active records before deletion. Legacy files are excluded from automatic retention and require explicit inclusion in a manual preview.
+
+| `storage` category | Default policy |
+| --- | --- |
+| `runtime_logs` | `max_file_mb: 50`, `retention_days: 15`, `max_files: 30`, `max_total_mb: 1024`; HTTP inherits unless `http_override: true` |
+| `session_history` | `max_file_mb: 50`, `retention_days: 0`, `warning_mb: 1024`; conversation history is retained indefinitely by default |
+| `execution_details` | `max_file_mb: 50`, `retention_days: 30`, `max_files: 0`, `max_total_mb: 1024`, `max_turn_mb: 50` |
+| `cron_history` | `max_file_mb: 50`, `retention_days: 30`, `max_files: 0`, `max_total_mb: 512`, `max_per_task: 0` |
+
+All capacities use MiB. `0` disables a day, count, or capacity limit; file rotation and per-turn sizes must be 1–1024 MiB. Runtime `max_files` counts historical files per prefix, excluding the current file. For execution details, count limits apply to completed detail units rather than arbitrary pieces of recovery logs. Retention days include today. HTTP overrides are `http_max_file_mb`, `http_retention_days`, and `http_max_files`.
+
+Conversation history supports an explicit retention period and a usage reminder, not automatic file-count/capacity deletion. A reminder does not impose a hard disk cap. Other categories expire eligible old details when a retention limit is reached; protected recovery records may remain. Recording budgets can truncate optional detail text while preserving execution status, so a finite budget cannot promise indefinitely complete history.
+
+Conversation replay continues to use timeline JSONL. System instructions are stored as private deduplicated snapshots outside the replay timeline; LLM usage metrics remain in the shared SQLite database. Delegation state and its restart recovery remain owned by the dispatch manager. Cleanup protects running tasks and keeps the recovery state needed by retained dispatches. Back up the full work directory to retain both conversation history and available execution details.
+
 #### Session, logging, and tools
 
 | YAML key | Purpose and default |
 | --- | --- |
-| `session.timeline_max_file_mb` | Maximum timeline file size in MiB (default: `50`). |
+| `session.timeline_max_file_mb` | Legacy timeline rotation size in MiB (default: `50`); `storage.session_history.max_file_mb` takes precedence when explicitly configured. |
 | `log.level` | Log level (default: `info`). |
 | `log.console`, `log.file` | Enable console and file logging (defaults: `false`, `true`). |
 | `tools.max_file_size`, `tools.max_write_size` | Maximum bytes read from or written to one file (default: `1048576` each). |
