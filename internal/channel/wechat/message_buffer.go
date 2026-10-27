@@ -26,7 +26,6 @@ type messageBuffer struct {
 	handler channel.Handler
 	pending map[string]*bufferedMessage
 	closed  bool
-	track   func(func())
 }
 
 func newMessageBuffer(window time.Duration, log *logger.Logger, handler channel.Handler) *messageBuffer {
@@ -77,13 +76,7 @@ func (b *messageBuffer) Push(ctx context.Context, msg channel.Message) {
 		return
 	}
 	entry := &bufferedMessage{ctx: ctx, msg: msg, start: time.Now()}
-	entry.timer = time.AfterFunc(b.window, func() {
-		if b.track != nil {
-			b.track(func() { b.flush(key, entry) })
-			return
-		}
-		b.flush(key, entry)
-	})
+	entry.timer = time.AfterFunc(b.window, func() { b.flush(key, entry) })
 	b.pending[key] = entry
 	b.mu.Unlock()
 	b.logEvent(ctx, "wechat_turn_buffered", msg, "reason", "awaiting_complement")

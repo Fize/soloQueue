@@ -2877,12 +2877,12 @@ enqueued:
 				s.releaseFlight(flightID)
 			case agent.ContentDeltaEvent:
 				if firstAssistantOutputAt.IsZero() {
-					firstAssistantOutputAt = ctxwin.GeneratedMessageTime()
+					firstAssistantOutputAt = time.Now()
 				}
 				accContent.WriteString(e.Delta)
 			case agent.ReasoningDeltaEvent:
 				if firstAssistantOutputAt.IsZero() {
-					firstAssistantOutputAt = ctxwin.GeneratedMessageTime()
+					firstAssistantOutputAt = time.Now()
 				}
 				accReasoning.WriteString(e.Delta)
 			case agent.DoneEvent:

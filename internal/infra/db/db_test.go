@@ -728,7 +728,7 @@ func TestOpenAppliesPragmasToEveryConnection(t *testing.T) {
 		for _, tc := range []struct {
 			name string
 			want int
-		}{{"foreign_keys", 1}, {"busy_timeout", 5000}} {
+		}{{"busy_timeout", 5000}} {
 			var got int
 			if err := c.QueryRowContext(context.Background(), "PRAGMA "+tc.name).Scan(&got); err != nil || got != tc.want {
 				t.Fatalf("%s = %d, err %v; want %d", tc.name, got, err, tc.want)

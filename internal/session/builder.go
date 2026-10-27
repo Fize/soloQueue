@@ -73,18 +73,6 @@ func (b *Builder) l1SessionLogger() (*logger.Logger, error) {
 	return l, nil
 }
 
-// Close releases the shared L1 logger after all sessions using the builder stop.
-func (b *Builder) Close() error {
-	b.l1LoggerMu.Lock()
-	defer b.l1LoggerMu.Unlock()
-	if b.l1Logger == nil {
-		return nil
-	}
-	err := b.l1Logger.Close()
-	b.l1Logger = nil
-	return err
-}
-
 // NewBuilder creates a Builder instance.
 func NewBuilder(rt *runtime.Stack, workDir string, cfg *config.GlobalService, consoleLog bool) *Builder {
 	return &Builder{

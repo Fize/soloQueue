@@ -130,7 +130,6 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			// Initialize Scheduled Tasks (Cron & Timers) system
 			cronStore := cron.NewDBStore(rt.SharedDB)
 			builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
-			defer builder.Close()
 			// ── L2 Session Store ──
 			l2Store := session.NewL2SessionStore(builder, workDir, log)
 			l2Store.SetChannelMetadataStore(rt.SharedDB)
@@ -358,9 +357,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 
 			srv := &http.Server{Handler: mux}
 
-			shutdownDone := make(chan struct{})
 			go func() {
-				defer close(shutdownDone)
 				defer func() {
 					if r := recover(); r != nil {
 						log.Error(logger.CatApp, "shutdown goroutine panic recovered",
@@ -381,11 +378,8 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				mgr.Shutdown(5 * time.Second)
 			}()
 
-			serveErr := srv.Serve(listener)
-			stop()
-			<-shutdownDone
-			if serveErr != nil && serveErr != http.ErrServerClosed {
-				return fmt.Errorf("http serve: %w", serveErr)
+			if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("http serve: %w", err)
 			}
 			log.Info(logger.CatApp, "soloqueue serve stopped")
 			return nil

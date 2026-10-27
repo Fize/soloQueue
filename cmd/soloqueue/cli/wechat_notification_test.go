@@ -112,6 +112,9 @@ func TestWechatNotificationsRestoreAndReloadSavedCredentials(t *testing.T) {
 	if err := restoredConfig.Load(); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := restoredConfig.Set(func(s *config.Settings) { s.Log.File = false }); err != nil {
+		t.Fatal(err)
+	}
 	sessions := session.NewSessionManager(func(context.Context, string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 		return &agent.Agent{Def: agent.Definition{NotifyChannel: "wechat", Channels: map[string]string{"wechat": "logical-account"}}}, nil, nil, nil
 	}, log)
@@ -216,14 +219,5 @@ func TestWechatNotificationRejectsStaleOrAmbiguousRoutes(t *testing.T) {
 	manager := &WechatBotManager{}
 	if _, _, err := manager.notificationClient(context.Background(), []byte(`{"ReplyToken":`)); err == nil || !strings.Contains(err.Error(), "route_invalid") {
 		t.Fatalf("malformed route = %v", err)
-	}
-}
-
-func TestWechatShutdownPreventsReload(t *testing.T) {
-	manager := &WechatBotManager{}
-	manager.Shutdown()
-	manager.ReloadWithSettings(config.Settings{WechatBots: []config.WechatBotConfig{{ID: "later"}}})
-	if len(manager.gateways) != 0 || len(manager.clients) != 0 {
-		t.Fatal("reload restarted a stopped manager")
 	}
 }

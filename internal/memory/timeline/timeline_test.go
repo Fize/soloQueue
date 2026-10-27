@@ -647,11 +647,9 @@ func TestReadTail_AllowsLegacyEmptyAgentID(t *testing.T) {
 func TestReadTail_Rewind(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A"})
-	time.Sleep(1 * time.Millisecond) // Ensure unique timestamps
-	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "turn A reply"})
-	time.Sleep(1 * time.Millisecond)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A", Timestamp: "2026-01-01T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "turn A reply", Timestamp: "2026-01-01T00:00:02Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B", Timestamp: "2026-01-01T00:00:03Z"})
 
 	events := readEventsFromFile(t, timelineFile(dir))
 	targetTs := events[2].Timestamp // turn B
@@ -679,11 +677,9 @@ func TestReadTail_Rewind(t *testing.T) {
 func TestReadTail_ConsecutiveRewinds(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "A"})
-	time.Sleep(1 * time.Millisecond)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "B"})
-	time.Sleep(1 * time.Millisecond)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "C"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "A", Timestamp: "2026-01-01T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "B", Timestamp: "2026-01-01T00:00:02Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "C", Timestamp: "2026-01-01T00:00:03Z"})
 
 	events := readEventsFromFile(t, timelineFile(dir))
 	tsA := events[0].Timestamp
@@ -709,11 +705,11 @@ func TestReadTail_ConsecutiveRewinds(t *testing.T) {
 func TestReadTail_SinglePairDeletion(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A"})
-	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply A"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B"})
-	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply B"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn C"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A", Timestamp: "2026-01-01T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply A", Timestamp: "2026-01-01T00:00:02Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B", Timestamp: "2026-01-01T00:00:03Z"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply B", Timestamp: "2026-01-01T00:00:04Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn C", Timestamp: "2026-01-01T00:00:05Z"})
 
 	events := readEventsFromFile(t, timelineFile(dir))
 	tsB_user := events[2].Timestamp
@@ -738,10 +734,10 @@ func TestReadTail_SinglePairDeletion(t *testing.T) {
 func TestReadTail_InterleavedDeleteAndRewind(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "A"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "B"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "C"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "D"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "A", Timestamp: "2026-01-01T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "B", Timestamp: "2026-01-01T00:00:02Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "C", Timestamp: "2026-01-01T00:00:03Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "D", Timestamp: "2026-01-01T00:00:04Z"})
 
 	events := readEventsFromFile(t, timelineFile(dir))
 	tsB := events[1].Timestamp
@@ -1554,58 +1550,5 @@ func TestReadTail_ClearAtEnd(t *testing.T) {
 	// Therefore, it should return no segments (len = 0) or an empty segment list, NOT replaying the pre-clear events.
 	if len(segs) > 0 && len(segs[len(segs)-1].Messages) > 0 {
 		t.Fatalf("expected empty replayed messages, got %d messages: %+v", len(segs[0].Messages), segs[0].Messages)
-	}
-}
-
-func TestNewEventTimestampsAreUnique(t *testing.T) {
-	seen := make(map[string]bool)
-	for i := 0; i < 1000; i++ {
-		ts := newEvent(EventMessage).Timestamp
-		if seen[ts] {
-			t.Fatalf("duplicate generated event timestamp: %s", ts)
-		}
-		seen[ts] = true
-	}
-}
-
-func TestTimestampBeforeComparesInstants(t *testing.T) {
-	for _, tc := range []struct {
-		a, b string
-		want bool
-	}{
-		{"2026-01-01T00:00:00Z", "2026-01-01T00:00:00.000000001Z", true},
-		{"2026-01-01T01:00:00+01:00", "2026-01-01T00:00:00.1Z", true},
-		{"2026-01-01T00:00:00.1Z", "2026-01-01T00:00:00Z", false},
-	} {
-		if got := TimestampBefore(tc.a, tc.b); got != tc.want {
-			t.Fatalf("TimestampBefore(%q, %q) = %v", tc.a, tc.b, got)
-		}
-	}
-}
-
-func TestReadTailRewindAcrossFractionalSecond(t *testing.T) {
-	dir := t.TempDir()
-	w, err := NewWriter(dir, "timeline", 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := w.AppendMessage(&MessagePayload{Role: "user", Content: "keep", Timestamp: "2026-01-01T00:00:00Z"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.AppendMessage(&MessagePayload{Role: "user", Content: "remove", Timestamp: "2026-01-01T00:00:00.000000001Z"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.AppendControl(&ControlPayload{Action: "rewind", TargetTs: []string{"2026-01-01T00:00:00.000000001Z"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	segments, _, err := ReadTail(dir, "timeline", 10, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(segments) != 1 || len(segments[0].Messages) != 1 || segments[0].Messages[0].Content != "keep" {
-		t.Fatalf("rewind result: %+v", segments)
 	}
 }

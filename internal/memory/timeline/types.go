@@ -7,10 +7,7 @@
 //   - /clear does not destroy data; it only appends a control event and clears active conversation.
 package timeline
 
-import (
-	"sync/atomic"
-	"time"
-)
+import "time"
 
 // ─── EventType ───────────────────────────────────────────────────────────────
 
@@ -34,23 +31,10 @@ type Event struct {
 	Control   *ControlPayload `json:"ctrl,omitempty"`
 }
 
-var lastEventNanos atomic.Int64
-
-// newEvent creates an event with a unique timestamp even on coarse clocks.
+// newEvent creates an event with the current timestamp.
 func newEvent(et EventType) Event {
-	now := time.Now()
-	nanos := now.UnixNano()
-	for {
-		last := lastEventNanos.Load()
-		if nanos <= last && last-nanos <= int64(time.Second) {
-			nanos = last + 1
-		}
-		if lastEventNanos.CompareAndSwap(last, nanos) {
-			break
-		}
-	}
 	return Event{
-		Timestamp: time.Unix(0, nanos).In(now.Location()).Format(time.RFC3339Nano),
+		Timestamp: time.Now().Format(time.RFC3339Nano),
 		EventType: et,
 	}
 }
@@ -114,15 +98,4 @@ type ToolCallRec struct {
 	Type      string `json:"type"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
-}
-
-// TimestampBefore compares RFC3339 timestamps chronologically, including fractional seconds and offsets.
-// Invalid legacy timestamps retain the previous lexical ordering.
-func TimestampBefore(a, b string) bool {
-	ta, errA := time.Parse(time.RFC3339Nano, a)
-	tb, errB := time.Parse(time.RFC3339Nano, b)
-	if errA == nil && errB == nil {
-		return ta.Before(tb)
-	}
-	return a < b
 }

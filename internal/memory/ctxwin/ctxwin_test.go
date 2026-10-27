@@ -602,38 +602,3 @@ func TestDrainPendingAssignsAggregateToLastQueuedRequest(t *testing.T) {
 		t.Fatalf("pending aggregate request ID = %q, want last queued request req-second", msg.RequestID)
 	}
 }
-
-func TestGeneratedMessageTimesAreUnique(t *testing.T) {
-	seen := make(map[int64]bool)
-	for i := 0; i < 1000; i++ {
-		ts := GeneratedMessageTime()
-		if seen[ts.UnixNano()] {
-			t.Fatalf("duplicate generated message time: %s", ts)
-		}
-		seen[ts.UnixNano()] = true
-	}
-}
-
-func TestPushTimestampHookAndExplicitArrival(t *testing.T) {
-	var persisted []Message
-	cw := NewContextWindow(10000, 2000, 0, NewTokenizer(), WithPushHook(func(msg Message) { persisted = append(persisted, msg) }))
-	explicit := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
-	cw.Push(RoleUser, "first")
-	cw.Push(RoleAssistant, "second")
-	cw.Push(RoleUser, "explicit", WithTimestamp(explicit))
-	if len(persisted) != 3 {
-		t.Fatalf("hook count = %d", len(persisted))
-	}
-	if persisted[0].Timestamp.Equal(persisted[1].Timestamp) {
-		t.Fatal("duplicate generated timestamp")
-	}
-	if !persisted[2].Timestamp.Equal(explicit) {
-		t.Fatalf("explicit timestamp = %v", persisted[2].Timestamp)
-	}
-	for i, saved := range persisted {
-		msg, ok := cw.MessageAt(i)
-		if !ok || !msg.Timestamp.Equal(saved.Timestamp) {
-			t.Fatalf("message %d differs from persisted hook", i)
-		}
-	}
-}
