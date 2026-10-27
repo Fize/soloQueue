@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/fs"
 	"net/http"
@@ -286,9 +287,31 @@ func (e *Executor) ReadFile(ctx context.Context, path string, opts ReadFileOptio
 	return ReadFileResult{Data: data}, nil
 }
 
+var writeFileLocks = func() [64]chan struct{} {
+	var locks [64]chan struct{}
+	for i := range locks {
+		locks[i] = make(chan struct{}, 1)
+		locks[i] <- struct{}{}
+	}
+	return locks
+}()
+
 // ─── WriteFile ──────────────────────────────────────────────────────────────
 
 func (e *Executor) WriteFile(ctx context.Context, path string, data []byte, opts WriteFileOptions) (WriteFileResult, error) {
+	canonical, err := filepath.Abs(path)
+	if err != nil {
+		return WriteFileResult{}, err
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strings.ToLower(filepath.Clean(canonical))))
+	lock := writeFileLocks[h.Sum32()%uint32(len(writeFileLocks))]
+	select {
+	case <-ctx.Done():
+		return WriteFileResult{}, ctx.Err()
+	case <-lock:
+	}
+	defer func() { lock <- struct{}{} }()
 	if opts.MaxSize > 0 && int64(len(data)) > opts.MaxSize {
 		return WriteFileResult{}, fmt.Errorf("write too large: %d bytes > %d", len(data), opts.MaxSize)
 	}
@@ -526,7 +549,7 @@ func (e *Executor) Grep(ctx context.Context, dir string, pattern string, opts Gr
 			if rerr != nil {
 				return nil
 			}
-			ok, _ := doublestar.PathMatch(opts.GlobPattern, filepath.ToSlash(rel))
+			ok, _ := doublestar.Match(opts.GlobPattern, filepath.ToSlash(rel))
 			if !ok {
 				return nil
 			}

@@ -14,6 +14,7 @@ func TestBuildL1ForCronCreatesIsolatedEquivalentSessions(t *testing.T) {
 	workDir, cfg, rt := newBuilderRegistryTestHarness(t)
 	rt.SystemPrompt = "L1 cron system prompt"
 	builder := NewBuilder(rt, workDir, cfg, false)
+	t.Cleanup(func() { _ = builder.Close() })
 
 	permanentAgent, permanentCW, permanentTimeline, err := builder.Build(context.Background(), "default")
 	if err != nil {

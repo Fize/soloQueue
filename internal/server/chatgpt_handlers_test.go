@@ -138,6 +138,7 @@ func TestDeletingChatGPTProviderClearsCredentialsBeforeConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := NewMux(workDir, nil, WithConfigService(cfg))
+	t.Cleanup(func() { _ = mux.Close() })
 	defer mux.Close()
 	unconfirmed := httptest.NewRequest(http.MethodDelete, "/api/config/providers/chatgpt", nil)
 	unconfirmedRec := httptest.NewRecorder()
@@ -185,6 +186,7 @@ func TestDeletingChatGPTProviderKeepsConfigWhenCredentialClearFails(t *testing.T
 		t.Fatal(err)
 	}
 	mux := NewMux(workDir, nil, WithConfigService(cfg))
+	t.Cleanup(func() { _ = mux.Close() })
 	defer mux.Close()
 	if err := os.Remove(credentialPath); err != nil {
 		t.Fatal(err)

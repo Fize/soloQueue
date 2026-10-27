@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -84,7 +85,9 @@ func TestStartProcess_WindowsLeaderExitTerminatesChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer process.Kill()
+	defer func() { _ = process.Kill(); _ = process.Wait() }()
+	stderr := make(chan string, 1)
+	go func() { b, _ := io.ReadAll(process.Stderr()); stderr <- string(b) }()
 	var pid uint64
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
@@ -98,7 +101,13 @@ func TestStartProcess_WindowsLeaderExitTerminatesChild(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if pid == 0 {
-		t.Fatal("child process did not report its PID")
+		killErr := process.Kill()
+		select {
+		case output := <-stderr:
+			t.Fatalf("child process did not report its PID; kill: %v; stderr: %s", killErr, output)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("child process did not report its PID; kill: %v; stderr still open", killErr)
+		}
 	}
 	child, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {

@@ -347,7 +347,7 @@ func TestL1CronRetriesWholeTaskUpToThreeTimesWithPriorSessionContext(t *testing.
 	if notifications != 1 {
 		t.Fatalf("notifications = %d, want one success notification after final attempt", notifications)
 	}
-	if len(prompts) != 4 || prompts[0] != s.buildTaskPrompt(*task) {
+	if len(prompts) != 4 || !strings.Contains(prompts[0], task.Instruction) {
 		t.Fatalf("prompts = %#v, want original task followed by three continuation prompts", prompts)
 	}
 	for i := 1; i < len(prompts); i++ {

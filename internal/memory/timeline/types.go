@@ -7,7 +7,10 @@
 //   - /clear does not destroy data; it only appends a control event and clears active conversation.
 package timeline
 
-import "time"
+import (
+	"sync/atomic"
+	"time"
+)
 
 // ─── EventType ───────────────────────────────────────────────────────────────
 
@@ -31,10 +34,23 @@ type Event struct {
 	Control   *ControlPayload `json:"ctrl,omitempty"`
 }
 
-// newEvent creates an event with the current timestamp.
+var lastEventNanos atomic.Int64
+
+// newEvent creates an event with a unique timestamp even on coarse clocks.
 func newEvent(et EventType) Event {
+	now := time.Now()
+	nanos := now.UnixNano()
+	for {
+		last := lastEventNanos.Load()
+		if nanos <= last {
+			nanos = last + 1
+		}
+		if lastEventNanos.CompareAndSwap(last, nanos) {
+			break
+		}
+	}
 	return Event{
-		Timestamp: time.Now().Format(time.RFC3339Nano),
+		Timestamp: time.Unix(0, nanos).In(now.Location()).Format(time.RFC3339Nano),
 		EventType: et,
 	}
 }

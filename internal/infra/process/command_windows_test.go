@@ -22,7 +22,7 @@ func TestCommandPrefersNativeWindowsExtensionOverPosixShim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cmd.Path != want {
+	if !strings.EqualFold(cmd.Path, want) {
 		t.Fatalf("executable = %q, want %q", cmd.Path, want)
 	}
 }

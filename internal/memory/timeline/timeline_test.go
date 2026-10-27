@@ -1556,3 +1556,14 @@ func TestReadTail_ClearAtEnd(t *testing.T) {
 		t.Fatalf("expected empty replayed messages, got %d messages: %+v", len(segs[0].Messages), segs[0].Messages)
 	}
 }
+
+func TestNewEventTimestampsAreUnique(t *testing.T) {
+	seen := make(map[string]bool)
+	for i := 0; i < 1000; i++ {
+		ts := newEvent(EventMessage).Timestamp
+		if seen[ts] {
+			t.Fatalf("duplicate generated event timestamp: %s", ts)
+		}
+		seen[ts] = true
+	}
+}

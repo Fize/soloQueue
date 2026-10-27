@@ -23,9 +23,8 @@ import (
 func TestHTTP_GetSessionChanges_TildeExpansion(t *testing.T) {
 	// Setup custom HOME directory for tilde expansion
 	tempHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 
 	// Create a real project directory inside tempHome
 	projectPath := filepath.Join(tempHome, "my-project")

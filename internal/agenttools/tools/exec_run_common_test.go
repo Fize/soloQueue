@@ -40,7 +40,9 @@ func TestRunCommand_WorkingDirectory(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0", res.ExitCode)
 	}
 	wd := strings.TrimSpace(string(res.Stdout))
-	if wd != filepath.Clean(tmpDir) {
+	actualInfo, actualErr := os.Stat(wd)
+	wantInfo, wantErr := os.Stat(filepath.Clean(tmpDir))
+	if actualErr != nil || wantErr != nil || !os.SameFile(actualInfo, wantInfo) {
 		t.Errorf("pwd = %q, want %q", wd, filepath.Clean(tmpDir))
 	}
 

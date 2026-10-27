@@ -34,6 +34,7 @@ type WechatBotManager struct {
 	supervisorsFn func() []*agent.Supervisor
 	registry      *agent.Registry
 	gateways      []*wechat.Gateway
+	gatewayDone   []<-chan struct{}
 	bridges       []*channel.TextBridge
 	clients       map[string]*wechat.Client
 	accounts      map[string]config.WechatBotConfig
@@ -169,6 +170,10 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 	for _, gateway := range m.gateways {
 		gateway.Close()
 	}
+	for _, done := range m.gatewayDone {
+		<-done
+	}
+	m.gatewayDone = nil
 	m.gateways = nil
 	m.bridges = nil
 	m.clients = make(map[string]*wechat.Client)
@@ -185,6 +190,7 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 			continue
 		}
 		wxLog := m.mainLog
+		ownedLog := false
 		if log, err := logger.New(m.workDir,
 			logger.WithLevel(logger.ParseLogLevel(settings.Log.Level)),
 			logger.WithConsole(settings.Log.Console),
@@ -192,6 +198,7 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 			logger.WithLogSubdir("wechat-"+baseCfg.ID),
 		); err == nil {
 			wxLog = log
+			ownedLog = true
 		} else {
 			m.mainLog.Warn(logger.CatApp, "failed to create wechat logger, using main logger", "bot_id", baseCfg.ID, "err", err)
 		}
@@ -221,7 +228,13 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 		m.clients[wxCfg.BotID] = client
 		m.accounts[wxCfg.BotID] = baseCfg
 
+		done := make(chan struct{})
+		m.gatewayDone = append(m.gatewayDone, done)
 		go func() {
+			defer close(done)
+			if ownedLog {
+				defer wxLog.Close()
+			}
 			if err := gateway.Run(context.Background()); err != nil && err != wechat.ErrClosed {
 				wxLog.Warn(logger.CatApp, "wechat gateway stopped", "err", err.Error())
 			}
@@ -238,6 +251,10 @@ func (m *WechatBotManager) Shutdown() {
 	for _, gateway := range m.gateways {
 		gateway.Close()
 	}
+	for _, done := range m.gatewayDone {
+		<-done
+	}
+	m.gatewayDone = nil
 	m.gateways = nil
 	m.bridges = nil
 	m.clients = make(map[string]*wechat.Client)
