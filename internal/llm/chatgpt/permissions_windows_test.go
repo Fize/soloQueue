@@ -1,6 +1,7 @@
 package chatgpt
 
 import (
+	"fmt"
 	"golang.org/x/sys/windows"
 	"strings"
 	"testing"
@@ -27,9 +28,18 @@ func TestCredentialWindowsProtectedDACL(t *testing.T) {
 		if control&windows.SE_DACL_PROTECTED == 0 {
 			t.Fatalf("DACL not protected: %s", path)
 		}
-		text := sd.String()
-		if !strings.Contains(text, user.User.Sid.String()) || strings.Contains(text, ";;;WD)") || strings.Contains(text, ";;;BU)") {
-			t.Fatalf("unexpected credential DACL: %s", text)
+		flags := ""
+		if path == m.dir {
+			flags = "OICI"
+		}
+		expected, err := windows.SecurityDescriptorFromString(fmt.Sprintf("D:P(A;%s;FA;;;%s)(A;%s;FA;;;SY)(A;%s;FA;;;BA)", flags, user.User.Sid.String(), flags, flags))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, want := sd.String(), expected.String()
+		actualACE, expectedACE := strings.Index(text, "("), strings.Index(want, "(")
+		if actualACE < 0 || expectedACE < 0 || text[actualACE:] != want[expectedACE:] {
+			t.Fatalf("unexpected credential DACL: %s, want %s", text, want)
 		}
 	}
 }

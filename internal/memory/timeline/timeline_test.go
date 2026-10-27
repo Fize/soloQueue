@@ -1567,3 +1567,45 @@ func TestNewEventTimestampsAreUnique(t *testing.T) {
 		seen[ts] = true
 	}
 }
+
+func TestTimestampBeforeComparesInstants(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{"2026-01-01T00:00:00Z", "2026-01-01T00:00:00.000000001Z", true},
+		{"2026-01-01T01:00:00+01:00", "2026-01-01T00:00:00.1Z", true},
+		{"2026-01-01T00:00:00.1Z", "2026-01-01T00:00:00Z", false},
+	} {
+		if got := TimestampBefore(tc.a, tc.b); got != tc.want {
+			t.Fatalf("TimestampBefore(%q, %q) = %v", tc.a, tc.b, got)
+		}
+	}
+}
+
+func TestReadTailRewindAcrossFractionalSecond(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.AppendMessage(&MessagePayload{Role: "user", Content: "keep", Timestamp: "2026-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.AppendMessage(&MessagePayload{Role: "user", Content: "remove", Timestamp: "2026-01-01T00:00:00.000000001Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.AppendControl(&ControlPayload{Action: "rewind", TargetTs: []string{"2026-01-01T00:00:00.000000001Z"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	segments, _, err := ReadTail(dir, "timeline", 10, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segments) != 1 || len(segments[0].Messages) != 1 || segments[0].Messages[0].Content != "keep" {
+		t.Fatalf("rewind result: %+v", segments)
+	}
+}

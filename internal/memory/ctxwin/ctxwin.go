@@ -17,6 +17,23 @@ import (
 )
 
 var compactionSequence atomic.Uint64
+var lastGeneratedMessageNanos atomic.Int64
+
+// generatedMessageTime distinguishes automatically timed messages on coarse system clocks.
+// Explicit arrival times supplied by callers remain unchanged.
+func generatedMessageTime() time.Time {
+	now := time.Now()
+	nanos := now.UnixNano()
+	for {
+		last := lastGeneratedMessageNanos.Load()
+		if nanos <= last && last-nanos <= int64(time.Second) {
+			nanos = last + 1
+		}
+		if lastGeneratedMessageNanos.CompareAndSwap(last, nanos) {
+			return now.Add(time.Duration(nanos - now.UnixNano()))
+		}
+	}
+}
 
 type compactionRun struct {
 	done      chan struct{}
@@ -420,7 +437,7 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 	cw.Lock()
 	defer cw.Unlock()
 
-	msg := Message{Role: role, Content: content, Timestamp: time.Now()}
+	msg := Message{Role: role, Content: content, Timestamp: generatedMessageTime()}
 	for _, opt := range opts {
 		opt(&msg)
 	}

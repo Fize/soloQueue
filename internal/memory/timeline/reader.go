@@ -126,7 +126,7 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 			case "rewind":
 				if len(evt.Control.TargetTs) > 0 {
 					ts := evt.Control.TargetTs[0]
-					if validThreshold == "" || ts < validThreshold {
+					if validThreshold == "" || TimestampBefore(ts, validThreshold) {
 						validThreshold = ts
 					}
 				}
@@ -148,7 +148,7 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 
 			// Backward traversal logic for rewind and delete
 			if msg.Timestamp != "" {
-				if validThreshold != "" && msg.Timestamp >= validThreshold {
+				if validThreshold != "" && !TimestampBefore(msg.Timestamp, validThreshold) {
 					continue
 				}
 				if deletedSet[msg.Timestamp] {

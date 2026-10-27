@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -79,9 +81,11 @@ func TestRunCommand_WindowsCancellationTerminatesChild(t *testing.T) {
 
 func TestStartProcess_WindowsLeaderExitTerminatesChild(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child pid.txt")
-	escaped := strings.ReplaceAll(pidFile, "'", "''")
-	script := "$child = Start-Process powershell.exe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 60' -PassThru; [IO.File]::WriteAllText('" + escaped + "', [string]$child.Id)"
-	process, err := NewExecutor().StartProcess(context.Background(), ProcessSpec{Command: "powershell.exe", Args: []string{"-NoProfile", "-NonInteractive", "-Command", script}})
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := NewExecutor().StartProcess(context.Background(), ProcessSpec{Command: executable, Args: []string{"-test.run=^TestWindowsProcessHelper$"}, Env: map[string]string{"SOLOQUEUE_PROCESS_HELPER": "leader", "SOLOQUEUE_PROCESS_PID_FILE": pidFile}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,11 +118,41 @@ func TestStartProcess_WindowsLeaderExitTerminatesChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer windows.CloseHandle(child)
+	if _, err := io.WriteString(process.Stdin(), "exit\n"); err != nil {
+		t.Fatal(err)
+	}
 	if err := process.Wait(); err != nil {
 		t.Fatal(err)
 	}
 	state, err := windows.WaitForSingleObject(child, 10000)
 	if err != nil || state != windows.WAIT_OBJECT_0 {
 		t.Fatalf("child survived protocol process exit: wait=%d err=%v", state, err)
+	}
+}
+
+func TestWindowsProcessHelper(t *testing.T) {
+	switch os.Getenv("SOLOQUEUE_PROCESS_HELPER") {
+	case "child":
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	case "leader":
+		executable, err := os.Executable()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		child := exec.Command(executable, "-test.run=^TestWindowsProcessHelper$")
+		child.Env = append(os.Environ(), "SOLOQUEUE_PROCESS_HELPER=child")
+		if err := child.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := os.WriteFile(os.Getenv("SOLOQUEUE_PROCESS_PID_FILE"), []byte(strconv.Itoa(child.Process.Pid)), 0600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		var signal string
+		_, _ = fmt.Fscan(os.Stdin, &signal)
+		os.Exit(0)
 	}
 }

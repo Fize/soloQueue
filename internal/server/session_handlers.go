@@ -873,7 +873,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			if evt.Control.Action == "rewind" {
 				if len(evt.Control.TargetTs) > 0 {
 					ts := evt.Control.TargetTs[0]
-					if validThreshold == "" || ts < validThreshold {
+					if validThreshold == "" || timeline.TimestampBefore(ts, validThreshold) {
 						validThreshold = ts
 					}
 				}
@@ -889,7 +889,7 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			if msgTimestamp == "" {
 				msgTimestamp = evt.Timestamp
 			}
-			if msgTimestamp >= validThreshold {
+			if !timeline.TimestampBefore(msgTimestamp, validThreshold) {
 				hiddenByRewind[i] = true
 			}
 		}

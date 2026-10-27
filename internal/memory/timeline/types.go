@@ -42,7 +42,7 @@ func newEvent(et EventType) Event {
 	nanos := now.UnixNano()
 	for {
 		last := lastEventNanos.Load()
-		if nanos <= last {
+		if nanos <= last && last-nanos <= int64(time.Second) {
 			nanos = last + 1
 		}
 		if lastEventNanos.CompareAndSwap(last, nanos) {
@@ -114,4 +114,15 @@ type ToolCallRec struct {
 	Type      string `json:"type"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+}
+
+// TimestampBefore compares RFC3339 timestamps chronologically, including fractional seconds and offsets.
+// Invalid legacy timestamps retain the previous lexical ordering.
+func TimestampBefore(a, b string) bool {
+	ta, errA := time.Parse(time.RFC3339Nano, a)
+	tb, errB := time.Parse(time.RFC3339Nano, b)
+	if errA == nil && errB == nil {
+		return ta.Before(tb)
+	}
+	return a < b
 }

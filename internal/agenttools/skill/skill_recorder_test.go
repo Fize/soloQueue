@@ -55,8 +55,8 @@ func TestSkillToolExecute_RecordsOK(t *testing.T) {
 	if e.SkillID != "docx" || e.Result != InvocationOK || e.AgentID != "test-agent" || e.Args != "build report" {
 		t.Errorf("unexpected event: %+v", e)
 	}
-	if e.Duration <= 0 {
-		t.Errorf("duration should be positive: %v", e.Duration)
+	if e.Duration < 0 {
+		t.Errorf("duration should not be negative: %v", e.Duration)
 	}
 }
 
