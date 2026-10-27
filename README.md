@@ -32,6 +32,15 @@ make build
 ./soloqueue start
 ```
 
+On Windows x64, build from PowerShell with Go, Node.js and pnpm installed:
+
+```powershell
+.\scripts\build-windows.ps1
+.\soloqueue.exe start
+```
+
+Windows archives built by the release workflow include `silk-decoder.exe`, which must stay next to `soloqueue.exe` for the speech dependency installer. The installer downloads pinned Whisper, FFmpeg and model files into the SoloQueue work directory. A source build must also provide that decoder beside the executable. Windows uses PowerShell for commands; Skills containing Unix shell syntax need a Windows-compatible variant. MCP/LSP batch launchers reject cmd.exe metacharacters (`"`, `&`, `|`, `<`, `>`, `^`, `%`, `!`) in paths and arguments; use a native executable or invoke Node with its JavaScript entry point when those characters are needed. Batch arguments ending in backslashes are quoted for Node-compatible shims; a generic batch file reading `%~1` may observe extra trailing backslashes.
+
 Open <http://127.0.0.1:57689>, configure a model, and add a project directory to get started. You can enter the provider API key in the Web Console.
 
 For other model providers, Docker deployment, and troubleshooting, see the [Getting Started guide](docs/getting-started.md).

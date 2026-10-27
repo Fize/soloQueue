@@ -40,7 +40,7 @@ func NormalizeExistingDir(path string) (string, error) {
 }
 
 func expandHome(path string) (string, error) {
-	if path != "~" && !strings.HasPrefix(path, "~/") {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, "~"+string(filepath.Separator)) {
 		return path, nil
 	}
 	home, err := os.UserHomeDir()
@@ -50,5 +50,5 @@ func expandHome(path string) (string, error) {
 	if path == "~" {
 		return home, nil
 	}
-	return filepath.Join(home, strings.TrimPrefix(path, "~/")), nil
+	return filepath.Join(home, path[2:]), nil
 }

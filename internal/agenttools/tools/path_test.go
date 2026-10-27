@@ -64,11 +64,12 @@ func TestAbsPath_EmptyPath(t *testing.T) {
 
 func TestAbsPath_RelativeWithWorkDir(t *testing.T) {
 	// Relative path resolved against workDir
-	abs, err := absPath("report.md", "/home/user/.soloqueue")
+	dir := t.TempDir()
+	abs, err := absPath("report.md", dir)
 	if err != nil {
 		t.Fatalf("absPath: %v", err)
 	}
-	want := "/home/user/.soloqueue/report.md"
+	want := filepath.Join(dir, "report.md")
 	if abs != want {
 		t.Errorf("abs = %q, want %q", abs, want)
 	}
@@ -76,11 +77,12 @@ func TestAbsPath_RelativeWithWorkDir(t *testing.T) {
 
 func TestAbsPath_RelativeSubdirWithWorkDir(t *testing.T) {
 	// Relative subdirectory path resolved against workDir
-	abs, err := absPath("subdir/report.md", "/home/user/.soloqueue")
+	dir := t.TempDir()
+	abs, err := absPath("subdir/report.md", dir)
 	if err != nil {
 		t.Fatalf("absPath: %v", err)
 	}
-	want := "/home/user/.soloqueue/subdir/report.md"
+	want := filepath.Join(dir, "subdir", "report.md")
 	if abs != want {
 		t.Errorf("abs = %q, want %q", abs, want)
 	}
@@ -88,12 +90,13 @@ func TestAbsPath_RelativeSubdirWithWorkDir(t *testing.T) {
 
 func TestAbsPath_AbsoluteIgnoresWorkDir(t *testing.T) {
 	// Absolute path ignores workDir
-	abs, err := absPath("/tmp/foo.txt", "/home/user/.soloqueue")
+	target := filepath.Join(t.TempDir(), "foo.txt")
+	abs, err := absPath(target, t.TempDir())
 	if err != nil {
 		t.Fatalf("absPath: %v", err)
 	}
-	if abs != "/tmp/foo.txt" {
-		t.Errorf("abs = %q, want /tmp/foo.txt", abs)
+	if abs != target {
+		t.Errorf("abs = %q, want %q", abs, target)
 	}
 }
 
@@ -124,11 +127,12 @@ func TestAbsPath_WorkDirEmptyFallbackCWD(t *testing.T) {
 
 func TestAbsPath_TraversalCleanedWithWorkDir(t *testing.T) {
 	// Path traversal is cleaned when workDir is provided
-	abs, err := absPath("sub/../report.md", "/home/user/.soloqueue")
+	dir := t.TempDir()
+	abs, err := absPath("sub/../report.md", dir)
 	if err != nil {
 		t.Fatalf("absPath: %v", err)
 	}
-	want := "/home/user/.soloqueue/report.md"
+	want := filepath.Join(dir, "report.md")
 	if abs != want {
 		t.Errorf("abs = %q, want %q", abs, want)
 	}
@@ -143,18 +147,33 @@ func TestAbsPath_WorkDirPathItselfRelative(t *testing.T) {
 	if !filepath.IsAbs(abs) {
 		t.Errorf("abs = %q, want absolute path", abs)
 	}
-	if !strings.HasSuffix(abs, "relative/dir/file.txt") {
+	if !strings.HasSuffix(abs, filepath.Join("relative", "dir", "file.txt")) {
 		t.Errorf("abs = %q, want suffix 'relative/dir/file.txt'", abs)
 	}
 }
 
 func TestAbsPath_AnyPathAllowed(t *testing.T) {
 	// Any absolute path should be normalizable.
-	abs, err := absPath("/etc/passwd", "")
+	target := filepath.Join(t.TempDir(), "passwd")
+	abs, err := absPath(target, "")
 	if err != nil {
 		t.Fatalf("absPath('/etc/passwd'): %v", err)
 	}
-	if abs != "/etc/passwd" {
-		t.Errorf("abs = %q, want /etc/passwd", abs)
+	if abs != target {
+		t.Errorf("abs = %q, want %q", abs, target)
+	}
+}
+
+func TestAbsPath_TildeUsesNativeSeparator(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := absPath("~"+string(filepath.Separator)+"file.txt", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, "file.txt"); got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

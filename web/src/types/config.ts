@@ -271,6 +271,8 @@ export interface SpeechStatus {
   whisperAvailable: boolean;
   silkDecoder: string;
   silkAvailable: boolean;
+  ffmpegBinary: string;
+  ffmpegAvailable: boolean;
   ready: boolean;
 }
 
@@ -279,9 +281,11 @@ export interface SpeechInstallResponse {
   binaryPath?: string;
   modelPath?: string;
   silkPath?: string;
+  ffmpegPath?: string;
   binaryMessage?: string;
   modelMessage?: string;
   silkMessage?: string;
+  ffmpegMessage?: string;
   error?: string;
   detail?: string;  // step-by-step instructions on failure
 }

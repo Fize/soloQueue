@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -836,19 +838,37 @@ func symbolInfoToDocumentSymbols(info []SymbolInformation) []DocumentSymbol {
 }
 
 func uriToPath(uri string) string {
-	if len(uri) > 7 && uri[:7] == "file://" {
-		return uri[7:]
+	u, err := url.Parse(uri)
+	if err != nil || u.Scheme != "file" {
+		return uri
 	}
-	return uri
+	path := u.Path
+	if u.Host != "" {
+		path = "//" + u.Host + path
+	}
+	if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		path = path[1:]
+	}
+	return filepath.FromSlash(path)
 }
 
-// PathToURI converts a filesystem path to a file:// URI.
+// PathToURI converts a filesystem path to an escaped file URI.
 func PathToURI(path string) string {
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "file://" + path
+		abs = path
 	}
-	return "file://" + abs
+	slash := filepath.ToSlash(abs)
+	if runtime.GOOS == "windows" && !strings.HasPrefix(slash, "/") {
+		slash = "/" + slash
+	}
+	if strings.HasPrefix(slash, "//") {
+		parts := strings.SplitN(strings.TrimPrefix(slash, "//"), "/", 2)
+		if len(parts) == 2 {
+			return (&url.URL{Scheme: "file", Host: parts[0], Path: "/" + parts[1]}).String()
+		}
+	}
+	return (&url.URL{Scheme: "file", Path: slash}).String()
 }
 
 // Vue 3 delegates TypeScript analysis to a plugin-hosting companion. Owning it

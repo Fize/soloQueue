@@ -3,6 +3,7 @@ package tools
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -18,6 +19,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/process"
 )
 
 // RunCommandOptions contains command execution options.
@@ -63,7 +65,16 @@ type hostProcess struct {
 func (p *hostProcess) Stdin() io.WriteCloser { return p.stdin }
 func (p *hostProcess) Stdout() io.Reader     { return p.stdout }
 func (p *hostProcess) Stderr() io.Reader     { return p.stderr }
-func (p *hostProcess) Wait() error           { return p.cmd.Wait() }
+func (p *hostProcess) Wait() error {
+	err := p.cmd.Wait()
+	// Long-lived protocol processes own their descendants even after their leader exits.
+	cleanupErr := cleanupAfterRuntimeProcessWait(p.cmd)
+	closeRuntimeProcess(p.cmd)
+	if cleanupErr == nil {
+		return err
+	}
+	return errors.Join(err, cleanupErr)
+}
 func (p *hostProcess) Kill() error {
 	if p.cmd.Process == nil {
 		return nil
@@ -168,7 +179,10 @@ func (e *Executor) StartProcess(ctx context.Context, spec ProcessSpec) (Process,
 	if strings.TrimSpace(spec.Command) == "" {
 		return nil, fmt.Errorf("%w: empty process command", ErrInvalidArgs)
 	}
-	cmd := exec.CommandContext(ctx, spec.Command, spec.Args...)
+	cmd, err := process.Command(ctx, spec.Command, spec.Args, spec.WorkingDirectory)
+	if err != nil {
+		return nil, err
+	}
 	if spec.WorkingDirectory != "" {
 		cmd.Dir = filepath.Clean(spec.WorkingDirectory)
 	}
@@ -190,7 +204,8 @@ func (e *Executor) StartProcess(ctx context.Context, spec ProcessSpec) (Process,
 		return nil, err
 	}
 	configureRuntimeProcess(cmd)
-	if err := cmd.Start(); err != nil {
+	cmd.Cancel = func() error { return killRuntimeProcess(cmd) }
+	if err := startRuntimeProcess(cmd); err != nil {
 		return nil, err
 	}
 	return &hostProcess{cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr}, nil
@@ -228,7 +243,7 @@ func (e *Executor) ReadFile(ctx context.Context, path string, opts ReadFileOptio
 		return ReadFileResult{}, fmt.Errorf("not a regular file: %s", path)
 	}
 	if opts.MaxSize > 0 && fi.Size() > opts.MaxSize {
-		return ReadFileResult{}, fmt.Errorf("file too large: %s (%d bytes > %d). Use Bash with head/tail to read file portions", path, fi.Size(), opts.MaxSize)
+		return ReadFileResult{}, fmt.Errorf("file too large: %s (%d bytes > %d). Use Bash with commands appropriate for the configured shell to read file portions", path, fi.Size(), opts.MaxSize)
 	}
 	f, err := os.Open(path)
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -681,7 +696,7 @@ func (e *Executor) HTTPPost(ctx context.Context, rawURL string, body string, opt
 func minimalHostEnvironment() map[string]string {
 	keys := []string{
 		"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
-		"SystemRoot", "ComSpec", "PATHEXT",
+		"SystemRoot", "ComSpec", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP",
 	}
 	env := make(map[string]string, len(keys))
 	for _, key := range keys {

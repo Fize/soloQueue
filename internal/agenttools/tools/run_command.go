@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+
+	"github.com/xiaobaitu/soloqueue/internal/infra/shell"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -29,7 +31,7 @@ func (e *Executor) RunCommand(ctx context.Context, cmd string, opts RunCommandOp
 		maxOut = 256 << 10
 	}
 
-	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	c := shell.CommandContext(ctx, cmd)
 	configureRuntimeProcess(c)
 	c.WaitDelay = runCommandWaitDelay
 	c.Cancel = func() error {
@@ -37,7 +39,7 @@ func (e *Executor) RunCommand(ctx context.Context, cmd string, opts RunCommandOp
 	}
 	if opts.WorkingDirectory != "" {
 		wd := opts.WorkingDirectory
-		if strings.HasPrefix(wd, "~/") {
+		if strings.HasPrefix(wd, "~/") || strings.HasPrefix(wd, "~"+string(filepath.Separator)) {
 			usr, err := user.Current()
 			if err == nil {
 				wd = filepath.Join(usr.HomeDir, wd[2:])
@@ -58,7 +60,11 @@ func (e *Executor) RunCommand(ctx context.Context, cmd string, opts RunCommandOp
 	c.Stdout = &limitedWriterExec{w: &stdout, cap: maxOut}
 	c.Stderr = &limitedWriterExec{w: &stderr, cap: maxOut}
 
-	err := c.Run()
+	err := startRuntimeProcess(c)
+	if err == nil {
+		err = c.Wait()
+		closeRuntimeProcess(c)
+	}
 	if errors.Is(err, exec.ErrWaitDelay) && c.ProcessState != nil && c.ProcessState.Success() {
 		err = nil
 	}

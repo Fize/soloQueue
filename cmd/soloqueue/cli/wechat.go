@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
-	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
@@ -176,17 +174,7 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 	m.clients = make(map[string]*wechat.Client)
 	m.accounts = make(map[string]config.WechatBotConfig)
 
-	var transcriber *qqbot.Transcriber
-	if settings.Speech.Enabled {
-		modelDir := settings.Speech.ModelDir
-		if modelDir == "" {
-			modelDir = filepath.Join(m.workDir, "models")
-		}
-		candidate := qqbot.NewTranscriber(settings.Speech.Model, modelDir)
-		if candidate.Available() {
-			transcriber = candidate
-		}
-	}
+	transcriber := configuredTranscriber(settings.Speech, m.workDir)
 	for _, baseCfg := range settings.WechatBots {
 		wxCfg := baseCfg.ToWechatConfig(m.version)
 		if !wxCfg.Enabled {
@@ -217,7 +205,12 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 		client := wechat.NewClientWithLogger(wxCfg, wxLog)
 		bridge := channel.NewTextBridge(provider, client, wxLog, m.version, baseCfg.WhitelistEnabled, baseCfg.Whitelist)
 		if transcriber != nil {
-			bridge.SetVoiceTranscriber(transcriber.Transcribe)
+			bridge.SetVoiceTranscriber(func(ctx context.Context, audio []byte) (string, error) {
+				if !transcriber.Available() {
+					return "", fmt.Errorf("speech transcription dependencies are unavailable")
+				}
+				return transcriber.Transcribe(ctx, audio)
+			})
 		}
 		gateway := wechat.NewGateway(wxCfg, client, channel.HandlerFunc(func(ctx context.Context, msg channel.Message) {
 			m.rememberWechatInbound(msg)

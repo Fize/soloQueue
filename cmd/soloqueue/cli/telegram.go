@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
-	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	telegram "github.com/xiaobaitu/soloqueue/internal/channel/telegram"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/session"
-	"path/filepath"
 	"sync"
 	"time"
 )
@@ -75,17 +73,7 @@ func (m *TelegramBotManager) ReloadWithSettings(settings config.Settings) {
 	m.mu.Unlock()
 	var gateways []*telegram.Gateway
 	clients := map[string]*telegram.Client{}
-	var transcriber *qqbot.Transcriber
-	if settings.Speech.Enabled {
-		modelDir := settings.Speech.ModelDir
-		if modelDir == "" {
-			modelDir = filepath.Join(m.workDir, "models")
-		}
-		candidate := qqbot.NewTranscriber(settings.Speech.Model, modelDir)
-		if candidate.AudioAvailable() {
-			transcriber = candidate
-		}
-	}
+	transcriber := configuredTranscriber(settings.Speech, m.workDir)
 	for _, base := range settings.TelegramBots {
 		if !base.Enabled || base.BotToken == "" {
 			continue
@@ -107,7 +95,12 @@ func (m *TelegramBotManager) ReloadWithSettings(settings config.Settings) {
 		provider := newChannelSessionProvider(channelBinding{channelID: "telegram", accountID: id, bindType: base.BindType, bindAgent: base.BindAgent}, m.mgr, m.l2Store, m.rt, m.workDir, m.log, m.supervisorsFn, m.registry)
 		bridge := channel.NewTextBridge(provider, client, m.log, m.version, base.WhitelistEnabled, base.Whitelist)
 		if transcriber != nil {
-			bridge.SetVoiceTranscriber(transcriber.TranscribeAudio)
+			bridge.SetVoiceTranscriber(func(ctx context.Context, audio []byte) (string, error) {
+				if !transcriber.AudioAvailable() {
+					return "", fmt.Errorf("speech transcription dependencies are unavailable")
+				}
+				return transcriber.TranscribeAudio(ctx, audio)
+			})
 		}
 		gw := telegram.NewGateway(tc, client, bridge, m.log)
 		gateways = append(gateways, gw)

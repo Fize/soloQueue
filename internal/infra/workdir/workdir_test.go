@@ -54,3 +54,17 @@ func TestNormalizeExistingDirRejectsMissingAndFiles(t *testing.T) {
 		t.Fatal("expected non-directory error")
 	}
 }
+
+func TestExpandHomeNativeSeparator(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := expandHome("~" + string(filepath.Separator) + "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, "project"); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

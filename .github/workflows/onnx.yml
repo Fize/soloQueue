@@ -11,6 +11,8 @@ on:
       - 'internal/runtime/**'
       - 'internal/server/**'
       - 'internal/agenttools/tools/runtime_process*'
+      - 'internal/infra/process/**'
+      - 'internal/infra/shell/**'
       - 'internal/agenttools/skill/open_skill*'
       - 'internal/agenttools/skill/skill_md.go'
       - 'cmd/soloqueue/cli/commands.go'

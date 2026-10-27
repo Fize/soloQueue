@@ -23,10 +23,14 @@ func absPath(input, workDir string) (string, error) {
 		return "", fmt.Errorf("%w: empty path", ErrInvalidArgs)
 	}
 	// Expand ~ to the user's home directory so the LLM can use ~/ paths in prompts.
-	if strings.HasPrefix(input, "~/") || input == "~" {
+	if strings.HasPrefix(input, "~/") || strings.HasPrefix(input, "~"+string(filepath.Separator)) || input == "~" {
 		home, err := os.UserHomeDir()
 		if err == nil {
-			input = filepath.Join(home, input[1:]) // strip leading ~
+			if len(input) == 1 {
+				input = home
+			} else {
+				input = filepath.Join(home, input[2:])
+			}
 		}
 	}
 	// Resolve relative paths against workDir (not process CWD).

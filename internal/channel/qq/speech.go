@@ -7,7 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/xiaobaitu/soloqueue/internal/infra/speechinstall"
 )
 
 var silkMagic = []byte("#!SILK_V3")
@@ -31,22 +34,17 @@ type Transcriber struct {
 // NewTranscriber creates a Transcriber. Required binaries are auto-detected.
 func NewTranscriber(model, modelDir string) *Transcriber {
 	return &Transcriber{
-		binary:      findWhisperBinary(),
-		silkDecoder: findSilkDecoder(),
-		modelDir:    modelDir,
-		model:       model,
+		modelDir: modelDir,
+		model:    model,
 	}
 }
 
 // Available returns whether all required binaries and the model file are present.
 func (t *Transcriber) Available() bool {
-	if t.binary == "" || t.silkDecoder == "" {
+	if t.Binary() == "" || t.SilkDecoder() == "" || t.FFmpeg() == "" {
 		return false
 	}
-	if _, err := os.Stat(t.ModelPath()); err != nil {
-		return false
-	}
-	return true
+	return speechinstall.VerifyModel(t.ModelPath(), t.model) == nil
 }
 
 // ModelPath returns the full path to the expected ggml model file.
@@ -82,7 +80,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	pcmFile.Close()
 	defer os.Remove(pcmPath)
 
-	decode := exec.CommandContext(ctx, t.silkDecoder, silkPath, pcmPath, "-Fs_API", "16000")
+	decode := exec.CommandContext(ctx, t.SilkDecoder(), silkPath, pcmPath, "-Fs_API", "16000")
 	if out, err := decode.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("silk decode: %w\n%s", err, string(out))
 	}
@@ -101,7 +99,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	wavFile.Close()
 	defer os.Remove(wavPath)
 
-	convert := exec.CommandContext(ctx, "ffmpeg",
+	convert := exec.CommandContext(ctx, findSpeechTool("ffmpeg"),
 		"-y",          // overwrite output
 		"-f", "s16le", // signed 16-bit little-endian PCM
 		"-ar", "16000", // 16kHz sample rate
@@ -115,12 +113,11 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	}
 
 	// Step 4: transcribe via whisper-cli
-	transcribe := exec.CommandContext(ctx, t.binary,
+	transcribe := exec.CommandContext(ctx, t.Binary(),
 		"-m", t.ModelPath(),
 		"-f", wavPath,
 		"-l", "zh",
 		"--no-timestamps",
-		"-otxt",
 	)
 	out, err := transcribe.Output()
 	if err != nil {
@@ -131,14 +128,10 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 }
 
 func (t *Transcriber) AudioAvailable() bool {
-	if t.binary == "" {
+	if t.Binary() == "" {
 		return false
 	}
-	if _, err := os.Stat(t.ModelPath()); err != nil {
-		return false
-	}
-	_, err := exec.LookPath("ffmpeg")
-	return err == nil
+	return speechinstall.VerifyModel(t.ModelPath(), t.model) == nil && findSpeechTool("ffmpeg") != ""
 }
 
 func (t *Transcriber) TranscribeAudio(ctx context.Context, audioData []byte) (string, error) {
@@ -160,11 +153,11 @@ func (t *Transcriber) TranscribeAudio(ctx context.Context, audioData []byte) (st
 	outPath := out.Name()
 	out.Close()
 	defer os.Remove(outPath)
-	convert := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", inPath, "-ar", "16000", "-ac", "1", "-f", "wav", outPath)
+	convert := exec.CommandContext(ctx, findSpeechTool("ffmpeg"), "-y", "-i", inPath, "-ar", "16000", "-ac", "1", "-f", "wav", outPath)
 	if output, err := convert.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("audio convert: %w\n%s", err, output)
 	}
-	cmd := exec.CommandContext(ctx, t.binary, "-m", t.ModelPath(), "-f", outPath, "-l", "zh", "--no-timestamps", "-otxt")
+	cmd := exec.CommandContext(ctx, t.Binary(), "-m", t.ModelPath(), "-f", outPath, "-l", "zh", "--no-timestamps")
 	data, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("whisper transcribe: %w", err)
@@ -173,33 +166,64 @@ func (t *Transcriber) TranscribeAudio(ctx context.Context, audioData []byte) (st
 }
 
 // Binary returns the detected whisper-cli path (may be empty).
-func (t *Transcriber) Binary() string { return t.binary }
+func (t *Transcriber) Binary() string {
+	if t.binary != "" {
+		return t.binary
+	}
+	return findWhisperBinary()
+}
 
 // SilkDecoder returns the detected silk-decoder path (may be empty).
-func (t *Transcriber) SilkDecoder() string { return t.silkDecoder }
+func (t *Transcriber) SilkDecoder() string {
+	if t.silkDecoder != "" {
+		return t.silkDecoder
+	}
+	return findSilkDecoder()
+}
+
+// FFmpeg returns the detected FFmpeg path.
+func (t *Transcriber) FFmpeg() string { return findSpeechTool("ffmpeg") }
 
 // Model returns the whisper model name.
 func (t *Transcriber) Model() string { return t.model }
 
-// findWhisperBinary looks for whisper-cli in PATH.
-func findWhisperBinary() string {
-	if path, err := exec.LookPath("whisper-cli"); err == nil {
+// findSpeechTool locates an existing binary without relying on the shell's PATH.
+func findSpeechTool(name string) string {
+	if path, err := exec.LookPath(name); err == nil {
 		return path
+	}
+	workDir := os.Getenv("SOLOQUEUE_WORK_DIR")
+	if workDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		workDir = filepath.Join(home, ".soloqueue")
+	}
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	paths := []string{filepath.Join(workDir, "bin", name)}
+	if runtime.GOOS == "windows" {
+		switch name {
+		case "whisper-cli.exe":
+			paths = append(paths, filepath.Join(workDir, "bin", speechinstall.WhisperWindows.Directory, name))
+		case "ffmpeg.exe":
+			paths = append(paths, filepath.Join(workDir, "bin", speechinstall.FFmpegWindows.Directory, name))
+		case "silk-decoder.exe":
+			paths = append(paths, filepath.Join(workDir, "bin", speechinstall.DecoderDirectory, name))
+		}
+	}
+	for index, path := range paths {
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0) {
+			if index > 0 && speechinstall.VerifyInstallation(filepath.Dir(path), name) != nil {
+				continue
+			}
+			return path
+		}
 	}
 	return ""
 }
 
-func findSilkDecoder() string {
-	if path, err := exec.LookPath("silk-decoder"); err == nil {
-		return path
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	path := filepath.Join(homeDir, ".soloqueue", "bin", "silk-decoder")
-	if info, err := os.Stat(path); err == nil && !info.IsDir() {
-		return path
-	}
-	return ""
-}
+func findWhisperBinary() string { return findSpeechTool("whisper-cli") }
+func findSilkDecoder() string   { return findSpeechTool("silk-decoder") }

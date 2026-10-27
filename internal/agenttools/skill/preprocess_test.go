@@ -3,12 +3,13 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestPreprocessContent_ArgumentsSubstitution(t *testing.T) {
 	content := "Hello $ARGUMENTS, how are you?"
-	result := PreprocessContent(content, "world", "/tmp")
+	result := PreprocessContent(content, "world", t.TempDir())
 	if result != "Hello world, how are you?" {
 		t.Errorf("got %q, want %q", result, "Hello world, how are you?")
 	}
@@ -16,7 +17,7 @@ func TestPreprocessContent_ArgumentsSubstitution(t *testing.T) {
 
 func TestPreprocessContent_ArgumentsEmpty(t *testing.T) {
 	content := "Hello $ARGUMENTS!"
-	result := PreprocessContent(content, "", "/tmp")
+	result := PreprocessContent(content, "", t.TempDir())
 	if result != "Hello !" {
 		t.Errorf("got %q, want %q", result, "Hello !")
 	}
@@ -24,7 +25,7 @@ func TestPreprocessContent_ArgumentsEmpty(t *testing.T) {
 
 func TestPreprocessContent_MultipleArguments(t *testing.T) {
 	content := "From: $ARGUMENTS\nTo: $ARGUMENTS"
-	result := PreprocessContent(content, "alice", "/tmp")
+	result := PreprocessContent(content, "alice", t.TempDir())
 	if result != "From: alice\nTo: alice" {
 		t.Errorf("got %q, want %q", result, "From: alice\nTo: alice")
 	}
@@ -32,7 +33,7 @@ func TestPreprocessContent_MultipleArguments(t *testing.T) {
 
 func TestPreprocessContent_ShellExecution(t *testing.T) {
 	content := "Current dir: !`pwd`"
-	result := PreprocessContent(content, "", "/tmp")
+	result := PreprocessContent(content, "", t.TempDir())
 	// Should be replaced with actual output, not the original !`pwd`
 	if result == content {
 		t.Errorf("shell command was not executed, got %q", result)
@@ -44,7 +45,7 @@ func TestPreprocessContent_ShellExecution(t *testing.T) {
 
 func TestPreprocessContent_ShellExecutionFailed(t *testing.T) {
 	content := "Result: !`nonexistent_command_xyz_123`"
-	result := PreprocessContent(content, "", "/tmp")
+	result := PreprocessContent(content, "", t.TempDir())
 	// Should be replaced with an empty string on failure
 	if result != "Result: " {
 		t.Errorf("failed shell should produce empty, got %q", result)
@@ -67,7 +68,7 @@ func TestPreprocessContent_FileRef(t *testing.T) {
 
 func TestPreprocessContent_FileRefNotFound(t *testing.T) {
 	content := "Data: @nonexistent.txt"
-	result := PreprocessContent(content, "", "/tmp")
+	result := PreprocessContent(content, "", t.TempDir())
 	// Should contain an error message when the file does not exist
 	if result == "Data: @nonexistent.txt" {
 		t.Error("file ref should have been expanded or replaced with error")
@@ -101,7 +102,10 @@ func TestPreprocessContent_ArgumentsInShell(t *testing.T) {
 func TestExpandShellCommands_Timeout(t *testing.T) {
 	// Verify that shell execution does not block indefinitely
 	content := "!`sleep 0.1 && echo done`"
-	result := PreprocessContent(content, "", "/tmp")
+	if runtime.GOOS == "windows" {
+		content = "!`Start-Sleep -Milliseconds 100; Write-Output done`"
+	}
+	result := PreprocessContent(content, "", t.TempDir())
 	if result != "done" {
 		t.Errorf("got %q, want %q", result, "done")
 	}

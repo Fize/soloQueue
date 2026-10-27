@@ -86,6 +86,22 @@ jobs:
         with:
           name: browser-assets
           path: internal/assets/dist
+      - name: Check out pinned SILK decoder source
+        if: matrix.system == 'windows'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: kn007/silk-v3-decoder
+          ref: d216599502662db01c07cc0dfd95ff1f1eaaea02
+          path: third-party/silk
+          persist-credentials: false
+      - name: Build Windows SILK decoder
+        if: matrix.system == 'windows'
+        run: |
+          export PATH="/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH"
+          make -C third-party/silk/silk EXESUFFIX= 'CFLAGS=-O2 -Wall -Iinterface -Isrc -Itest' 'LINK.o.cmdline=$(LINK.o) $^ $(LDLIBS) -o $@.exe'
+          mkdir -p build
+          cp third-party/silk/silk/decoder.exe build/silk-decoder.exe
+          cat third-party/silk/LICENSE third-party/silk/silk/interface/SKP_Silk_SDK_API.h > build/SILK_LICENSES.txt
       - name: Install pinned native Rust toolchain
         if: matrix.native
         run: rustup toolchain install 1.88.0 --profile minimal
@@ -115,6 +131,7 @@ jobs:
             args+=(--worker "native/embedding/target/release/soloqueue-embedding$suffix" --license-metadata "$RUNNER_TEMP/embedding-metadata.json" "$RUNNER_TEMP/decide-metadata.json")
             args+=(--decide "native/decide/target/release/soloqueue-decide$suffix")
           fi
+          if [ "$GOOS" = windows ]; then args+=(--silk build/silk-decoder.exe --silk-license build/SILK_LICENSES.txt); fi
           python .github/scripts/release.py archive "${args[@]}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

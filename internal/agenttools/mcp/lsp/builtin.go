@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 // ServerDef defines an LSP server configuration.
@@ -112,17 +113,20 @@ func BuiltinServers() []ServerDef {
 func resolvePyright(workspacePath string) string {
 	bin := "pyright-langserver"
 	binDir := "bin"
+	if runtime.GOOS == "windows" {
+		binDir = "Scripts"
+	}
 
 	// 1. Activated venv via VIRTUAL_ENV.
 	if venv := os.Getenv("VIRTUAL_ENV"); venv != "" {
-		if candidate := filepath.Join(venv, binDir, bin); fileExists(candidate) {
+		if candidate := findLocalExecutable(filepath.Join(venv, binDir), bin); candidate != "" {
 			return candidate
 		}
 	}
 
 	// 2. Common venv directories inside the workspace.
 	for _, dir := range []string{".venv", "venv", ".env"} {
-		if candidate := filepath.Join(workspacePath, dir, binDir, bin); fileExists(candidate) {
+		if candidate := findLocalExecutable(filepath.Join(workspacePath, dir, binDir), bin); candidate != "" {
 			return candidate
 		}
 	}
@@ -140,7 +144,7 @@ func resolveTypescript(workspacePath string) string {
 	bin := "typescript-language-server"
 
 	// 1. Local node_modules/.bin (project-local install).
-	if local := filepath.Join(workspacePath, "node_modules", ".bin", bin); fileExists(local) {
+	if local := findLocalExecutable(filepath.Join(workspacePath, "node_modules", ".bin"), bin); local != "" {
 		return local
 	}
 
@@ -158,7 +162,7 @@ func resolveVue(workspacePath string) string {
 	bin := "vue-language-server"
 
 	// 1. Local node_modules/.bin (project-local install via @vue/language-server).
-	if local := filepath.Join(workspacePath, "node_modules", ".bin", bin); fileExists(local) {
+	if local := findLocalExecutable(filepath.Join(workspacePath, "node_modules", ".bin"), bin); local != "" {
 		return local
 	}
 
@@ -172,4 +176,18 @@ func resolveVue(workspacePath string) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func findLocalExecutable(dir, name string) string {
+	suffixes := []string{""}
+	if runtime.GOOS == "windows" {
+		suffixes = []string{".exe", ".cmd", ".bat"}
+	}
+	for _, suffix := range suffixes {
+		candidate := filepath.Join(dir, name+suffix)
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
 }
