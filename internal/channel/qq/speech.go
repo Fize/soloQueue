@@ -3,6 +3,7 @@ package qq
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -121,7 +122,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	)
 	out, err := transcribe.Output()
 	if err != nil {
-		return "", fmt.Errorf("whisper transcribe: %w", err)
+		return "", whisperCommandError(err)
 	}
 
 	return strings.TrimSpace(string(out)), nil
@@ -160,7 +161,7 @@ func (t *Transcriber) TranscribeAudio(ctx context.Context, audioData []byte) (st
 	cmd := exec.CommandContext(ctx, t.Binary(), "-m", t.ModelPath(), "-f", outPath, "-l", "zh", "--no-timestamps")
 	data, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("whisper transcribe: %w", err)
+		return "", whisperCommandError(err)
 	}
 	return strings.TrimSpace(string(data)), nil
 }
@@ -227,3 +228,11 @@ func findSpeechTool(name string) string {
 
 func findWhisperBinary() string { return findSpeechTool("whisper-cli") }
 func findSilkDecoder() string   { return findSpeechTool("silk-decoder") }
+
+func whisperCommandError(err error) error {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+		return fmt.Errorf("whisper transcribe: %w: %s", err, strings.TrimSpace(string(exit.Stderr)))
+	}
+	return fmt.Errorf("whisper transcribe: %w", err)
+}

@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::{
     io::{self, BufRead, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 const MAX_FRAME: usize = 1 << 20;
@@ -179,7 +179,11 @@ fn main() -> Fallible<()> {
                         Some(json!({"choice": choice, "probabilities": probabilities})),
                         None,
                     )?,
-                    Err(err) => send(request.id, None, Some((error_code(&err), err.to_string())))?,
+                    Err(err) => send(
+                        request.id,
+                        None,
+                        Some((error_code(err.as_ref()), err.to_string())),
+                    )?,
                 }
             }
             other => {
@@ -197,7 +201,7 @@ fn build_question() -> Fallible<Question> {
     Ok(Question::choice(INSTRUCTIONS, OPTIONS)?)
 }
 
-fn error_code(err: &Box<dyn std::error::Error>) -> &'static str {
+fn error_code(err: &dyn std::error::Error) -> &'static str {
     let text = err.to_string();
     if text.contains("no option marker") || text.contains("NoMarkers") {
         "truncated"
@@ -207,7 +211,7 @@ fn error_code(err: &Box<dyn std::error::Error>) -> &'static str {
 }
 
 // 读 checkpoint 的 token 预算只用于 ready 帧上报，与引擎实际行为无关。
-fn budgets(dir: &PathBuf) -> (u64, u64) {
+fn budgets(dir: &Path) -> (u64, u64) {
     let raw = std::fs::read_to_string(dir.join("rl_agent_config.json")).unwrap_or_default();
     let cfg: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
     let get = |key: &str, default: u64| cfg.get(key).and_then(Value::as_u64).unwrap_or(default);
@@ -215,7 +219,7 @@ fn budgets(dir: &PathBuf) -> (u64, u64) {
 }
 
 #[cfg(target_os = "windows")]
-fn init_runtime(runtime: &PathBuf) -> Fallible<()> {
+fn init_runtime(runtime: &Path) -> Fallible<()> {
     use std::os::windows::ffi::OsStrExt;
     let directory: Vec<u16> = runtime
         .parent()
@@ -234,7 +238,7 @@ fn init_runtime(runtime: &PathBuf) -> Fallible<()> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn init_runtime(runtime: &PathBuf) -> Fallible<()> {
+fn init_runtime(runtime: &Path) -> Fallible<()> {
     ort::init_from(runtime.to_str().ok_or("runtime path encoding")?)?.commit();
     Ok(())
 }
