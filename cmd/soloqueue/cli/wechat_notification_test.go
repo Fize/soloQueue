@@ -218,3 +218,12 @@ func TestWechatNotificationRejectsStaleOrAmbiguousRoutes(t *testing.T) {
 		t.Fatalf("malformed route = %v", err)
 	}
 }
+
+func TestWechatShutdownPreventsReload(t *testing.T) {
+	manager := &WechatBotManager{}
+	manager.Shutdown()
+	manager.ReloadWithSettings(config.Settings{WechatBots: []config.WechatBotConfig{{ID: "later"}}})
+	if len(manager.gateways) != 0 || len(manager.clients) != 0 {
+		t.Fatal("reload restarted a stopped manager")
+	}
+}

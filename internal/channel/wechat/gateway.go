@@ -23,13 +23,32 @@ type Gateway struct {
 	buffer  *messageBuffer
 	log     *logger.Logger
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	closed bool
+	mu         sync.Mutex
+	cancel     context.CancelFunc
+	closed     bool
+	workMu     sync.Mutex
+	workClosed bool
+	work       sync.WaitGroup
 }
 
 func NewGateway(cfg Config, client *Client, handler channel.Handler, log *logger.Logger) *Gateway {
-	return &Gateway{cfg: cfg, client: client, handler: handler, buffer: newMessageBuffer(time.Second, log, handler), log: log}
+	g := &Gateway{cfg: cfg, client: client, handler: handler, log: log}
+	tracked := channel.HandlerFunc(func(ctx context.Context, msg channel.Message) {
+		if !g.beginWork() {
+			return
+		}
+		defer g.work.Done()
+		handler.OnMessage(ctx, msg)
+	})
+	g.buffer = newMessageBuffer(time.Second, log, tracked)
+	g.buffer.track = func(fn func()) {
+		if !g.beginWork() {
+			return
+		}
+		defer g.work.Done()
+		fn()
+	}
+	return g
 }
 
 func (g *Gateway) Run(ctx context.Context) error {
@@ -67,7 +86,10 @@ func (g *Gateway) Run(ctx context.Context) error {
 			timeout = time.Duration(resp.LongPollingTimeoutMS+5000) * time.Millisecond
 		}
 		for _, msg := range resp.Messages {
-			go g.dispatch(ctx, msg)
+			if !g.beginWork() {
+				break
+			}
+			go func(msg Message) { defer g.work.Done(); g.dispatch(ctx, msg) }(msg)
 		}
 	}
 }
@@ -138,7 +160,23 @@ func attachmentIndexForItem(items []MessageItem) int {
 	return count
 }
 
+func (g *Gateway) beginWork() bool {
+	g.workMu.Lock()
+	defer g.workMu.Unlock()
+	if g.workClosed {
+		return false
+	}
+	g.work.Add(1)
+	return true
+}
+
+// Wait blocks until dispatches and message callbacks started before Close finish.
+func (g *Gateway) Wait() { g.work.Wait() }
+
 func (g *Gateway) Close() {
+	g.workMu.Lock()
+	g.workClosed = true
+	g.workMu.Unlock()
 	g.mu.Lock()
 	g.closed = true
 	if g.cancel != nil {

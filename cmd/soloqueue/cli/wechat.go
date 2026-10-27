@@ -24,6 +24,7 @@ type WechatBotManager struct {
 	keepaliveMu   sync.Mutex
 	keepalive     *wechatKeepalive
 	mu            sync.Mutex
+	stopped       bool
 	cfg           *config.GlobalService
 	mgr           *session.SessionManager
 	l2Store       *session.L2SessionStore
@@ -166,15 +167,23 @@ func (m *WechatBotManager) Reload() {
 func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.stopped {
+		return
+	}
 	m.resetWechatKeepalive()
 	for _, gateway := range m.gateways {
 		gateway.Close()
 	}
-	for _, done := range m.gatewayDone {
-		<-done
-	}
-	m.gatewayDone = nil
 	m.gateways = nil
+	pending := m.gatewayDone[:0]
+	for _, done := range m.gatewayDone {
+		select {
+		case <-done:
+		default:
+			pending = append(pending, done)
+		}
+	}
+	m.gatewayDone = pending
 	m.bridges = nil
 	m.clients = make(map[string]*wechat.Client)
 	m.accounts = make(map[string]config.WechatBotConfig)
@@ -228,15 +237,21 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 		m.clients[wxCfg.BotID] = client
 		m.accounts[wxCfg.BotID] = baseCfg
 
+		runDone := make(chan struct{})
 		done := make(chan struct{})
 		m.gatewayDone = append(m.gatewayDone, done)
 		go func() {
-			defer close(done)
-			if ownedLog {
-				defer wxLog.Close()
-			}
+			defer close(runDone)
 			if err := gateway.Run(context.Background()); err != nil && err != wechat.ErrClosed {
 				wxLog.Warn(logger.CatApp, "wechat gateway stopped", "err", err.Error())
+			}
+		}()
+		go func() {
+			defer close(done)
+			<-runDone
+			gateway.Wait()
+			if ownedLog {
+				_ = wxLog.Close()
 			}
 		}()
 	}
@@ -246,19 +261,28 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 
 func (m *WechatBotManager) Shutdown() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.stopped = true
 	m.stopWechatKeepalive()
 	for _, gateway := range m.gateways {
 		gateway.Close()
 	}
-	for _, done := range m.gatewayDone {
-		<-done
-	}
+	done := m.gatewayDone
 	m.gatewayDone = nil
 	m.gateways = nil
 	m.bridges = nil
 	m.clients = make(map[string]*wechat.Client)
 	m.accounts = make(map[string]config.WechatBotConfig)
+	m.mu.Unlock()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for _, finished := range done {
+		select {
+		case <-finished:
+		case <-deadline.C:
+			m.mainLog.Warn(logger.CatApp, "wechat handlers still stopping; logger cleanup will continue in background")
+			return
+		}
+	}
 }
 
 func WechatCmd(version string) *cobra.Command {

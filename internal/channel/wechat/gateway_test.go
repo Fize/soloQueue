@@ -159,3 +159,28 @@ func TestGatewayBuffersComplementaryMessagesForOneSecond(t *testing.T) {
 		t.Fatal("gateway did not merge complementary messages")
 	}
 }
+
+func TestGatewayWaitsForActiveMessageHandler(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	gateway := NewGateway(Config{}, nil, channel.HandlerFunc(func(context.Context, channel.Message) {
+		close(started)
+		<-release
+	}), nil)
+	go gateway.buffer.Push(context.Background(), channel.Message{Text: "/help"})
+	<-started
+	gateway.Close()
+	done := make(chan struct{})
+	go func() { gateway.Wait(); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("Wait returned before handler finished")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Wait did not return after handler finished")
+	}
+}
