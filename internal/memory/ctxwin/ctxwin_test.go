@@ -606,7 +606,7 @@ func TestDrainPendingAssignsAggregateToLastQueuedRequest(t *testing.T) {
 func TestGeneratedMessageTimesAreUnique(t *testing.T) {
 	seen := make(map[int64]bool)
 	for i := 0; i < 1000; i++ {
-		ts := generatedMessageTime()
+		ts := GeneratedMessageTime()
 		if seen[ts.UnixNano()] {
 			t.Fatalf("duplicate generated message time: %s", ts)
 		}

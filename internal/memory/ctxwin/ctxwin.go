@@ -19,9 +19,9 @@ import (
 var compactionSequence atomic.Uint64
 var lastGeneratedMessageNanos atomic.Int64
 
-// generatedMessageTime distinguishes automatically timed messages on coarse system clocks.
+// GeneratedMessageTime distinguishes automatically timed messages on coarse system clocks.
 // Explicit arrival times supplied by callers remain unchanged.
-func generatedMessageTime() time.Time {
+func GeneratedMessageTime() time.Time {
 	now := time.Now()
 	nanos := now.UnixNano()
 	for {
@@ -437,7 +437,7 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 	cw.Lock()
 	defer cw.Unlock()
 
-	msg := Message{Role: role, Content: content, Timestamp: generatedMessageTime()}
+	msg := Message{Role: role, Content: content, Timestamp: GeneratedMessageTime()}
 	for _, opt := range opts {
 		opt(&msg)
 	}
