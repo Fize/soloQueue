@@ -81,7 +81,14 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	pcmFile.Close()
 	defer os.Remove(pcmPath)
 
-	decode := exec.CommandContext(ctx, t.SilkDecoder(), silkPath, pcmPath, "-Fs_API", "16000")
+	decodeArgs := []string{silkPath, pcmPath, "-Fs_API", "16000"}
+	if runtime.GOOS == "windows" {
+		decodeArgs[0], decodeArgs[1] = filepath.Base(silkPath), filepath.Base(pcmPath)
+	}
+	decode := exec.CommandContext(ctx, t.SilkDecoder(), decodeArgs...)
+	if runtime.GOOS == "windows" {
+		decode.Dir = tmpDir
+	}
 	if out, err := decode.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("silk decode: %w\n%s", err, string(out))
 	}
@@ -100,32 +107,29 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioData []byte) (string,
 	wavFile.Close()
 	defer os.Remove(wavPath)
 
+	pcmInput, wavOutput := pcmPath, wavPath
+	if runtime.GOOS == "windows" {
+		pcmInput, wavOutput = filepath.Base(pcmPath), filepath.Base(wavPath)
+	}
 	convert := exec.CommandContext(ctx, findSpeechTool("ffmpeg"),
 		"-y",          // overwrite output
 		"-f", "s16le", // signed 16-bit little-endian PCM
 		"-ar", "16000", // 16kHz sample rate
 		"-ac", "1", // mono
-		"-i", pcmPath,
+		"-i", pcmInput,
 		"-f", "wav",
-		wavPath,
+		wavOutput,
 	)
+	if runtime.GOOS == "windows" {
+		convert.Dir = tmpDir
+	}
 	if out, err := convert.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("ffmpeg convert pcm→wav: %w\n%s", err, string(out))
 	}
 
 	// Step 4: transcribe via whisper-cli
-	transcribe := exec.CommandContext(ctx, t.Binary(),
-		"-m", t.ModelPath(),
-		"-f", wavPath,
-		"-l", "zh",
-		"--no-timestamps",
-	)
-	out, err := transcribe.Output()
-	if err != nil {
-		return "", whisperCommandError(err)
-	}
+	return t.transcribeWAV(ctx, wavPath)
 
-	return strings.TrimSpace(string(out)), nil
 }
 
 func (t *Transcriber) AudioAvailable() bool {
@@ -154,11 +158,40 @@ func (t *Transcriber) TranscribeAudio(ctx context.Context, audioData []byte) (st
 	outPath := out.Name()
 	out.Close()
 	defer os.Remove(outPath)
-	convert := exec.CommandContext(ctx, findSpeechTool("ffmpeg"), "-y", "-i", inPath, "-ar", "16000", "-ac", "1", "-f", "wav", outPath)
+	inArg, outArg := inPath, outPath
+	if runtime.GOOS == "windows" {
+		inArg, outArg = filepath.Base(inPath), filepath.Base(outPath)
+	}
+	convert := exec.CommandContext(ctx, findSpeechTool("ffmpeg"), "-y", "-i", inArg, "-ar", "16000", "-ac", "1", "-f", "wav", outArg)
+	if runtime.GOOS == "windows" {
+		convert.Dir = os.TempDir()
+	}
 	if output, err := convert.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("audio convert: %w\n%s", err, output)
 	}
-	cmd := exec.CommandContext(ctx, t.Binary(), "-m", t.ModelPath(), "-f", outPath, "-l", "zh", "--no-timestamps")
+	return t.transcribeWAV(ctx, outPath)
+
+}
+
+// transcribeWAV avoids passing Unicode paths to Windows whisper.cpp's narrow CRT.
+// Its model is addressed relative to the working directory and WAV bytes arrive on stdin.
+func (t *Transcriber) transcribeWAV(ctx context.Context, wavPath string) (string, error) {
+	modelArg, inputArg := t.ModelPath(), wavPath
+	var input *os.File
+	if runtime.GOOS == "windows" {
+		var err error
+		input, err = os.Open(wavPath)
+		if err != nil {
+			return "", fmt.Errorf("open wav: %w", err)
+		}
+		defer input.Close()
+		modelArg, inputArg = filepath.Base(t.ModelPath()), "-"
+	}
+	cmd := exec.CommandContext(ctx, t.Binary(), "-m", modelArg, "-f", inputArg, "-l", "zh", "--no-timestamps")
+	if input != nil {
+		cmd.Dir = t.modelDir
+		cmd.Stdin = input
+	}
 	data, err := cmd.Output()
 	if err != nil {
 		return "", whisperCommandError(err)

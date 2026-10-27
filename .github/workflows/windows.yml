@@ -98,6 +98,9 @@ jobs:
             & './third-party/silk/silk/encoder.exe' $pcm $silk -Fs_API 16000
             if ($LASTEXITCODE -ne 0) { throw 'SILK fixture encoding failed' }
             $env:SOLOQUEUE_SPEECH_SILK_FIXTURE = $silk
+            $env:TEMP = Join-Path $env:SOLOQUEUE_WORK_DIR "临时音频"
+            $env:TMP = $env:TEMP
+            New-Item -ItemType Directory -Force $env:TEMP | Out-Null
             & $goExe test ./internal/channel/qq -run '^TestWindowsInstalledSpeechTranscribesSilk$' -count=1 -v
             if ($LASTEXITCODE -ne 0) { throw 'Windows speech transcription failed' }
           } finally {
