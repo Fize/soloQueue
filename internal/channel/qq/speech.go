@@ -187,7 +187,14 @@ func (t *Transcriber) transcribeWAV(ctx context.Context, wavPath string) (string
 		defer input.Close()
 		modelArg, inputArg = filepath.Base(t.ModelPath()), "-"
 	}
-	cmd := exec.CommandContext(ctx, t.Binary(), "-m", modelArg, "-f", inputArg, "-l", "zh", "--no-timestamps")
+	args := []string{"-m", modelArg, "-f", inputArg, "-l", "zh", "--no-timestamps"}
+	if input != nil {
+		// With stdin input whisper.cpp treats "-" as the output destination and
+		// suppresses the transcript callback unless an output basename is set.
+		// No file is created because no output format is requested.
+		args = append(args, "-of", "soloqueue-stdout")
+	}
+	cmd := exec.CommandContext(ctx, t.Binary(), args...)
 	if input != nil {
 		cmd.Dir = t.modelDir
 		cmd.Stdin = input

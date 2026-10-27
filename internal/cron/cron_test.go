@@ -2409,9 +2409,9 @@ func TestCronExplicitCancellationStopsRetries(t *testing.T) {
 	}
 }
 
-// NewSchedulerForRetryTest exposes a zero-backoff scheduler only to external runtime tests.
+// NewSchedulerForRetryTest uses a short backoff so cancelled actors can release their recovery fence.
 func NewSchedulerForRetryTest(store *DBStore, manager SessionManager) *Scheduler {
 	s := NewScheduler(store, manager, nil)
-	s.retryDelay = 0
+	s.retryDelay = 250 * time.Millisecond
 	return s
 }
