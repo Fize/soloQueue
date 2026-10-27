@@ -110,7 +110,7 @@ jobs:
 
   windows-native-workers:
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: pwsh
@@ -124,3 +124,13 @@ jobs:
         run: cargo +1.88.0 test --locked --manifest-path native/embedding/Cargo.toml
       - name: Test native classifier worker
         run: cargo +1.88.0 test --locked --manifest-path native/decide/Cargo.toml
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Build classifier worker
+        run: cargo +1.88.0 build --locked --release --manifest-path native/decide/Cargo.toml
+      - name: Test real classifier on Windows
+        run: |
+          $env:SOLOQUEUE_DECIDE_WORKER = (Resolve-Path 'native/decide/target/release/soloqueue-decide.exe').Path
+          $env:SOLOQUEUE_LAYA_INTEGRATION_WORKDIR = Join-Path $env:RUNNER_TEMP 'soloqueue classifier 测试'
+          go test ./internal/router/laya -run '^TestWindowsRealClassifier$' -count=1 -timeout 20m -v
