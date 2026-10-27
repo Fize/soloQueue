@@ -25,5 +25,3 @@ func Kill(cmd *exec.Cmd) error {
 
 func Start(cmd *exec.Cmd) error { return cmd.Start() }
 func Close(_ *exec.Cmd)         {}
-
-func CleanupAfterWait(_ *exec.Cmd) error { return nil }

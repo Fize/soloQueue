@@ -39,7 +39,7 @@ Windows x64 可在安装 Go、Node.js 和 pnpm 后，通过 PowerShell 构建：
 .\soloqueue.exe start
 ```
 
-发布工作流构建的 Windows 压缩包包含 `silk-decoder.exe`；语音依赖安装时需将它与 `soloqueue.exe` 放在同一目录。安装器会将固定版本的 Whisper、FFmpeg 和模型下载到 SoloQueue 工作目录。源码构建也需在程序旁提供该解码器。Windows 命令使用 PowerShell，包含 Unix Shell 语法的 Skill 需要提供 Windows 兼容版本。MCP/LSP 的批处理启动器会拒绝路径或参数中的 `"`、`&`、`|`、`<`、`>`、`^`、`%`、`!` 等 cmd.exe 特殊字符；需要这些字符时可使用原生可执行文件或直接调用 Node 的 JavaScript 入口。以反斜杠结尾的参数采用兼容 Node 包装脚本的转义方式；普通批处理通过 `%~1` 读取时，末尾反斜杠可能增加。
+发布工作流构建的 Windows 压缩包包含 `silk-decoder.exe`；语音依赖安装时需将它与 `soloqueue.exe` 放在同一目录。安装器会将固定版本的 Whisper、FFmpeg 和模型下载到 SoloQueue 工作目录。源码构建未附带解码器时，安装器会自动下载它。Windows 命令使用 PowerShell，包含 Unix Shell 语法的 Skill 需要提供 Windows 兼容版本。MCP/LSP 的批处理启动器会拒绝路径或参数中的 `"`、`&`、`|`、`<`、`>`、`^`、`%`、`!` 等 cmd.exe 特殊字符；需要这些字符时可使用原生可执行文件或直接调用 Node 的 JavaScript 入口。以反斜杠结尾的参数采用兼容 Node 包装脚本的转义方式；普通批处理通过 `%~1` 读取时，末尾反斜杠可能增加。
 
 打开 <http://127.0.0.1:57689>，配置一个可用模型并添加项目目录，即可开始对话和处理任务。
 

@@ -1086,7 +1086,8 @@ func (m *Mux) handleGetSpeechStatus(w http.ResponseWriter, r *http.Request) {
 	status.ModelDir = modelDir
 	modelPath := filepath.Join(modelDir, "ggml-"+cfg.Model+".bin")
 	status.ModelPath = modelPath
-	status.ModelExists = speechinstall.VerifyModel(modelPath, cfg.Model) == nil
+	modelInfo, modelErr := os.Stat(modelPath)
+	status.ModelExists = modelErr == nil && modelInfo.Mode().IsRegular()
 
 	transcriber := qqbot.NewTranscriber(cfg.Model, modelDir)
 	status.WhisperBinary = transcriber.Binary()
@@ -1216,7 +1217,7 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 		resp.SilkPath = decoder
 		resp.SilkMessage = "already exists"
 	} else {
-		installed, msg, detail, err := installSilkDecoder()
+		installed, msg, detail, err := installSilkDecoder(r.Context())
 		if err != nil {
 			resp.Error = err.Error()
 			resp.Detail = detail
@@ -1235,9 +1236,9 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusInternalServerError, resp)
 		return
 	}
-	if err := speechinstall.VerifyFile(modelPath, speechinstall.ModelSHA256[model]); err == nil {
+	if info, err := os.Stat(modelPath); err == nil && info.Mode().IsRegular() {
 		resp.ModelPath = modelPath
-		resp.ModelMessage = "already verified"
+		resp.ModelMessage = "already exists"
 	} else {
 		if detail, err := downloadSpeechModel(r.Context(), model, modelPath); err != nil {
 			resp.Error = err.Error()
@@ -1255,9 +1256,8 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 
 const silkDecoderRepo = "https://github.com/kn007/silk-v3-decoder.git"
 
-// installSilkDecoder installs the decoder into ~/.soloqueue/bin by building
-// the upstream SDK on a supported Unix-like system.
-func installSilkDecoder() (binaryPath, message, detail string, err error) {
+// installSilkDecoder installs the decoder into the SoloQueue tool directory.
+func installSilkDecoder(ctx context.Context) (binaryPath, message, detail string, err error) {
 	workDir, err := config.DefaultWorkDir()
 	if err != nil {
 		return "", "", "Cannot determine SoloQueue working directory.", err
@@ -1269,11 +1269,25 @@ func installSilkDecoder() (binaryPath, message, detail string, err error) {
 			return "", "", "Cannot determine SoloQueue executable path.", err
 		}
 		source := filepath.Join(filepath.Dir(executable), "silk-decoder.exe")
-		installed, err := speechinstall.InstallDecoder(source, binDir)
-		if err != nil {
-			return "", "", "The Windows release must include silk-decoder.exe next to soloqueue.exe.", err
+		if _, err := os.Stat(source); err == nil {
+			installed, err := speechinstall.InstallDecoder(source, binDir)
+			if err != nil {
+				return "", "", "Failed to install the bundled SILK decoder.", err
+			}
+			return installed, "installed from SoloQueue release", "", nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", "", "Cannot access the bundled SILK decoder.", err
 		}
-		return installed, "installed from SoloQueue release", "", nil
+		dir := filepath.Join(binDir, speechinstall.DecoderDirectory)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", "", "Cannot create the SILK decoder directory.", err
+		}
+		target := filepath.Join(dir, "silk-decoder.exe")
+		client := &http.Client{Timeout: 10 * time.Minute}
+		if err := speechinstall.DownloadVerified(ctx, client, speechinstall.SilkWindowsURL, speechinstall.SilkWindowsSHA256, target, 32<<20); err != nil {
+			return "", "", "Failed to download the Windows SILK decoder.", err
+		}
+		return target, "downloaded from pinned upstream", "", nil
 	}
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return "", "", fmt.Sprintf("Cannot create tool directory %s.", binDir), err

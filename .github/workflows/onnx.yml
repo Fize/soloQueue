@@ -2,16 +2,18 @@ name: Native ONNX embedding
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
     paths: &onnx-paths
       - 'native/embedding/**'
       - 'native/decide/**'
       - 'internal/memory/engine/**'
       - 'internal/config/**'
       - 'internal/runtime/**'
+      - 'internal/router/laya/**'
       - 'internal/server/**'
       - 'internal/agenttools/tools/runtime_process*'
       - 'internal/infra/process/**'
+      - 'internal/infra/onnxruntime/**'
       - 'internal/infra/shell/**'
       - 'internal/agenttools/skill/open_skill*'
       - 'internal/agenttools/skill/skill_md.go'
@@ -19,6 +21,7 @@ on:
       - 'web/**'
       - '.github/scripts/**'
       - '.github/workflows/onnx.yml'
+      - '.github/workflows/windows.yml'
       - '.github/workflows/release.yml'
       - 'deploy/docker/Dockerfile'
       - 'Makefile'
@@ -73,10 +76,19 @@ jobs:
           cargo +1.88.0 clippy --locked --manifest-path native/embedding/Cargo.toml --all-targets -- -D warnings
           cargo +1.88.0 build --locked --release --manifest-path native/embedding/Cargo.toml
           cargo +1.88.0 fmt --manifest-path native/decide/Cargo.toml --check
+          cargo +1.88.0 test --locked --manifest-path native/decide/Cargo.toml
           cargo +1.88.0 clippy --locked --manifest-path native/decide/Cargo.toml --all-targets -- -D warnings
           cargo +1.88.0 build --locked --release --manifest-path native/decide/Cargo.toml
           go test -race ./internal/memory/engine/embedding/local/...
           python -m unittest discover -s native/embedding/scripts -v
+      - name: Test real classifier on Windows
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          $env:SOLOQUEUE_DECIDE_WORKER = (Resolve-Path 'native/decide/target/release/soloqueue-decide.exe').Path
+          $env:SOLOQUEUE_LAYA_INTEGRATION_WORKDIR = Join-Path $env:RUNNER_TEMP 'soloqueue classifier 测试'
+          go test ./internal/router/laya -run '^TestWindowsRealClassifier$' -count=1 -timeout 20m -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install pinned CPU reference dependencies
         run: |
           if [ "$RUNNER_OS" = Linux ]; then

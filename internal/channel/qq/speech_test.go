@@ -2,10 +2,7 @@ package qq
 
 import (
 	"context"
-	"crypto/sha256"
-	"fmt"
 
-	"github.com/xiaobaitu/soloqueue/internal/infra/speechinstall"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -194,7 +191,6 @@ func TestTranscriberAvailable_ModelFileMissing(t *testing.T) {
 
 func TestTranscriberAvailable_BothPresent(t *testing.T) {
 	dir := t.TempDir()
-	useFakeSpeechModel(t, "fake model")
 	t.Setenv("SOLOQUEUE_WORK_DIR", dir)
 	t.Setenv("PATH", t.TempDir())
 	binDir := filepath.Join(dir, "bin")
@@ -304,7 +300,6 @@ func main() {
 
 func TestTranscriberDetectsToolsInstalledAfterCreation(t *testing.T) {
 	dir := t.TempDir()
-	useFakeSpeechModel(t, "model")
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("SOLOQUEUE_WORK_DIR", dir)
 	tr := NewTranscriber("unit", dir)
@@ -354,11 +349,4 @@ func TestTranscriberDoesNotRetainRemovedTool(t *testing.T) {
 	if got := tr.Binary(); got != "" {
 		t.Fatalf("removed tool still found: %q", got)
 	}
-}
-
-func useFakeSpeechModel(t *testing.T, content string) {
-	t.Helper()
-	sum := sha256.Sum256([]byte(content))
-	speechinstall.ModelSHA256["unit"] = fmt.Sprintf("%x", sum)
-	t.Cleanup(func() { delete(speechinstall.ModelSHA256, "unit") })
 }

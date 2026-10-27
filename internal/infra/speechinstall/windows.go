@@ -12,3 +12,7 @@ var FFmpegWindows = Archive{
 	SHA256:    "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
 	Directory: "ffmpeg-9.0.2", Prefix: "ffmpeg-9.0.2-essentials_build/bin/", Executable: "ffmpeg.exe",
 }
+
+// The upstream decoder is used only when a source build has no bundled decoder.
+const SilkWindowsURL = "https://raw.githubusercontent.com/kn007/silk-v3-decoder/d216599502662db01c07cc0dfd95ff1f1eaaea02/windows/silk_v3_decoder.exe"
+const SilkWindowsSHA256 = "afe908fdf8bb5ddc3566caef224a365159a6216e517d8a915db50ce5ecf86d1b"

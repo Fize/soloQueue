@@ -70,16 +70,16 @@ func TestRunCommand_WindowsCancellationTerminatesChild(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancel result: %v", err)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("command did not exit after cancellation")
+	case <-time.After(3 * time.Second):
+		t.Fatal("command did not exit promptly after cancellation")
 	}
-	state, err := windows.WaitForSingleObject(child, 10000)
+	state, err := windows.WaitForSingleObject(child, 3000)
 	if err != nil || state != windows.WAIT_OBJECT_0 {
 		t.Fatalf("child survived cancellation: wait=%d err=%v", state, err)
 	}
 }
 
-func TestStartProcess_WindowsLeaderExitTerminatesChild(t *testing.T) {
+func TestStartProcess_WindowsLeaderExitPreservesChild(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child pid.txt")
 	executable, err := os.Executable()
 	if err != nil {
@@ -113,20 +113,21 @@ func TestStartProcess_WindowsLeaderExitTerminatesChild(t *testing.T) {
 			t.Fatalf("child process did not report its PID; kill: %v; stderr still open", killErr)
 		}
 	}
-	child, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	child, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer windows.CloseHandle(child)
+	defer windows.TerminateProcess(child, 1)
 	if _, err := io.WriteString(process.Stdin(), "exit\n"); err != nil {
 		t.Fatal(err)
 	}
 	if err := process.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	state, err := windows.WaitForSingleObject(child, 10000)
-	if err != nil || state != windows.WAIT_OBJECT_0 {
-		t.Fatalf("child survived protocol process exit: wait=%d err=%v", state, err)
+	state, err := windows.WaitForSingleObject(child, 0)
+	if err != nil || state != uint32(windows.WAIT_TIMEOUT) {
+		t.Fatalf("child did not survive normal protocol process exit: wait=%d err=%v", state, err)
 	}
 }
 

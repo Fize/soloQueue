@@ -44,9 +44,6 @@ func InstallDecoder(sourcePath, root string) (string, error) {
 	if closeErr != nil {
 		return "", closeErr
 	}
-	if err := WriteManifest(stage, []string{"silk-decoder.exe"}); err != nil {
-		return "", err
-	}
 	target := filepath.Join(root, DecoderDirectory)
 	if err := replaceDirectory(stage, target); err != nil {
 		return "", fmt.Errorf("install bundled SILK decoder: %w", err)

@@ -50,26 +50,7 @@ func TestDownloadVerifiedCancellationCanRetry(t *testing.T) {
 	if err := DownloadVerified(context.Background(), client, "https://example.invalid/model", digest, target, 100); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyFile(target, digest); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestVerifyModelRejectsChangedFile(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "model.bin")
-	sum := sha256.Sum256([]byte("model"))
-	ModelSHA256["test-model"] = fmt.Sprintf("%x", sum)
-	t.Cleanup(func() { delete(ModelSHA256, "test-model") })
-	if err := os.WriteFile(target, []byte("model"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := VerifyModel(target, "test-model"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(target, []byte("broken model"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := VerifyModel(target, "test-model"); err == nil {
-		t.Fatal("corrupt model accepted")
+	if data, err := os.ReadFile(target); err != nil || string(data) != "model" {
+		t.Fatalf("downloaded file: %q, %v", data, err)
 	}
 }

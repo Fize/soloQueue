@@ -115,5 +115,3 @@ func Close(cmd *exec.Cmd) {
 		state.handle = 0
 	}
 }
-
-func CleanupAfterWait(cmd *exec.Cmd) error { return Kill(cmd) }

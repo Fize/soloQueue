@@ -45,7 +45,8 @@ func (t *Transcriber) Available() bool {
 	if t.Binary() == "" || t.SilkDecoder() == "" || t.FFmpeg() == "" {
 		return false
 	}
-	return speechinstall.VerifyModel(t.ModelPath(), t.model) == nil
+	info, err := os.Stat(t.ModelPath())
+	return err == nil && info.Mode().IsRegular()
 }
 
 // ModelPath returns the full path to the expected ggml model file.
@@ -136,7 +137,8 @@ func (t *Transcriber) AudioAvailable() bool {
 	if t.Binary() == "" {
 		return false
 	}
-	return speechinstall.VerifyModel(t.ModelPath(), t.model) == nil && findSpeechTool("ffmpeg") != ""
+	info, err := os.Stat(t.ModelPath())
+	return err == nil && info.Mode().IsRegular() && findSpeechTool("ffmpeg") != ""
 }
 
 func (t *Transcriber) TranscribeAudio(ctx context.Context, audioData []byte) (string, error) {
@@ -255,11 +257,8 @@ func findSpeechTool(name string) string {
 			paths = append(paths, filepath.Join(workDir, "bin", speechinstall.DecoderDirectory, name))
 		}
 	}
-	for index, path := range paths {
+	for _, path := range paths {
 		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0) {
-			if index > 0 && speechinstall.VerifyInstallation(filepath.Dir(path), name) != nil {
-				continue
-			}
 			return path
 		}
 	}

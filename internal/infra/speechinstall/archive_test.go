@@ -94,23 +94,3 @@ func TestInstallArchiveRepairsIncompleteVersionDirectory(t *testing.T) {
 		t.Fatalf("%q: %v", got, err)
 	}
 }
-
-func TestVerifyInstallationDetectsCorruptedExecutable(t *testing.T) {
-	root := t.TempDir()
-	exe := filepath.Join(root, "whisper-cli.exe")
-	if err := os.WriteFile(exe, []byte("correct"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteManifest(root, []string{"whisper-cli.exe"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := VerifyInstallation(root, "whisper-cli.exe"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(exe, []byte("corrupt"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := VerifyInstallation(root, "whisper-cli.exe"); err == nil {
-		t.Fatal("corrupt executable was accepted")
-	}
-}

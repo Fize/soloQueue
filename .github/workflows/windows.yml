@@ -28,26 +28,11 @@ jobs:
           node-version: '24'
       - name: Install pnpm
         run: npm install --global pnpm@11.13.1
-      - name: Test and build browser UIs
+      - name: Build and test source distribution
         run: |
-          pnpm --dir web install --frozen-lockfile
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/build-windows.ps1
           pnpm --dir web lint
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm --dir web test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm --dir web build
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm --dir status-ui install --frozen-lockfile
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm --dir status-ui test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm --dir status-ui build
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          New-Item -ItemType Directory -Force internal/assets/dist | Out-Null
-          Remove-Item -Recurse -Force internal/assets/dist/web, internal/assets/dist/status -ErrorAction SilentlyContinue
-          Copy-Item -Recurse -Force web/dist internal/assets/dist/web
-          Copy-Item -Recurse -Force status-ui/dist internal/assets/dist/status
       - name: Check out pinned SILK decoder source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -61,11 +46,8 @@ jobs:
           export PATH="/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH"
           make -C third-party/silk/silk EXESUFFIX= 'CFLAGS=-O2 -Wall -Iinterface -Isrc -Itest' 'LINK.o.cmdline=$(LINK.o) $^ $(LDLIBS) -o $@.exe'
           make -C third-party/silk/silk EXESUFFIX= 'CFLAGS=-O2 -Wall -Iinterface -Isrc -Itest' 'LINK.o.cmdline=$(LINK.o) $^ $(LDLIBS) -o $@.exe' encoder
-          cp third-party/silk/silk/decoder.exe silk-decoder.exe
       - name: Run Go tests on Windows
         run: go test ./...
-      - name: Build executable
-        run: go build -o soloqueue.exe ./cmd/soloqueue
       - name: Start server and check health
         run: |
           $env:SOLOQUEUE_WORK_DIR = Join-Path $env:RUNNER_TEMP 'soloqueue windows 测试'
@@ -87,6 +69,7 @@ jobs:
             Invoke-RestMethod -Method Put -Uri 'http://127.0.0.1:18765/api/config/speech/' -ContentType 'application/json' -Body $speech | Out-Null
             $install = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18765/api/config/speech/install' -ContentType 'application/json' -Body '{"model":"tiny"}' -TimeoutSec 900
             if (-not $install.success) { throw "Speech installation failed: $($install.error)" }
+            if ($install.silkMessage -ne 'downloaded from pinned upstream') { throw "Source installation did not download the decoder: $($install.silkMessage)" }
             $status = Invoke-RestMethod 'http://127.0.0.1:18765/api/config/speech/status'
             if (-not $status.ready) { throw 'Installed speech dependencies are not ready' }
             $wav = Join-Path $env:RUNNER_TEMP 'speech-fixture.wav'
@@ -103,34 +86,13 @@ jobs:
             New-Item -ItemType Directory -Force $env:TEMP | Out-Null
             & $goExe test ./internal/channel/qq -run '^TestWindowsInstalledSpeechTranscribesSilk$' -count=1 -v
             if ($LASTEXITCODE -ne 0) { throw 'Windows speech transcription failed' }
+            Remove-Item -Recurse -Force (Join-Path $env:SOLOQUEUE_WORK_DIR 'bin/silk-windows')
+            Copy-Item 'third-party/silk/silk/decoder.exe' './silk-decoder.exe'
+            $bundled = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18765/api/config/speech/install' -ContentType 'application/json' -Body '{"model":"tiny"}' -TimeoutSec 900
+            if (-not $bundled.success -or $bundled.silkMessage -ne 'installed from SoloQueue release') { throw "Bundled decoder installation failed: $($bundled.silkMessage) $($bundled.error)" }
+            & $goExe test ./internal/channel/qq -run '^TestWindowsInstalledSpeechTranscribesSilk$' -count=1 -v
+            if ($LASTEXITCODE -ne 0) { throw 'Bundled Windows speech transcription failed' }
           } finally {
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
             $env:PATH = $oldPath
           }
-
-  windows-native-workers:
-    runs-on: windows-2022
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: pwsh
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal
-      - name: Test native embedding worker
-        run: cargo +1.88.0 test --locked --manifest-path native/embedding/Cargo.toml
-      - name: Test native classifier worker
-        run: cargo +1.88.0 test --locked --manifest-path native/decide/Cargo.toml
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-      - name: Build classifier worker
-        run: cargo +1.88.0 build --locked --release --manifest-path native/decide/Cargo.toml
-      - name: Test real classifier on Windows
-        run: |
-          $env:SOLOQUEUE_DECIDE_WORKER = (Resolve-Path 'native/decide/target/release/soloqueue-decide.exe').Path
-          $env:SOLOQUEUE_LAYA_INTEGRATION_WORKDIR = Join-Path $env:RUNNER_TEMP 'soloqueue classifier 测试'
-          go test ./internal/router/laya -run '^TestWindowsRealClassifier$' -count=1 -timeout 20m -v

@@ -50,7 +50,9 @@ func TestManagerStartsServersOnlyOnFirstUse(t *testing.T) {
 	if ids := manager.ServerIDs(); len(ids) != 1 || ids[0] != def.ID {
 		t.Fatalf("configured servers = %v, want [%s]", ids, def.ID)
 	}
-	client, err := manager.clientForFile(ctx, filePath)
+	firstCtx, cancelFirst := context.WithCancel(ctx)
+	client, err := manager.clientForFile(firstCtx, filePath)
+	cancelFirst()
 	if err != nil {
 		t.Fatalf("first use: %v", err)
 	}
@@ -62,7 +64,11 @@ func TestManagerStartsServersOnlyOnFirstUse(t *testing.T) {
 		t.Fatalf("subsequent use: %v", err)
 	}
 	if reused != client || resolutions != 1 {
-		t.Fatal("subsequent use must reuse the running language server")
+		t.Fatal("subsequent use must reuse the running language server after the first request is canceled")
+	}
+	manager.Shutdown()
+	if client.alive() {
+		t.Fatal("language server must stop when the manager shuts down")
 	}
 }
 

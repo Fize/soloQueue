@@ -82,7 +82,6 @@ func InstallArchive(ctx context.Context, client *http.Client, spec Archive, root
 		return "", err
 	}
 	found := false
-	names := []string{}
 	var total uint64
 	seen := map[string]bool{}
 	for _, entry := range archive.File {
@@ -129,16 +128,12 @@ func InstallArchive(ctx context.Context, client *http.Client, spec Archive, root
 		if destErr != nil {
 			return "", destErr
 		}
-		names = append(names, name)
 		if name == spec.Executable {
 			found = true
 		}
 	}
 	if !found {
 		return "", fmt.Errorf("speech executable missing from verified archive")
-	}
-	if err := WriteManifest(output, names); err != nil {
-		return "", err
 	}
 	destination := filepath.Join(root, spec.Directory)
 	if err := replaceDirectory(output, destination); err != nil {

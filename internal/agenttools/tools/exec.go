@@ -3,7 +3,6 @@ package tools
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -67,13 +66,8 @@ func (p *hostProcess) Stdout() io.Reader     { return p.stdout }
 func (p *hostProcess) Stderr() io.Reader     { return p.stderr }
 func (p *hostProcess) Wait() error {
 	err := p.cmd.Wait()
-	// Long-lived protocol processes own their descendants even after their leader exits.
-	cleanupErr := cleanupAfterRuntimeProcessWait(p.cmd)
 	closeRuntimeProcess(p.cmd)
-	if cleanupErr == nil {
-		return err
-	}
-	return errors.Join(err, cleanupErr)
+	return err
 }
 func (p *hostProcess) Kill() error {
 	if p.cmd.Process == nil {
