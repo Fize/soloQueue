@@ -104,3 +104,20 @@ jobs:
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
             $env:PATH = $oldPath
           }
+
+  windows-native-workers:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Test native embedding worker
+        run: cargo +1.88.0 test --locked --manifest-path native/embedding/Cargo.toml
+      - name: Test native classifier worker
+        run: cargo +1.88.0 test --locked --manifest-path native/decide/Cargo.toml
