@@ -43,6 +43,9 @@ func TestWechatNotificationsRestoreAndReloadSavedCredentials(t *testing.T) {
 			case <-stopPolling:
 			}
 			return
+		case "/ilink/bot/getconfig":
+			fmt.Fprint(w, `{"ret":0,"typing_ticket":"fake-ticket"}`)
+			return
 		case "/ilink/bot/getuploadurl":
 			fmt.Fprintf(w, `{"ret":0,"upload_full_url":%q}`, server.URL+"/upload")
 			return

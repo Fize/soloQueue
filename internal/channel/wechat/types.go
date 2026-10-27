@@ -76,6 +76,7 @@ type GetUploadURLResponse struct {
 type GetConfigResponse struct {
 	APIResponse
 	TypingTicket string `json:"typing_ticket,omitempty"`
+	ContextToken string `json:"context_token,omitempty"`
 }
 
 type TypingStatus int

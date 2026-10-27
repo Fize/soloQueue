@@ -23,6 +23,8 @@ import (
 )
 
 type WechatBotManager struct {
+	keepaliveMu   sync.Mutex
+	keepalive     *wechatKeepalive
 	mu            sync.Mutex
 	cfg           *config.GlobalService
 	mgr           *session.SessionManager
@@ -89,10 +91,22 @@ func NewWechatBotManager(cfg *config.GlobalService, mgr *session.SessionManager,
 		if err != nil {
 			return err
 		}
+		msg = m.prepareWechatNotification(ctx, msg)
+		updated, _ := json.Marshal(msg)
+		msg, client, err = m.notificationClient(ctx, updated)
+		if err != nil {
+			return err
+		}
 		return client.SendText(ctx, msg, text)
 	})
 	channel.RegisterMediaSenderFactory("wechat", func(ctx context.Context, data []byte, media []channel.OutboundMedia) error {
 		msg, client, err := m.notificationClient(ctx, data)
+		if err != nil {
+			return err
+		}
+		msg = m.prepareWechatNotification(ctx, msg)
+		updated, _ := json.Marshal(msg)
+		msg, client, err = m.notificationClient(ctx, updated)
 		if err != nil {
 			return err
 		}
@@ -153,6 +167,7 @@ func (m *WechatBotManager) Reload() {
 func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.resetWechatKeepalive()
 	for _, gateway := range m.gateways {
 		gateway.Close()
 	}
@@ -204,7 +219,10 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 		if transcriber != nil {
 			bridge.SetVoiceTranscriber(transcriber.Transcribe)
 		}
-		gateway := wechat.NewGateway(wxCfg, client, bridge, wxLog)
+		gateway := wechat.NewGateway(wxCfg, client, channel.HandlerFunc(func(ctx context.Context, msg channel.Message) {
+			m.rememberWechatInbound(msg)
+			bridge.OnMessage(ctx, msg)
+		}), wxLog)
 		m.gateways = append(m.gateways, gateway)
 		m.bridges = append(m.bridges, bridge)
 		m.clients[wxCfg.BotID] = client
@@ -217,11 +235,13 @@ func (m *WechatBotManager) ReloadWithSettings(settings config.Settings) {
 		}()
 	}
 	m.mainLog.Info(logger.CatApp, "WeChat bots hot-reloaded", "bot_count", len(m.gateways))
+	go m.runWechatKeepalive(m.wechatKeeper())
 }
 
 func (m *WechatBotManager) Shutdown() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.stopWechatKeepalive()
 	for _, gateway := range m.gateways {
 		gateway.Close()
 	}

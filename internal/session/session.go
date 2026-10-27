@@ -352,24 +352,48 @@ func (s *Session) SetL1NotifyChannelPath(path string) {
 	}
 }
 
-func (s *Session) notifyChannel() (string, error) {
+// resolveNotification takes one current configuration snapshot for both channel
+// selection and account binding, so a concurrent settings change cannot mix them.
+// Binding decoding is deferred unless the operation requires that channel; a
+// configured channel remains visible even when its binding is invalid.
+func (s *Session) resolveNotification(boundChannels ...string) (string, channel.NotificationBinding, error) {
+	binding := channel.NotificationBinding{}
 	if s.l1NotifyChannelPath != "" {
 		data, err := os.ReadFile(s.l1NotifyChannelPath)
 		if err != nil {
-			return "", fmt.Errorf("read notification channel config: %w", err)
+			return "", binding, fmt.Errorf("read notification channel config: %w", err)
 		}
 		var cfg struct {
-			NotifyChannel string `yaml:"notify_channel"`
+			NotifyChannel string    `yaml:"notify_channel"`
+			Channels      yaml.Node `yaml:"channels"`
 		}
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
-			return "", fmt.Errorf("parse notification channel config: %w", err)
+			return "", binding, fmt.Errorf("parse notification channel config: %w", err)
 		}
-		return strings.TrimSpace(cfg.NotifyChannel), nil
+		selected := strings.TrimSpace(cfg.NotifyChannel)
+		for _, channelType := range boundChannels {
+			if selected != channelType {
+				continue
+			}
+			var channels map[string]string
+			if cfg.Channels.Kind != 0 {
+				if err := cfg.Channels.Decode(&channels); err != nil {
+					return selected, binding, errors.New(channelType + "_notification_config_invalid: cannot parse notification binding")
+				}
+			}
+			binding.AccountID = channels[selected]
+			break
+		}
+		return selected, binding, nil
+	}
+	if s.TargetID != "l1-session" && s.TeamID != "L1" {
+		binding.Group = s.TeamID
 	}
 	if a := s.CurrentAgent(); a != nil {
-		return a.Def.NotifyChannel, nil
+		binding.AccountID = a.Def.Channels[a.Def.NotifyChannel]
+		return a.Def.NotifyChannel, binding, nil
 	}
-	return "", nil
+	return "", binding, nil
 }
 
 type agentGeneration struct {
@@ -1004,6 +1028,8 @@ func (s *Session) SetChannelSender(channelType string, fn func(context.Context, 
 // SetChannelSenderData saves the channel sender closure and persists its metadata to the DB if a store is configured.
 func (s *Session) SetChannelSenderData(channelType string, metadata []byte, fn func(context.Context, string) error) {
 	s.SetChannelSender(channelType, fn)
+	s.channelSendersMu.Lock()
+	defer s.channelSendersMu.Unlock()
 	if s.metaStore != nil {
 		if err := s.metaStore.SaveChannelSenderData(s.TargetID, channelType, string(metadata)); err != nil {
 			s.logger.WarnContext(context.Background(), logger.CatApp, "session: failed to save channel metadata",
@@ -1033,7 +1059,7 @@ func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.Outbo
 	if len(media) == 0 {
 		return nil
 	}
-	notifyChannel, err := s.notifyChannel()
+	notifyChannel, binding, err := s.resolveNotification("wechat")
 	if err != nil {
 		return err
 	}
@@ -1041,7 +1067,7 @@ func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.Outbo
 		return nil
 	}
 	if notifyChannel == "wechat" {
-		return s.sendWechatNotification(ctx, "", media)
+		return s.sendBoundNotification(ctx, "wechat", "", media, binding)
 	}
 	if notifyChannel == "wecom" {
 		return errors.New("wecom currently supports text notifications only")
@@ -1069,7 +1095,7 @@ func (s *Session) SendMediaViaChannel(ctx context.Context, media []channel.Outbo
 // HasNotifyChannel reports whether this session's agent has configured a
 // notification channel. It does not claim that a live sender is available.
 func (s *Session) HasNotifyChannel() bool {
-	notifyChannel, err := s.notifyChannel()
+	notifyChannel, _, err := s.resolveNotification()
 	return err == nil && notifyChannel != ""
 }
 
@@ -1077,7 +1103,7 @@ func (s *Session) HasNotifyChannel() bool {
 // The channel is determined by the agent's NotifyChannel config (e.g. "qq", "wechat", or "telegram").
 // If notify_channel or its active sender is absent, no notification is sent.
 func (s *Session) SendViaChannel(ctx context.Context, text string) error {
-	notifyChannel, err := s.notifyChannel()
+	notifyChannel, binding, err := s.resolveNotification("wechat", "wecom")
 	if err != nil {
 		s.logger.WarnContext(ctx, logger.CatApp, "session: failed to read notification channel config",
 			"target_id", s.TargetID,
@@ -1093,10 +1119,10 @@ func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 	}
 
 	if notifyChannel == "wechat" {
-		return s.sendWechatNotification(ctx, text, nil)
+		return s.sendBoundNotification(ctx, "wechat", text, nil, binding)
 	}
 	if notifyChannel == "wecom" {
-		return s.sendBoundNotification(ctx, "wecom", text, nil)
+		return s.sendBoundNotification(ctx, "wecom", text, nil, binding)
 	}
 
 	s.channelSendersMu.RLock()
@@ -1153,32 +1179,9 @@ func (s *Session) SendViaChannel(ctx context.Context, text string) error {
 	return nil
 }
 
-// sendWechatNotification applies current account bindings to live and restored
-// senders alike. Route persistence never contains the authentication credential.
-func (s *Session) sendWechatNotification(ctx context.Context, text string, media []channel.OutboundMedia) error {
-	return s.sendBoundNotification(ctx, "wechat", text, media)
-}
-
-func (s *Session) sendBoundNotification(ctx context.Context, channelType, text string, media []channel.OutboundMedia) error {
-	binding := channel.NotificationBinding{}
-	if a := s.CurrentAgent(); a != nil {
-		binding.AccountID = a.Def.Channels[channelType]
-	}
-	if s.l1NotifyChannelPath != "" {
-		data, err := os.ReadFile(s.l1NotifyChannelPath)
-		if err != nil {
-			return errors.New(channelType + "_notification_config_unavailable: cannot read notification binding")
-		}
-		var cfg struct {
-			Channels map[string]string `yaml:"channels"`
-		}
-		if yaml.Unmarshal(data, &cfg) != nil {
-			return errors.New(channelType + "_notification_config_invalid: cannot parse notification binding")
-		}
-		binding.AccountID = cfg.Channels[channelType]
-	} else if s.TargetID != "l1-session" && s.TeamID != "L1" {
-		binding.Group = s.TeamID
-	}
+// sendBoundNotification applies the account binding captured with notification
+// selection to both live senders and saved routes.
+func (s *Session) sendBoundNotification(ctx context.Context, channelType, text string, media []channel.OutboundMedia, binding channel.NotificationBinding) error {
 	ctx = channel.ContextWithNotificationBinding(ctx, binding)
 	s.channelSendersMu.RLock()
 	textSender := s.channelSenders[channelType]

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,5 +92,107 @@ func TestWecomNotificationRestoresGroupRouteWithCurrentBinding(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("saved factory not called")
+	}
+}
+
+func TestNotificationResolutionUsesCurrentSelectionAndBinding(t *testing.T) {
+	for _, channelType := range []string{"wechat", "wecom"} {
+		t.Run(channelType, func(t *testing.T) {
+			sess := NewSession("l1-session", "L1", &agent.Agent{Def: agent.Definition{NotifyChannel: "telegram", Channels: map[string]string{channelType: "old"}}}, nil, nil, nil)
+			defer sess.Close()
+			path := filepath.Join(t.TempDir(), "channels.yaml")
+			sess.SetL1NotifyChannelPath(path)
+			for _, account := range []string{"first", "second"} {
+				if err := os.WriteFile(path, []byte("notify_channel: ' "+channelType+" '\nchannels:\n  "+channelType+": "+account+"\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				selected, binding, err := sess.resolveNotification(channelType)
+				if err != nil || selected != channelType || binding.AccountID != account || binding.Group != "" {
+					t.Fatalf("selection=%s binding=%+v err=%v", selected, binding, err)
+				}
+				called := false
+				sess.SetChannelSender(channelType, func(ctx context.Context, _ string) error {
+					got, ok := channel.NotificationBindingFromContext(ctx)
+					if !ok || got != binding {
+						t.Fatalf("send binding=%+v, want %+v", got, binding)
+					}
+					called = true
+					return nil
+				})
+				if err := sess.SendViaChannel(context.Background(), "notification"); err != nil {
+					t.Fatal(err)
+				}
+				if !called {
+					t.Fatal("selected sender was not called")
+				}
+			}
+			if err := os.WriteFile(path, []byte("notify_channel: ["), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err := sess.resolveNotification(channelType)
+			if err == nil || !strings.Contains(err.Error(), "parse notification channel config") {
+				t.Fatalf("parse error=%v", err)
+			}
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = sess.resolveNotification(channelType)
+			if err == nil || !strings.Contains(err.Error(), "read notification channel config") {
+				t.Fatalf("read error=%v", err)
+			}
+		})
+	}
+}
+
+func TestNotificationMalformedBindingsPreserveSelectionSemantics(t *testing.T) {
+	for _, channelType := range []string{"wechat", "wecom", "qq", "telegram"} {
+		t.Run(channelType, func(t *testing.T) {
+			sess := NewSession("l1-session", "L1", &agent.Agent{}, nil, nil, nil)
+			defer sess.Close()
+			path := filepath.Join(t.TempDir(), "channels.yaml")
+			if err := os.WriteFile(path, []byte("notify_channel: "+channelType+"\nchannels: []\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			sess.SetL1NotifyChannelPath(path)
+			if !sess.HasNotifyChannel() {
+				t.Error("malformed binding hid the configured notification channel")
+			}
+			called := false
+			sess.SetChannelSender(channelType, func(context.Context, string) error { called = true; return nil })
+			err := sess.SendViaChannel(context.Background(), "notification")
+			if channelType == "wechat" || channelType == "wecom" {
+				if err == nil || !strings.Contains(err.Error(), channelType+"_notification_config_invalid") {
+					t.Errorf("text diagnostic=%v, want channel binding category", err)
+				}
+				if called {
+					t.Error("bound sender called with invalid bindings")
+				}
+			} else if err != nil || !called {
+				t.Errorf("unaffected channel delivery: called=%v err=%v", called, err)
+			}
+			mediaCalled := false
+			sess.SetChannelMediaSender(channelType, func(context.Context, []channel.OutboundMedia) error { mediaCalled = true; return nil })
+			err = sess.SendMediaViaChannel(context.Background(), []channel.OutboundMedia{{Kind: channel.MediaFile, Path: "unused"}})
+			switch channelType {
+			case "wecom":
+				if err == nil || err.Error() != "wecom currently supports text notifications only" {
+					t.Errorf("media diagnostic=%v", err)
+				}
+			case "wechat":
+				if err == nil || !strings.Contains(err.Error(), "wechat_notification_config_invalid") {
+					t.Errorf("media diagnostic=%v", err)
+				}
+			default:
+				if err != nil || !mediaCalled {
+					t.Errorf("unaffected media: called=%v err=%v", mediaCalled, err)
+				}
+			}
+			if channelType == "wechat" {
+				route, _, err := sess.NotificationRoute("wechat")
+				if err == nil || !strings.Contains(err.Error(), "wechat_notification_config_invalid") || len(route) > 0 {
+					t.Errorf("keepalive route=%s err=%v", route, err)
+				}
+			}
+		})
 	}
 }
