@@ -8,9 +8,7 @@ import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
 import { useChatStore } from '@/stores/chatStore'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { DelegationProcess } from './observability/DelegationProcess'
-import { ExecutionDetails } from './observability/ExecutionDetails'
+import { DelegationHistory } from './observability/DelegationHistory'
 
 export function DelegationCard({
   name,
@@ -37,7 +35,6 @@ export function DelegationCard({
 }) {
   const [modalOpen, setModalOpen] = useState(false)
   const streamScrollRef = useRef<HTMLDivElement>(null)
-  const [view, setView] = useState<'result' | 'process'>(done ? 'result' : 'process')
   const activeSessionId = useChatStore((state) => state.activeSessionId)
   const requestSessionId = useChatStore((state) => requestId ? state.activeRequests[requestId]?.sessionId : undefined)
   const sessionId = requestSessionId || activeSessionId
@@ -70,7 +67,6 @@ export function DelegationCard({
 
   const instanceId = agentInstanceId || matchedAgent?.instance_id || null
   const agentStream = useAgentStream(instanceId, requestId)
-  const streamIsLive = agentStream?.processing === true
 
   const running = !done
   const cancelled = done && error === 'Cancelled by user'
@@ -175,25 +171,24 @@ export function DelegationCard({
       </div>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="sm:max-w-4xl max-h-[85vh]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0 pr-8">
             <DialogTitle>{cleanName}</DialogTitle>
-            <DialogDescription>{taskText || cleanName}</DialogDescription>
+            <DialogDescription className="min-w-0 truncate">
+              {(taskText || cleanName).replace(/\s+/g, ' ')}
+            </DialogDescription>
           </DialogHeader>
-          <div className="flex gap-2" role="group" aria-label={t('observability.title')}>
-            <Button size="xs" variant={view === 'result' ? 'secondary' : 'ghost'} onClick={() => setView('result')} aria-pressed={view === 'result'}>{t('observability.result')}</Button>
-            <Button size="xs" variant={view === 'process' ? 'secondary' : 'ghost'} onClick={() => setView('process')} aria-pressed={view === 'process'}>{t('observability.process')}</Button>
-          </div>
-          <div ref={streamScrollRef} className="min-w-0 overflow-y-auto">
-            {view === 'result' ? <div className="space-y-3 text-xs">
-              {result && <MarkdownPreview content={result} />}
-              {error && <pre role="alert" className="whitespace-pre-wrap break-words text-destructive">{error}</pre>}
-              {!result && !error && <p className="text-muted-foreground">{running ? t('observability.running') : t('observability.unrecorded')}</p>}
-            </div> : streamIsLive && agentStream ? <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} /> : sessionId && (dispatchId || requestId) ?
-              <DelegationProcess sessionId={sessionId} dispatchId={dispatchId} requestId={requestId} toolCallId={callId} /> : <div className="space-y-2">
-                {agentStream && <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} />}
-                <p className="text-xs text-muted-foreground">{t('observability.oldProcess')}</p>
-                {sessionId && requestId && <ExecutionDetails sessionId={sessionId} requestId={requestId} running={running} />}
+          <div ref={streamScrollRef} className="min-h-0 min-w-0 overflow-y-auto">
+            {taskText && <details className="mb-4 rounded-md border border-border/40 text-xs">
+              <summary className="cursor-pointer px-3 py-2 text-muted-foreground">{t('observability.taskDescription')}</summary>
+              <div tabIndex={0} className="max-h-[35vh] overflow-y-auto whitespace-pre-wrap break-words border-t border-border/40 px-3 py-2 text-muted-foreground">{taskText}</div>
+            </details>}
+            {agentStream ? <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} conversationStyle identity={`${sessionId}:${dispatchId || callId}`} /> : sessionId && (dispatchId || requestId) ?
+              <DelegationHistory sessionId={sessionId} requestId={requestId} dispatchId={dispatchId} toolCallId={callId} result={result} error={error} scrollRef={streamScrollRef} /> :
+              <div className="space-y-3 text-xs">
+                {result && <MarkdownPreview content={result} />}
+                {error && <pre role="alert" className="whitespace-pre-wrap break-words text-destructive">{error}</pre>}
+                {!result && !error && <p className="text-muted-foreground">{running ? t('observability.running') : t('observability.unrecorded')}</p>}
               </div>}
           </div>
         </DialogContent>

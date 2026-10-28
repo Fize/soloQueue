@@ -4,6 +4,7 @@ import { useUIStore } from '@/stores/uiStore'
 export const translations = {
   en: {
     observability: {
+      taskDescription: 'Task details',
       "title": "Execution details",
       "traceTitle": "Execution trace",
       "toolExecution": "Tool execution",
@@ -1233,6 +1234,7 @@ export const translations = {
   },
   zh: {
     observability: {
+      taskDescription: '任务详情',
       "title": "执行详情",
       "traceTitle": "执行 Trace",
       "toolExecution": "工具调用",

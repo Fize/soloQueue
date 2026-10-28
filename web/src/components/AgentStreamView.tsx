@@ -8,6 +8,10 @@ import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from 'lucid
 import { formatToolCallHeader, cn } from '@/lib/utils'
 import { DelegationCard } from '@/components/DelegationCard'
 import { useStickToBottom } from '@/hooks/useStickToBottom'
+import { groupSegments } from '@/components/chat/groupSegments'
+import { WorkedSegment } from '@/components/chat/WorkedSegment'
+import { DelegationGroupView } from '@/components/chat/DelegationGroupView'
+import type { ChatSegment } from '@/types/chat'
 
 function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
   const { t } = useTranslation()
@@ -79,12 +83,14 @@ function ToolCallCard({ seg }: { seg: Segment & { type: 'tool_call' } }) {
   )
 }
 
-function ThinkingBlock({ text, initiallyOpen }: { text: string; initiallyOpen?: boolean }) {
-  const [open, setOpen] = useState(initiallyOpen ?? true)
+function ThinkingBlock({ text, active }: { text: string; active: boolean }) {
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null)
+  const open = manualOpen ?? active
   return (
     <div className="rounded-md border border-border/40">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => setManualOpen(!open)}
+        aria-expanded={open}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors"
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -218,6 +224,8 @@ function StreamDelegationGroup({
 
 interface AgentStreamViewProps {
   state: AgentStreamState
+  conversationStyle?: boolean
+  identity?: string
   /**
    * The scrollable element that owns this stream. Modal callers must provide
    * this explicitly so the stream cannot scroll an ancestor ChatPage.
@@ -225,7 +233,7 @@ interface AgentStreamViewProps {
   scrollContainerRef: RefObject<HTMLDivElement | null>
 }
 
-export function AgentStreamView({ state, scrollContainerRef }: AgentStreamViewProps) {
+export function AgentStreamView({ state, scrollContainerRef, conversationStyle = false, identity }: AgentStreamViewProps) {
   const { contentRef, followOutput } = useStickToBottom({ scrollRef: scrollContainerRef })
   const hasError = !!state.error
 
@@ -234,6 +242,10 @@ export function AgentStreamView({ state, scrollContainerRef }: AgentStreamViewPr
   }, [followOutput, state.segments.length, state.processing, state.error])
 
   const grouped = groupStreamSegments(state.segments)
+  const chatSegments: ChatSegment[] = state.segments.map((segment) => segment.type === 'tool_call'
+    ? { type: 'tool_call', callId: segment.call_id, name: segment.name, args: segment.args, result: segment.result, error: segment.error, done: segment.done, durationMs: segment.duration_ms, agentInstanceId: segment.agent_instance_id, dispatchId: segment.dispatch_id }
+    : segment)
+  const chatGroups = conversationStyle ? groupSegments(chatSegments) : []
 
   return (
     <div ref={contentRef} className="space-y-3">
@@ -246,7 +258,11 @@ export function AgentStreamView({ state, scrollContainerRef }: AgentStreamViewPr
       )}
 
       {/* Segments in chronological order */}
-      {grouped.map((item) => {
+      {conversationStyle ? chatGroups.map((item) => {
+        if (item.type === 'worked') return <WorkedSegment key={item.id} group={item} isStreaming={state.processing} stateKey={`delegate:${identity || state.agent_id}:${state.request_id || ''}:${item.id}`} />
+        if (item.type === 'delegation_group') return <DelegationGroupView key={item.id} group={item} segments={chatSegments} isStreaming={state.processing} requestId={state.request_id} />
+        return item.segment.type === 'content' ? <MarkdownPreview key={item.index} content={item.segment.text} /> : null
+      }) : grouped.map((item) => {
         if (item.type === 'delegation_group') {
           return <StreamDelegationGroup key={item.id} group={item.segments} requestId={state.request_id} />
         }
@@ -254,7 +270,7 @@ export function AgentStreamView({ state, scrollContainerRef }: AgentStreamViewPr
         const seg = item.segment
         switch (seg.type) {
           case 'thinking':
-            return <ThinkingBlock key={item.index} text={seg.text} />
+            return <ThinkingBlock key={item.index} text={seg.text} active={state.processing && item.index === state.segments.length - 1} />
           case 'content':
             return <ContentBlock key={item.index} text={seg.text} />
           case 'tool_call':

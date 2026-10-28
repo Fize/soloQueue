@@ -16,6 +16,55 @@ vi.mock('@/components/DelegationCard', () => ({
 }))
 
 describe('AgentStreamView', () => {
+  it('groups adjacent thinking and tools into the same completed worked section', () => {
+    HTMLElement.prototype.scrollTo = vi.fn()
+    globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver
+    const ref = createRef<HTMLDivElement>()
+    const state: AgentStreamState = { agent_id: 'worker', processing: false, iteration: 1, segments: [
+      { type: 'thinking', text: 'Saved thoughts' },
+      { type: 'tool_call', call_id: 'one', name: 'read', args: '{}', result: 'done', error: '', done: true, duration_ms: 1 },
+      { type: 'content', text: 'Final answer' },
+    ] }
+    const { container } = render(<div ref={ref}><AgentStreamView state={state} scrollContainerRef={ref} conversationStyle identity="session:dispatch" /></div>)
+    const worked = container.querySelector('details.group\\/worked') as HTMLDetailsElement
+    expect(worked).not.toBeNull()
+    expect(worked.open).toBe(false)
+    expect(screen.getByText('Final answer')).toBeInTheDocument()
+    fireEvent.click(worked.querySelector('summary')!)
+    expect(worked.open).toBe(true)
+    expect(screen.getByText('Saved thoughts')).toBeInTheDocument()
+    expect(worked.textContent).toContain('read')
+  })
+
+  it('folds thinking on completion while preserving a manual choice', () => {
+    HTMLElement.prototype.scrollTo = vi.fn()
+    globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver
+    const ref = createRef<HTMLDivElement>()
+    const state: AgentStreamState = { agent_id: 'a', processing: true, iteration: 1, segments: [{ type: 'thinking', text: 'Thinking text' }] }
+    const view = render(<div ref={ref}><AgentStreamView state={state} scrollContainerRef={ref} /></div>)
+    const toggle = screen.getByRole('button', { name: /Thinking/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    view.rerender(<div ref={ref}><AgentStreamView state={{ ...state, processing: false }} scrollContainerRef={ref} /></div>)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('Thinking text')).not.toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(screen.getByText('Thinking text')).toBeInTheDocument()
+  })
+
+  it('folds previous thinking when the reply starts', () => {
+    HTMLElement.prototype.scrollTo = vi.fn()
+    globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver
+    const ref = createRef<HTMLDivElement>()
+    const state: AgentStreamState = { agent_id: 'a', processing: true, iteration: 1, segments: [{ type: 'thinking', text: 'Earlier thoughts' }] }
+    const view = render(<div ref={ref}><AgentStreamView state={state} scrollContainerRef={ref} /></div>)
+    view.rerender(<div ref={ref}><AgentStreamView state={{ ...state, segments: [...state.segments, { type: 'content', text: 'Reply' }] }} scrollContainerRef={ref} /></div>)
+    const toggle = screen.getByRole('button', { name: /Thinking/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    view.rerender(<div ref={ref}><AgentStreamView state={{ ...state, processing: false, segments: [...state.segments, { type: 'content', text: 'Reply' }] }} scrollContainerRef={ref} /></div>)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  })
+
   const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
   const originalScrollTo = HTMLElement.prototype.scrollTo
   const originalResizeObserver = globalThis.ResizeObserver
