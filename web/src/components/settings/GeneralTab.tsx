@@ -32,6 +32,7 @@ export function GeneralTab() {
         </div>
         <div className="max-w-xs">
           <Select
+            aria-label={t('general.language')}
             options={languageOptions}
             value={language}
             onChange={(v) => setLanguage(v as LanguageMode)}
@@ -50,6 +51,7 @@ export function GeneralTab() {
         </div>
         <div className="max-w-xs">
           <Select
+            aria-label={t('general.appearance')}
             options={themeOptions}
             value={theme}
             onChange={(v) => setTheme(v as ThemeMode)}

@@ -14,6 +14,7 @@ import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useWorkspaceCapabilities } from '@/hooks/useWorkspaceCapabilities'
 import { ChatInputAutocomplete, BUILTIN_SLASH_COMMANDS, type ChatInputAutocompleteHandle } from './ChatInputAutocomplete'
 import { ChatInputAttachments, type Attachment } from './ChatInputAttachments'
+import { clearChatDraft, getChatDraft, setChatDraft } from './chat/chatDrafts'
 
 export interface ChatInputProps {
   onSend: (
@@ -93,6 +94,9 @@ export function ChatInput({
   onClearSelectedTarget,
 }: ChatInputProps) {
   const { t } = useTranslation()
+  const draftKey = activeSessionId || '__new_chat__'
+  const currentDraftKey = useRef(draftKey)
+  currentDraftKey.current = draftKey
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const groupRef = useRef<HTMLDivElement>(null)
@@ -109,9 +113,23 @@ export function ChatInput({
 
   // ─── Inline highlight (backdrop-textarea) state ───────────────────────────
   const backdropInnerRef = useRef<HTMLDivElement>(null)
-  const [inputValue, setInputValue] = useState('')
+  const [inputValue, setInputValue] = useState(() => getChatDraft(draftKey).text)
   // Maps display label (e.g. "src/ChatInput.tsx") → absolute path
-  const [atMentions, setAtMentions] = useState<Map<string, string>>(new Map())
+  const [atMentions, setAtMentions] = useState<Map<string, string>>(() => getChatDraft(draftKey).mentions)
+  const mentionsRef = useRef(atMentions)
+
+  useEffect(() => {
+    const draft = getChatDraft(draftKey)
+    mentionsRef.current = draft.mentions
+    // Restore the external session draft together with the uncontrolled textarea.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAtMentions(draft.mentions)
+    setInputValue(draft.text)
+    if (inputRef.current) {
+      inputRef.current.value = draft.text
+      autoResize()
+    }
+  }, [draftKey])
 
   // Selectors State
   const [activeDropdown, setActiveDropdown] = useState<'group' | 'project' | 'branch' | null>(null)
@@ -197,12 +215,16 @@ export function ChatInput({
     if (!el) return
     autoResize()
     setInputValue(el.value)
-  }, [])
+    setChatDraft(draftKey, { text: el.value, mentions: mentionsRef.current })
+  }, [draftKey])
 
   // Called by autocomplete when a file @mention is resolved
   const handleSelectMention = useCallback((path: string, name: string) => {
-    setAtMentions(prev => new Map(prev).set(name, path))
-  }, [])
+    const mentions = new Map(mentionsRef.current).set(name, path)
+    mentionsRef.current = mentions
+    setAtMentions(mentions)
+    setChatDraft(draftKey, { text: inputRef.current?.value || '', mentions })
+  }, [draftKey])
 
   // Context window ring calculation
   const cwPct = useMemo(() => {
@@ -331,13 +353,14 @@ export function ChatInput({
       if (inputRef.current) {
         inputRef.current.value = text;
         setInputValue(text);
+        setChatDraft(draftKey, { text, mentions: mentionsRef.current });
         autoResize();
         inputRef.current.focus();
       }
     };
     window.addEventListener('fill-chat-input', handleFill);
     return () => window.removeEventListener('fill-chat-input', handleFill);
-  }, []);
+  }, [draftKey]);
 
   // Cleanup object URLs on unmount
   const attachmentsRef = useRef<Attachment[]>([])
@@ -472,6 +495,8 @@ export function ChatInput({
       onCancel()
       if (inputRef.current) inputRef.current.value = ''
       setInputValue('')
+      clearChatDraft(draftKey)
+      mentionsRef.current = new Map()
       setAtMentions(new Map())
       attachments.forEach((att) => URL.revokeObjectURL(att.previewUrl))
       setAttachments([])
@@ -517,8 +542,11 @@ export function ChatInput({
 
     if (accepted === false) return
 
+    clearChatDraft(draftKey)
+    if (currentDraftKey.current !== draftKey) return
     if (inputRef.current) inputRef.current.value = ''
     setInputValue('')
+    mentionsRef.current = new Map()
     setAtMentions(new Map())
 
     // Clear and revoke attachments
@@ -527,7 +555,7 @@ export function ChatInput({
 
     // Reset height
     if (inputRef.current) inputRef.current.style.height = 'auto'
-  }, [activeSessionId, disabled, groupsError, groupsLoading, onSend, onCancel, processing, selectedGroup, selectedProjectPath, selectedTarget, showL2Selectors, streaming, t, attachments, atMentions])
+  }, [activeSessionId, disabled, draftKey, groupsError, groupsLoading, onSend, onCancel, processing, selectedGroup, selectedProjectPath, selectedTarget, showL2Selectors, streaming, t, attachments, atMentions])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
@@ -554,8 +582,9 @@ export function ChatInput({
     const el = inputRef.current
     if (!el) return
     setInputValue(el.value)
+    setChatDraft(draftKey, { text: el.value, mentions: mentionsRef.current })
     acRef.current?.handleInput()
-  }, [])
+  }, [draftKey])
 
 
   return (
@@ -563,7 +592,7 @@ export function ChatInput({
       {/* Input card */}
       <div
         className={cn(
-          "relative flex flex-col rounded-xl border border-border/40 bg-background p-2.5 transition-all shadow-sm focus-within:border-primary/30 focus-within:shadow-md"
+          "relative flex flex-col rounded-xl border border-border bg-background p-2.5 transition-all shadow-sm focus-within:border-primary focus-within:ring-2 focus-within:ring-ring"
         )}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
@@ -613,7 +642,7 @@ export function ChatInput({
 
               {/* Backdrop: renders highlighted tokens behind transparent textarea.
                   Font size and layout MUST exactly match the textarea to keep text aligned,
-                  which both match the 13px (0.8125rem) / 1.6 font size of the chat area. */}
+                  which both match the 14px / 1.6 font size of the chat area. */}
               {hasHighlight && (
                 <div
                   aria-hidden="true"
@@ -625,7 +654,7 @@ export function ChatInput({
                     paddingRight: '12px',
                     border: '1px solid transparent',
                     margin: '0',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     lineHeight: '1.6',
                     fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
                     fontWeight: '400',
@@ -644,7 +673,7 @@ export function ChatInput({
               <textarea
                 ref={inputRef}
                 className={cn(
-                  'w-full resize-none bg-transparent focus:outline-none min-h-[32px] max-h-[160px] overflow-y-auto relative',
+                  'w-full resize-none bg-transparent placeholder:text-muted-foreground focus:outline-none min-h-[32px] max-h-[160px] overflow-y-auto relative',
                   hasHighlight ? '' : 'text-foreground'
                 )}
                 style={{
@@ -654,7 +683,7 @@ export function ChatInput({
                   paddingRight: '12px',
                   border: '1px solid transparent',
                   margin: '0',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   lineHeight: '1.6',
                   fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
                   fontWeight: '400',
@@ -950,21 +979,24 @@ export function ChatInput({
                   </div>
                 )}
 
-                {(streaming || delegating || processing) && !inputValue.trim() ? (
+                {(streaming || delegating || processing) && (
                   <button
                     type="button"
                     onClick={onCancel}
+                    aria-label={t('common.stopped')}
                     className="flex shrink-0 items-center gap-1 px-2 sm:px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
                   >
                     <StopCircle className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">{t('common.stopped')}</span>
                   </button>
-                ) : (
+                )}
+                {(!(streaming || delegating || processing) || !!inputValue.trim()) && (
                   <button
                     type="button"
+                    aria-label={t('chat.sendMessage')}
                     onClick={handleSubmit}
                     disabled={disabled || attachments.some((att) => att.status === 'uploading')}
-                    className="flex shrink-0 items-center justify-center h-7 w-7 rounded-lg bg-secondary text-secondary-foreground hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                    className="flex shrink-0 items-center justify-center h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
                   >
                     <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
                   </button>

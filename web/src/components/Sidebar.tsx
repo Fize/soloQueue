@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import {
@@ -66,6 +66,7 @@ export function Sidebar({
 }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const lastAppRoute = useRef('/chat')
   const { theme: themeMode, setTheme } = useUIStore()
   const sessionsLoading = useChatStore((s) => s.sessionsLoading)
   const { t } = useTranslation()
@@ -77,6 +78,7 @@ export function Sidebar({
   )
 
   useEffect(() => {
+    if (!location.pathname.startsWith('/settings')) lastAppRoute.current = `${location.pathname}${location.search}${location.hash}`
     const onChatRoute = location.pathname.startsWith('/chat') || location.pathname === '/new-chat' || location.pathname.startsWith('/agents')
     // auto-expand when on a chat route, but never auto-collapse
     if (onChatRoute) {
@@ -130,7 +132,7 @@ export function Sidebar({
         <SettingsView
           location={location}
           onNav={handleNav}
-          onBack={() => setViewMode('nav')}
+          onBack={() => { setViewMode('nav'); if (location.pathname.startsWith('/settings')) navigate(lastAppRoute.current) }}
           narrow={false}
         />
       ) : (
@@ -227,7 +229,7 @@ function NavView({
                   'flex items-center rounded-xl text-xs font-medium transition-all duration-150 cursor-pointer',
                   narrow ? 'w-full justify-center px-0 py-2' : 'w-full gap-2 px-2.5 py-1.5',
                   active
-                    ? 'bg-primary text-white shadow-[0_6px_18px_rgba(35,99,234,.22)] font-semibold'
+                    ? 'border border-primary/20 bg-primary/10 text-foreground font-semibold'
                     : 'border border-primary/20 bg-primary/8 text-primary hover:bg-primary/15'
                 )}
                 title={narrow ? t(item.key) : undefined}

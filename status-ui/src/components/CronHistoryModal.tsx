@@ -1,3 +1,4 @@
+import { useModalFocus } from './useModalFocus'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Clock, CheckCircle2, XCircle, AlertTriangle, Loader2 } from 'lucide-react'
 
@@ -25,6 +26,8 @@ interface CronHistoryModalProps {
 
 export function CronHistoryModal({ taskId, taskTitle, onClose, t }: CronHistoryModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalFocus(dialogRef)
   const [records, setRecords] = useState<ExecutionRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -69,6 +72,11 @@ export function CronHistoryModal({ taskId, taskTitle, onClose, t }: CronHistoryM
       style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('cronHistory.title', { name: taskTitle })}
+        tabIndex={-1}
         className={`w-full max-w-2xl max-h-[80vh] flex flex-col rounded-xl overflow-hidden shadow-2xl ${closing ? 'modal-content-exiting' : 'modal-content-entering'}`}
         style={{ backgroundColor: 'var(--color-card)' }}
         onClick={e => e.stopPropagation()}
@@ -76,7 +84,7 @@ export function CronHistoryModal({ taskId, taskTitle, onClose, t }: CronHistoryM
         {/* Header with task title + close button */}
         <div className="px-5 py-4 border-b flex items-center justify-between shrink-0" style={{ borderColor: 'var(--color-border)' }}>
           <h2 className="text-base font-bold" style={{ color: 'var(--color-foreground)' }}>{t('cronHistory.title', { name: taskTitle })}</h2>
-          <button onClick={handleClose} className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer"
+          <button aria-label={t('modal.close')} onClick={handleClose} className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer"
             style={{ color: 'var(--color-muted-foreground)' }}><X className="h-5 w-5" /></button>
         </div>
         {/* Scrollable body with records table */}

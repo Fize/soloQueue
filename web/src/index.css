@@ -26,15 +26,15 @@
   --color-sidebar-foreground: #EDEDF0;
   --color-accent: #6164EF;
   --color-accent-foreground: #FFFFFF;
-  --color-destructive: #DC2626;
-  --color-destructive-foreground: #FFFFFF;
+  --color-destructive: #F87171;
+  --color-destructive-foreground: #0F1117;
   --color-border: #2E2F38;
   --color-input: #2E2F38;
-  --color-ring: rgba(35,99,234, 0.30);
-  --color-success: #059669;
-  --color-success-foreground: #FFFFFF;
-  --color-warning: #D97706;
-  --color-warning-foreground: #FFFFFF;
+  --color-ring: #8AB4FF;
+  --color-success: #34D399;
+  --color-success-foreground: #0F1117;
+  --color-warning: #FBBF24;
+  --color-warning-foreground: #0F1117;
   --color-surface-secondary: #22232B;
   --color-info: #0284C7;
   --color-info-foreground: #FFFFFF;
@@ -136,17 +136,17 @@
   --code-bg: #F4F6F9;
   --color-accent: #4F46E5;
   --color-accent-foreground: #FFFFFF;
-  --color-destructive: #DC2626;
+  --color-destructive: #B91C1C;
   --color-destructive-foreground: #FFFFFF;
   --color-border: #E2E5EB;
   --color-input: #E2E5EB;
-  --color-ring: rgba(35,99,234, 0.25);
-  --color-success: #059669;
+  --color-ring: #1D4ED8;
+  --color-success: #047857;
   --color-success-foreground: #FFFFFF;
-  --color-warning: #D97706;
+  --color-warning: #92400E;
   --color-warning-foreground: #FFFFFF;
   --color-info: #0284C7;
-  --color-signal: #0891B2;
+  --color-signal: #0E7490;
   --color-signal-foreground: #FFFFFF;
   --color-surface-secondary: #FFFFFF;
 
@@ -217,7 +217,7 @@ body {
   overflow-wrap: break-word;
   word-break: break-word;
   line-height: 1.6;
-  font-size: 0.8125rem; /* 13px */
+  font-size: 0.9375rem; /* 15px */
 }
 
 /* Headings */
@@ -543,6 +543,9 @@ html.light .markdown-preview pre code span {
  * but freeze the breathing and dot motion. Also disable the indeterminate
  * progress bar, spinners, and pulse animations so the UI remains calm. */
 @media (prefers-reduced-motion: reduce) {
+  .animate-led-breathing,
+  .animate-led-ping-1,
+  .animate-led-ping-2,
   .agent-working-breathing,
   .agent-working-dot,
   .agent-working-spark,

@@ -1072,6 +1072,7 @@ export const translations = {
       deleteSuccess: 'Message deleted successfully',
       rewindAndEdit: 'Rewind & Edit',
       deleteMessage: 'Delete',
+      sendMessage: 'Send message',
       welcomeTitle: 'Welcome to SoloQueue Workspace',
       welcomeDesc:
         'Select a team and workspace to start collaborative programming with a multi-agent system.',
@@ -2272,6 +2273,7 @@ export const translations = {
       deleteSuccess: '消息删除成功',
       rewindAndEdit: '回溯并编辑',
       deleteMessage: '删除',
+      sendMessage: '发送消息',
       welcomeTitle: '欢迎来到 SoloQueue 工作空间',
       welcomeDesc: '选择一个团队和工作区，开始与多智能体系统协同编程。',
       teamLoading: '正在加载团队…',

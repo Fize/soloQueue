@@ -19,6 +19,7 @@ export interface SelectProps {
   placeholder?: string
   className?: string
   id?: string
+  'aria-label'?: string
 }
 
 function Select({
@@ -30,6 +31,7 @@ function Select({
   disabled,
   placeholder,
   id,
+  'aria-label': ariaLabel,
 }: SelectProps) {
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
@@ -47,12 +49,13 @@ function Select({
         disabled={disabled}
       >
         <SelectPrimitive.Trigger
+          aria-label={ariaLabel || label}
           data-slot="select-trigger"
           className={cn(
             'group flex h-8 w-full items-center justify-between gap-2 rounded-md border border-border bg-transparent px-3 py-1 text-sm text-foreground transition-colors outline-none',
-            'focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50',
+            'focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring',
             'disabled:cursor-not-allowed disabled:opacity-50',
-            'data-open:border-primary data-open:ring-2 data-open:ring-ring/50'
+            'data-open:border-primary data-open:ring-2 data-open:ring-ring'
           )}
         >
           <SelectPrimitive.Value

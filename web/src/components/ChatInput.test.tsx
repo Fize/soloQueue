@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatInput } from './ChatInput'
@@ -56,6 +56,42 @@ function renderInput(overrides: Partial<React.ComponentProps<typeof ChatInput>> 
 }
 
 describe('ChatInput workspace selector', () => {
+  it('restores an unsent session draft after the input unmounts and remounts', async () => {
+    const user = userEvent.setup()
+    const first = renderInput({ activeSessionId: 'draft-restore-test' })
+    await user.type(screen.getByPlaceholderText('Ask anything...'), 'Keep this draft')
+    first.unmount()
+    renderInput({ activeSessionId: 'draft-restore-test' })
+    expect(screen.getByPlaceholderText('Ask anything...')).toHaveValue('Keep this draft')
+  })
+  it('keeps drafts separate when switching sessions and clears the accepted draft', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn().mockResolvedValue(true)
+    const { rerender } = render(<ChatInput onSend={onSend} onCancel={vi.fn()} streaming={false} delegating={false} disabled={false} activeSessionId="draft-a" />)
+    const input = screen.getByPlaceholderText('Ask anything...')
+    await user.type(input, 'Draft A')
+    rerender(<ChatInput onSend={onSend} onCancel={vi.fn()} streaming={false} delegating={false} disabled={false} activeSessionId="draft-b" />)
+    expect(input).toHaveValue('')
+    await user.type(input, 'Draft B')
+    rerender(<ChatInput onSend={onSend} onCancel={vi.fn()} streaming={false} delegating={false} disabled={false} activeSessionId="draft-a" />)
+    expect(input).toHaveValue('Draft A')
+    await user.keyboard('{Enter}')
+    expect(input).toHaveValue('')
+    rerender(<ChatInput onSend={onSend} onCancel={vi.fn()} streaming={false} delegating={false} disabled={false} activeSessionId="draft-b" />)
+    expect(input).toHaveValue('Draft B')
+  })
+  it('does not clear another session draft when an earlier send resolves', async () => {
+    const user = userEvent.setup()
+    let finish!: (value: boolean) => void
+    const onSend = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve }))
+    const { rerender } = render(<ChatInput onSend={onSend} onCancel={vi.fn()} streaming={false} delegating={false} disabled={false} activeSessionId="pending-a" />)
+    const input = screen.getByPlaceholderText('Ask anything...')
+    await user.type(input, 'Send A{Enter}')
+    rerender(<ChatInput onSend={onSend} onCancel={vi.fn()} streaming={false} delegating={false} disabled={false} activeSessionId="pending-b" />)
+    await user.type(input, 'Draft B')
+    await act(async () => finish(true))
+    expect(input).toHaveValue('Draft B')
+  })
   it('does not render route badges when task and model props are supplied', () => {
     renderInput({
       taskLevel: 'route-task-sentinel',

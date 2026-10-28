@@ -242,7 +242,7 @@ const translations = {
         sub: '当前上下文窗口使用百分比',
       },
       systemErrors: {
-        title: '系统错误率',
+        title: '执行错误次数',
         sub: '智能体执行错误次数',
         detail: '当前阶段: {{phase}}',
       },

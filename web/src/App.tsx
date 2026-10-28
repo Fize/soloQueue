@@ -140,10 +140,10 @@ function App() {
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
   const { t } = useTranslation()
   const { workspace } = useWorkspaceCapabilities()
-  const mobileSettings = location.pathname.startsWith('/settings') && workspace === 'phone'
+  const mobileSettings = workspace === 'phone'
 
   useEffect(() => {
-    // Settings need the full phone viewport; navigation remains available as a drawer.
+    // Phone content needs the full viewport; navigation remains available as a drawer.
     if (mobileSettings) setSidebarCollapsed(true)
   }, [mobileSettings, location.pathname, setSidebarCollapsed])
 

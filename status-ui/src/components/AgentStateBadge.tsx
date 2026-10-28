@@ -45,8 +45,8 @@ export function AgentStateBadge({ state }: AgentStateBadgeProps) {
     )
   }
 
-  // stopping → yellow/warning, stopped → red/destructive
-  const color = state === 'stopping' ? 'var(--color-warning)' : 'var(--color-destructive)'
+  // stopping → warning, stopped → neutral
+  const color = state === 'stopping' ? 'var(--color-warning)' : 'var(--color-muted-foreground)'
   const label = state === 'stopping' ? t('table.badges.stopping') : t('table.badges.stopped')
 
   return (

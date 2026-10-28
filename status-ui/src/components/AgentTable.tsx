@@ -98,9 +98,9 @@ export function AgentTable({ agents, supervisors, isConnected, onSelectAgent, t 
     >
       <td className="px-4 sm:px-6 py-3">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm" style={{ color: 'var(--color-foreground)' }}>
-            {agent.name}
-          </span>
+          <button type="button" className="font-semibold text-sm text-left rounded hover:underline" style={{ color: 'var(--color-foreground)' }} onClick={(event) => { event.stopPropagation(); onSelectAgent(agent.instance_id) }}>
+            {agent.name || agent.id}
+          </button>
           {agent.is_leader && (
             <span
               className="px-1.5 py-0.5 rounded text-[10px] font-bold"

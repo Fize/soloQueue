@@ -1,3 +1,4 @@
+import { useModalFocus } from './useModalFocus'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Bot, X, Hash, AlertCircle, Terminal, Clock, Loader2 } from 'lucide-react'
 import { AgentStateBadge } from './AgentStateBadge'
@@ -49,6 +50,8 @@ interface AgentModalProps {
 
 export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalFocus(dialogRef)
   const [closing, setClosing] = useState(false)
 
   // Lock body scroll
@@ -98,6 +101,11 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={agent.name || agent.id}
+        tabIndex={-1}
         className={`w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl overflow-hidden shadow-2xl ${closing ? 'modal-content-exiting' : 'modal-content-entering'}`}
         style={{ backgroundColor: 'var(--color-card)' }}
         onClick={(e) => e.stopPropagation()}
@@ -135,6 +143,7 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
             </div>
           </div>
           <button
+            aria-label={t('modal.close')}
             onClick={handleClose}
             className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors"
             style={{
