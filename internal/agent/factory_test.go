@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -2061,6 +2063,11 @@ func TestCreateSkillForkAgent_BashUsesEffectiveWorkDir(t *testing.T) {
 			}
 
 			var bashResult string
+			command := "pwd"
+			if runtime.GOOS == "windows" {
+				command = "(Get-Location).Path"
+			}
+			commandJSON, _ := json.Marshal(map[string]string{"command": command})
 			var forkToolNames []string
 			fakeLLM := &agenttest.FakeLLM{
 				Responses: []string{"fork complete"},
@@ -2068,7 +2075,7 @@ func TestCreateSkillForkAgent_BashUsesEffectiveWorkDir(t *testing.T) {
 					Index:     0,
 					ID:        "bash-cwd-call",
 					Name:      "Bash",
-					Arguments: `{"command":"pwd"}`,
+					Arguments: string(commandJSON),
 				}}},
 				FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
 				Hook: func(req llmtypes.LLMRequest) {
@@ -2114,7 +2121,15 @@ func TestCreateSkillForkAgent_BashUsesEffectiveWorkDir(t *testing.T) {
 			if _, err := skillTool.Execute(context.Background(), `{"skill":"`+skillID+`","args":"inspect cwd"}`); err != nil {
 				t.Fatalf("Skill.Execute: %v", err)
 			}
-			if !strings.Contains(bashResult, workDir) {
+			var result struct {
+				Stdout string `json:"stdout"`
+			}
+			if err := json.Unmarshal([]byte(bashResult), &result); err != nil {
+				t.Fatal(err)
+			}
+			got, gotErr := os.Stat(strings.TrimSpace(result.Stdout))
+			want, wantErr := os.Stat(workDir)
+			if gotErr != nil || wantErr != nil || !os.SameFile(got, want) {
 				t.Fatalf("fork Bash result = %q, want effective workdir %q", bashResult, workDir)
 			}
 			if len(forkToolNames) != 1 || forkToolNames[0] != "Bash" {

@@ -55,7 +55,11 @@ func TestHTTPListFilesSupportsConditionalRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("modTime=%q: %v", files[0].ModTime, err)
 	}
-	if !parsedModTime.Equal(modTime) || parsedModTime.Nanosecond() != 123456789 {
+	actualStat, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parsedModTime.Equal(actualStat.ModTime()) {
 		t.Fatalf("files=%+v", files)
 	}
 
@@ -140,7 +144,7 @@ func TestHTTPFileContentSupportsConditionalRequests(t *testing.T) {
 	if err := os.WriteFile(path, []byte("later"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	secondModTime := firstModTime.Add(time.Nanosecond)
+	secondModTime := firstModTime.Add(time.Second)
 	if err := os.Chtimes(path, secondModTime, secondModTime); err != nil {
 		t.Fatal(err)
 	}

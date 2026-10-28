@@ -112,6 +112,9 @@ func TestWechatNotificationsRestoreAndReloadSavedCredentials(t *testing.T) {
 	if err := restoredConfig.Load(); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := restoredConfig.Set(func(s *config.Settings) { s.Log.File = false }); err != nil {
+		t.Fatal(err)
+	}
 	sessions := session.NewSessionManager(func(context.Context, string) (*agent.Agent, *ctxwin.ContextWindow, *timeline.Writer, error) {
 		return &agent.Agent{Def: agent.Definition{NotifyChannel: "wechat", Channels: map[string]string{"wechat": "logical-account"}}}, nil, nil, nil
 	}, log)

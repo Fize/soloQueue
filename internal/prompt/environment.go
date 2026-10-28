@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/xiaobaitu/soloqueue/internal/infra/shell"
 )
 
 func ExploreDir(workDir string) string {
@@ -11,7 +13,7 @@ func ExploreDir(workDir string) string {
 }
 
 func ShellDesc() string {
-	return "/bin/sh -c"
+	return shell.Description()
 }
 
 func EnvSection(workDir, exploreDir string, xml bool, includeTimeInstruction bool) string {

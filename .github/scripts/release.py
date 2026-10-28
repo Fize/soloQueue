@@ -71,7 +71,7 @@ def native_licenses(metadata_paths, output_path):
     Path(output_path).write_text("\n\n".join(sections) + "\n", encoding="utf-8")
 
 
-def archive(version, system, arch, binary, worker, license_metadata, output_dir, decide=None):
+def archive(version, system, arch, binary, worker, license_metadata, output_dir, decide=None, silk=None, silk_license=None):
     """Package only the app, its optional sibling worker, and required notices."""
     metadata("v" + version, "unused/unused")
     supported = {("darwin", "arm64"), ("linux", "amd64"), ("windows", "amd64")}
@@ -82,6 +82,8 @@ def archive(version, system, arch, binary, worker, license_metadata, output_dir,
         raise ValueError("local ONNX releases require both workers and license metadata")
     if legacy and (worker or decide or license_metadata):
         raise ValueError("macOS Intel release does not support the pinned local ONNX runtime")
+    if bool(silk) != bool(silk_license) or (silk and system != "windows") or (system == "windows" and not silk):
+        raise ValueError("SILK binary and notices must be supplied together for Windows")
     suffix = ".exe" if system == "windows" else ""
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -90,6 +92,9 @@ def archive(version, system, arch, binary, worker, license_metadata, output_dir,
         stage = Path(temporary)
         shutil.copyfile(binary, stage / ("soloqueue" + suffix))
         shutil.copyfile(Path(__file__).resolve().parents[2] / "LICENSE", stage / "LICENSE")
+        if silk:
+            shutil.copyfile(silk, stage / "silk-decoder.exe")
+            shutil.copyfile(silk_license, stage / "SILK_LICENSES.txt")
         if worker:
             shutil.copyfile(worker, stage / ("soloqueue-embedding" + suffix))
             native_licenses(license_metadata, stage / "THIRD_PARTY_LICENSES.txt")
@@ -186,6 +191,8 @@ if __name__ == "__main__":
         parser.add_argument("--binary", type=Path, required=True)
         parser.add_argument("--worker", type=Path)
         parser.add_argument("--decide", type=Path, help="local task classifier worker")
+        parser.add_argument("--silk", type=Path)
+        parser.add_argument("--silk-license", type=Path)
         parser.add_argument("--license-metadata", type=Path, nargs="+")
         parser.add_argument("--output-dir", type=Path, required=True)
         print(archive(**vars(parser.parse_args(sys.argv[2:]))))

@@ -121,6 +121,7 @@ export function SpeechSection({ config, onChange, onSave, status, onInstall, ins
           <div className="flex flex-wrap gap-x-6 gap-y-1">
             {statusIndicator('whisper-cli', status.whisperAvailable)}
             {statusIndicator('silk-decoder', status.silkAvailable)}
+            {statusIndicator('FFmpeg', status.ffmpegAvailable)}
             {statusIndicator(t('config.speechModelFile'), status.modelExists)}
           </div>
           {status.whisperAvailable && (
@@ -128,6 +129,9 @@ export function SpeechSection({ config, onChange, onSave, status, onInstall, ins
           )}
           {status.silkAvailable && (
             <p className="text-xs text-muted-foreground/70 font-mono">{status.silkDecoder}</p>
+          )}
+          {status.ffmpegAvailable && (
+            <p className="text-xs text-muted-foreground/70 font-mono">{status.ffmpegBinary}</p>
           )}
           {status.modelExists && (
             <p className="text-xs text-muted-foreground/70 font-mono">{status.modelPath}</p>

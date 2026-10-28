@@ -3,11 +3,15 @@ package skill
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"github.com/xiaobaitu/soloqueue/internal/infra/process"
+	"github.com/xiaobaitu/soloqueue/internal/infra/shell"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -77,6 +81,12 @@ func expandShellCommands(content string, cfg PreprocessConfig) string {
 		defer cancel()
 
 		cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+		if runtime.GOOS == "windows" {
+			cmd = shell.CommandContext(ctx, cmdStr)
+			process.Configure(cmd)
+			cmd.Cancel = func() error { return process.Kill(cmd) }
+			cmd.WaitDelay = 250 * time.Millisecond
+		}
 		if cfg.WorkingDir != "" {
 			cmd.Dir = cfg.WorkingDir
 		}
@@ -85,7 +95,20 @@ func expandShellCommands(content string, cfg PreprocessConfig) string {
 		cmd.Stdout = &stdout
 		cmd.Stderr = nil // Discard stderr
 
-		if err := cmd.Run(); err != nil {
+		var err error
+		if runtime.GOOS == "windows" {
+			err = process.Start(cmd)
+			if err == nil {
+				err = cmd.Wait()
+				process.Close(cmd)
+				if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success() {
+					err = nil
+				}
+			}
+		} else {
+			err = cmd.Run()
+		}
+		if err != nil {
 			// Failure becomes empty string (consistent with CC behavior)
 			return ""
 		}

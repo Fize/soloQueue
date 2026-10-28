@@ -45,7 +45,7 @@ Do the thing.
 	if md.FilePath == "" {
 		t.Error("FilePath should not be empty for MDSkill")
 	}
-	if !strings.HasSuffix(md.FilePath, "my-skill/SKILL.md") {
+	if !strings.HasSuffix(filepath.ToSlash(md.FilePath), "my-skill/SKILL.md") {
 		t.Errorf("FilePath = %q, should end with my-skill/SKILL.md", md.FilePath)
 	}
 	if !md.UserInvocable {

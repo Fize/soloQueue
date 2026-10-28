@@ -102,7 +102,7 @@ func NewManager(dir string) (*Manager, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create ChatGPT credential directory: %w", err)
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := protectCredentialPath(dir, true); err != nil {
 		return nil, fmt.Errorf("protect ChatGPT credential directory: %w", err)
 	}
 	m := &Manager{dir: dir, pending: make(map[string]attempt), client: &http.Client{Timeout: 20 * time.Second}}
@@ -141,7 +141,7 @@ func (m *Manager) load() error {
 	if err := json.Unmarshal(b, &m.cred); err != nil {
 		return fmt.Errorf("decode ChatGPT credentials: %w", err)
 	}
-	if err := os.Chmod(m.credentialPath(), 0o600); err != nil {
+	if err := protectCredentialPath(m.credentialPath(), false); err != nil {
 		return fmt.Errorf("protect ChatGPT credentials: %w", err)
 	}
 	return nil
@@ -160,7 +160,7 @@ func (m *Manager) saveCredentials(cred Credentials) error {
 	}
 	tmp := f.Name()
 	defer os.Remove(tmp)
-	if err = f.Chmod(0o600); err == nil {
+	if err = protectCredentialPath(tmp, false); err == nil {
 		_, err = f.Write(b)
 	}
 	if err == nil {

@@ -92,6 +92,22 @@ class ReleaseTests(unittest.TestCase):
             finally:
                 os.chdir(previous)
 
+    def test_windows_archive_includes_silk_decoder_and_notices(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary, worker, decide, silk = [root / name for name in ("app", "worker", "decide", "silk")]
+            for file in (binary, worker, decide, silk):
+                file.write_bytes(file.name.encode())
+            manifest = root / "metadata.json"
+            manifest.write_text(json.dumps({"packages": []}))
+            license_file = root / "silk-license.txt"
+            license_file.write_text("SILK decoder license notice")
+            archive = release.archive("1.2.3", "windows", "amd64", binary, worker, manifest,
+                                      root / "out", decide=decide, silk=silk, silk_license=license_file)
+            with zipfile.ZipFile(archive) as bundle:
+                self.assertEqual(bundle.read("silk-decoder.exe"), b"silk")
+                self.assertIn(b"SILK decoder license notice", bundle.read("SILK_LICENSES.txt"))
+
     def test_native_archives_include_sibling_worker_and_notices(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -99,6 +115,10 @@ class ReleaseTests(unittest.TestCase):
             binary.write_bytes(b"app bytes")
             worker.write_bytes(b"worker bytes")
             decide.write_bytes(b"decide bytes")
+            silk = root / "silk"
+            silk.write_bytes(b"silk bytes")
+            silk_license = root / "silk-license"
+            silk_license.write_text("SILK notice")
             crate = root / "crate"
             crate.mkdir()
             (crate / "LICENSE-MIT").write_text("A third party copyright notice")
@@ -113,7 +133,9 @@ class ReleaseTests(unittest.TestCase):
                     # metadata must remain correct when chmod has no effect.
                     with patch.object(Path, "chmod", return_value=None):
                         bundle = release.archive("1.2.3", system, arch, binary, worker, manifest, root / "out",
-                                                decide=decide)
+                                                decide=decide,
+                                                silk=silk if system == "windows" else None,
+                                                silk_license=silk_license if system == "windows" else None)
                     suffix = ".exe" if system == "windows" else ""
                     if system == "windows":
                         with zipfile.ZipFile(bundle) as source:
@@ -125,9 +147,11 @@ class ReleaseTests(unittest.TestCase):
                                                "soloqueue-decide": 0o755,
                                                "LICENSE": 0o644, "THIRD_PARTY_LICENSES.txt": 0o644}.items():
                                 self.assertEqual(source.getmember(name).mode, mode, name)
-                    self.assertEqual(set(files), {"soloqueue" + suffix, "soloqueue-embedding" + suffix,
-                                                  "soloqueue-decide" + suffix,
-                                                  "LICENSE", "THIRD_PARTY_LICENSES.txt"})
+                    expected = {"soloqueue" + suffix, "soloqueue-embedding" + suffix,
+                                "soloqueue-decide" + suffix, "LICENSE", "THIRD_PARTY_LICENSES.txt"}
+                    if system == "windows":
+                        expected.update({"silk-decoder.exe", "SILK_LICENSES.txt"})
+                    self.assertEqual(set(files), expected)
                     self.assertEqual(files["soloqueue-embedding" + suffix], b"worker bytes")
                     self.assertEqual(files["soloqueue-decide" + suffix], b"decide bytes")
                     self.assertEqual(files["soloqueue" + suffix], b"app bytes")

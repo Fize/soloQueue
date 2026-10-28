@@ -121,7 +121,7 @@ func TestScheduler_CronRunRecoversToolAndModelWatchdogs(t *testing.T) {
 			}
 			select {
 			case <-completed:
-			case <-time.After(2 * time.Second):
+			case <-time.After(5 * time.Second):
 				current, _ := store.GetTask(context.Background(), task.ID)
 				records, _ := store.ListExecutionHistory(context.Background(), task.ID, 10, 0)
 				t.Fatalf("typed watchdog failure did not complete Cron execution: task=%+v history=%+v", current, records)

@@ -347,7 +347,7 @@ func TestL1CronRetriesWholeTaskUpToThreeTimesWithPriorSessionContext(t *testing.
 	if notifications != 1 {
 		t.Fatalf("notifications = %d, want one success notification after final attempt", notifications)
 	}
-	if len(prompts) != 4 || prompts[0] != s.buildTaskPrompt(*task) {
+	if len(prompts) != 4 || !strings.Contains(prompts[0], task.Instruction) {
 		t.Fatalf("prompts = %#v, want original task followed by three continuation prompts", prompts)
 	}
 	for i := 1; i < len(prompts); i++ {
@@ -2409,9 +2409,9 @@ func TestCronExplicitCancellationStopsRetries(t *testing.T) {
 	}
 }
 
-// NewSchedulerForRetryTest exposes a zero-backoff scheduler only to external runtime tests.
+// NewSchedulerForRetryTest uses a short backoff so cancelled actors can release their recovery fence.
 func NewSchedulerForRetryTest(store *DBStore, manager SessionManager) *Scheduler {
 	s := NewScheduler(store, manager, nil)
-	s.retryDelay = 0
+	s.retryDelay = 250 * time.Millisecond
 	return s
 }

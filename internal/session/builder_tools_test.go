@@ -44,7 +44,13 @@ func TestBuilderBuild_RegistersExpectedL1Tools(t *testing.T) {
 		MemoryEngine:  memoryEngine,
 	}
 
-	a, _, timelineWriter, err := NewBuilder(rt, workDir, cfg, false).Build(context.Background(), "default")
+	builder := NewBuilder(rt, workDir, cfg, false)
+	t.Cleanup(func() {
+		if builder.l1Logger != nil {
+			_ = builder.l1Logger.Close()
+		}
+	})
+	a, _, timelineWriter, err := builder.Build(context.Background(), "default")
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -72,7 +78,13 @@ func TestBuilderBuild_RegistersExpectedL1Tools(t *testing.T) {
 func TestBuilderBuild_PropagatesWorkDirToL1AgentAndTools(t *testing.T) {
 	workDir, cfg, rt := newBuilderRegistryTestHarness(t)
 
-	a, _, timelineWriter, err := NewBuilder(rt, workDir, cfg, false).Build(context.Background(), "default")
+	builder := NewBuilder(rt, workDir, cfg, false)
+	t.Cleanup(func() {
+		if builder.l1Logger != nil {
+			_ = builder.l1Logger.Close()
+		}
+	})
+	a, _, timelineWriter, err := builder.Build(context.Background(), "default")
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -108,6 +120,11 @@ func TestBuilderL1RebuildReusesGenerationLogger(t *testing.T) {
 		MemoryEngine:  engine.New(shared.DB, &shared.WMu, nil, nil, nil),
 	}
 	b := NewBuilder(rt, workDir, cfg, false)
+	t.Cleanup(func() {
+		if b.l1Logger != nil {
+			_ = b.l1Logger.Close()
+		}
+	})
 	first, _, firstTimeline, err := b.Build(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +162,13 @@ func TestBuilderBuild_TimelineFailureUnregistersPendingAgent(t *testing.T) {
 
 	var registered *agent.Agent
 	rt.AgentRegistry.SetOnRegister(func(a *agent.Agent) { registered = a })
-	_, _, _, err := NewBuilder(rt, workDir, cfg, false).Build(context.Background(), "default")
+	builder := NewBuilder(rt, workDir, cfg, false)
+	t.Cleanup(func() {
+		if builder.l1Logger != nil {
+			_ = builder.l1Logger.Close()
+		}
+	})
+	_, _, _, err := builder.Build(context.Background(), "default")
 	if err == nil {
 		t.Fatal("Build succeeded despite an invalid timeline parent")
 	}
@@ -172,7 +195,13 @@ func TestBuilderBuild_StartFailureUnregistersPendingAgent(t *testing.T) {
 		registered = a
 		a.Quarantine(agent.ErrQuarantined)
 	})
-	_, _, _, err := NewBuilder(rt, workDir, cfg, false).Build(context.Background(), "default")
+	builder := NewBuilder(rt, workDir, cfg, false)
+	t.Cleanup(func() {
+		if builder.l1Logger != nil {
+			_ = builder.l1Logger.Close()
+		}
+	})
+	_, _, _, err := builder.Build(context.Background(), "default")
 	if !errors.Is(err, agent.ErrQuarantined) {
 		t.Fatalf("Build error = %v, want %v", err, agent.ErrQuarantined)
 	}
@@ -187,7 +216,13 @@ func TestBuilderBuild_StartFailureUnregistersPendingAgent(t *testing.T) {
 func TestBuilderBuild_SuccessKeepsRegisteredAgent(t *testing.T) {
 	workDir, cfg, rt := newBuilderRegistryTestHarness(t)
 
-	a, _, timelineWriter, err := NewBuilder(rt, workDir, cfg, false).Build(context.Background(), "default")
+	builder := NewBuilder(rt, workDir, cfg, false)
+	t.Cleanup(func() {
+		if builder.l1Logger != nil {
+			_ = builder.l1Logger.Close()
+		}
+	})
+	a, _, timelineWriter, err := builder.Build(context.Background(), "default")
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

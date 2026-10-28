@@ -707,3 +707,36 @@ func openTestDB(t *testing.T) *DB {
 	}
 	return db
 }
+
+func TestOpenAppliesPragmasToEveryConnection(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "pragmas.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c1, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c1.Close()
+	c2, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c2.Close()
+	for _, c := range []*sql.Conn{c1, c2} {
+		for _, tc := range []struct {
+			name string
+			want int
+		}{{"busy_timeout", 5000}} {
+			var got int
+			if err := c.QueryRowContext(context.Background(), "PRAGMA "+tc.name).Scan(&got); err != nil || got != tc.want {
+				t.Fatalf("%s = %d, err %v; want %d", tc.name, got, err, tc.want)
+			}
+		}
+		var mode string
+		if err := c.QueryRowContext(context.Background(), "PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
+			t.Fatalf("journal_mode = %q, err %v", mode, err)
+		}
+	}
+}

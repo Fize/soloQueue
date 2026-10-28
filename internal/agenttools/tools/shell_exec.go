@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/shell"
 )
 
 var useRTK = false
@@ -37,8 +38,8 @@ func IsRTKEnabled() bool {
 //
 // Security:
 //   - Commands matching ShellBlockRegexes are rejected immediately.
-//   - Uses /bin/sh -c <command>.
-//   - Timeout is controlled by the parent context (DefaultToolTimeout), and the subprocess receives SIGKILL.
+//   - Uses the platform shell.
+//   - Timeout is controlled by the parent context (DefaultToolTimeout).
 //   - stdout/stderr each have a ShellMaxOutput byte cap; overflow truncates and sets truncated=true.
 //   - An optional Stdin string may be written to the subprocess stdin.
 //
@@ -68,7 +69,7 @@ func (shellExecTool) Name() string { return "Bash" }
 
 func (shellExecTool) Description() string {
 	return "Run a shell command. Commands matching the configured blocklist are rejected. " +
-		"Uses /bin/sh -c <cmd>. " +
+		"Uses " + shell.Description() + ". " +
 		"Returns {exit_code,stdout,stderr,truncated}. " +
 		"Supports optional working_directory parameter."
 }

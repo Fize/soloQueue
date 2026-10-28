@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -22,6 +23,7 @@ import (
 	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/infra/speechinstall"
 	"github.com/xiaobaitu/soloqueue/internal/llm/chatgpt"
 )
 
@@ -1054,6 +1056,8 @@ type speechStatusResponse struct {
 	WhisperAvailable bool   `json:"whisperAvailable"`
 	SilkDecoder      string `json:"silkDecoder"`
 	SilkAvailable    bool   `json:"silkAvailable"`
+	FFmpegBinary     string `json:"ffmpegBinary"`
+	FFmpegAvailable  bool   `json:"ffmpegAvailable"`
 	Ready            bool   `json:"ready"`
 }
 
@@ -1082,31 +1086,33 @@ func (m *Mux) handleGetSpeechStatus(w http.ResponseWriter, r *http.Request) {
 	status.ModelDir = modelDir
 	modelPath := filepath.Join(modelDir, "ggml-"+cfg.Model+".bin")
 	status.ModelPath = modelPath
-	if _, err := os.Stat(modelPath); err == nil {
-		status.ModelExists = true
-	}
+	modelInfo, modelErr := os.Stat(modelPath)
+	status.ModelExists = modelErr == nil && modelInfo.Mode().IsRegular()
 
-	// Check whisper-cli in PATH
-	if path, err := exec.LookPath("whisper-cli"); err == nil {
-		status.WhisperBinary = path
-		status.WhisperAvailable = true
-	}
-	status.SilkDecoder = qqbot.NewTranscriber("", "").SilkDecoder()
+	transcriber := qqbot.NewTranscriber(cfg.Model, modelDir)
+	status.WhisperBinary = transcriber.Binary()
+	status.WhisperAvailable = status.WhisperBinary != ""
+	status.SilkDecoder = transcriber.SilkDecoder()
 	status.SilkAvailable = status.SilkDecoder != ""
-
-	status.Ready = status.Enabled && status.ModelExists && status.WhisperAvailable && status.SilkAvailable
+	status.FFmpegBinary = transcriber.FFmpeg()
+	status.FFmpegAvailable = status.FFmpegBinary != ""
+	status.Ready = status.Enabled && status.ModelExists && status.WhisperAvailable && status.SilkAvailable && status.FFmpegAvailable
 	m.writeJSON(w, http.StatusOK, status)
 }
 
 // speechInstallResponse is the response for POST /api/config/speech/install.
+var speechInstallMu sync.Mutex
+
 type speechInstallResponse struct {
 	Success       bool   `json:"success"`
 	BinaryPath    string `json:"binaryPath,omitempty"`
 	ModelPath     string `json:"modelPath,omitempty"`
 	SilkPath      string `json:"silkPath,omitempty"`
+	FFmpegPath    string `json:"ffmpegPath,omitempty"`
 	BinaryMessage string `json:"binaryMessage,omitempty"`
 	ModelMessage  string `json:"modelMessage,omitempty"`
 	SilkMessage   string `json:"silkMessage,omitempty"`
+	FFmpegMessage string `json:"ffmpegMessage,omitempty"`
 	Error         string `json:"error,omitempty"`
 	Detail        string `json:"detail,omitempty"` // step-by-step instructions on failure
 }
@@ -1123,6 +1129,8 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
+	speechInstallMu.Lock()
+	defer speechInstallMu.Unlock()
 	settings := m.configSvc.Get()
 	cfg := settings.Speech
 
@@ -1132,6 +1140,11 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 	}
 	if model == "" {
 		model = "small"
+	}
+
+	if _, ok := speechinstall.ModelSHA256[model]; !ok {
+		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported speech model"})
+		return
 	}
 
 	modelDir := cfg.ModelDir
@@ -1144,13 +1157,49 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 
 	resp := speechInstallResponse{}
 
+	if runtime.GOOS == "windows" {
+		if runtime.GOARCH != "amd64" {
+			resp.Error = "Windows speech tools currently require x64"
+			m.writeJSON(w, http.StatusInternalServerError, resp)
+			return
+		}
+		workDir, err := config.DefaultWorkDir()
+		if err != nil {
+			resp.Error = err.Error()
+			m.writeJSON(w, http.StatusInternalServerError, resp)
+			return
+		}
+		transcriber := qqbot.NewTranscriber("", "")
+		client := &http.Client{Timeout: 10 * time.Minute}
+		if transcriber.Binary() == "" {
+			_, err = speechinstall.InstallArchive(r.Context(), client, speechinstall.WhisperWindows, filepath.Join(workDir, "bin"))
+			if err != nil {
+				resp.Error = err.Error()
+				resp.Detail = "Failed to install verified Windows whisper-cli."
+				m.writeJSON(w, http.StatusInternalServerError, resp)
+				return
+			}
+		}
+		resp.FFmpegPath = transcriber.FFmpeg()
+		if resp.FFmpegPath == "" {
+			resp.FFmpegPath, err = speechinstall.InstallArchive(r.Context(), client, speechinstall.FFmpegWindows, filepath.Join(workDir, "bin"))
+			if err != nil {
+				resp.Error = err.Error()
+				resp.Detail = "Failed to install verified Windows FFmpeg."
+				m.writeJSON(w, http.StatusInternalServerError, resp)
+				return
+			}
+			resp.FFmpegMessage = "installed"
+		} else {
+			resp.FFmpegMessage = "already available"
+		}
+	}
+
 	// ── Step 1: Install whisper-cli binary ──────────────────────────────
 
-	binaryName := "whisper-cli"
-
-	if path, err := exec.LookPath(binaryName); err == nil {
+	if path := qqbot.NewTranscriber("", "").Binary(); path != "" {
 		resp.BinaryPath = path
-		resp.BinaryMessage = "found in PATH"
+		resp.BinaryMessage = "already available"
 	} else {
 		installed, msg, detail, err := installWhisperBinary()
 		if err != nil {
@@ -1168,7 +1217,7 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 		resp.SilkPath = decoder
 		resp.SilkMessage = "already exists"
 	} else {
-		installed, msg, detail, err := installSilkDecoder()
+		installed, msg, detail, err := installSilkDecoder(r.Context())
 		if err != nil {
 			resp.Error = err.Error()
 			resp.Detail = detail
@@ -1182,27 +1231,23 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 	// ── Step 3: Download model file ────────────────────────────────────
 
 	modelPath := filepath.Join(modelDir, "ggml-"+model+".bin")
-	if _, err := os.Stat(modelPath); err == nil {
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		resp.Error = fmt.Sprintf("create model dir: %v", err)
+		m.writeJSON(w, http.StatusInternalServerError, resp)
+		return
+	}
+	if info, err := os.Stat(modelPath); err == nil && info.Mode().IsRegular() {
 		resp.ModelPath = modelPath
 		resp.ModelMessage = "already exists"
 	} else {
-		if err := os.MkdirAll(modelDir, 0o755); err != nil {
-			resp.Error = fmt.Sprintf("create model dir: %v", err)
-			resp.Detail = fmt.Sprintf(
-				"Cannot create model directory %s.\nPlease check directory permissions and try again.",
-				modelDir,
-			)
-			m.writeJSON(w, http.StatusInternalServerError, resp)
-			return
-		}
-		if detail, err := downloadSpeechModel(model, modelPath); err != nil {
+		if detail, err := downloadSpeechModel(r.Context(), model, modelPath); err != nil {
 			resp.Error = err.Error()
 			resp.Detail = detail
 			m.writeJSON(w, http.StatusInternalServerError, resp)
 			return
 		}
 		resp.ModelPath = modelPath
-		resp.ModelMessage = "downloaded"
+		resp.ModelMessage = "downloaded and verified"
 	}
 
 	resp.Success = true
@@ -1211,14 +1256,39 @@ func (m *Mux) handleInstallSpeech(w http.ResponseWriter, r *http.Request) {
 
 const silkDecoderRepo = "https://github.com/kn007/silk-v3-decoder.git"
 
-// installSilkDecoder installs the decoder into ~/.soloqueue/bin by building
-// the upstream SDK on a supported Unix-like system.
-func installSilkDecoder() (binaryPath, message, detail string, err error) {
+// installSilkDecoder installs the decoder into the SoloQueue tool directory.
+func installSilkDecoder(ctx context.Context) (binaryPath, message, detail string, err error) {
 	workDir, err := config.DefaultWorkDir()
 	if err != nil {
 		return "", "", "Cannot determine SoloQueue working directory.", err
 	}
 	binDir := filepath.Join(workDir, "bin")
+	if runtime.GOOS == "windows" {
+		executable, err := os.Executable()
+		if err != nil {
+			return "", "", "Cannot determine SoloQueue executable path.", err
+		}
+		source := filepath.Join(filepath.Dir(executable), "silk-decoder.exe")
+		if _, err := os.Stat(source); err == nil {
+			installed, err := speechinstall.InstallDecoder(source, binDir)
+			if err != nil {
+				return "", "", "Failed to install the bundled SILK decoder.", err
+			}
+			return installed, "installed from SoloQueue release", "", nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", "", "Cannot access the bundled SILK decoder.", err
+		}
+		dir := filepath.Join(binDir, speechinstall.DecoderDirectory)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", "", "Cannot create the SILK decoder directory.", err
+		}
+		target := filepath.Join(dir, "silk-decoder.exe")
+		client := &http.Client{Timeout: 10 * time.Minute}
+		if err := speechinstall.DownloadVerified(ctx, client, speechinstall.SilkWindowsURL, speechinstall.SilkWindowsSHA256, target, 32<<20); err != nil {
+			return "", "", "Failed to download the Windows SILK decoder.", err
+		}
+		return target, "downloaded from pinned upstream", "", nil
+	}
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return "", "", fmt.Sprintf("Cannot create tool directory %s.", binDir), err
 	}
@@ -1349,64 +1419,17 @@ Or download a prebuilt binary:
 	}
 }
 
-// downloadSpeechModel downloads a GGML model file from HuggingFace.
-// On success returns ("", nil). On failure returns (detailInstructions, error).
-func downloadSpeechModel(model, destPath string) (string, error) {
-	url := fmt.Sprintf("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin", model)
-
-	resp, err := http.Get(url)
-	if err != nil {
-		detail := fmt.Sprintf(`Cannot connect to HuggingFace. Please download the model file manually.
-
-1. Open in browser:
-   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin
-
-2. After downloading, move to:
-   %s
-
-3. Or download via mirror site:
-   https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin
-
-Network error: %v`, model, destPath, model, err)
-		return detail, fmt.Errorf("network error: %w", err)
+// downloadSpeechModel downloads a pinned model, publishing only verified bytes.
+func downloadSpeechModel(ctx context.Context, model, destPath string) (string, error) {
+	digest, ok := speechinstall.ModelSHA256[model]
+	if !ok {
+		return "Unsupported model.", fmt.Errorf("unsupported speech model %q", model)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusNotFound {
-			detail := fmt.Sprintf(`Model "ggml-%s.bin" does not exist.
-
-Available models: tiny, base, small, medium (note: large model requires downloading large-v3).
-
-Confirm model name and retry, or download manually:
-  curl -L -o %s https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin`, model, destPath, model)
-			return detail, fmt.Errorf("model %q not found (HTTP 404)", model)
-		}
-		detail := fmt.Sprintf(`Failed to download model (HTTP %d).
-
-Please download manually:
-  curl -L -o %s https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin
-
-If network is restricted, use a mirror site:
-  curl -L -o %s https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin`, resp.StatusCode, destPath, model, destPath, model)
-		return detail, fmt.Errorf("HTTP %d", resp.StatusCode)
+	url := fmt.Sprintf("https://huggingface.co/ggerganov/whisper.cpp/resolve/%s/ggml-%s.bin", speechinstall.ModelRevision, model)
+	client := &http.Client{Timeout: 30 * time.Minute}
+	if err := speechinstall.DownloadVerified(ctx, client, url, digest, destPath, 3<<30); err != nil {
+		return "Unable to download or verify the speech model; retry installation.", err
 	}
-
-	f, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Sprintf("Cannot write file %s.\nPlease check directory permissions.", destPath), err
-	}
-	defer f.Close()
-
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		os.Remove(destPath)
-		detail := fmt.Sprintf(`Download interrupted. Incomplete file deleted.
-
-Please retry installation or download manually:
-  curl -L -o %s https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin`, destPath, model)
-		return detail, fmt.Errorf("download interrupted: %w", err)
-	}
-
 	return "", nil
 }
 

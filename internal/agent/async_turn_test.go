@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -625,7 +626,7 @@ func TestAsyncDelegation_PassesAppendedDelegationChainToChild(t *testing.T) {
 		ID:   "delegate_call",
 		Function: llm.FunctionCall{
 			Name:      "delegate",
-			Arguments: `{"target":"worker","task":"inspect","work_dir":"/tmp","async":false}`,
+			Arguments: `{"target":"worker","task":"inspect","work_dir":` + strconv.Quote(t.TempDir()) + `,"async":false}`,
 		},
 	}}, out, ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer()))
 
@@ -1188,7 +1189,7 @@ func TestDelegateTool_ExecuteAsync(t *testing.T) {
 	}
 	dt := tools.NewDelegateTool("dev", 5*time.Minute, resolver, nil, nil, tools.WorkDirExplicitOrInherited, tools.WithAlwaysAsyncDelegation())
 
-	action, err := dt.ExecuteAsync(context.Background(), `{"target":"dev","task":"test","work_dir":"/tmp","async":true}`)
+	action, err := dt.ExecuteAsync(context.Background(), `{"target":"dev","task":"test","work_dir":`+strconv.Quote(t.TempDir())+`,"async":true}`)
 	if err != nil {
 		t.Fatalf("ExecuteAsync: %v", err)
 	}
@@ -2045,7 +2046,7 @@ func TestDelegateTool_SyncAndAsync(t *testing.T) {
 	}
 
 	// 1. Test synchronous invocation (async=false)
-	action, err := tool.ExecuteAsync(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":"/tmp","async":false}`)
+	action, err := tool.ExecuteAsync(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":`+strconv.Quote(t.TempDir())+`,"async":false}`)
 	if err != nil {
 		t.Fatalf("ExecuteAsync err: %v", err)
 	}
@@ -2054,7 +2055,7 @@ func TestDelegateTool_SyncAndAsync(t *testing.T) {
 	}
 
 	// Execute should block and return the actual output
-	output, err := tool.Execute(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":"/tmp","async":false}`)
+	output, err := tool.Execute(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","task":"review diff","work_dir":`+strconv.Quote(t.TempDir())+`,"async":false}`)
 	if err != nil {
 		t.Fatalf("Execute err: %v", err)
 	}
@@ -2064,7 +2065,7 @@ func TestDelegateTool_SyncAndAsync(t *testing.T) {
 
 	// 1.5 Test skill_id resolution
 	expectedPrompt = "do code review\n\n# Skill Execution Instructions\nrun checks"
-	output, err = tool.Execute(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","skill_id":"my-skill","task":"review diff","work_dir":"/tmp","async":false}`)
+	output, err = tool.Execute(context.Background(), `{"target":"my-dynamic-agent","system_prompt":"do code review","skill_id":"my-skill","task":"review diff","work_dir":`+strconv.Quote(t.TempDir())+`,"async":false}`)
 	if err != nil {
 		t.Fatalf("Execute with skill_id err: %v", err)
 	}
@@ -2075,7 +2076,7 @@ func TestDelegateTool_SyncAndAsync(t *testing.T) {
 	// 2. Framework-forced asynchronous invocation.
 	expectedPrompt = "do code review"
 	asyncTool := tools.NewDelegateTool("caller", 5*time.Minute, resolver, nil, nil, tools.WorkDirExplicitOrInherited, tools.WithAlwaysAsyncDelegation())
-	action, err = asyncTool.ExecuteAsync(context.Background(), `{"target":"my-dynamic-agent","task_name":"review diff","system_prompt":"do code review","task":"review diff","work_dir":"/tmp"}`)
+	action, err = asyncTool.ExecuteAsync(context.Background(), `{"target":"my-dynamic-agent","task_name":"review diff","system_prompt":"do code review","task":"review diff","work_dir":`+strconv.Quote(t.TempDir())+`}`)
 	if err != nil {
 		t.Fatalf("ExecuteAsync err: %v", err)
 	}
@@ -2158,7 +2159,7 @@ func TestL1DynamicDelegationEndToEnd(t *testing.T) {
 					ID:   "call_delegate",
 					Function: llm.FunctionCall{
 						Name:      "delegate",
-						Arguments: `{"target":"math-agent","system_prompt":"do math","task":"1+1","work_dir":"/tmp","async":false}`,
+						Arguments: `{"target":"math-agent","system_prompt":"do math","task":"1+1","work_dir":` + strconv.Quote(t.TempDir()) + `,"async":false}`,
 					},
 				},
 			},

@@ -42,9 +42,9 @@ func Open(path string) (*DB, error) {
 	}
 
 	// WAL for concurrent readers + busy_timeout so competing writers wait
-	// rather than returning SQLITE_BUSY immediately. foreign_keys=ON for
-	// referential integrity on kg_edges (REFERENCES kg_nodes).
-	dsn := path + "?_journal_mode=WAL&_foreign_keys=ON&_busy_timeout=5000&_pragma=synchronous(normal)&_txlock=immediate"
+	// rather than returning SQLITE_BUSY immediately. The legacy foreign-key
+	// setting remains unchanged; this driver does not apply it as a pragma.
+	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_foreign_keys=ON&_pragma=synchronous(normal)&_txlock=immediate"
 	raw, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlitedb: open: %w", err)

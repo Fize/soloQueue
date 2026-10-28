@@ -15,6 +15,7 @@ import (
 
 func TestChatGPTLoginExposesOnlyLoopbackAuthorizationURL(t *testing.T) {
 	mux := NewMux(t.TempDir(), nil, WithRuntimeMetrics(&RuntimeMetrics{HTTPAddr: "127.0.0.1:18929"}))
+	defer mux.Close()
 	req := httptest.NewRequest(http.MethodPost, "/api/config/providers/chatgpt/chatgpt/login", nil)
 	req.Header.Set("X-SoloQueue-Account-Mutation", "1")
 	rec := httptest.NewRecorder()
@@ -110,6 +111,7 @@ func TestChatGPTLoginRequiresExplicitMutationHeaderWithoutFetchMetadata(t *testi
 
 func TestChatGPTLoginRejectsNonLoopbackListener(t *testing.T) {
 	mux := NewMux(t.TempDir(), nil, WithRuntimeMetrics(&RuntimeMetrics{HTTPAddr: "0.0.0.0:18929"}))
+	defer mux.Close()
 	req := httptest.NewRequest(http.MethodPost, "/api/config/providers/chatgpt/chatgpt/login", nil)
 	req.Header.Set("X-SoloQueue-Account-Mutation", "1")
 	rec := httptest.NewRecorder()
@@ -138,6 +140,7 @@ func TestDeletingChatGPTProviderClearsCredentialsBeforeConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := NewMux(workDir, nil, WithConfigService(cfg))
+	t.Cleanup(func() { _ = mux.Close() })
 	defer mux.Close()
 	unconfirmed := httptest.NewRequest(http.MethodDelete, "/api/config/providers/chatgpt", nil)
 	unconfirmedRec := httptest.NewRecorder()
@@ -185,6 +188,7 @@ func TestDeletingChatGPTProviderKeepsConfigWhenCredentialClearFails(t *testing.T
 		t.Fatal(err)
 	}
 	mux := NewMux(workDir, nil, WithConfigService(cfg))
+	t.Cleanup(func() { _ = mux.Close() })
 	defer mux.Close()
 	if err := os.Remove(credentialPath); err != nil {
 		t.Fatal(err)

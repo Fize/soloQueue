@@ -1,0 +1,109 @@
+name: Windows compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+      - name: Install pnpm
+        run: npm install --global pnpm@11.13.1
+      - name: Build and test source distribution
+        run: |
+          ./scripts/build-windows.ps1
+          pnpm --dir web lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test real Windows TypeScript language server
+        run: |
+          $env:SOLOQUEUE_LSP_INTEGRATION_DIR = Join-Path $env:RUNNER_TEMP 'lsp workspace 测试'
+          npm install --prefix $env:SOLOQUEUE_LSP_INTEGRATION_DIR --no-save --no-audit --no-fund typescript@5.8.3 typescript-language-server@4.3.3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./internal/agenttools/mcp/lsp -run '^TestWindowsRealTypescriptServer$' -count=1 -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check out pinned SILK decoder source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: kn007/silk-v3-decoder
+          ref: d216599502662db01c07cc0dfd95ff1f1eaaea02
+          path: third-party/silk
+          persist-credentials: false
+      - name: Build Windows SILK decoder
+        shell: bash
+        run: |
+          export PATH="/c/msys64/mingw64/bin:/c/msys64/usr/bin:$PATH"
+          make -C third-party/silk/silk EXESUFFIX= 'CFLAGS=-O2 -Wall -Iinterface -Isrc -Itest' 'LINK.o.cmdline=$(LINK.o) $^ $(LDLIBS) -o $@.exe'
+          make -C third-party/silk/silk EXESUFFIX= 'CFLAGS=-O2 -Wall -Iinterface -Isrc -Itest' 'LINK.o.cmdline=$(LINK.o) $^ $(LDLIBS) -o $@.exe' encoder
+      - name: Run Go tests on Windows
+        run: go test ./...
+      - name: Start server and check health
+        run: |
+          $env:SOLOQUEUE_WORK_DIR = Join-Path $env:RUNNER_TEMP 'soloqueue windows 测试'
+          $goExe = (Get-Command go).Source
+          $oldPath = $env:PATH
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          $process = Start-Process -FilePath './soloqueue.exe' -ArgumentList 'serve', '--port', '18765' -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              if ($process.HasExited) { throw "Server exited with code $($process.ExitCode)" }
+              try {
+                $result = Invoke-RestMethod 'http://127.0.0.1:18765/healthz' -TimeoutSec 1
+                if ($result.status -eq 'ok') { $ready = $true; break }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw 'Server health check failed' }
+            $speech = '{"enabled":true,"model":"tiny","modelDir":""}'
+            Invoke-RestMethod -Method Put -Uri 'http://127.0.0.1:18765/api/config/speech/' -ContentType 'application/json' -Body $speech | Out-Null
+            $install = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18765/api/config/speech/install' -ContentType 'application/json' -Body '{"model":"tiny"}' -TimeoutSec 900
+            if (-not $install.success) { throw "Speech installation failed: $($install.error)" }
+            if ($install.silkMessage -ne 'downloaded from pinned upstream') { throw "Source installation did not download the decoder: $($install.silkMessage)" }
+            $status = Invoke-RestMethod 'http://127.0.0.1:18765/api/config/speech/status'
+            if (-not $status.ready) { throw 'Installed speech dependencies are not ready' }
+            $wav = Join-Path $env:RUNNER_TEMP 'speech-fixture.wav'
+            $pcm = Join-Path $env:RUNNER_TEMP 'speech-fixture.pcm'
+            $silk = Join-Path $env:RUNNER_TEMP 'speech-fixture.silk'
+            Invoke-WebRequest 'https://raw.githubusercontent.com/ggml-org/whisper.cpp/b5454/samples/jfk.wav' -OutFile $wav
+            & $status.ffmpegBinary -y -i $wav -ar 16000 -ac 1 -f s16le $pcm
+            if ($LASTEXITCODE -ne 0) { throw 'FFmpeg fixture conversion failed' }
+            & './third-party/silk/silk/encoder.exe' $pcm $silk -Fs_API 16000
+            if ($LASTEXITCODE -ne 0) { throw 'SILK fixture encoding failed' }
+            $env:SOLOQUEUE_SPEECH_SILK_FIXTURE = $silk
+            $audio = Join-Path $env:RUNNER_TEMP 'speech-fixture.ogg'
+            & $status.ffmpegBinary -y -i $wav -c:a libopus $audio
+            if ($LASTEXITCODE -ne 0) { throw 'Audio fixture conversion failed' }
+            $env:SOLOQUEUE_SPEECH_AUDIO_FIXTURE = $audio
+            $env:TEMP = Join-Path $env:SOLOQUEUE_WORK_DIR "临时音频"
+            $env:TMP = $env:TEMP
+            New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+            & $goExe test ./internal/channel/qq -run '^TestWindowsInstalledSpeechTranscribes(Silk|Audio)$' -count=1 -v
+            if ($LASTEXITCODE -ne 0) { throw 'Windows speech transcription failed' }
+            Remove-Item -Recurse -Force (Join-Path $env:SOLOQUEUE_WORK_DIR 'bin/silk-windows')
+            Copy-Item 'third-party/silk/silk/decoder.exe' './silk-decoder.exe'
+            $bundled = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18765/api/config/speech/install' -ContentType 'application/json' -Body '{"model":"tiny"}' -TimeoutSec 900
+            if (-not $bundled.success -or $bundled.silkMessage -ne 'installed from SoloQueue release') { throw "Bundled decoder installation failed: $($bundled.silkMessage) $($bundled.error)" }
+            & $goExe test ./internal/channel/qq -run '^TestWindowsInstalledSpeechTranscribesSilk$' -count=1 -v
+            if ($LASTEXITCODE -ne 0) { throw 'Bundled Windows speech transcription failed' }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            $env:PATH = $oldPath
+          }

@@ -647,11 +647,9 @@ func TestReadTail_AllowsLegacyEmptyAgentID(t *testing.T) {
 func TestReadTail_Rewind(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A"})
-	time.Sleep(1 * time.Millisecond) // Ensure unique timestamps
-	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "turn A reply"})
-	time.Sleep(1 * time.Millisecond)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A", Timestamp: "2026-01-01T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "turn A reply", Timestamp: "2026-01-01T00:00:02Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B", Timestamp: "2026-01-01T00:00:03Z"})
 
 	events := readEventsFromFile(t, timelineFile(dir))
 	targetTs := events[2].Timestamp // turn B
@@ -679,11 +677,9 @@ func TestReadTail_Rewind(t *testing.T) {
 func TestReadTail_ConsecutiveRewinds(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "A"})
-	time.Sleep(1 * time.Millisecond)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "B"})
-	time.Sleep(1 * time.Millisecond)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "C"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "A", Timestamp: "2026-01-01T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "B", Timestamp: "2026-01-01T00:00:02Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "C", Timestamp: "2026-01-01T00:00:03Z"})
 
 	events := readEventsFromFile(t, timelineFile(dir))
 	tsA := events[0].Timestamp
@@ -709,11 +705,11 @@ func TestReadTail_ConsecutiveRewinds(t *testing.T) {
 func TestReadTail_SinglePairDeletion(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A"})
-	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply A"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B"})
-	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply B"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn C"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn A", Timestamp: "2026-01-01T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply A", Timestamp: "2026-01-01T00:00:02Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn B", Timestamp: "2026-01-01T00:00:03Z"})
+	w.AppendMessage(&MessagePayload{Role: "assistant", Content: "reply B", Timestamp: "2026-01-01T00:00:04Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "turn C", Timestamp: "2026-01-01T00:00:05Z"})
 
 	events := readEventsFromFile(t, timelineFile(dir))
 	tsB_user := events[2].Timestamp
@@ -738,10 +734,10 @@ func TestReadTail_SinglePairDeletion(t *testing.T) {
 func TestReadTail_InterleavedDeleteAndRewind(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := NewWriter(dir, "timeline", 0, 0)
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "A"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "B"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "C"})
-	w.AppendMessage(&MessagePayload{Role: "user", Content: "D"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "A", Timestamp: "2026-01-01T00:00:01Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "B", Timestamp: "2026-01-01T00:00:02Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "C", Timestamp: "2026-01-01T00:00:03Z"})
+	w.AppendMessage(&MessagePayload{Role: "user", Content: "D", Timestamp: "2026-01-01T00:00:04Z"})
 
 	events := readEventsFromFile(t, timelineFile(dir))
 	tsB := events[1].Timestamp
