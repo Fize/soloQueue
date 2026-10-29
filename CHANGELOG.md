@@ -4,6 +4,42 @@ Notable changes are recorded here for each release in English and Simplified Chi
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-29
+
+### Added
+
+- Added native Windows support, including PowerShell command execution, process cancellation, language servers, and speech transcription.
+- Added an optional local Laya ONNX task classifier with setup controls and classification statistics.
+- Added execution traces and delegation history, along with storage retention controls.
+- Added WeCom bot management and settings for search tools and image models.
+
+### Improved
+
+- Integrated local inference into the main executable and kept local workers warm briefly when disabled.
+- Improved chat layout, streaming navigation, delegation details, modal accessibility, and per-session composer drafts.
+- Refreshed WeChat notification routes while active conversations continue.
+
+### Compatibility notes
+
+- Local inference downloads its model and ONNX Runtime when needed. Platform and hardware acceleration availability depend on the runtime and device.
+
+### 新增
+
+- 新增 Windows 原生支持，包括 PowerShell 命令执行、进程取消、语言服务器和语音转写。
+- 新增可选的本地 Laya ONNX 任务分类器、设置控制和分类统计。
+- 新增执行轨迹、委派历史和存储保留控制。
+- 新增企业微信机器人管理，以及搜索工具和图像模型设置。
+
+### 改进
+
+- 将本地推理集成到主程序，并在停用后短暂保留本地工作进程以便复用。
+- 改进聊天布局、流式导航、委派详情、弹窗无障碍支持和按会话保存的输入草稿。
+- 活跃会话期间刷新微信通知路由。
+
+### 兼容性说明
+
+- 本地推理在需要时下载模型和 ONNX Runtime；平台与硬件加速可用性取决于运行库和设备。
+
 ## [0.2.4] - 2026-10-21
 
 ### Added
