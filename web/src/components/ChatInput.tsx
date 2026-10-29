@@ -298,31 +298,46 @@ export function ChatInput({
   useEffect(() => {
     const requestId = ++branchRequestRef.current
     let cancelled = false
+    let pending = false
+    const polling = readOnlySelectors && !!activeSessionId
     const isCurrent = () => !cancelled && branchRequestRef.current === requestId
     const updateBranches = async () => {
+      if (!isCurrent() || pending || (polling && document.hidden)) return
       if (selectedProjectPath && projects.length > 0) {
         const proj = projects.find((p) => pathsMatch(p.path, selectedProjectPath))
         if (proj) {
+          pending = true
           try {
             const list = await getProjectBranches(proj.id)
             if (!isCurrent()) return
             setBranches(list)
             if (list.length > 0) {
-              setBranch(prev => list.includes(prev) ? prev : list[0])
+              setBranch(prev => !readOnlySelectors && list.includes(prev) ? prev : list[0])
             }
           } catch {
             if (!isCurrent()) return
             setBranches(prev => (prev.length === 1 && prev[0] === 'main') ? prev : ['main'])
-          }
+          } finally { pending = false }
           return
         }
       }
       if (!isCurrent()) return
       setBranches(prev => (prev.length === 1 && prev[0] === 'main') ? prev : ['main'])
     }
-    void updateBranches()
-    return () => { cancelled = true }
-  }, [selectedProjectPath, projects])
+    let timer: ReturnType<typeof setInterval> | undefined
+    const refresh = () => {
+      clearInterval(timer)
+      void updateBranches()
+      if (polling && !document.hidden) timer = setInterval(() => { void updateBranches() }, 10000)
+    }
+    refresh()
+    if (polling) document.addEventListener('visibilitychange', refresh)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [selectedProjectPath, projects, activeSessionId, readOnlySelectors])
 
   const filteredProjects = useMemo(() => {
     if (!selectedGroup || !teamProjectsMap) return []

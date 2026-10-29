@@ -2,7 +2,7 @@ import { act, createEvent, fireEvent, render, screen } from '@testing-library/re
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatInput } from './ChatInput'
-import { uploadFile } from '@/lib/api'
+import { getProjectBranches, uploadFile } from '@/lib/api'
 
 vi.mock('@/lib/api', () => ({
   getProjectBranches: vi.fn().mockResolvedValue(['main']),
@@ -56,6 +56,28 @@ function renderInput(overrides: Partial<React.ComponentProps<typeof ChatInput>> 
 }
 
 describe('ChatInput workspace selector', () => {
+  it('refreshes read-only branches on session changes and visible polling, recovering after failure', async () => {
+    vi.useFakeTimers()
+    const branches = vi.mocked(getProjectBranches).mockReset().mockResolvedValue(['main', 'feature'])
+    const { props, rerender, unmount } = renderInput({ activeSessionId: 'branch-a', readOnlySelectors: true, selectedProjectPath: project.path })
+    try {
+      await act(async () => {})
+      expect(branches).toHaveBeenCalledTimes(1)
+      branches.mockResolvedValue(['feature', 'main'])
+      rerender(<ChatInput {...props} activeSessionId="branch-b" />)
+      await act(async () => {})
+      expect(screen.getByText('feature')).toBeInTheDocument()
+      branches.mockResolvedValue(['main', 'feature']).mockRejectedValueOnce(new Error('offline'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(20000) })
+      expect(branches).toHaveBeenCalledTimes(4)
+      expect(screen.getByText('main')).toBeInTheDocument()
+    } finally {
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+      branches.mockResolvedValue(['main'])
+      vi.useRealTimers()
+    }
+  })
   it('restores an unsent session draft after the input unmounts and remounts', async () => {
     const user = userEvent.setup()
     const first = renderInput({ activeSessionId: 'draft-restore-test' })
