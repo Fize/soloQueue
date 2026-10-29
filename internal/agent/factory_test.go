@@ -558,7 +558,7 @@ func TestDefaultFactory_Create_InvalidModel(t *testing.T) {
 	}
 
 	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
-		WithModelResolver(resolver),
+		WithModelResolver(resolver), WithDefaultModelID("nonexistent-model-xyz"),
 	)
 
 	// Invalid model should fail at creation time
@@ -643,14 +643,14 @@ func TestDefaultFactory_Create_ValidModelResolvesParams(t *testing.T) {
 	}
 
 	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log,
-		WithModelResolver(resolver),
+		WithModelResolver(resolver), WithDefaultModelID("deepseek-v4-flash-thinking"),
 	)
 
 	tmpl := AgentTemplate{
 		ID:           "resolved-agent",
 		Name:         "Resolved Agent",
 		SystemPrompt: "You are a test.",
-		ModelID:      "deepseek-v4-flash-thinking",
+		ModelID:      "legacy-model-ignored",
 	}
 
 	agent, _, err := factory.Create(context.Background(), tmpl, "")
@@ -689,7 +689,7 @@ func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 	registry := NewRegistry(nil)
 	fakeLLM := &agenttest.FakeLLM{Responses: []string{"hello"}}
 
-	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log)
+	factory := NewDefaultFactory(registry, fakeLLM, tools.Config{}, log, WithDefaultModelID("default-model"))
 	// No WithModelResolver — should skip validation
 
 	tmpl := AgentTemplate{
@@ -705,8 +705,8 @@ func TestDefaultFactory_Create_NoResolver_SkipsValidation(t *testing.T) {
 	}
 	defer agent.Stop(time.Second)
 
-	if agent.Def.ModelID != "any-random-model-name" {
-		t.Errorf("ModelID = %q, want 'any-random-model-name'", agent.Def.ModelID)
+	if agent.Def.ModelID != "default-model" {
+		t.Errorf("ModelID = %q, want 'default-model'", agent.Def.ModelID)
 	}
 }
 

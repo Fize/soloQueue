@@ -7,6 +7,7 @@ export type Language = 'en' | 'zh'
 const translations = {
   en: {
     header: {
+      languageLabel: 'EN',
       title: 'SoloQueue Status Center',
       desc: 'Local Read-Only Monitoring Dashboard',
     },
@@ -224,6 +225,7 @@ const translations = {
   },
   zh: {
     header: {
+      languageLabel: '中文',
       title: 'SoloQueue 运行状态中心',
       desc: '本地只读监控仪表盘',
     },

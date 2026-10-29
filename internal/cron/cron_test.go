@@ -1,5 +1,6 @@
 package cron
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"encoding/json"
@@ -610,7 +611,7 @@ func TestL1CronSessionBuildFailureIsRecordedAndNotified(t *testing.T) {
 	if records[0].TerminalCode != "execution_start_failed" || !strings.Contains(records[0].ErrorMessage, "private builder failure") {
 		t.Fatalf("build failure history = %+v", records[0])
 	}
-	if !strings.Contains(notification, "[失败] Build failure") || strings.Contains(notification, "private builder failure") {
+	if !strings.Contains(notification, testfixtures.Chinese("cron_test_001")) || strings.Contains(notification, "private builder failure") {
 		t.Fatalf("build failure notification = %q", notification)
 	}
 }
@@ -1030,7 +1031,7 @@ func TestNormalizeCronResult(t *testing.T) {
 	now := time.Date(2026, 8, 19, 15, 30, 0, 0, time.Local)
 
 	t.Run("opaque content and artifacts become generic success envelope", func(t *testing.T) {
-		raw := `{"content":"# 自定义业务格式\n\n原样保留。","artifacts":[{"name":"输出文件","ref":"reports/result.md"}]}`
+		raw := testfixtures.Chinese("cron_test_002")
 		result, err := normalizeCronResult(task, "run-1", raw, now)
 		if err != nil {
 			t.Fatalf("normalizeCronResult returned error: %v", err)
@@ -1038,7 +1039,7 @@ func TestNormalizeCronResult(t *testing.T) {
 		if result.Version != "v1" || result.TaskID != task.ID || result.RunID != "run-1" || result.Title != task.Title {
 			t.Fatalf("project-owned fields not populated: %+v", result)
 		}
-		if result.Status != "success" || result.Error != nil || result.Content != "# 自定义业务格式\n\n原样保留。" || len(result.Artifacts) != 1 || result.Artifacts[0].Name != "输出文件" || result.Artifacts[0].Ref != "reports/result.md" {
+		if result.Status != "success" || result.Error != nil || result.Content != testfixtures.Chinese("cron_test_003") || len(result.Artifacts) != 1 || result.Artifacts[0].Name != testfixtures.Chinese("cron_test_004") || result.Artifacts[0].Ref != "reports/result.md" {
 			t.Fatalf("unexpected success result: %+v", result)
 		}
 		if result.GeneratedAt != now.Format(time.RFC3339) {
@@ -1063,7 +1064,7 @@ func TestNormalizeCronResult(t *testing.T) {
 	})
 
 	t.Run("artifact-only payload becomes success", func(t *testing.T) {
-		result, err := normalizeCronResult(task, "run-artifact", `{"artifacts":[{"name":"完成结果","ref":"outputs/result.json"}]}`, now)
+		result, err := normalizeCronResult(task, "run-artifact", testfixtures.Chinese("cron_test_005"), now)
 		if err != nil || result.Status != "success" || result.Content != "" || len(result.Artifacts) != 1 {
 			t.Fatalf("unexpected artifact-only result=%+v err=%v", result, err)
 		}
@@ -1092,7 +1093,7 @@ func TestNormalizeCronResult(t *testing.T) {
 	}
 
 	t.Run("malformed non-empty payload becomes safe partial", func(t *testing.T) {
-		raw := `{"content":"包含未转义引号"私有内容""}`
+		raw := testfixtures.Chinese("cron_test_006")
 		result, err := normalizeCronResult(task, "run-2", raw, now)
 		if err == nil || !strings.Contains(err.Error(), "decode final output") {
 			t.Fatalf("expected strict parse error, got %v", err)
@@ -1101,12 +1102,12 @@ func TestNormalizeCronResult(t *testing.T) {
 			t.Fatalf("unexpected partial result: %+v", result)
 		}
 		formatted := formatCronResult(result)
-		for _, forbidden := range []string{raw, "私有内容", "invalid_structured_output", "decode final output"} {
+		for _, forbidden := range []string{raw, testfixtures.Chinese("cron_test_007"), "invalid_structured_output", "decode final output"} {
 			if strings.Contains(formatted, forbidden) {
 				t.Fatalf("private malformed output or diagnostic leaked into formatted result: %q", formatted)
 			}
 		}
-		if !strings.Contains(formatted, "[部分完成] Scheduled task") || !strings.Contains(formatted, result.Content) {
+		if !strings.Contains(formatted, testfixtures.Chinese("cron_test_008")) || !strings.Contains(formatted, result.Content) {
 			t.Fatalf("safe partial wrapper missing: %q", formatted)
 		}
 	})
@@ -1399,8 +1400,8 @@ func TestDrainEventsWithTimeline_Basic(t *testing.T) {
 	// Intermediate and Done content remain replayable, but only the validated
 	// submission may be normalized and delivered.
 	ch <- &testContentDelta{delta: "private intermediate analysis"}
-	ch <- &ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: `{"content":"# 自定义报告\n\nAll systems green.","artifacts":[{"name":"原始数据","ref":"outputs/health.json"}]}`}
-	ch <- &ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: `{"content":"# 自定义报告\n\nAll systems green.","artifacts":[{"name":"原始数据","ref":"outputs/health.json"}]}`}
+	ch <- &ToolExecStartEvent{CallID: "submit-1", Name: "SubmitCronResult", Args: testfixtures.Chinese("cron_test_009")}
+	ch <- &ToolExecDoneEvent{CallID: "submit-1", Name: "SubmitCronResult", Result: testfixtures.Chinese("cron_test_009")}
 	ch <- &testDoneEvent{content: `{"content":"misleading done content"}`}
 	close(ch)
 
@@ -1414,7 +1415,7 @@ func TestDrainEventsWithTimeline_Basic(t *testing.T) {
 	if strings.Contains(result.replyText, "private intermediate analysis") || strings.Contains(result.replyText, "misleading done content") {
 		t.Fatalf("non-authoritative content leaked into delivery: %q", result.replyText)
 	}
-	for _, want := range []string{"[成功] test", "# 自定义报告", "All systems green.", "- 原始数据: outputs/health.json"} {
+	for _, want := range []string{testfixtures.Chinese("cron_test_010"), testfixtures.Chinese("cron_test_011"), "All systems green.", testfixtures.Chinese("cron_test_012")} {
 		if !strings.Contains(result.replyText, want) {
 			t.Errorf("standardized reply missing %q: %q", want, result.replyText)
 		}
@@ -1444,7 +1445,7 @@ func TestDrainEventsWithTimeline_InvalidFinalOutputIsLoggedAndStandardized(t *te
 	s.SetWorkDir(tmpDir)
 
 	task := Task{ID: "test-invalid", Title: "Invalid output", Instruction: "do something"}
-	raw := `{"content":"未转义的"私有内容""}`
+	raw := testfixtures.Chinese("cron_test_013")
 	ch := make(chan iface.AgentEvent, 2)
 	ch <- &testContentDelta{delta: "do not deliver this process output"}
 	ch <- &testDoneEvent{content: raw}
@@ -1457,7 +1458,7 @@ func TestDrainEventsWithTimeline_InvalidFinalOutputIsLoggedAndStandardized(t *te
 	if result.canonical.Status != "failed" || result.canonical.Error == nil || !strings.HasPrefix(*result.canonical.Error, "missing_structured_submission:") {
 		t.Fatalf("missing tool submission must fail closed: %+v", result.canonical)
 	}
-	if strings.Contains(result.replyText, "do not deliver this process output") || strings.Contains(result.replyText, raw) || strings.Contains(result.replyText, "私有内容") || !strings.Contains(result.replyText, "[失败] Invalid output") {
+	if strings.Contains(result.replyText, "do not deliver this process output") || strings.Contains(result.replyText, raw) || strings.Contains(result.replyText, testfixtures.Chinese("cron_test_007")) || !strings.Contains(result.replyText, testfixtures.Chinese("cron_test_014")) {
 		t.Fatalf("unexpected standardized reply: %q", result.replyText)
 	}
 	if !strings.Contains(result.diagnosticError, "missing_structured_submission:") {
@@ -1472,7 +1473,7 @@ func TestDrainEventsWithTimeline_InvalidFinalOutputIsLoggedAndStandardized(t *te
 	if err != nil {
 		t.Fatalf("read timeline: %v", err)
 	}
-	if !strings.Contains(string(timelineBytes), "missing_structured_submission") || !strings.Contains(string(timelineBytes), "私有内容") {
+	if !strings.Contains(string(timelineBytes), "missing_structured_submission") || !strings.Contains(string(timelineBytes), testfixtures.Chinese("cron_test_007")) {
 		t.Fatalf("timeline must retain raw Done content and the scheduler failure:\n%s", timelineBytes)
 	}
 }
@@ -1653,28 +1654,28 @@ func TestRunL1TaskDeliversCanonicalResults(t *testing.T) {
 			name:           "valid structured output",
 			final:          `{"content":"Reminder completed","artifacts":[]}`,
 			wantStatus:     "success",
-			wantMessage:    "[成功] Cron delivery",
+			wantMessage:    testfixtures.Chinese("cron_test_015"),
 			wantCallbackOK: true,
 		},
 		{
 			name:            "invalid final output",
-			final:           `{"content":"未转义的"私有内容""}`,
+			final:           testfixtures.Chinese("cron_test_013"),
 			wantStatus:      "failed",
-			wantMessage:     "[失败] Cron delivery",
+			wantMessage:     testfixtures.Chinese("cron_test_016"),
 			wantDiagnostic:  "missing_structured_submission:",
-			forbidInMessage: "私有内容",
+			forbidInMessage: testfixtures.Chinese("cron_test_007"),
 		},
 		{
 			name:        "empty final output",
 			final:       "",
 			wantStatus:  "failed",
-			wantMessage: "[失败] Cron delivery",
+			wantMessage: testfixtures.Chinese("cron_test_016"),
 		},
 		{
 			name:            "execution fails to start",
 			startErr:        errors.New("provider unavailable at /private/provider.sock?token=secret"),
 			wantStatus:      "failed",
-			wantMessage:     "[失败] Cron delivery",
+			wantMessage:     testfixtures.Chinese("cron_test_016"),
 			wantDiagnostic:  "provider unavailable at /private/provider.sock?token=secret",
 			forbidInMessage: "/private/provider.sock",
 		},
@@ -1797,7 +1798,7 @@ func TestExecuteL2TaskDeliversGenericArtifactOnlyResult(t *testing.T) {
 
 	s.executeL2Task(*task)
 
-	if len(messages) != 1 || !strings.Contains(messages[0], "[成功] Export snapshot") || !strings.Contains(messages[0], "- Snapshot: outputs/snapshot.json") {
+	if len(messages) != 1 || !strings.Contains(messages[0], testfixtures.Chinese("cron_test_017")) || !strings.Contains(messages[0], "- Snapshot: outputs/snapshot.json") {
 		t.Fatalf("generic L2 message = %q", messages)
 	}
 	if strings.Contains(messages[0], "private L2 Done content") {
@@ -1872,7 +1873,7 @@ func TestCronPanicsUseCanonicalFailureAndKeepRawDiagnosticsPrivate(t *testing.T)
 			if callbackOK {
 				t.Fatal("panic completion callback must not report success")
 			}
-			if len(messages) != 1 || !strings.Contains(messages[0], "[失败] Panic task") {
+			if len(messages) != 1 || !strings.Contains(messages[0], testfixtures.Chinese("cron_test_018")) {
 				t.Fatalf("panic message = %q, want one canonical failure", messages)
 			}
 			if strings.Contains(messages[0], "/secret/") || strings.Contains(messages[0], "private L") {

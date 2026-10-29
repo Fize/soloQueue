@@ -149,7 +149,12 @@ func buildChatGPTClient(provider *config.LLMProvider, workDir string) (agent.LLM
 // against the settings model registry.
 func BuildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 	return func(modelID string) (agent.ModelInfo, error) {
-		m := cfg.ModelByID(modelID)
+		var m *config.LLMModel
+		if providerID, id, ok := strings.Cut(modelID, ":"); ok {
+			m = cfg.ModelByProviderID(providerID, id)
+		} else {
+			m = cfg.ModelByID(modelID)
+		}
 		if m == nil {
 			settings := cfg.Get()
 			var available []string
@@ -164,9 +169,13 @@ func BuildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 		if !m.Enabled {
 			return agent.ModelInfo{}, fmt.Errorf("model %q is disabled in settings", modelID)
 		}
+		apiModel := m.APIModel
+		if apiModel == "" {
+			apiModel = m.ID
+		}
 		return agent.ModelInfo{
 			ProviderID:      m.ProviderID,
-			APIModel:        m.APIModel,
+			APIModel:        apiModel,
 			ContextWindow:   m.ContextWindow,
 			Temperature:     m.Generation.Temperature,
 			MaxTokens:       m.Generation.MaxTokens,

@@ -304,7 +304,7 @@ func (a *Agent) streamLoop(ctx context.Context, out chan<- AgentEvent, strat str
 		// The request context is the routing authority. The Agent-global value
 		// remains a compatibility fallback for direct callers and observability.
 		override := modelOverrideForContext(ctx, a)
-		if override != nil && !a.Def.ExplicitModel {
+		if override != nil {
 			if override.ModelID != "" {
 				req.Model = override.ModelID
 			}
@@ -745,16 +745,23 @@ func (a *Agent) runOnceStream(ctx context.Context, prompt string, out chan<- Age
 	a.setWorkStart(prompt)
 	defer a.clearWork()
 
+	a.streamLoop(ctx, out, a.newSimpleStrategy(ctx, prompt), 0)
+}
+
+func (a *Agent) newSimpleStrategy(ctx context.Context, prompt string) *simpleStrategy {
 	maxTokens := a.Def.ContextWindow
+	if override := modelOverrideForContext(ctx, a); override != nil && override.ContextWindow > 0 {
+		maxTokens = override.ContextWindow
+	}
 	if maxTokens <= 0 {
 		maxTokens = DefaultContextWindow
 	}
-	a.streamLoop(ctx, out, &simpleStrategy{
+	return &simpleStrategy{
 		systemPrompt: a.systemPrompt(),
 		prompt:       prompt,
 		maxTokens:    maxTokens,
 		tok:          ctxwin.NewTokenizer(),
-	}, 0)
+	}
 }
 
 // runOnceStreamWithHistory is the execution body of AskStreamWithHistory.

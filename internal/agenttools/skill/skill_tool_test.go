@@ -1,5 +1,6 @@
 package skill
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"fmt"
@@ -237,7 +238,7 @@ func TestSkillToolDescription_NoBudgetCap_AllSkillsSummarized(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		_ = reg.Register(&Skill{
 			ID:          fmt.Sprintf("skill-%02d", i),
-			Description: strings.Repeat("很长的描述内容", 30),
+			Description: strings.Repeat(testfixtures.Chinese("skill_tool_test_001"), 30),
 		})
 	}
 	st := NewSkillTool(reg, nil)

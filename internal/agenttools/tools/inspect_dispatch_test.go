@@ -1,5 +1,6 @@
 package tools
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"encoding/json"
@@ -42,12 +43,12 @@ func TestInspectDelegationIsBoundToContextManager(t *testing.T) {
 }
 
 func TestTruncateSummaryTextPreservesUTF8Boundaries(t *testing.T) {
-	value := strings.Repeat("烟", maxSummaryText+1)
+	value := strings.Repeat(testfixtures.Chinese("inspect_dispatch_test_001"), maxSummaryText+1)
 	got := truncateSummaryText(value)
 	if !utf8.ValidString(got) {
 		t.Fatalf("truncated text is not valid UTF-8: %q", got)
 	}
-	if got != strings.Repeat("烟", maxSummaryText)+"…" {
+	if got != strings.Repeat(testfixtures.Chinese("inspect_dispatch_test_001"), maxSummaryText)+"…" {
 		t.Fatalf("truncated text = %q", got)
 	}
 }

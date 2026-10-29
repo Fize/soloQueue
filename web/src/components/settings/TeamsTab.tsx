@@ -9,14 +9,13 @@ import {
   createAgent,
   updateAgent,
   deleteAgent,
-  listModels,
   getAvailableMCPServers,
   getSkills,
   getQQBotsConfig,
   getWeChatBotsConfig,
   getTelegramBotsConfig, getWecomBotsConfig,
 } from '@/lib/api'
-import type { TeamResponse, AgentResponse, LLMModel } from '@/types'
+import type { TeamResponse, AgentResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -404,7 +403,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [description, setDescription] = useState(() => editAgent?.description || '')
   const [teamName, setTeamName] = useState(() => editAgent?.team_name || teams[0]?.name || '')
   const [isLeader, setIsLeader] = useState(() => editAgent?.is_leader || false)
-  const [model, setModel] = useState(() => editAgent?.model || '')
   const [systemPrompt, setSystemPrompt] = useState(() => editAgent?.system_prompt || '')
   const [mcpServers, setMcpServers] = useState<string[]>(() => editAgent?.mcp_servers || [])
   const [qqChannel, setQqChannel] = useState(() => editAgent?.channels?.qq || '')
@@ -423,12 +421,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   const [promptTab, setPromptTab] = useState<'edit' | 'preview'>('preview')
   const [mcpOptions, setMcpOptions] = useState<{ name: string; source: string; command?: string }[]>([])
   const [builtinMCPNames, setBuiltinMCPNames] = useState<Set<string>>(new Set())
-  const [modelOptions, setModelOptions] = useState<LLMModel[]>([])
-  const [selectedProviderFilter, setSelectedProviderFilter] = useState('all')
-  const [showModelDropdown, setShowModelDropdown] = useState(false)
-  const modelContainerRef = useRef<HTMLDivElement>(null)
-  const [modelDropdownPos, setModelDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null)
-
   const isEdit = !!editAgent
 
   useEffect(() => {
@@ -439,7 +431,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
         setBuiltinMCPNames(new Set(res.servers.filter(s => s.source === 'builtin').map(s => s.name)))
       })
       .catch(console.error)
-    listModels().then(setModelOptions).catch(console.error)
     getQQBotsConfig()
       .then((bots) => setQqBotOptions(bots.map(b => ({ id: b.id || '', name: b.name || '', bind_agent: b.bind_agent }))))
       .catch(console.error)
@@ -453,35 +444,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
       .then((bots) => setWecomBotOptions(bots.map(b => ({ id: b.id, name: b.name, bind_agent: b.bind_agent }))))
       .catch(console.error)
   }, [open])
-
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (modelContainerRef.current && !modelContainerRef.current.contains(e.target as Node)) {
-        setShowModelDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handleOutsideClick)
-    return () => document.removeEventListener('mousedown', handleOutsideClick)
-  }, [])
-
-  useEffect(() => {
-    if (!showModelDropdown || !modelContainerRef.current) {
-      setModelDropdownPos(null)
-      return
-    }
-    const updatePos = () => {
-      if (!modelContainerRef.current) return
-      const rect = modelContainerRef.current.getBoundingClientRect()
-      setModelDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
-    }
-    updatePos()
-    window.addEventListener('scroll', updatePos, true)
-    window.addEventListener('resize', updatePos)
-    return () => {
-      window.removeEventListener('scroll', updatePos, true)
-      window.removeEventListener('resize', updatePos)
-    }
-  }, [showModelDropdown])
 
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
@@ -508,7 +470,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           description: description || undefined,
           team_name: teamName,
           is_leader: isLeader,
-          model: model || undefined,
           system_prompt: systemPrompt || undefined,
           mcp_servers: mcpServers.length > 0 ? mcpServers : undefined,
           channels: channelsPayload,
@@ -520,7 +481,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           description: description || undefined,
           team_name: teamName,
           is_leader: isLeader,
-          model: model || undefined,
           system_prompt: systemPrompt || undefined,
           mcp_servers: mcpServers.length > 0 ? mcpServers : undefined,
           channels: channelsPayload,
@@ -534,7 +494,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
     } finally {
       setSaving(false)
     }
-  }, [name, description, teamName, isLeader, model, systemPrompt, mcpServers, qqChannel, wechatChannel, telegramChannel, wecomChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
+  }, [name, description, teamName, isLeader, systemPrompt, mcpServers, qqChannel, wechatChannel, telegramChannel, wecomChannel, notifyChannel, isEdit, editAgent, t, onSave, onOpenChange])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -552,14 +512,6 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
   }, [open, handleSave])
 
   const teamOptions = teams.map((team) => ({ value: team.name, label: team.name }))
-  const providers = ['all', ...Array.from(new Set(modelOptions.map(m => m.providerId)))]
-  const filteredModelOptions = modelOptions.filter(opt => {
-    const matchesSearch = opt.id.toLowerCase().includes(model.toLowerCase()) || 
-                          opt.name.toLowerCase().includes(model.toLowerCase()) ||
-                          opt.providerId.toLowerCase().includes(model.toLowerCase())
-    const matchesProvider = selectedProviderFilter === 'all' || opt.providerId === selectedProviderFilter
-    return matchesSearch && matchesProvider
-  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -591,79 +543,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select label={t('teams.team')} options={teamOptions} value={teamName} onChange={setTeamName} className="text-xs" />
             
-            <div ref={modelContainerRef} className="flex flex-col gap-1.5 text-left w-full">
-              <Label className="text-xs font-semibold text-muted-foreground">{t('teams.modelOverride')}</Label>
-              <div>
-                <Input
-                  value={model}
-                  onChange={(e) => {
-                    setModel(e.target.value)
-                    setShowModelDropdown(true)
-                  }}
-                  onFocus={() => setShowModelDropdown(true)}
-                  placeholder={t('teams.modelOverridePlaceholder')}
-                  className="text-xs"
-                />
-              </div>
-            </div>
           </div>
-
-          {showModelDropdown && modelDropdownPos && (filteredModelOptions.length > 0 || providers.length > 1) && createPortal(
-            <div
-              className="fixed z-[9999] max-h-56 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 duration-100 flex flex-col"
-              style={{ top: modelDropdownPos.top, left: modelDropdownPos.left, width: modelDropdownPos.width }}
-            >
-              {providers.length > 2 && (
-                <div className="flex gap-1 p-1.5 border-b border-border overflow-x-auto bg-muted/20 shrink-0 select-none">
-                  {providers.map(p => {
-                    const isSelected = selectedProviderFilter === p
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedProviderFilter(p)
-                        }}
-                        className={`px-2 py-0.5 text-[9px] font-semibold rounded-full border transition-all shrink-0 cursor-pointer ${
-                          isSelected
-                            ? 'bg-primary border-primary text-white'
-                            : 'bg-card border-border text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        {p.toUpperCase()}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-              <div className="p-1 overflow-y-auto">
-                {filteredModelOptions.length === 0 ? (
-                  <div className="text-[10px] text-muted-foreground text-center py-2 italic">
-                    No models found
-                  </div>
-                ) : (
-                  filteredModelOptions.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => {
-                        setModel(opt.id)
-                        setShowModelDropdown(false)
-                      }}
-                      className="w-full px-2.5 py-1.5 text-xs rounded hover:bg-accent hover:text-accent-foreground cursor-default select-none outline-none transition-colors flex items-center justify-between gap-2"
-                    >
-                      <span className="truncate">{opt.id}</span>
-                      <span className="text-[9px] font-medium text-muted-foreground bg-muted/40 px-1 py-0.2 rounded border border-border/40 shrink-0">
-                        {opt.providerId}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>,
-            document.body
-          )}
 
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs font-semibold text-muted-foreground">{t('teams.agentDescription')}</Label>
@@ -714,7 +594,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                     }}
                     className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    <option value="">无</option>
+                    <option value="">{t('common.none')}</option>
                     {qqBotOptions.map(bot => (
                       <option key={bot.id} value={bot.id}>
                         {bot.name} ({bot.id}){bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}
@@ -735,7 +615,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                     }}
                     className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    <option value="">无</option>
+                    <option value="">{t('common.none')}</option>
                     {wechatBotOptions.map(bot => (
                       <option key={bot.id} value={bot.id}>
                         {bot.name} ({bot.id}){bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}
@@ -745,10 +625,10 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                 </div>
               )}
               {telegramBotOptions.length > 0 && (
-                <div className="flex flex-col gap-1"><Label className="text-xs text-muted-foreground">Telegram</Label><select value={telegramChannel} onChange={(e) => { setTelegramChannel(e.target.value); if (notifyChannel === 'telegram' && !e.target.value) setNotifyChannel('') }} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"><option value="">无</option>{telegramBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.username ? `@${bot.username}` : bot.id}{bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}</option>)}</select></div>
+                <div className="flex flex-col gap-1"><Label className="text-xs text-muted-foreground">Telegram</Label><select value={telegramChannel} onChange={(e) => { setTelegramChannel(e.target.value); if (notifyChannel === 'telegram' && !e.target.value) setNotifyChannel('') }} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"><option value="">{t('common.none')}</option>{telegramBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.username ? `@${bot.username}` : bot.id}{bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}</option>)}</select></div>
               )}
               {wecomBotOptions.length > 0 && (
-                <div className="flex flex-col gap-1"><Label className="text-xs text-muted-foreground">Wecom</Label><select value={wecomChannel} onChange={(e) => { setWecomChannel(e.target.value); if (notifyChannel === 'wecom' && !e.target.value) setNotifyChannel('') }} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"><option value="">无</option>{wecomBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.id}{bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}</option>)}</select></div>
+                <div className="flex flex-col gap-1"><Label className="text-xs text-muted-foreground">Wecom</Label><select value={wecomChannel} onChange={(e) => { setWecomChannel(e.target.value); if (notifyChannel === 'wecom' && !e.target.value) setNotifyChannel('') }} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"><option value="">{t('common.none')}</option>{wecomBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.id}{bot.bind_agent ? ` — bound to ${bot.bind_agent}` : ''}</option>)}</select></div>
               )}
 
               {(qqChannel || wechatChannel || telegramChannel || wecomChannel) && (
@@ -796,7 +676,7 @@ function AgentDialog({ open, onOpenChange, onSave, editAgent, teams }: AgentDial
                         onChange={() => setNotifyChannel('')}
                         className="h-3 w-3"
                       />
-                      无 (use first bound channel)
+                      {t('profile.firstBoundChannel')}
                     </label>
                   </div>
                 </div>
@@ -1170,11 +1050,6 @@ export default function TeamsTab() {
                   {agent.description && (
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
                       {agent.description}
-                    </p>
-                  )}
-                  {agent.model && (
-                    <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                      {t('teams.model', { name: agent.model })}
                     </p>
                   )}
                 </div>

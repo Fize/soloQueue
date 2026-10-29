@@ -8,8 +8,8 @@ export function AgentsTab() {
   const [activeTab, setActiveTab] = useState<'profile' | 'teams'>('profile')
 
   const subTabButtons = [
-    { key: 'profile' as const, label: t('profile.title') || '助手画像' },
-    { key: 'teams' as const, label: t('teams.title') || '团队管理' },
+    { key: 'profile' as const, label: t('profile.title') },
+    { key: 'teams' as const, label: t('teams.title') },
   ]
 
   return (

@@ -240,33 +240,6 @@ func TestEffectiveContextWindow(t *testing.T) {
 	}
 }
 
-func TestEffectiveContextWindow_ExplicitModel(t *testing.T) {
-	// ExplicitModel makes SetModelOverride a no-op
-	a := NewAgent(Definition{ID: "test", ContextWindow: 1048576, ExplicitModel: true}, &agenttest.FakeLLM{}, nil)
-
-	a.SetModelOverride(&ModelParams{ContextWindow: 131072})
-	if got := a.EffectiveContextWindow(); got != 1048576 {
-		t.Errorf("ExplicitModel should prevent override, got %d", got)
-	}
-}
-
-// TestEffectiveModelID covers the routed-model contract:
-//
-//   - When the router has not yet classified the prompt (no override
-//     AND the agent is not pinned to an explicit model), EffectiveModelID
-//     returns "" — NOT the template's default ModelID. This is the
-//     display-time semantic the UI relies on: "" means "router has not
-//     decided yet" and the model chip should render a placeholder.
-//   - When the router has set a per-ask ModelID, that value is returned.
-//   - When the agent's Definition has ExplicitModel=true, the template's
-//     pinned ModelID is always returned (the router's override is
-//     ignored for these agents — the template model IS the routed model).
-//   - ClearModelOverride() reverts to the "" sentinel for non-explicit
-//     agents, and to the template-pinned model for explicit ones.
-//
-// EffectiveModelID must NOT fall back to Def.ModelID for non-explicit
-// agents — that fallback would leak template config into the per-ask
-// model display and contradict the level/model coupling on the UI.
 func TestEffectiveModelID(t *testing.T) {
 	a := NewAgent(Definition{ID: "test", ModelID: "deepseek-v4-flash", ProviderID: "deepseek"}, &agenttest.FakeLLM{}, nil)
 
@@ -305,36 +278,6 @@ func TestEffectiveModelID(t *testing.T) {
 	}
 	if got := a.EffectiveProviderID(); got != "" {
 		t.Errorf("after clear ProviderID = %q, want \"\"", got)
-	}
-}
-
-// TestEffectiveModelID_ExplicitModel verifies that an agent whose
-// Definition pins an explicit model (ExplicitModel=true) always reports
-// the template-pinned model from EffectiveModelID — the override is
-// intentionally ignored, and the template default IS the working model
-// for these agents (the router cannot swap it).
-func TestEffectiveModelID_ExplicitModel(t *testing.T) {
-	a := NewAgent(Definition{
-		ID:            "test",
-		ModelID:       "deepseek-v4-flash",
-		ProviderID:    "deepseek",
-		ExplicitModel: true,
-	}, &agenttest.FakeLLM{}, nil)
-
-	// Even with an override, ExplicitModel means the override is not
-	// consumed. The template's pinned model is the routed model.
-	a.SetModelOverride(&ModelParams{ModelID: "gpt-5", ProviderID: "openai"})
-	if got := a.EffectiveModelID(); got != "deepseek-v4-flash" {
-		t.Errorf("ExplicitModel should pin to template, EffectiveModelID = %q, want %q", got, "deepseek-v4-flash")
-	}
-	if got := a.EffectiveProviderID(); got != "deepseek" {
-		t.Errorf("ExplicitModel should pin to template, EffectiveProviderID = %q, want %q", got, "deepseek")
-	}
-
-	// Clear: still pinned to template.
-	a.ClearModelOverride()
-	if got := a.EffectiveModelID(); got != "deepseek-v4-flash" {
-		t.Errorf("after clear, EffectiveModelID = %q, want %q", got, "deepseek-v4-flash")
 	}
 }
 

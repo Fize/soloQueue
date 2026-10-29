@@ -506,3 +506,36 @@ func TestBuiltinTeamInstallRejectsAgentConflict(t *testing.T) {
 		t.Fatalf("engineering team should not be created on conflict: %v", statErr)
 	}
 }
+
+func TestLegacyAgentModelIsPreservedButCannotBeSet(t *testing.T) {
+	dir := t.TempDir()
+	agents := filepath.Join(dir, "agents")
+	if err := os.MkdirAll(agents, 0755); err != nil {
+		t.Fatal(err)
+	}
+	s := NewStore(filepath.Join(dir, "groups"), agents, nil)
+	ctx := context.Background()
+	if err := s.CreateAgent(ctx, &Agent{Name: "new", Model: "unwanted"}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := s.GetAgentByName(ctx, "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Model != "" {
+		t.Fatalf("new model = %q", created.Model)
+	}
+	if err := os.WriteFile(filepath.Join(agents, "legacy.md"), []byte("---\nname: legacy\nmodel: old-model\n---\nold\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAgent(ctx, "legacy", &Agent{Model: "replacement", Description: "updated"}); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := s.GetAgentByName(ctx, "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.Model != "old-model" {
+		t.Fatalf("legacy model = %q", legacy.Model)
+	}
+}

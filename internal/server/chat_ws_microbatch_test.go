@@ -1,5 +1,6 @@
 package server
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"encoding/json"
@@ -358,8 +359,8 @@ func TestForwardAgentEvents_PreservesReasoningContentOrderAcrossMicrobatch(t *te
 	ch := make(chan iface.AgentEvent, 16)
 	ch <- agent.ReasoningDeltaEvent{Iter: 0, Delta: "Invest"}
 	ch <- agent.ReasoningDeltaEvent{Iter: 0, Delta: "Lab."}
-	ch <- agent.ContentDeltaEvent{Iter: 0, Delta: "好了"}
-	ch <- agent.ContentDeltaEvent{Iter: 0, Delta: "，我对 SoloQueue 有了解。"}
+	ch <- agent.ContentDeltaEvent{Iter: 0, Delta: testfixtures.Chinese("chat_ws_microbatch_test_001")}
+	ch <- agent.ContentDeltaEvent{Iter: 0, Delta: testfixtures.Chinese("chat_ws_microbatch_test_002")}
 	ch <- agent.ToolExecStartEvent{Iter: 0, CallID: "c1", Name: "delegate_team", Args: "{}"}
 	close(ch)
 
@@ -385,7 +386,7 @@ done:
 	if msgs[0].Type != "reasoning_chunk" || msgs[0].Delta != "InvestLab." {
 		t.Errorf("first frame = %#v, want combined reasoning chunk", msgs[0])
 	}
-	if msgs[1].Type != "chat_chunk" || msgs[1].Delta != "好了，我对 SoloQueue 有了解。" {
+	if msgs[1].Type != "chat_chunk" || msgs[1].Delta != testfixtures.Chinese("chat_ws_microbatch_test_003") {
 		t.Errorf("second frame = %#v, want combined content chunk", msgs[1])
 	}
 	if msgs[2].Type != "tool_start" {

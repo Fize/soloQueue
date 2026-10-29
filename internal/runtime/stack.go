@@ -376,7 +376,7 @@ func (s *Stack) OnSettingsChange(settings config.Settings) error {
 	if generalModel != nil {
 		s.DefaultModel = generalModel
 		if s.AgentFactory != nil {
-			s.AgentFactory.UpdateDefaultModelID(generalModel.ID)
+			s.AgentFactory.UpdateDefaultModelID(generalModel.ProviderID + ":" + generalModel.ID)
 		}
 	}
 	if classifierModel := classifierModelSettings(settings); classifierModel != nil && s.TaskRouter != nil {

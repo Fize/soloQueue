@@ -1,3 +1,4 @@
+import chineseSamples from '@/testdata/chinese_samples.json'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getEmbeddingStatus, runEmbeddingAction } from '@/lib/api/config-api'
@@ -57,11 +58,11 @@ describe('local embedding lifecycle', () => {
     vi.mocked(getEmbeddingStatus).mockResolvedValue({ ...ready, state: 'error', error: 'Worker not installed' })
     vi.mocked(runEmbeddingAction).mockResolvedValue({ ...ready, state: 'preparing' })
     render(view())
-    expect(await screen.findByRole('alert')).toHaveTextContent('本地向量检索不可用')
+    expect(await screen.findByRole('alert')).toHaveTextContent(chineseSamples.LocalEmbeddingSection_test_001)
     expect(screen.getByText('Worker not installed')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '重建本地索引' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '重试' }))
-    expect(await screen.findByText(/状态: 准备中/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: chineseSamples.LocalEmbeddingSection_test_002 })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: chineseSamples.LocalEmbeddingSection_test_003 }))
+    expect(await screen.findByText(new RegExp(chineseSamples.local_embedding_status))).toBeInTheDocument()
   })
 
   it('aborts requests on persisted config change and unmount and ignores stale responses', async () => {

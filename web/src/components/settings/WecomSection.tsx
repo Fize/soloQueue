@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from '@/lib/i18n'
 import { MessageCircle, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { deleteWecomBotConfig, getWecomBotsConfig, updateWecomBotsConfig } from '@/lib/api'
@@ -75,6 +76,7 @@ function BotDialog({ account, accounts, onClose, onSaved }: {
 }
 
 export function WecomSection() {
+  const { t } = useTranslation()
   const [accounts, setAccounts] = useState<WecomBotConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -117,7 +119,7 @@ export function WecomSection() {
   }
   return <section aria-label="WeCom" className="space-y-4 rounded-xl border border-border bg-card p-6 shadow-sm">
     <div className="flex items-center justify-between gap-4 border-b border-border pb-3">
-      <div><div className="flex items-center gap-2"><MessageCircle className="size-4 text-primary" /><h2 className="font-semibold">WeCom · 企业微信</h2></div><p className="mt-1 text-xs text-muted-foreground">Intelligent bots using API long connection. Text messages are supported.</p></div>
+      <div><div className="flex items-center gap-2"><MessageCircle className="size-4 text-primary" /><h2 className="font-semibold">{t('general.wecomTitle')}</h2></div><p className="mt-1 text-xs text-muted-foreground">Intelligent bots using API long connection. Text messages are supported.</p></div>
       <div className="flex gap-2"><Button variant="outline" size="sm" aria-label="Refresh WeCom status" disabled={saving || dialogOpen || !!removing} onClick={() => { void load() }}><RefreshCw /></Button><Button size="sm" disabled={saving || loading || !!error || dialogOpen || !!removing} onClick={() => { setEditing(undefined); setDialogOpen(true); busy.current = true; revision.current++ }}><Plus />Add WeCom bot</Button></div>
     </div>
     {loading ? <p className="text-sm text-muted-foreground">Loading WeCom bots…</p> : error ? <p role="alert" className="text-sm text-destructive">{error}</p> : accounts.length === 0 ? <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">No WeCom bots configured</p> : <div className="space-y-3">{accounts.map(bot => <div key={bot.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-muted/20 p-4">

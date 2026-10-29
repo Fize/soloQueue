@@ -1,5 +1,6 @@
 package wechat
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import "testing"
 
 func TestFormatTextKeepsCompatibleMarkdown(t *testing.T) {
@@ -11,8 +12,8 @@ func TestFormatTextKeepsCompatibleMarkdown(t *testing.T) {
 }
 
 func TestFormatTextDegradesUnsupportedMarkdown(t *testing.T) {
-	in := "##### title\n*中文斜体*\n~~deleted~~\n![image](https://example.test/a.png)"
-	want := "title\n中文斜体\ndeleted"
+	in := testfixtures.Chinese("markdown_test_001")
+	want := testfixtures.Chinese("markdown_test_002")
 	if got := FormatText(in); got != want {
 		t.Fatalf("FormatText() = %q, want %q", got, want)
 	}

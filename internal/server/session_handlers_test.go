@@ -1,5 +1,6 @@
 package server
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"bytes"
 	"context"
@@ -371,10 +372,10 @@ func TestHTTP_SessionHistory_DedupPartialFlush(t *testing.T) {
 	// the agent's per-iteration push hook (with tool_calls), then again by the
 	// session's partial flush (same content, no tool_calls) after a cancel.
 	events := []string{
-		`{"ts":"2026-07-31T16:37:49+08:00","type":"message","msg":{"role":"user","content":"哈哈"}}`,
-		`{"ts":"2026-07-31T16:37:57+08:00","type":"message","msg":{"role":"assistant","content":"哈哈哈别笑","reasoning":"thinking...","tool_calls":[{"id":"call_1","type":"function","name":"delegate","arguments":"{}"}]}}`,
+		testfixtures.Chinese("session_handlers_test_001"),
+		testfixtures.Chinese("session_handlers_test_002"),
 		`{"ts":"2026-07-31T16:37:57+08:00","type":"message","msg":{"role":"tool","content":"","name":"delegate","tool_call_id":"call_1","ephemeral":true}}`,
-		`{"ts":"2026-07-31T16:38:23+08:00","type":"message","msg":{"role":"assistant","content":"哈哈哈别笑","reasoning":"thinking..."}}`,
+		testfixtures.Chinese("session_handlers_test_003"),
 	}
 
 	f, err := os.Create(timelinePath)
@@ -416,10 +417,10 @@ func TestHTTP_SessionHistory_DedupPartialFlush(t *testing.T) {
 			}
 		}
 	}
-	// "哈哈哈别笑" must appear exactly once (dedup), not twice.
+	// The message must appear exactly once after deduplication.
 	var dup int
 	for _, c := range contents {
-		if c == "哈哈哈别笑" {
+		if c == testfixtures.Chinese("session_handlers_test_004") {
 			dup++
 		}
 	}

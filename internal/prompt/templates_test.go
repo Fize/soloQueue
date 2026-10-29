@@ -1,5 +1,6 @@
 package prompt
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"regexp"
 	"strings"
@@ -132,7 +133,7 @@ func TestHardcodedAssistantRules_SkillAcquisitionAndScheduling(t *testing.T) {
 
 	for _, explanation := range []string{
 		"default scheduling mechanism",
-		"提醒和未来任务",
+		testfixtures.Chinese("templates_test_001"),
 		"Skill Lifecycle Boundary",
 		"handle its lifecycle",
 	} {

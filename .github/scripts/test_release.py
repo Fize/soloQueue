@@ -79,115 +79,57 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(initial, release.fingerprint())
                 for path in ["cmd/main.go", "internal/app.go", "web/src/app.tsx",
                              "status-ui/src/app.tsx", "web/pnpm-lock.yaml",
-                             "LICENSE", "native/embedding/Cargo.toml", "native/embedding/Cargo.lock",
-                             "native/embedding/src/main.rs",
+                             "LICENSE",
                              "deploy/docker/Dockerfile", ".dockerignore",
                              ".github/workflows/release.yml"]:
                     before = release.fingerprint()
                     commit(path, "changed")
                     self.assertNotEqual(before, release.fingerprint(), path)
                 before = release.fingerprint()
-                commit("native/embedding/README.md", "worker docs only")
+                commit("docs/extra.md", "docs only")
                 self.assertEqual(before, release.fingerprint())
             finally:
                 os.chdir(previous)
 
-    def test_windows_archive_includes_silk_decoder_and_notices(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            binary, worker, decide, silk = [root / name for name in ("app", "worker", "decide", "silk")]
-            for file in (binary, worker, decide, silk):
-                file.write_bytes(file.name.encode())
-            manifest = root / "metadata.json"
-            manifest.write_text(json.dumps({"packages": []}))
-            license_file = root / "silk-license.txt"
-            license_file.write_text("SILK decoder license notice")
-            archive = release.archive("1.2.3", "windows", "amd64", binary, worker, manifest,
-                                      root / "out", decide=decide, silk=silk, silk_license=license_file)
-            with zipfile.ZipFile(archive) as bundle:
-                self.assertEqual(bundle.read("silk-decoder.exe"), b"silk")
-                self.assertIn(b"SILK decoder license notice", bundle.read("SILK_LICENSES.txt"))
-
-    def test_native_archives_include_sibling_worker_and_notices(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            binary, worker, decide = root / "app", root / "worker", root / "decide"
-            binary.write_bytes(b"app bytes")
-            worker.write_bytes(b"worker bytes")
-            decide.write_bytes(b"decide bytes")
-            silk = root / "silk"
-            silk.write_bytes(b"silk bytes")
-            silk_license = root / "silk-license"
-            silk_license.write_text("SILK notice")
-            crate = root / "crate"
-            crate.mkdir()
-            (crate / "LICENSE-MIT").write_text("A third party copyright notice")
-            (crate / "vendor").mkdir()
-            (crate / "vendor" / "COPYING").write_text("Vendored native code notice")
-            manifest = root / "metadata.json"
-            manifest.write_text(json.dumps({"packages": [{"name": "crate", "version": "1.0",
-                "license": "MIT", "source": "registry+test", "manifest_path": str(crate / "Cargo.toml")}]}))
-            for system, arch in [("darwin", "arm64"), ("linux", "amd64"), ("windows", "amd64")]:
-                with self.subTest(system=system):
-                    # Windows chmod cannot set Unix executable bits. Archive
-                    # metadata must remain correct when chmod has no effect.
-                    with patch.object(Path, "chmod", return_value=None):
-                        bundle = release.archive("1.2.3", system, arch, binary, worker, manifest, root / "out",
-                                                decide=decide,
-                                                silk=silk if system == "windows" else None,
-                                                silk_license=silk_license if system == "windows" else None)
-                    suffix = ".exe" if system == "windows" else ""
-                    if system == "windows":
-                        with zipfile.ZipFile(bundle) as source:
-                            files = {name: source.read(name) for name in source.namelist()}
-                    else:
-                        with tarfile.open(bundle) as source:
-                            files = {member.name: source.extractfile(member).read() for member in source.getmembers()}
-                            for name, mode in {"soloqueue": 0o755, "soloqueue-embedding": 0o755,
-                                               "soloqueue-decide": 0o755,
-                                               "LICENSE": 0o644, "THIRD_PARTY_LICENSES.txt": 0o644}.items():
-                                self.assertEqual(source.getmember(name).mode, mode, name)
-                    expected = {"soloqueue" + suffix, "soloqueue-embedding" + suffix,
-                                "soloqueue-decide" + suffix, "LICENSE", "THIRD_PARTY_LICENSES.txt"}
-                    if system == "windows":
-                        expected.update({"silk-decoder.exe", "SILK_LICENSES.txt"})
-                    self.assertEqual(set(files), expected)
-                    self.assertEqual(files["soloqueue-embedding" + suffix], b"worker bytes")
-                    self.assertEqual(files["soloqueue-decide" + suffix], b"decide bytes")
-                    self.assertEqual(files["soloqueue" + suffix], b"app bytes")
-                    self.assertIn(b"A third party copyright notice", files["THIRD_PARTY_LICENSES.txt"])
-                    self.assertIn(b"Vendored native code notice", files["THIRD_PARTY_LICENSES.txt"])
-            release.checksums(root / "out")
-            lines = (root / "out" / "SHA256SUMS").read_text().splitlines()
-            self.assertEqual(len(lines), 3)
-            for line in lines:
-                digest, name = line.split("  ")
-                self.assertEqual(digest, hashlib.sha256((root / "out" / name).read_bytes()).hexdigest())
-
-    def test_legacy_intel_archive_and_required_worker(self):
+    def test_archives_include_single_main_binary_and_notices(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary = root / "app"
-            binary.write_bytes(b"legacy")
-            with patch.object(Path, "chmod", return_value=None):
-                destination = release.archive("1.2.3", "darwin", "amd64", binary, None, None, root / "out")
-            with tarfile.open(destination) as bundle:
-                self.assertEqual(set(bundle.getnames()), {"soloqueue", "LICENSE", "LOCAL_ONNX_UNSUPPORTED.txt"})
-                for name, mode in {"soloqueue": 0o755, "LICENSE": 0o644,
-                                   "LOCAL_ONNX_UNSUPPORTED.txt": 0o644}.items():
-                    self.assertEqual(bundle.getmember(name).mode, mode, name)
-                self.assertIn(b"macOS Intel", bundle.extractfile("LOCAL_ONNX_UNSUPPORTED.txt").read())
-            for system, arch in [("windows", "amd64"), ("darwin", "arm64"), ("linux", "amd64")]:
-                with self.subTest(system=system), self.assertRaises(ValueError):
-                    release.archive("1.2.3", system, arch, binary, None, None, root / "out")
-            worker = root / "worker"
-            worker.write_bytes(b"worker")
-            manifest = root / "metadata.json"
-            manifest.write_text(json.dumps({"packages": []}))
+            binary.write_bytes(b"app bytes")
+            silk = root / "silk"
+            silk.write_bytes(b"silk bytes")
+            silk_license = root / "silk-license"
+            silk_license.write_text("SILK decoder license notice")
+            for system, arch in [("darwin", "arm64"), ("linux", "amd64"),
+                                 ("windows", "amd64"), ("darwin", "amd64")]:
+                with self.subTest(system=system, arch=arch):
+                    extra = {"silk": silk, "silk_license": silk_license} if system == "windows" else {}
+                    bundle = release.archive("1.2.3", system, arch, binary, root / "out", **extra)
+                    if system == "windows":
+                        with zipfile.ZipFile(bundle) as archive:
+                            files = {name: archive.read(name) for name in archive.namelist()}
+                    else:
+                        with tarfile.open(bundle) as archive:
+                            files = {member.name: archive.extractfile(member).read() for member in archive.getmembers()}
+                            self.assertEqual(archive.getmember("soloqueue").mode, 0o755)
+                    names = {"soloqueue.exe" if system == "windows" else "soloqueue", "LICENSE", "TOKENIZER_LICENSE.txt", "LAYA_LICENSE.txt", "LAYA_NOTICE.txt"}
+                    if system == "windows":
+                        names.update({"silk-decoder.exe", "SILK_LICENSES.txt"})
+                        self.assertEqual(files["silk-decoder.exe"], b"silk bytes")
+                    if (system, arch) == ("darwin", "amd64"):
+                        names.add("LOCAL_ONNX_UNSUPPORTED.txt")
+                    self.assertEqual(set(files), names)
+                    self.assertIn(b"MIT License", files["TOKENIZER_LICENSE.txt"])
+            release.checksums(root / "out")
+            lines = (root / "out" / "SHA256SUMS").read_text().splitlines()
+            self.assertEqual(len(lines), 4)
+            for line in lines:
+                digest, name = line.split("  ")
+                self.assertEqual(digest, hashlib.sha256((root / "out" / name).read_bytes()).hexdigest())
             with self.assertRaises(ValueError):
-                release.archive("1.2.3", "linux", "amd64", binary, worker, manifest, root / "out")
+                release.archive("1.2.3", "linux", "other", binary, root / "out")
             with self.assertRaises(ValueError):
-                release.archive("1.2.3", "linux", "other", binary, None, None, root / "out")
+                release.archive("1.2.3", "windows", "amd64", binary, root / "out")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import chineseSamples from '@/testdata/chinese_samples.json'
 import { useWorkedStateKeys } from "@/hooks/useWorkedStateKeys"
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -361,12 +362,12 @@ it.each([
 it('renders work received after formal content below that content and keeps it open while running', () => {
   state.activeRequests['post-content-work'] = { sessionId: 'l1', status: 'streaming' }
   const { container } = render(<ChatMessageView message={assistant('post-content-work', [
-    { type: 'content', text: '先给正式回复' },
-    { type: 'thinking', text: '随后继续核实' },
+    { type: 'content', text: chineseSamples.ChatMessage_rendering_test_001 },
+    { type: 'thinking', text: chineseSamples.ChatMessage_rendering_test_002 },
     { type: 'tool_call', name: 'read_file', callId: 'after-content', args: '{}', done: false },
   ])} sessionId="l1" />)
 
-  const answer = screen.getByText('先给正式回复')
+  const answer = screen.getByText(chineseSamples.ChatMessage_rendering_test_001)
   const laterWorked = worked(container)
   expect(answer.compareDocumentPosition(laterWorked) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(laterWorked.open).toBe(true)

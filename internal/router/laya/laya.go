@@ -1,8 +1,7 @@
 // Package laya runs the local laya decision model as the task classifier's alternative engine.
 //
 // The model is never bundled: the manager downloads a pinned graph plus its tokenizer, provisions
-// the ONNX Runtime build the worker needs (1.30.0; the embedding worker's 1.24.2 is rejected by the
-// `ort` binding), and spawns `soloqueue-decide` as a sibling process. Lifecycle mirrors
+// ONNX Runtime, and starts the current executable in its internal Laya mode. Lifecycle mirrors
 // engine.VectorManager: Apply starts or stops the worker per configuration, and disabling keeps the
 // loaded model warm for 60s so rapid toggling does not pay a 1.3GB reload.
 package laya
@@ -18,11 +17,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/infra/buildidentity"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/infra/onnxruntime"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
@@ -34,6 +33,10 @@ const Variant = "laya-multilingual-fp32"
 
 const runtimeVersion = "1.30.0"
 const runtimeNamespace = "decide"
+
+const maxRequestFrame = 1 << 20
+
+var errInvalidRequest = errors.New("invalid local classifier request")
 
 // stopGrace keeps a loaded worker alive briefly after the engine is switched off.
 var stopGrace = 60 * time.Second
@@ -243,8 +246,8 @@ func (m *Manager) Action(action string) (Status, error) {
 	return m.status, nil
 }
 
-// Decide classifies text locally. Any failure returns ErrUnavailable so the caller falls back to
-// the previous task type without a second network call.
+// Decide classifies a JSON array of role/content messages locally. Any failure returns
+// ErrUnavailable so the caller falls back to the previous task type without a network call.
 func (m *Manager) Decide(ctx context.Context, text string) (tasktype.TaskType, error) {
 	m.mu.Lock()
 	w, generation := m.worker, m.generation
@@ -255,7 +258,9 @@ func (m *Manager) Decide(ctx context.Context, text string) (tasktype.TaskType, e
 	}
 	label, err := w.decide(ctx, text)
 	if err != nil {
-		m.failWorker(w, generation, err)
+		if !errors.Is(err, errInvalidRequest) {
+			m.failWorker(w, generation, err)
+		}
 		return tasktype.Unknown, ErrUnavailable
 	}
 	taskType, err := tasktype.Parse(label)
@@ -391,13 +396,17 @@ func (m *Manager) spawnWorker(ctx context.Context, path, modelDir, runtimePath s
 	if m.spawnFn != nil {
 		return m.spawnFn(ctx, path, modelDir, runtimePath)
 	}
-	return startWorker(ctx, path, modelDir, runtimePath)
+	return startWorker(ctx, path, modelDir, runtimePath, m.workerPath == nil)
 }
 
 func (m *Manager) prepareModel(ctx context.Context, generation uint64, cfg Config) (string, error) {
 	dir := cfg.ModelDir
 	if dir == "" {
 		dir = filepath.Join(m.workDir, "models", "laya", Variant)
+	}
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
 	}
 	for _, a := range artifacts {
 		if err := ctx.Err(); err != nil {
@@ -416,29 +425,8 @@ func (m *Manager) prepareModel(ctx context.Context, generation uint64, cfg Confi
 			return "", err
 		}
 	}
-	// The graph references `model.onnx_data` while the worker's artifact check looks for
-	// `model.onnx.data`: one inode, two names, no second copy. Rewriting the graph's reference is
-	// the cleaner fix and is still tracked in the plan.
-	if err := aliasDataFile(dir); err != nil {
-		return "", err
-	}
 	m.setStatus(generation, func(s *Status) { s.DownloadedBytes, s.TotalBytes = 0, 0 })
 	return dir, nil
-}
-
-func aliasDataFile(dir string) error {
-	source := filepath.Join(dir, "model.onnx_data")
-	alias := filepath.Join(dir, "model.onnx.data")
-	if stat, err := os.Stat(alias); err == nil && !stat.IsDir() {
-		return nil
-	}
-	if err := os.Link(source, alias); err == nil {
-		return nil
-	}
-	if err := os.Symlink(source, alias); err == nil {
-		return nil
-	}
-	return errors.New("cannot alias model.onnx_data as model.onnx.data; the model directory must support hard links")
 }
 
 func (m *Manager) runtimePath(ctx context.Context, generation uint64) (string, error) {
@@ -457,22 +445,7 @@ func (m *Manager) resolveWorker() (string, error) {
 	if m.workerPath != nil {
 		return m.workerPath()
 	}
-	if path := os.Getenv("SOLOQUEUE_DECIDE_WORKER"); path != "" {
-		return path, nil
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	name := "soloqueue-decide"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	path := filepath.Join(filepath.Dir(exe), name)
-	if stat, err := os.Stat(path); err != nil || stat.IsDir() {
-		return "", errors.New("local decision worker missing; install the release package or set SOLOQUEUE_DECIDE_WORKER")
-	}
-	return path, nil
+	return os.Executable()
 }
 
 func (m *Manager) setStatus(generation uint64, fn func(*Status)) {
@@ -526,14 +499,15 @@ type proc interface {
 	close() error
 }
 
-// worker is one `soloqueue-decide` process speaking NDJSON on its stdio.
+// worker is an internal SoloQueue process speaking NDJSON on its stdio.
 type worker struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	out    *bufio.Reader
-	closed atomic.Bool
-	mu     sync.Mutex
-	id     atomic.Uint64
+	cmd     *exec.Cmd
+	workDir string
+	stdin   io.WriteCloser
+	out     *bufio.Reader
+	closed  atomic.Bool
+	mu      sync.Mutex
+	id      atomic.Uint64
 }
 
 type readyFrame struct {
@@ -558,8 +532,46 @@ type responseFrame struct {
 	} `json:"error"`
 }
 
-func startWorker(ctx context.Context, path, modelDir, runtimePath string) (*worker, error) {
-	cmd := exec.Command(path, "--model-dir", modelDir, "--runtime", runtimePath, "--device", "cpu", "--variant", Variant)
+func startWorker(ctx context.Context, path, modelDir, runtimePath string, internal bool, testBuildID ...string) (*worker, error) {
+	if internal {
+		var err error
+		modelDir, err = filepath.Abs(modelDir)
+		if err != nil {
+			return nil, err
+		}
+		runtimePath, err = filepath.Abs(runtimePath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args := []string{"--model-dir", modelDir, "--runtime", runtimePath, "--device", "cpu", "--variant", Variant}
+	if internal {
+		buildID, err := buildidentity.Current()
+		if len(testBuildID) > 0 {
+			buildID, err = testBuildID[0], nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("identify local classifier build: %w", err)
+		}
+		args = append(args, "--build-id", buildID)
+		args = append([]string{"__internal_laya"}, args...)
+	}
+	cmd := exec.Command(path, args...)
+	var workDir string
+	if internal {
+		var e error
+		workDir, e = os.MkdirTemp("", "soloqueue-laya-*")
+		if e != nil {
+			return nil, e
+		}
+		cmd.Dir = workDir
+	}
+	started := false
+	defer func() {
+		if !started && workDir != "" {
+			_ = os.RemoveAll(workDir)
+		}
+	}()
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -571,7 +583,8 @@ func startWorker(ctx context.Context, path, modelDir, runtimePath string) (*work
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	w := &worker{cmd: cmd, stdin: stdin, out: bufio.NewReaderSize(stdout, 64<<10)}
+	w := &worker{cmd: cmd, stdin: stdin, out: bufio.NewReaderSize(stdout, 64<<10), workDir: workDir}
+	started = true
 	go func() {
 		<-ctx.Done()
 		_ = w.close()
@@ -587,6 +600,10 @@ func startWorker(ctx context.Context, path, modelDir, runtimePath string) (*work
 		_ = w.close()
 		return nil, fmt.Errorf("local classifier sent an invalid ready frame: %w", err)
 	}
+	if ready.V != 1 || ready.ID != 0 {
+		_ = w.close()
+		return nil, errors.New("local classifier sent an incompatible ready frame")
+	}
 	if ready.Error != nil {
 		_ = w.close()
 		return nil, fmt.Errorf("local classifier failed to start: %s", ready.Error.Message)
@@ -595,14 +612,21 @@ func startWorker(ctx context.Context, path, modelDir, runtimePath string) (*work
 }
 
 func (w *worker) decide(ctx context.Context, text string) (string, error) {
+	return w.request(ctx, "decide", text)
+}
+
+func (w *worker) request(ctx context.Context, op, text string) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed.Load() {
 		return "", errors.New("worker closed")
 	}
-	request, err := json.Marshal(map[string]any{"v": 1, "id": w.id.Add(1), "op": "decide", "text": text})
+	request, err := json.Marshal(map[string]any{"v": 1, "id": w.id.Add(1), "op": op, "text": text})
 	if err != nil {
 		return "", err
+	}
+	if len(request)+1 > maxRequestFrame {
+		return "", errInvalidRequest
 	}
 	type outcome struct {
 		label string
@@ -625,6 +649,10 @@ func (w *worker) decide(ctx context.Context, text string) (string, error) {
 			return
 		}
 		if frame.Error != nil {
+			if frame.Error.Code == "bad_request" || frame.Error.Code == "too_large" {
+				results <- outcome{err: fmt.Errorf("%w: %s", errInvalidRequest, frame.Error.Code)}
+				return
+			}
 			results <- outcome{err: fmt.Errorf("%s: %s", frame.Error.Code, frame.Error.Message)}
 			return
 		}
@@ -658,5 +686,9 @@ func (w *worker) close() error {
 	if w.cmd.Process != nil {
 		_ = w.cmd.Process.Kill()
 	}
-	return w.cmd.Wait()
+	err := w.cmd.Wait()
+	if w.workDir != "" {
+		err = errors.Join(err, os.RemoveAll(w.workDir))
+	}
+	return err
 }

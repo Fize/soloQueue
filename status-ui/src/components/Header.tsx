@@ -12,7 +12,7 @@ interface HeaderProps {
   onToggleLanguage: () => void
 }
 
-export function Header({ connStatus, language, onToggleLanguage }: HeaderProps) {
+export function Header({ connStatus, onToggleLanguage }: HeaderProps) {
   const { t } = useTranslation()
 
   return (
@@ -55,7 +55,7 @@ export function Header({ connStatus, language, onToggleLanguage }: HeaderProps) 
             color: 'var(--color-foreground)',
           }}
         >
-          {language === 'en' ? 'EN' : '中文'}
+          {t('header.languageLabel')}
         </button>
         <ThemeToggle />
         <ConnectionBadge status={connStatus} />

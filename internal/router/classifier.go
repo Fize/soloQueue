@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 
@@ -69,7 +70,19 @@ func (c *DefaultClassifier) Classify(ctx context.Context, input ClassifyInput, h
 	}
 	if cfg.Engine == EngineLaya {
 		if c.decider != nil {
-			if t, err := c.decider.Decide(ctx, input.Text); err == nil && t.Valid() {
+			messages := classifierMessages(input, history)
+			wire := make([]struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			}, 0, len(messages))
+			for _, msg := range messages {
+				wire = append(wire, struct {
+					Role    string `json:"role"`
+					Content string `json:"content"`
+				}{msg.Role, msg.Content})
+			}
+			data, _ := json.Marshal(wire)
+			if t, err := c.decider.Decide(ctx, string(data)); err == nil && t.Valid() {
 				return ClassificationResult{TaskType: t, Source: SourceLaya, ReasonCode: "laya"}
 			}
 		}

@@ -1,5 +1,6 @@
 package cron
 
+import "github.com/xiaobaitu/soloqueue/internal/textdata"
 import (
 	"bytes"
 	"context"
@@ -997,7 +998,7 @@ func normalizeCronResult(t Task, runID, raw string, generatedAt time.Time) (Cron
 
 func partialCronResult(base CronResultV1, parseErr error) (CronResultV1, error) {
 	base.Status = "partial"
-	base.Content = "任务已完成，但最终结果格式异常，未经验证的内容未发送。详细信息已记录到执行日志。"
+	base.Content = textdata.Chinese("cron_invalid_result")
 	base.Artifacts = []CronResultArtifact{}
 	base.Error = cronResultError("invalid_structured_output", "model returned non-v1 output")
 	return base, parseErr
@@ -1058,12 +1059,12 @@ func cronResultError(code, message string) *string {
 
 func formatCronResult(result CronResultV1) string {
 	statusLabel := map[string]string{
-		"success": "成功",
-		"partial": "部分完成",
-		"failed":  "失败",
+		"success": textdata.Chinese("cron_success"),
+		"partial": textdata.Chinese("cron_partial"),
+		"failed":  textdata.Chinese("cron_failed"),
 	}[result.Status]
 	if statusLabel == "" {
-		statusLabel = "未知状态"
+		statusLabel = textdata.Chinese("cron_unknown")
 	}
 
 	var formatted strings.Builder
@@ -1081,7 +1082,7 @@ func formatCronResult(result CronResultV1) string {
 		fmt.Fprintf(&formatted, "- %s: %s", artifact.Name, artifact.Ref)
 	}
 	if result.Status != "partial" && result.Error != nil {
-		formatted.WriteString("\n\n异常：")
+		formatted.WriteString(textdata.Chinese("cron_error_prefix"))
 		formatted.WriteString(*result.Error)
 	}
 	return formatted.String()

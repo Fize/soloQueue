@@ -1,5 +1,6 @@
 package prompt
 
+import "github.com/xiaobaitu/soloqueue/internal/textdata"
 import (
 	"fmt"
 	"regexp"
@@ -7,7 +8,7 @@ import (
 	"strings"
 )
 
-var defaultRulesComment = regexp.MustCompile(`(?s)<!--\s*(Add your custom rules here\.\s*System rules are built-in automatically and do not need to be copied here\.|在此添加自定义规则。\s*系统规则会自动内置，无需复制到此处。)\s*-->`)
+var defaultRulesComment = regexp.MustCompile(textdata.Chinese("legacy_rules_comment_pattern"))
 
 func cleanUserRules(rules string) string {
 	return strings.TrimSpace(defaultRulesComment.ReplaceAllString(rules, ""))

@@ -28,7 +28,7 @@ const (
 	EngineLaya Engine = "laya"
 )
 
-// Decider is the local decision engine (internal/router/laya.Manager). A nil or failing decider
+// Decider receives a JSON array of classifier messages (role and content). A nil or failing decider
 // degrades to the previous/default fallback, never to a network call.
 type Decider interface {
 	Decide(ctx context.Context, text string) (tasktype.TaskType, error)

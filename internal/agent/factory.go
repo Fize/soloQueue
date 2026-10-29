@@ -570,20 +570,20 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		Name:            tmpl.Name,
 		Role:            RoleUser,
 		Kind:            KindCustom,
-		ModelID:         tmpl.ModelID,
+		ModelID:         defaultModelID,
 		SystemPrompt:    finalPrompt,
-		ReasoningEffort: "",                 // populated below if resolver is set
-		ExplicitModel:   tmpl.ModelID != "", // template explicitly set model → don't override
+		ReasoningEffort: "", // populated below if resolver is set
 		Channels:        tmpl.Channels,
 		NotifyChannel:   tmpl.NotifyChannel,
 	}
 
+	if tmpl.ModelID != "" && f.log != nil {
+		f.log.WarnContext(ctx, logger.CatConfig, "agent model is deprecated and ignored", "agent_id", tmpl.ID)
+	}
+
 	// 1b. Validate and resolve model configuration
 	if f.resolveModel != nil {
-		modelID := tmpl.ModelID
-		if modelID == "" {
-			modelID = defaultModelID
-		}
+		modelID := defaultModelID
 		if modelID == "" {
 			return nil, nil, fmt.Errorf("agent %q: model ID is empty and no default model configured", tmpl.ID)
 		}
@@ -752,10 +752,6 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 			} else {
 				childTmpl.Description = "Dynamic worker agent"
 				childTmpl.SystemPrompt = systemPrompt
-			}
-
-			if modelID != "" {
-				childTmpl.ModelID = modelID
 			}
 
 			child, _, err := f.Create(ctx, childTmpl, workDir)

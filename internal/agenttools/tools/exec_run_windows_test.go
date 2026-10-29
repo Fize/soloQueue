@@ -1,5 +1,6 @@
 package tools
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"errors"
@@ -27,11 +28,11 @@ func TestRunCommand_WindowsNativeExitCode(t *testing.T) {
 }
 
 func TestRunCommand_WindowsUnicodeAndStdin(t *testing.T) {
-	result, err := NewExecutor().RunCommand(context.Background(), "[Console]::Out.Write([Console]::In.ReadToEnd())", RunCommandOptions{Stdin: "测试 input"})
+	result, err := NewExecutor().RunCommand(context.Background(), "[Console]::Out.Write([Console]::In.ReadToEnd())", RunCommandOptions{Stdin: testfixtures.Chinese("exec_run_windows_test_001")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ExitCode != 0 || strings.TrimSpace(string(result.Stdout)) != "测试 input" {
+	if result.ExitCode != 0 || strings.TrimSpace(string(result.Stdout)) != testfixtures.Chinese("exec_run_windows_test_001") {
 		t.Fatalf("result = %+v, output = %q", result, result.Stdout)
 	}
 }

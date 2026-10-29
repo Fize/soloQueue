@@ -1,5 +1,6 @@
 package prompt
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"strings"
 	"testing"
@@ -57,10 +58,10 @@ func TestAssembleWithXML_Full(t *testing.T) {
 }
 
 func TestAssembleWithXML_RemovesDefaultRulesComment(t *testing.T) {
-	rules := "<!--\nAdd your custom rules here.\nSystem rules are built-in automatically and do not need to be copied here.\n-->\ncustom rule\n<!--\n在此添加自定义规则。\n系统规则会自动内置，无需复制到此处。\n-->"
+	rules := testfixtures.Chinese("assemble_test_001")
 	result := assembleWithXML("soul", "", "", "", "teams", rules, "", "/work", "/explore", nil, nil)
 
-	if strings.Contains(result, "Add your custom rules here") || strings.Contains(result, "在此添加自定义规则") {
+	if strings.Contains(result, "Add your custom rules here") || strings.Contains(result, testfixtures.Chinese("assemble_test_002")) {
 		t.Fatal("default rules template comment must not be injected into the prompt")
 	}
 	if !strings.Contains(result, "custom rule") {

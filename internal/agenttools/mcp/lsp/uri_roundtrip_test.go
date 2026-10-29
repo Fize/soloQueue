@@ -1,5 +1,6 @@
 package lsp
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"path/filepath"
 	"strings"
@@ -7,7 +8,7 @@ import (
 )
 
 func TestFileURIEncodesAndRoundTripsPath(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "目录 with space.go")
+	path := filepath.Join(t.TempDir(), testfixtures.Chinese("uri_roundtrip_test_001"))
 	uri := PathToURI(path)
 	if strings.Contains(uri, " ") {
 		t.Fatalf("URI contains unescaped space: %q", uri)

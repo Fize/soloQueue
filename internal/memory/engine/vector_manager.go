@@ -436,7 +436,7 @@ func (m *VectorManager) run(ctx context.Context, generation uint64, cfg VectorCo
 		return
 	}
 	m.update(generation, func(s *EmbeddingStatus) { s.State = "loading" })
-	worker, err := m.options.Start(ctx, local.Config{Worker: paths.Worker, ModelDir: paths.ModelDir, Runtime: paths.Runtime, Device: cfg.Device})
+	worker, err := m.options.Start(ctx, local.Config{Worker: paths.Worker, ModelDir: paths.ModelDir, Runtime: paths.Runtime, Device: cfg.Device, Internal: paths.Internal})
 	if err != nil {
 		if ctx.Err() == nil {
 			m.fail(generation, err)

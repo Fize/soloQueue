@@ -1,8 +1,10 @@
 package laya
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -80,9 +82,31 @@ func TestDecideWhenReady(t *testing.T) {
 	h.manager.Apply(Config{Enabled: true})
 	h.waitState(t, "ready")
 
-	taskType, err := h.manager.Decide(context.Background(), "帮我把这个接口的错误处理重构一下")
+	taskType, err := h.manager.Decide(context.Background(), testfixtures.Chinese("laya_test_001"))
 	if err != nil || taskType != tasktype.Engineering {
 		t.Fatalf("got %v %v", taskType, err)
+	}
+}
+
+func TestRejectedInputKeepsWorkerReady(t *testing.T) {
+	h := newHarness(t, "engineering")
+	h.manager.Apply(Config{Enabled: true})
+	h.waitState(t, "ready")
+	h.mu.Lock()
+	p := h.spawned[0]
+	p.err = errInvalidRequest
+	h.mu.Unlock()
+	for i := 0; i < 4; i++ {
+		if _, err := h.manager.Decide(context.Background(), "invalid"); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("expected fallback: %v", err)
+		}
+	}
+	if h.manager.Status().State != "ready" || h.spawnCount() != 1 || p.closed.Load() != 0 {
+		t.Fatalf("input rejection stopped the worker: %+v", h.manager.Status())
+	}
+	p.err = nil
+	if got, err := h.manager.Decide(context.Background(), "valid"); err != nil || got != tasktype.Engineering {
+		t.Fatalf("worker did not recover: %v %v", got, err)
 	}
 }
 
@@ -603,5 +627,22 @@ func TestStaleStartupCannotReplaceNewWorker(t *testing.T) {
 	task, err := h.manager.Decide(context.Background(), "continue")
 	if task != tasktype.General || err != nil || old.closed.Load() != 1 {
 		t.Fatalf("stale startup displaced new worker: %s %v", task, err)
+	}
+}
+
+func TestResolveWorkerUsesMainExecutable(t *testing.T) {
+	t.Setenv("SOLOQUEUE_DECIDE_WORKER", "/missing/obsolete-worker")
+	manager := New(t.TempDir(), nil)
+	t.Cleanup(manager.Close)
+	got, err := manager.resolveWorker()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("worker path %q, want main executable %q", got, want)
 	}
 }

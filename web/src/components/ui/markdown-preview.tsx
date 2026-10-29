@@ -4,6 +4,7 @@ import { mermaid } from '@streamdown/mermaid'
 import { memo } from 'react'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
+import { useTranslation } from '@/lib/i18n'
 import remarkGfm from 'remark-gfm'
 import {
   ExploreFileChip,
@@ -34,6 +35,7 @@ function MarkdownPreviewInner({
   onToggleCheckbox,
   basePath,
 }: MarkdownPreviewProps) {
+  const { t } = useTranslation()
   const contentVal = content ?? children ?? ''
   if (!contentVal) return null
 
@@ -52,12 +54,12 @@ function MarkdownPreviewInner({
         plugins={{ code, mermaid }}
         controls={{ table: false, code: { copy: true, download: false } }}
         translations={{
-          copyCode: '复制代码',
-          copied: '已复制',
-          copyTable: '复制表格',
-          copyTableAsMarkdown: '复制为 Markdown',
-          copyTableAsCsv: '复制为 CSV',
-          copyTableAsTsv: '复制为 TSV',
+          copyCode: t('common.copyCode'),
+          copied: t('common.copied'),
+          copyTable: t('common.copyTable'),
+          copyTableAsMarkdown: t('common.copyTableAsMarkdown'),
+          copyTableAsCsv: t('common.copyTableAsCsv'),
+          copyTableAsTsv: t('common.copyTableAsTsv'),
           tableFormatMarkdown: 'Markdown',
           tableFormatCsv: 'CSV',
           tableFormatTsv: 'TSV',

@@ -8,7 +8,7 @@ This guide covers building from source, first-run setup, local development, and 
 
 ## Prerequisites
 
-Building from source requires Go 1.25.8, Node.js, `pnpm`, and Make. You can configure a provider API key in the Web Console after the first launch.
+Building from source requires Go 1.25.8, a C compiler for CGO, Node.js, `pnpm`, and Make. On Windows, put a MinGW-w64 compiler on `PATH`. You can configure a provider API key in the Web Console after the first launch.
 
 ---
 

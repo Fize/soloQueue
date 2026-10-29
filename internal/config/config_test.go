@@ -877,3 +877,28 @@ func TestSpeechConfigRoundTrip(t *testing.T) {
 		t.Errorf("Speech.ModelDir = %q, want /custom/models", settings.Speech.ModelDir)
 	}
 }
+
+func TestEmptyReasoningEffortSurvivesReload(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = cfg.Set(func(s *Settings) {
+		s.Models = []LLMModel{{ID: "test", ProviderID: "provider", Enabled: true, Thinking: ThinkingConfig{Enabled: true, ReasoningEffort: ""}}}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reloaded.Load(); err != nil {
+		t.Fatal(err)
+	}
+	got := reloaded.Get().Models
+	if len(got) != 1 || got[0].Thinking.ReasoningEffort != "" || !got[0].Thinking.Enabled {
+		t.Fatalf("reloaded models: %+v", got)
+	}
+}

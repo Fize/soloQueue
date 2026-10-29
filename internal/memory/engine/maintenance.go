@@ -1,5 +1,6 @@
 package engine
 
+import "github.com/xiaobaitu/soloqueue/internal/textdata"
 import (
 	"context"
 	"database/sql"
@@ -162,25 +163,25 @@ func classifyLegacyMemory(hash, content, tags, projectRoot string) CleanupDecisi
 		decision.ScopeID = filepath.Clean(projectRoot)
 	}
 	if isRoutineTaskRecord(content) || isTimeSensitiveReport(lower) ||
-		strings.Contains(lower, "output:") || strings.Contains(lower, "构建通过") ||
-		strings.Contains(lower, "测试通过") || strings.Contains(lower, "created ") ||
-		strings.Contains(lower, "implemented ") || strings.Contains(lower, "修复了") ||
+		strings.Contains(lower, "output:") || strings.Contains(lower, textdata.Chinese("memory_build_passed")) ||
+		strings.Contains(lower, textdata.Chinese("memory_tests_passed")) || strings.Contains(lower, "created ") ||
+		strings.Contains(lower, "implemented ") || strings.Contains(lower, textdata.Chinese("memory_fixed")) ||
 		strings.Contains(lower, "user requested evaluation") || stockCodePattern.MatchString(content) {
 		decision.Action = StatusArchived
 		decision.Reason = "routine or time-sensitive task record"
 		decision.Confidence = 0.95
 		return decision
 	}
-	if strings.Contains(lower, "用户偏好") || strings.Contains(lower, "user prefers") ||
-		strings.Contains(lower, "user preference") || strings.Contains(lower, "用户喜欢") {
+	if strings.Contains(lower, textdata.Chinese("memory_user_preference")) || strings.Contains(lower, "user prefers") ||
+		strings.Contains(lower, "user preference") || strings.Contains(lower, textdata.Chinese("memory_user_likes")) {
 		decision.Action = StatusActive
 		decision.Reason = "durable user preference"
 		decision.MemoryType = MemoryTypePreference
 		decision.Confidence = 0.9
 		return decision
 	}
-	if strings.Contains(lower, "明确决定") || strings.Contains(lower, "决定不") ||
-		strings.Contains(lower, "选用") || strings.Contains(lower, "chosen") ||
+	if strings.Contains(lower, textdata.Chinese("memory_explicit_decision")) || strings.Contains(lower, textdata.Chinese("memory_decided_against")) ||
+		strings.Contains(lower, textdata.Chinese("memory_selected")) || strings.Contains(lower, "chosen") ||
 		strings.Contains(lower, "must use") {
 		if len([]rune(content)) > 600 || strings.Count(content, "\n") > 8 {
 			return decision
@@ -191,8 +192,8 @@ func classifyLegacyMemory(hash, content, tags, projectRoot string) CleanupDecisi
 		decision.Confidence = 0.75
 		return decision
 	}
-	if strings.Contains(lower, "根因") || strings.Contains(lower, "root cause") ||
-		strings.Contains(lower, "解决方案") || strings.Contains(lower, "修复方法") {
+	if strings.Contains(lower, textdata.Chinese("memory_root_cause")) || strings.Contains(lower, "root cause") ||
+		strings.Contains(lower, textdata.Chinese("memory_solution")) || strings.Contains(lower, textdata.Chinese("memory_fix_method")) {
 		if len([]rune(content)) > 800 {
 			return decision
 		}
@@ -215,7 +216,7 @@ func isTimeSensitiveReport(lower string) bool {
 	markers := []string{
 		"investlab", "market regime", "market environment", "pre-market",
 		"evening review", "risk assessment", "portfolio", "stock analysis",
-		"上证", "深成", "创业板", "涨停", "跌停", "盘前", "复盘",
+		textdata.Chinese("market_shanghai_index"), textdata.Chinese("market_shenzhen_index"), textdata.Chinese("market_chinext"), textdata.Chinese("market_limit_up"), textdata.Chinese("market_limit_down"), textdata.Chinese("market_premarket"), textdata.Chinese("market_review"),
 	}
 	for _, marker := range markers {
 		if strings.Contains(lower, marker) {
@@ -230,7 +231,7 @@ func isStableLegacyFact(lower, content string) bool {
 		return false
 	}
 	markers := []string{
-		"使用", "位于", "存储", "持久化", "配置", "约束", "架构",
+		textdata.Chinese("fact_uses"), textdata.Chinese("fact_located"), textdata.Chinese("fact_stores"), textdata.Chinese("fact_persistence"), textdata.Chinese("fact_config"), textdata.Chinese("fact_constraint"), textdata.Chinese("fact_architecture"),
 		" uses ", " located ", " stores ", " persistence", " configuration",
 	}
 	for _, marker := range markers {

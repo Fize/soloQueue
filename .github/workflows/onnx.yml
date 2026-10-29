@@ -1,15 +1,20 @@
-name: Native ONNX embedding
+name: Local ONNX inference
 on:
   workflow_dispatch:
   push:
     branches: [main, 'codex/**']
     paths: &onnx-paths
-      - 'native/embedding/**'
-      - 'native/decide/**'
+      - 'internal/infra/localonnx/**'
+      - 'internal/infra/buildidentity/**'
+      - 'internal/infra/tokenizer/**'
       - 'internal/memory/engine/**'
       - 'internal/config/**'
       - 'internal/runtime/**'
       - 'internal/router/laya/**'
+      - 'internal/router/classifier.go'
+      - 'internal/router/llm_classifier.go'
+      - 'internal/router/models.go'
+      - 'internal/tasktype/**'
       - 'internal/server/**'
       - 'internal/agenttools/tools/runtime_process*'
       - 'internal/infra/process/**'
@@ -18,6 +23,7 @@ on:
       - 'internal/agenttools/skill/open_skill*'
       - 'internal/agenttools/skill/skill_md.go'
       - 'cmd/soloqueue/cli/commands.go'
+      - 'cmd/soloqueue/main.go'
       - 'web/**'
       - '.github/scripts/**'
       - '.github/workflows/onnx.yml'
@@ -67,76 +73,83 @@ jobs:
           go-version-file: go.mod
       - name: Assert actual native platform
         run: python -c 'import platform; assert platform.system() == "${{ matrix.system }}"; assert platform.machine() == "${{ matrix.machine }}", platform.machine()'
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
-      - name: Native deterministic checks
-        run: |
-          cargo +1.88.0 fmt --manifest-path native/embedding/Cargo.toml --check
-          cargo +1.88.0 test --locked --manifest-path native/embedding/Cargo.toml
-          cargo +1.88.0 clippy --locked --manifest-path native/embedding/Cargo.toml --all-targets -- -D warnings
-          cargo +1.88.0 build --locked --release --manifest-path native/embedding/Cargo.toml
-          cargo +1.88.0 fmt --manifest-path native/decide/Cargo.toml --check
-          cargo +1.88.0 test --locked --manifest-path native/decide/Cargo.toml
-          cargo +1.88.0 clippy --locked --manifest-path native/decide/Cargo.toml --all-targets -- -D warnings
-          cargo +1.88.0 build --locked --release --manifest-path native/decide/Cargo.toml
-          go test -race ./internal/memory/engine/embedding/local/...
-          python -m unittest discover -s native/embedding/scripts -v
-      - name: Test real classifier on Windows
+      - name: Configure Windows C compiler
         if: matrix.os == 'windows-2022'
         shell: pwsh
+        run: '"C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
+      - name: Build main executable and deterministic checks
         run: |
-          $env:SOLOQUEUE_DECIDE_WORKER = (Resolve-Path 'native/decide/target/release/soloqueue-decide.exe').Path
-          $env:SOLOQUEUE_LAYA_INTEGRATION_WORKDIR = Join-Path $env:RUNNER_TEMP 'soloqueue classifier 测试'
-          go test ./internal/router/laya -run '^TestWindowsRealClassifier$' -count=1 -timeout 20m -v
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          set -euo pipefail
+          mkdir -p internal/assets/dist build
+          printf 'integration fixture\n' > internal/assets/dist/placeholder.txt
+          suffix=""
+          if [ "$RUNNER_OS" = Windows ]; then suffix=".exe"; fi
+          CGO_ENABLED=1 go build -o "build/soloqueue$suffix" ./cmd/soloqueue
+          python -c 'import os,pathlib; suffix=".exe" if os.name=="nt" else ""; f=open(os.environ["GITHUB_ENV"],"a",encoding="utf-8");f.write("SOLOQUEUE_TEST_MAIN_BINARY="+str(pathlib.Path("build/soloqueue"+suffix).resolve())+"\n");f.close()'
+          go test -race ./internal/infra/tokenizer/... ./internal/memory/engine/embedding/local/...
+          python -m unittest discover -s .github/scripts -p 'test_*.py' -v
       - name: Install pinned CPU reference dependencies
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
             python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
           fi
-          python -m pip install -r native/embedding/scripts/requirements-reference.txt
+          python -m pip install -r .github/scripts/onnx-requirements.txt
       - uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/onnx-artifacts
-          key: onnx-verified-v1-${{ matrix.os }}-${{ hashFiles('native/embedding/scripts/prepare.py') }}
-      - name: Download and verify pinned official model and CPU Runtime
+          key: onnx-verified-v2-${{ matrix.os }}-${{ hashFiles('.github/scripts/prepare_onnx.py') }}
+      - name: Download verified embedding model and CPU runtime
         run: |
-          python native/embedding/scripts/prepare.py --output "$RUNNER_TEMP/onnx-artifacts" --reference --runtime-flavor cpu > "$RUNNER_TEMP/onnx-paths.json"
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          paths = json.loads((Path(os.environ['RUNNER_TEMP']) / 'onnx-paths.json').read_text())
-          suffix = '.exe' if os.name == 'nt' else ''
-          with open(os.environ['GITHUB_ENV'], 'a') as env:
-              env.write('ONNX_MODEL=' + paths['modelDir'] + '\n')
-              env.write('ONNX_RUNTIME=' + paths['runtime'] + '\n')
-              env.write('ONNX_WORKER=' + str(Path('native/embedding/target/release/soloqueue-embedding' + suffix).resolve()) + '\n')
-          PY
-      - name: Real native CPU parity and protocol recovery
-        run: python native/embedding/scripts/verify.py --worker "$ONNX_WORKER" --model-dir "$ONNX_MODEL" --runtime "$ONNX_RUNTIME" --device cpu --fixture-output "$RUNNER_TEMP/token-fixture.json"
-      - name: Exact tokenizer IDs masks and truncation
-        env:
-          SOLOQUEUE_ONNX_MODEL_DIR: ${{ env.ONNX_MODEL }}
-          SOLOQUEUE_ONNX_TOKEN_FIXTURE: ${{ runner.temp }}/token-fixture.json
-        run: cargo +1.88.0 test --locked --manifest-path native/embedding/Cargo.toml tests::tokenizer_parity -- --ignored --exact
-      - name: Download and verify provider-capable Runtime
-        run: |
-          python native/embedding/scripts/prepare.py --output "$RUNNER_TEMP/onnx-artifacts" --reference --runtime-flavor auto > "$RUNNER_TEMP/onnx-auto-paths.json"
+          python .github/scripts/prepare_onnx.py --output "$RUNNER_TEMP/onnx-artifacts" --reference --runtime-flavor cpu > "$RUNNER_TEMP/onnx-paths.json"
           python - <<'PYTHON'
           import json, os
           from pathlib import Path
-          paths = json.loads((Path(os.environ['RUNNER_TEMP']) / 'onnx-auto-paths.json').read_text())
-          with open(os.environ['GITHUB_ENV'], 'a') as env:
-              env.write('AUTO_ONNX_RUNTIME=' + paths['runtime'] + '\n')
+          paths=json.loads((Path(os.environ['RUNNER_TEMP'])/'onnx-paths.json').read_text())
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as env:
+              env.write('SOLOQUEUE_TEST_EMBEDDING_MODEL='+paths['modelDir']+'\n')
+              env.write('SOLOQUEUE_TEST_EMBEDDING_RUNTIME='+paths['runtime']+'\n')
+              env.write('SOLOQUEUE_TEST_EMBEDDING_TOKENIZER='+str(Path(paths['modelDir'])/'onnx/tokenizer.json')+'\n')
+          PYTHON
+      - name: Real embedding CPU parity and tokenizer boundaries
+        env:
+          SOLOQUEUE_ONNX_TOKEN_FIXTURE: ${{ runner.temp }}/token-fixture.json
+        run: |
+          python .github/scripts/verify_onnx.py --worker "$SOLOQUEUE_TEST_MAIN_BINARY" --model-dir "$SOLOQUEUE_TEST_EMBEDDING_MODEL" --runtime "$SOLOQUEUE_TEST_EMBEDDING_RUNTIME" --device cpu --fixture-output "$SOLOQUEUE_ONNX_TOKEN_FIXTURE"
+          go test -count=1 -v ./internal/infra/tokenizer -run '^TestEmbeddingTokenizerReferenceFixture$'
+          go test -count=1 -v ./internal/infra/localonnx -run '^TestEmbedding(ReferenceVectors|RetriesWholeBatchOnCPU)$'
+          go test -count=1 -v ./internal/memory/engine/embedding/local -run '^TestInternalMainBinaryWithRealModel$'
+      - name: Download verified accelerator-capable runtime
+        run: |
+          python .github/scripts/prepare_onnx.py --output "$RUNNER_TEMP/onnx-artifacts" --reference --runtime-flavor auto > "$RUNNER_TEMP/onnx-auto-paths.json"
+          python - <<'PYTHON'
+          import json,os
+          from pathlib import Path
+          paths=json.loads((Path(os.environ['RUNNER_TEMP'])/'onnx-auto-paths.json').read_text())
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as env: env.write('AUTO_ONNX_RUNTIME='+paths['runtime']+'\n')
           PYTHON
       - name: Real auto selection or explicit CPU fallback
-        run: python native/embedding/scripts/verify.py --worker "$ONNX_WORKER" --model-dir "$ONNX_MODEL" --runtime "$AUTO_ONNX_RUNTIME" --device auto
-      - name: Real managed native indexing and offline restart
+        run: python .github/scripts/verify_onnx.py --worker "$SOLOQUEUE_TEST_MAIN_BINARY" --model-dir "$SOLOQUEUE_TEST_EMBEDDING_MODEL" --runtime "$AUTO_ONNX_RUNTIME" --device auto
+      - name: Real managed indexing and offline restart
         env:
           SOLOQUEUE_ONNX_INTEGRATION: '1'
           SOLOQUEUE_ONNX_ARTIFACTS: ${{ runner.temp }}/onnx-artifacts
-          SOLOQUEUE_ONNX_WORKER: ${{ env.ONNX_WORKER }}
         run: go test -race ./internal/memory/engine/... ./internal/config/...
+      - name: Real Laya model with Unicode work directory
+        run: |
+          python - <<'PYTHON'
+          import json,os,pathlib,subprocess,sys
+          work=pathlib.Path(os.environ['RUNNER_TEMP'])/json.loads(pathlib.Path('.github/testdata/unicode_paths.json').read_text(encoding='utf-8'))['classifier']
+          env=os.environ.copy();env['SOLOQUEUE_LAYA_TEST_WORKDIR']=str(work)
+          subprocess.run(['go','test','./internal/router/laya','-run','^TestInternalWorkerProvisioned$','-count=1','-timeout','25m','-v'],env=env,check=True)
+          env['SOLOQUEUE_TEST_LAYA_MODEL']=str(work/'models/laya/laya-multilingual-fp32')
+          root=work/'runtimes/decide/1.30.0'
+          name='onnxruntime.dll' if os.name=='nt' else ('libonnxruntime.1.30.0.dylib' if sys.platform=='darwin' else 'libonnxruntime.so.1.30.0')
+          paths=[p for p in root.rglob(name) if p.is_file() and '.dSYM' not in str(p)]
+          if len(paths)!=1: raise RuntimeError('expected one verified Laya runtime library')
+          env['SOLOQUEUE_TEST_LAYA_RUNTIME']=str(paths[0])
+          subprocess.run(['go','test','./internal/infra/localonnx','-run','^TestLayaReferenceResponses$','-count=1','-timeout','10m','-v'],env=env,check=True)
+          subprocess.run(['go','test','./internal/router/laya','-run','^TestInternalWorkerRealModel$','-count=1','-timeout','10m','-v'],env=env,check=True)
+          PYTHON
       - name: Release archive and license helper checks
         run: python -m unittest discover -s .github/scripts -p 'test_*.py' -v
       - name: Secure native skill entrypoint open

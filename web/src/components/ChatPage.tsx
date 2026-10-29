@@ -776,7 +776,6 @@ export function ChatPage() {
   const filteredSkillNames = useMemo(() => {
     if (isL1Session || !activeSessionId) {
       // L1 session (Chief Secretary) or Welcome/Empty Screen (before selecting an L2 agent session)
-      // "L1 默认有所有的 skill"
       return skills.map((s) => s.name);
     }
     if (matchedRegAgent) {

@@ -293,10 +293,6 @@ func (s *Supervisor) WireSpawnFns(allTemplates []AgentTemplate) {
 					tmpl.SystemPrompt = systemPrompt
 				}
 
-				if modelID != "" {
-					tmpl.ModelID = modelID
-				}
-
 				child, err := s.spawnInheritedChild(ctx, tmpl)
 				if err != nil {
 					return nil, false, err

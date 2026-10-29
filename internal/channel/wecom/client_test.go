@@ -1,5 +1,6 @@
 package wecom
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"encoding/json"
@@ -299,7 +300,7 @@ func TestUnsupportedMediaAndWhitelist(t *testing.T) {
 }
 
 func TestClipPreservesUTF8(t *testing.T) {
-	if got := clip("abc你好", 7); got != "abc你" {
+	if got := clip(testfixtures.Chinese("client_test_002"), 7); got != testfixtures.Chinese("client_test_003") {
 		t.Fatalf("clip=%q", got)
 	}
 }

@@ -26,7 +26,7 @@ func TestBuildL2DoesNotCompactIdleConversation(t *testing.T) {
 	rt.LLMClient = fake
 	rt.AllTemplates = []agent.AgentTemplate{{ID: "leader", Group: "dev", ModelID: "test", IsLeader: true, SystemPrompt: "System"}}
 	rt.AgentFactory = agent.NewDefaultFactory(rt.AgentRegistry, fake, tools.Config{}, nil,
-		agent.WithWorkDir(workDir), agent.WithModelResolver(func(string) (agent.ModelInfo, error) {
+		agent.WithWorkDir(workDir), agent.WithDefaultModelID("test"), agent.WithModelResolver(func(string) (agent.ModelInfo, error) {
 			return agent.ModelInfo{ContextWindow: 1048576}, nil
 		}))
 	compactor := &countingSessionCompactor{}

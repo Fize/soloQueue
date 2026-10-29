@@ -1,5 +1,6 @@
 package tools
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"encoding/json"
@@ -60,24 +61,24 @@ func TestSubmitCronResultAcceptsGenericPayloads(t *testing.T) {
 	}{
 		{
 			name:        "report-like opaque markdown",
-			args:        `{"content":"# 午间复盘\n\n他说\"保持谨慎\"。\n- 不解释业务结构"}`,
-			wantContent: "# 午间复盘\n\n他说\"保持谨慎\"。\n- 不解释业务结构",
+			args:        testfixtures.Chinese("submit_cron_result_test_001"),
+			wantContent: testfixtures.Chinese("submit_cron_result_test_002"),
 		},
 		{
 			name:        "action reminder content",
-			args:        `{"content":"提醒：15:30 检查服务状态。"}`,
-			wantContent: "提醒：15:30 检查服务状态。",
+			args:        testfixtures.Chinese("submit_cron_result_test_003"),
+			wantContent: testfixtures.Chinese("submit_cron_result_test_004"),
 		},
 		{
 			name:          "artifact only",
-			args:          `{"artifacts":[{"name":"完整报告","ref":"reports/daily.md"}]}`,
-			wantArtifacts: []submittedCronArtifact{{Name: "完整报告", Ref: "reports/daily.md"}},
+			args:          testfixtures.Chinese("submit_cron_result_test_005"),
+			wantArtifacts: []submittedCronArtifact{{Name: testfixtures.Chinese("submit_cron_result_test_006"), Ref: "reports/daily.md"}},
 		},
 		{
 			name:          "content and artifacts",
-			args:          `{"content":"处理完成","artifacts":[{"name":"日志","ref":"logs/run-1.txt"}]}`,
-			wantContent:   "处理完成",
-			wantArtifacts: []submittedCronArtifact{{Name: "日志", Ref: "logs/run-1.txt"}},
+			args:          testfixtures.Chinese("submit_cron_result_test_007"),
+			wantContent:   testfixtures.Chinese("submit_cron_result_test_008"),
+			wantArtifacts: []submittedCronArtifact{{Name: testfixtures.Chinese("submit_cron_result_test_009"), Ref: "logs/run-1.txt"}},
 		},
 	}
 	for _, tt := range tests {
@@ -165,7 +166,7 @@ func TestSubmitCronResultAuthorizationAndCanonicalEscaping(t *testing.T) {
 		}
 	}
 
-	content := "他说\"观察\"\nC:\\tmp"
+	content := testfixtures.Chinese("submit_cron_result_test_010")
 	args, err := json.Marshal(map[string]any{"content": content})
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +175,7 @@ func TestSubmitCronResultAuthorizationAndCanonicalEscaping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !json.Valid([]byte(result)) || !strings.Contains(result, `\"观察\"`) || !strings.Contains(result, `\n`) || !strings.Contains(result, `\\tmp`) {
+	if !json.Valid([]byte(result)) || !strings.Contains(result, testfixtures.Chinese("submit_cron_result_test_011")) || !strings.Contains(result, `\n`) || !strings.Contains(result, `\\tmp`) {
 		t.Fatalf("result is not canonical escaped JSON: %s", result)
 	}
 	var got submittedCronResult

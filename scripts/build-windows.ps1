@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$previousCGO = $env:CGO_ENABLED
 Push-Location $repoRoot
 try {
     pnpm --dir web install --frozen-lockfile
@@ -18,8 +19,10 @@ try {
     Remove-Item -Recurse -Force internal/assets/dist/web, internal/assets/dist/status -ErrorAction SilentlyContinue
     Copy-Item -Recurse -Force web/dist internal/assets/dist/web
     Copy-Item -Recurse -Force status-ui/dist internal/assets/dist/status
+    $env:CGO_ENABLED = '1'
     go build -o soloqueue.exe ./cmd/soloqueue
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
 } finally {
+    $env:CGO_ENABLED = $previousCGO
     Pop-Location
 }

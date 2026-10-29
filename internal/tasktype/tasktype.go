@@ -12,6 +12,13 @@ const (
 	Research    TaskType = "research"
 )
 
+// Descriptions are shared by the LLM prompt and the local decision model.
+const (
+	GeneralDescription     = "conversation, explanation, writing, translation, summarizing supplied content, ordinary planning"
+	EngineeringDescription = "code, repositories, debugging, tests, databases, APIs, automation, deployment, or technical implementation"
+	ResearchDescription    = "external search, current information, source verification, comparisons, or citations"
+)
+
 // Valid reports whether t is a routable task type.
 func (t TaskType) Valid() bool {
 	switch t {

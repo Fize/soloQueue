@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
@@ -1764,4 +1765,48 @@ func TestExecToolStreamContainsNoGoStatement(t *testing.T) {
 		return
 	}
 	t.Fatal("execToolStream declaration not found")
+}
+
+func TestDelegatedRequestUsesRoutedModelAndThinking(t *testing.T) {
+	var request LLMRequest
+	fake := &agenttest.FakeLLM{Responses: []string{"ok"}, Hook: func(req LLMRequest) { request = req }}
+	a := NewAgent(Definition{ID: "routed", ModelID: "default", ProviderID: "default-provider", ContextWindow: 20000}, fake, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop(time.Second)
+	ctx := iface.ContextWithModelOverride(context.Background(), &iface.ModelOverrideParams{ModelID: "chosen", ProviderID: "chosen-provider", ThinkingEnabled: true, ReasoningEffort: "high", ContextWindow: 4000})
+	ch, err := a.AskStream(ctx, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	if request.Model != "chosen" || request.ProviderID != "chosen-provider" || !request.ThinkingEnabled || request.ReasoningEffort != "high" {
+		t.Fatalf("unexpected request: %+v", request)
+	}
+}
+
+func TestDelegatedToolResultUsesRequestContextBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		defaultSize, routeSize int
+		truncated              bool
+	}{
+		{"large default small route", 100000, 5000, true},
+		{"small default large route", 5000, 100000, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := NewAgent(Definition{ID: "test", ContextWindow: tc.defaultSize}, &agenttest.FakeLLM{}, nil)
+			ctx := iface.ContextWithModelOverride(context.Background(), &iface.ModelOverrideParams{ContextWindow: tc.routeSize})
+			s := a.newSimpleStrategy(ctx, "test")
+			content := strings.Repeat("test ", 5000)
+			calls := []llm.ToolCall{{ID: "call", Function: llm.FunctionCall{Name: "test"}}}
+			s.postIteration(a, ctx, 0, &streamAccumulator{}, calls, toolExecutionResult{results: []string{content}}, nil)
+			got := s.msgs[len(s.msgs)-1].Content
+			if (len(got) < len(content)) != tc.truncated {
+				t.Fatalf("tool content len=%d, want truncated=%v", len(got), tc.truncated)
+			}
+		})
+	}
 }

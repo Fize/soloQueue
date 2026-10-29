@@ -7,12 +7,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xiaobaitu/soloqueue/cmd/soloqueue/cli"
+	"github.com/xiaobaitu/soloqueue/internal/infra/localonnx"
 )
 
 // Release builds override this with -ldflags "-X main.version=...".
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "__internal_laya" {
+		os.Exit(localonnx.InternalLayaMain(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "__internal_embedding" {
+		os.Exit(localonnx.InternalEmbeddingMain(os.Args[2:]))
+	}
 	if err := rootCmd().Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

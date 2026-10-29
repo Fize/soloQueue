@@ -2,14 +2,42 @@ package router
 
 import (
 	"context"
+	_ "embed"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
+
+type inputDecider struct{ input string }
+
+func (d *inputDecider) Decide(_ context.Context, text string) (tasktype.TaskType, error) {
+	d.input = text
+	return tasktype.Engineering, nil
+}
+
+func TestLayaReceivesSharedClassifierMessages(t *testing.T) {
+	d := &inputDecider{}
+	c := NewDefaultClassifier(ClassifierConfig{Engine: EngineLaya}, nil, "", "", d, nil)
+	input := ClassifyInput{Text: routerSample("sample_005"), PreviousTaskType: tasktype.Engineering, HasImages: true}
+	history := []ctxwin.PayloadMessage{{Role: "user", Content: routerSample("sample_001")}, {Role: "assistant", Content: "Done"}}
+	c.Classify(context.Background(), input, history)
+	var got []agent.LLMMessage
+	if err := json.Unmarshal([]byte(d.input), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := classifierMessages(input, history)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("messages = %#v, want %#v", got, want)
+	}
+}
 
 func TestLocalClassifierOnlyShortCircuitsStrongEvidence(t *testing.T) {
 	c := NewLocalClassifier()
@@ -19,34 +47,34 @@ func TestLocalClassifierOnlyShortCircuitsStrongEvidence(t *testing.T) {
 		matched bool
 	}{
 		{"run go test ./...", tasktype.Engineering, true},
-		{"添加一个只读的 resolve_project 工具", tasktype.Engineering, true},
-		{"MCP 错误被当成普通文本", tasktype.Engineering, true},
-		{"运行中 agent 不会自动更新", tasktype.Engineering, true},
-		{"调查为什么这个功能异常", tasktype.Engineering, true},
-		{"分析项目里失败的原因", tasktype.Engineering, true},
+		{routerSample("sample_011"), tasktype.Engineering, true},
+		{routerSample("sample_012"), tasktype.Engineering, true},
+		{routerSample("sample_013"), tasktype.Engineering, true},
+		{routerSample("sample_014"), tasktype.Engineering, true},
+		{routerSample("sample_015"), tasktype.Engineering, true},
 		{"inspect the router failure", tasktype.Engineering, true},
-		{"排查代码库中的问题", tasktype.Engineering, true},
-		{"查看最近的日志", tasktype.Engineering, true},
-		{"接口响应异常", tasktype.Engineering, true},
-		{"提交代码修改", tasktype.Engineering, true},
-		{"查询数据库中的慢 SQL", tasktype.Engineering, true},
-		{"新增 API 并更新配置", tasktype.Engineering, true},
-		{"定位 session 无法恢复的原因", tasktype.Engineering, true},
-		{"接入 WebSocket", tasktype.Engineering, true},
-		{"升级 LSP", tasktype.Engineering, true},
+		{routerSample("sample_016"), tasktype.Engineering, true},
+		{routerSample("sample_017"), tasktype.Engineering, true},
+		{routerSample("sample_018"), tasktype.Engineering, true},
+		{routerSample("sample_019"), tasktype.Engineering, true},
+		{routerSample("sample_020"), tasktype.Engineering, true},
+		{routerSample("sample_021"), tasktype.Engineering, true},
+		{routerSample("sample_022"), tasktype.Engineering, true},
+		{routerSample("sample_023"), tasktype.Engineering, true},
+		{routerSample("sample_024"), tasktype.Engineering, true},
 		{"trace the wire failure", tasktype.Engineering, true},
 		{"update the prompt", tasktype.Engineering, true},
-		{"优化模型路由", tasktype.Engineering, true},
-		{"搜索最新信息并给官方来源", tasktype.Research, true},
-		{"翻译下面这段文字", tasktype.General, true},
-		{"继续", tasktype.Unknown, false},
-		{"设计一个缓存方案", tasktype.Unknown, false},
-		{"分析这篇文章的观点", tasktype.Unknown, false},
-		{"调查市场规模", tasktype.Unknown, false},
-		{"项目里有哪些业务成员", tasktype.Unknown, false},
-		{"提交一份总结", tasktype.Unknown, false},
-		{"把功能介绍写得更清楚", tasktype.Unknown, false},
-		{"优化商业模型", tasktype.Unknown, false},
+		{routerSample("sample_025"), tasktype.Engineering, true},
+		{routerSample("sample_026"), tasktype.Research, true},
+		{routerSample("sample_027"), tasktype.General, true},
+		{routerSample("sample_003"), tasktype.Unknown, false},
+		{routerSample("sample_028"), tasktype.Unknown, false},
+		{routerSample("sample_029"), tasktype.Unknown, false},
+		{routerSample("sample_030"), tasktype.Unknown, false},
+		{routerSample("sample_031"), tasktype.Unknown, false},
+		{routerSample("sample_032"), tasktype.Unknown, false},
+		{routerSample("sample_033"), tasktype.Unknown, false},
+		{routerSample("sample_034"), tasktype.Unknown, false},
 		{"update capitalization", tasktype.Unknown, false},
 	} {
 		got := c.Classify(tt.input)
@@ -187,4 +215,23 @@ func TestConcurrentEngineSwitchAndClassify(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+//go:embed testdata/chinese_samples.json
+var sampleJSON []byte
+
+var routerSamples = func() map[string]string {
+	var values map[string]string
+	if err := json.Unmarshal(sampleJSON, &values); err != nil {
+		panic(err)
+	}
+	return values
+}()
+
+func routerSample(key string) string {
+	value, ok := routerSamples[key]
+	if !ok {
+		panic("missing router test sample: " + key)
+	}
+	return value
 }

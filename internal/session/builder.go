@@ -359,10 +359,6 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 			tmpl.SystemPrompt = systemPrompt
 		}
 
-		if modelID != "" {
-			tmpl.ModelID = modelID
-		}
-
 		child, _, err := b.RT.AgentFactory.Create(ctx, tmpl, workDir)
 		if err != nil {
 			return nil, false, err

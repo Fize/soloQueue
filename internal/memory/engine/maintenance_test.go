@@ -1,5 +1,6 @@
 package engine
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"testing"
@@ -8,9 +9,9 @@ import (
 func TestLegacyCleanupIsConservativeAndReversible(t *testing.T) {
 	engine := newTestEngine(t)
 	ctx := context.Background()
-	_, _, _ = engine.Save(ctx, "晚间复盘完成。上证上涨，输出报告。", "2026-07-01", "", "2026-07-01")
-	_, _, _ = engine.Save(ctx, "soloQueue 使用 JSONL 时间线存储会话。", "2026-07-02", "auto-compact,memory", "2026-07-02")
-	_, _, _ = engine.Save(ctx, "这是一条无法确定长期价值的旧记录。", "2026-07-03", "", "2026-07-03")
+	_, _, _ = engine.Save(ctx, testfixtures.Chinese("maintenance_test_001"), "2026-07-01", "", "2026-07-01")
+	_, _, _ = engine.Save(ctx, testfixtures.Chinese("maintenance_test_002"), "2026-07-02", "auto-compact,memory", "2026-07-02")
+	_, _, _ = engine.Save(ctx, testfixtures.Chinese("maintenance_test_003"), "2026-07-03", "", "2026-07-03")
 
 	manifest, err := engine.PlanLegacyCleanup(ctx, "/work/soloQueue")
 	if err != nil {

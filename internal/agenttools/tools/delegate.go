@@ -82,7 +82,6 @@ type delegateArgs struct {
 	SystemPrompt     string   `json:"system_prompt,omitempty"`
 	SkillID          string   `json:"skill_id,omitempty"`
 	WorkDir          string   `json:"work_dir,omitempty"`
-	ModelID          string   `json:"model_id,omitempty"`
 }
 
 // LocateOrSpawnResolver resolves or spawns a target agent.
@@ -239,11 +238,7 @@ func (dt *DelegateTool) Parameters() json.RawMessage {
     "skill_id": {
       "type": "string",
       "description": "Optional skill ID when the selected Team explicitly supports that skill."
-	}%s,
-    "model_id": {
-      "type": "string",
-      "description": "Optional model ID override for the target agent."
-    }
+	}%s
   },
   "required": ["target", "task_name", "task"]
 }`, workDirProperty))
@@ -390,7 +385,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 	var isSpawned bool
 
 	if dt.LocateOrSpawn != nil {
-		targetAgent, isSpawned, err = dt.LocateOrSpawn(delCtx, dArgs.Target, dArgs.SystemPrompt, dArgs.ModelID, dArgs.Task, workDir, dArgs.SkillID)
+		targetAgent, isSpawned, err = dt.LocateOrSpawn(delCtx, dArgs.Target, dArgs.SystemPrompt, "", dArgs.Task, workDir, dArgs.SkillID)
 		if err != nil {
 			wrapped := fmt.Errorf("failed to reach agent %q: %w", dArgs.Target, err)
 			return "", errors.Join(wrapped, finish(dispatch.StatusFailed, wrapped))
@@ -609,7 +604,7 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 	var target iface.Locatable
 	if dt.LocateOrSpawn != nil {
 		var err error
-		target, _, err = dt.LocateOrSpawn(delCtx, dArgs.Target, dArgs.SystemPrompt, dArgs.ModelID, dArgs.Task, workDir, dArgs.SkillID)
+		target, _, err = dt.LocateOrSpawn(delCtx, dArgs.Target, dArgs.SystemPrompt, "", dArgs.Task, workDir, dArgs.SkillID)
 		if err != nil {
 			wrapped := fmt.Errorf("failed to reach agent %q: %w", dArgs.Target, err)
 			return nil, errors.Join(wrapped, finish(dispatch.StatusFailed, wrapped))

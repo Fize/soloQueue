@@ -429,6 +429,7 @@ func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 func (s *Store) CreateAgent(ctx context.Context, a *Agent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	a.Model = ""
 
 	if a.ID == "" {
 		a.ID = strings.ToLower(a.Name)
@@ -551,7 +552,6 @@ func (s *Store) UpdateAgent(ctx context.Context, name string, a *Agent) error {
 	existing.Description = a.Description
 	existing.TeamName = a.TeamName
 	existing.IsLeader = a.IsLeader
-	existing.Model = a.Model
 	existing.SystemPrompt = a.SystemPrompt
 	existing.MCPServers = a.MCPServers
 	existing.Channels = a.Channels

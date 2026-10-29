@@ -1,5 +1,6 @@
 package skill
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"fmt"
 	"strings"
@@ -34,7 +35,7 @@ func TestSummarizeSkill_DescriptionOnly(t *testing.T) {
 }
 
 func TestSummarizeSkill_DescriptionCharacterLimit(t *testing.T) {
-	for _, char := range []string{"a", "字", "🛠"} {
+	for _, char := range []string{"a", testfixtures.Chinese("skill_listing_test_001"), "🛠"} {
 		for _, size := range []int{1535, 1536, 1537} {
 			t.Run(fmt.Sprintf("%s-%d", char, size), func(t *testing.T) {
 				description := strings.Repeat(char, size)
@@ -116,7 +117,7 @@ func TestBuildSkillListing_BudgetOverflowKeepsAllIDs(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		skills = append(skills, &Skill{
 			ID:          fmt.Sprintf("skill-%02d", i),
-			Description: strings.Repeat("描述内容", 20), // 80 runes each
+			Description: strings.Repeat(testfixtures.Chinese("skill_listing_test_002"), 20), // 80 runes each
 		})
 	}
 	got := BuildSkillListing(skills, 300, nil)

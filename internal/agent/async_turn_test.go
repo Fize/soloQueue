@@ -2274,3 +2274,82 @@ func TestPromptReloadAcrossRepeatedAsyncDelegation(t *testing.T) {
 		}
 	}
 }
+
+func TestAsyncDelegationChildToolResultUsesRoutedContextBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		defaultSize, routeSize int
+		truncated              bool
+	}{
+		{"large default small route", 100000, 5000, true},
+		{"small default large route", 5000, 100000, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := strings.Repeat("test ", 5000)
+			observed := make(chan LLMRequest, 4)
+			childLLM := &agenttest.FakeLLM{ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{Index: 0, ID: "lookup-1", Name: "lookup", Arguments: `{}`}}}, StreamDeltas: [][]string{nil, {"child finished"}}, Hook: func(req LLMRequest) { observed <- req }}
+			child := NewAgent(Definition{ID: "child", ModelID: "default-model", ProviderID: "default-provider", ContextWindow: tc.defaultSize}, childLLM, newTestLogger(t), WithTools(&mockSyncTool{name: "lookup", result: content}))
+			if err := child.Start(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			defer child.Stop(time.Second)
+			resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+				return &LocatableAdapter{Agent: child}, false, nil
+			}
+			delegate := tools.NewDelegateTool("parent", 0, resolver, nil, nil, tools.WorkDirExplicitOrInherited, tools.WithAlwaysAsyncDelegation())
+			parentLLM := &agenttest.FakeLLM{ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{Index: 0, ID: "delegate-1", Name: "delegate", Arguments: `{"target":"child","task_name":"lookup","task":"perform lookup"}`}}}, StreamDeltas: [][]string{nil, {"parent finished"}}}
+			parent := NewAgent(Definition{ID: "parent"}, parentLLM, newTestLogger(t), WithTools(delegate), WithPriorityMailbox())
+			if err := parent.Start(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			defer parent.Stop(time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ctx = iface.ContextWithModelOverride(ctx, &iface.ModelOverrideParams{ModelID: "routed-model", ProviderID: "routed-provider", ContextWindow: tc.routeSize, ThinkingEnabled: true, ReasoningEffort: "high"})
+			ctx = iface.ContextWithWorkDir(ctx, t.TempDir())
+			cw := ctxwin.NewContextWindow(100000, 2000, 0, ctxwin.NewTokenizer())
+			events, err := parent.AskStreamWithHistory(ctx, cw, "delegate")
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := false
+			for ev := range events {
+				if _, ok := ev.(DelegationStartedEvent); ok {
+					started = true
+				}
+				if e, ok := ev.(ErrorEvent); ok {
+					t.Fatal(e.Err)
+				}
+			}
+			if !started {
+				t.Fatal("delegation did not start")
+			}
+			select {
+			case <-observed:
+			case <-ctx.Done():
+				t.Fatal("no child request")
+			}
+			var req LLMRequest
+			select {
+			case req = <-observed:
+			case <-ctx.Done():
+				t.Fatal("no child request after tool result")
+			}
+			if req.Model != "routed-model" || req.ProviderID != "routed-provider" || !req.ThinkingEnabled || req.ReasoningEffort != "high" {
+				t.Fatalf("unexpected child route: %+v", req)
+			}
+			var result string
+			for _, m := range req.Messages {
+				if m.Role == "tool" {
+					result = m.Content
+				}
+			}
+			if result == "" {
+				t.Fatal("tool result missing")
+			}
+			if (len(result) < len(content)) != tc.truncated {
+				t.Fatalf("tool length %d, expected truncation %v", len(result), tc.truncated)
+			}
+		})
+	}
+}

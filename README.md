@@ -22,7 +22,7 @@ SoloQueue has been running on my personal computer for a long time. It is lightw
 
 ## Quick Start
 
-Building from source requires Go 1.25.8, Node.js, `pnpm`, and Make:
+Building from source requires Go 1.25.8, a C compiler for CGO, Node.js, `pnpm`, and Make:
 
 ```bash
 git clone https://github.com/Fize/soloQueue.git
@@ -32,7 +32,7 @@ make build
 ./soloqueue start
 ```
 
-On Windows x64, build from PowerShell with Go, Node.js and pnpm installed:
+On Windows x64, build from PowerShell with Go, a MinGW-w64 C compiler on `PATH`, Node.js and pnpm installed:
 
 ```powershell
 .\scripts\build-windows.ps1

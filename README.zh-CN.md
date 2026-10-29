@@ -22,7 +22,7 @@ SoloQueue 已在我的个人电脑上长期运行。它轻量、易于部署和�
 
 ## 快速开始
 
-源码构建需要 Go 1.25.8、Node.js、`pnpm` 和 Make：
+源码构建需要 Go 1.25.8、支持 CGO 的 C 编译器、Node.js、`pnpm` 和 Make：
 
 ```bash
 git clone https://github.com/Fize/soloQueue.git
@@ -32,7 +32,7 @@ make build
 ./soloqueue start
 ```
 
-Windows x64 可在安装 Go、Node.js 和 pnpm 后，通过 PowerShell 构建：
+Windows x64 可在安装 Go、Node.js 和 pnpm，并将 MinGW-w64 C 编译器加入 `PATH` 后，通过 PowerShell 构建：
 
 ```powershell
 .\scripts\build-windows.ps1

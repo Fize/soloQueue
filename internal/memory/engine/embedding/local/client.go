@@ -11,10 +11,13 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/xiaobaitu/soloqueue/internal/infra/buildidentity"
 )
 
 const maxFrame = 1 << 20
@@ -23,7 +26,11 @@ const Dimension = 384
 // ErrInvalidInput identifies a rejected request that has not affected the worker.
 var ErrInvalidInput = errors.New("invalid embedding input")
 
-type Config struct{ Worker, ModelDir, Runtime, Device string }
+type Config struct {
+	Worker, ModelDir, Runtime, Device string
+	Internal                          bool
+	BuildID                           string
+}
 type Result struct {
 	Embedding []float32 `json:"embedding"`
 	Tokens    int       `json:"tokens"`
@@ -48,14 +55,15 @@ type response struct {
 	Error   *wireError      `json:"error"`
 }
 type Client struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	frames chan frame
-	done   chan struct{}
-	gate   chan struct{}
-	once   sync.Once
-	id     uint64
-	status Status
+	cmd     *exec.Cmd
+	workDir string
+	stdin   io.WriteCloser
+	frames  chan frame
+	done    chan struct{}
+	gate    chan struct{}
+	once    sync.Once
+	id      uint64
+	status  Status
 }
 type frame struct {
 	bytes []byte
@@ -75,7 +83,34 @@ func Start(ctx context.Context, config Config) (*Client, error) {
 			return nil, errors.New("local embedding paths must be absolute")
 		}
 	}
-	cmd := exec.Command(config.Worker, "--model-dir", config.ModelDir, "--runtime", config.Runtime, "--device", config.Device)
+	args := []string{"--model-dir", config.ModelDir, "--runtime", config.Runtime, "--device", config.Device}
+	if config.Internal {
+		buildID, err := buildidentity.Current()
+		if config.BuildID != "" {
+			buildID, err = config.BuildID, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("identify local embedding build: %w", err)
+		}
+		args = append(args, "--build-id", buildID)
+		args = append([]string{"__internal_embedding"}, args...)
+	}
+	cmd := exec.Command(config.Worker, args...)
+	var workDir string
+	if config.Internal {
+		var e error
+		workDir, e = os.MkdirTemp("", "soloqueue-embedding-*")
+		if e != nil {
+			return nil, e
+		}
+		cmd.Dir = workDir
+	}
+	started := false
+	defer func() {
+		if !started && workDir != "" {
+			_ = os.RemoveAll(workDir)
+		}
+	}()
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -91,7 +126,8 @@ func Start(ctx context.Context, config Config) (*Client, error) {
 		_ = input.Close()
 		return nil, err
 	}
-	client := &Client{cmd: cmd, stdin: input, frames: make(chan frame, 1), done: make(chan struct{}), gate: make(chan struct{}, 1)}
+	client := &Client{cmd: cmd, stdin: input, frames: make(chan frame, 1), done: make(chan struct{}), gate: make(chan struct{}, 1), workDir: workDir}
+	started = true
 	client.gate <- struct{}{}
 	go client.read(output)
 	ready, err := client.receive(ctx, 0)
@@ -178,6 +214,9 @@ func (c *Client) receive(ctx context.Context, id uint64) (response, error) {
 			return response{}, errors.New("invalid embedding protocol response")
 		}
 		if reply.Error != nil {
+			if reply.Error.Code == "build_mismatch" {
+				return response{}, errors.New("incompatible internal embedding build")
+			}
 			return response{}, errors.New("embedding worker returned an error")
 		}
 		if len(reply.Data) == 0 || string(reply.Data) == "null" {
@@ -294,6 +333,14 @@ func (c *Client) Embed(ctx context.Context, texts []string, purpose string) (Bat
 // Close forcibly terminates and reaps the child, including a blocked inference.
 func (c *Client) Close() error {
 	var err error
-	c.once.Do(func() { close(c.done); _ = c.stdin.Close(); _ = c.cmd.Process.Kill(); err = c.cmd.Wait() })
+	c.once.Do(func() {
+		close(c.done)
+		_ = c.stdin.Close()
+		_ = c.cmd.Process.Kill()
+		err = c.cmd.Wait()
+		if c.workDir != "" {
+			err = errors.Join(err, os.RemoveAll(c.workDir))
+		}
+	})
 	return err
 }

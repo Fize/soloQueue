@@ -14,13 +14,22 @@ func TestWindowsRealClassifier(t *testing.T) {
 	if workDir == "" {
 		t.Skip("requires a Windows native classifier integration environment")
 	}
-	if os.Getenv("SOLOQUEUE_DECIDE_WORKER") == "" {
-		t.Fatal("classifier worker path is required")
+	binary := os.Getenv("SOLOQUEUE_TEST_MAIN_BINARY")
+	if binary == "" {
+		t.Fatal("main binary path is required")
 	}
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	manager := New(filepath.Clean(workDir), nil)
+	manager.workerPath = func() (string, error) { return binary, nil }
+	manager.spawnFn = func(ctx context.Context, path, modelDir, _ string) (proc, error) {
+		runtimePath, err := manager.runtimePath(ctx, 0)
+		if err != nil {
+			return nil, err
+		}
+		return startWorker(ctx, path, modelDir, runtimePath, true, testWorkerBuildID(t, path))
+	}
 	defer manager.Close()
 	manager.Apply(Config{Enabled: true})
 	deadline := time.Now().Add(15 * time.Minute)
@@ -32,7 +41,7 @@ func TestWindowsRealClassifier(t *testing.T) {
 		if status.State == "ready" {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			label, err := manager.Decide(ctx, "Please inspect this code and fix the failing unit test.")
+			label, err := manager.Decide(ctx, `[{"role":"user","content":"Please inspect this code and fix the failing unit test."}]`)
 			if err != nil || !label.Valid() {
 				t.Fatalf("classification = %q, err = %v", label, err)
 			}

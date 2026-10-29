@@ -1,5 +1,6 @@
 package local
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"bufio"
 	"context"
@@ -79,7 +80,7 @@ func startHelper(t *testing.T, mode string) *Client {
 }
 func TestEmbedContract(t *testing.T) {
 	c := startHelper(t, "ok")
-	batch, err := c.Embed(context.Background(), []string{"中文🙂", "  "}, "query")
+	batch, err := c.Embed(context.Background(), []string{testfixtures.Chinese("client_test_001"), "  "}, "query")
 	if err != nil {
 		t.Fatal(err)
 	}

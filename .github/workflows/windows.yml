@@ -28,6 +28,8 @@ jobs:
           node-version: '24'
       - name: Install pnpm
         run: npm install --global pnpm@11.13.1
+      - name: Configure C compiler
+        run: '"C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
       - name: Build and test source distribution
         run: |
           ./scripts/build-windows.ps1
@@ -35,7 +37,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test real Windows TypeScript language server
         run: |
-          $env:SOLOQUEUE_LSP_INTEGRATION_DIR = Join-Path $env:RUNNER_TEMP 'lsp workspace 测试'
+          $env:SOLOQUEUE_LSP_INTEGRATION_DIR = Join-Path $env:RUNNER_TEMP ((Get-Content -Raw -Encoding utf8 '.github/testdata/unicode_paths.json' | ConvertFrom-Json).lsp)
           npm install --prefix $env:SOLOQUEUE_LSP_INTEGRATION_DIR --no-save --no-audit --no-fund typescript@5.8.3 typescript-language-server@4.3.3
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test ./internal/agenttools/mcp/lsp -run '^TestWindowsRealTypescriptServer$' -count=1 -v
@@ -57,10 +59,10 @@ jobs:
         run: go test ./...
       - name: Start server and check health
         run: |
-          $env:SOLOQUEUE_WORK_DIR = Join-Path $env:RUNNER_TEMP 'soloqueue windows 测试'
+          $env:SOLOQUEUE_WORK_DIR = Join-Path $env:RUNNER_TEMP ((Get-Content -Raw -Encoding utf8 '.github/testdata/unicode_paths.json' | ConvertFrom-Json).workdir)
           $goExe = (Get-Command go).Source
           $oldPath = $env:PATH
-          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0;C:\msys64\mingw64\bin"
           $process = Start-Process -FilePath './soloqueue.exe' -ArgumentList 'serve', '--port', '18765' -PassThru
           try {
             $ready = $false
@@ -92,7 +94,7 @@ jobs:
             & $status.ffmpegBinary -y -i $wav -c:a libopus $audio
             if ($LASTEXITCODE -ne 0) { throw 'Audio fixture conversion failed' }
             $env:SOLOQUEUE_SPEECH_AUDIO_FIXTURE = $audio
-            $env:TEMP = Join-Path $env:SOLOQUEUE_WORK_DIR "临时音频"
+            $env:TEMP = Join-Path $env:SOLOQUEUE_WORK_DIR ((Get-Content -Raw -Encoding utf8 '.github/testdata/unicode_paths.json' | ConvertFrom-Json).audio)
             $env:TMP = $env:TEMP
             New-Item -ItemType Directory -Force $env:TEMP | Out-Null
             & $goExe test ./internal/channel/qq -run '^TestWindowsInstalledSpeechTranscribes(Silk|Audio)$' -count=1 -v

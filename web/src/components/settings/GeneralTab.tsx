@@ -16,7 +16,7 @@ export function GeneralTab() {
 
   const languageOptions = [
     { value: 'en', label: 'English' },
-    { value: 'zh', label: '简体中文 (Chinese)' },
+    { value: 'zh', label: t('general.chineseLanguage') },
   ]
 
   return (

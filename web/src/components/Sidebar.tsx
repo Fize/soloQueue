@@ -215,7 +215,7 @@ function NavView({
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 space-y-1">
         {/* New Chat — top nav item, navigates to home. Active only on the
             bare /chat welcome screen; once inside a session (/chat/:id) the
-            "会话" tree header takes the active state so the two
+            session tree header takes the active state so the two
             buttons don't both highlight at once. */}
         {(() => {
           const item = { to: '/chat', icon: Plus, key: 'chat.newChat' as const }

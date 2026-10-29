@@ -16,9 +16,9 @@ import (
 
 const llmClassifierSystemPrompt = `Classify the user's requested work into exactly one task type. Return ONLY JSON: {"task_type":"general|engineering|research"}.
 
-general: conversation, explanation, writing, translation, summarizing supplied content, ordinary planning.
-engineering: code, repositories, debugging, tests, databases, APIs, automation, deployment, or technical implementation.
-research: the main goal is external search, current information, source verification, comparisons, or citations.
+general: ` + tasktype.GeneralDescription + `.
+engineering: ` + tasktype.EngineeringDescription + `.
+research: the main goal is ` + tasktype.ResearchDescription + `.
 
 Difficulty, desired reasoning quality, and image presence never create a task type. Local code/log lookup is engineering; external source lookup is research. If the request follows an established task, preserve that task's type.`
 
@@ -65,14 +65,7 @@ func (c *LLMClassifier) Classify(ctx context.Context, input ClassifyInput, histo
 	classCtx, cancel := context.WithTimeout(operationCtx, 5*time.Second)
 	defer cancel()
 
-	messages := []agent.LLMMessage{{Role: "system", Content: llmClassifierSystemPrompt}}
-	for _, msg := range recentHistory(history) {
-		messages = append(messages, agent.LLMMessage{Role: msg.Role, Content: msg.Content})
-	}
-	messages = append(messages,
-		agent.LLMMessage{Role: "system", Content: `Input metadata: {"has_images":` + boolJSON(input.HasImages) + `}`},
-		agent.LLMMessage{Role: "user", Content: input.Text},
-	)
+	messages := classifierMessages(input, history)
 	resp, err := c.client.Chat(classCtx, agent.LLMRequest{
 		ProviderID: providerID, Model: model, Temperature: 0, MaxTokens: 64,
 		ThinkingEnabled: false, ResponseJSON: true, Messages: messages,
@@ -94,6 +87,21 @@ func (c *LLMClassifier) Classify(ctx context.Context, input ClassifyInput, histo
 		}
 	}
 	return result.TaskType, nil
+}
+
+func classifierMessages(input ClassifyInput, history []ctxwin.PayloadMessage) []agent.LLMMessage {
+	messages := []agent.LLMMessage{{Role: "system", Content: llmClassifierSystemPrompt}}
+	if input.PreviousTaskType.Valid() {
+		messages = append(messages, agent.LLMMessage{Role: "system", Content: "Previous task type: " + input.PreviousTaskType.String()})
+	}
+	for _, msg := range recentHistory(history) {
+		messages = append(messages, agent.LLMMessage{Role: msg.Role, Content: msg.Content})
+	}
+	messages = append(messages,
+		agent.LLMMessage{Role: "system", Content: `Input metadata: {"has_images":` + boolJSON(input.HasImages) + `}`},
+		agent.LLMMessage{Role: "user", Content: input.Text},
+	)
+	return messages
 }
 
 func recentHistory(history []ctxwin.PayloadMessage) []ctxwin.PayloadMessage {

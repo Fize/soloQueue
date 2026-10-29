@@ -84,7 +84,7 @@ function AgentWorkingIndicatorInner({
         compact ? 'py-1.5' : 'py-2',
       )}
     >
-      {/* Breathing Light (呼吸灯) */}
+      {/* Breathing light */}
       <span className="relative flex h-2.5 w-2.5 mx-1.5 shrink-0 items-center justify-center">
         <span className="animate-led-breathing absolute h-2 w-2 rounded-full bg-signal" />
       </span>

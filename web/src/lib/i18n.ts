@@ -157,6 +157,11 @@ export const translations = {
       "error": "Operation failed. Your edits are preserved."
 } ,
     common: {
+      copyCode: 'Copy code',
+      copyTable: 'Copy table',
+      copyTableAsMarkdown: 'Copy as Markdown',
+      copyTableAsCsv: 'Copy as CSV',
+      copyTableAsTsv: 'Copy as TSV',
       cancel: 'Cancel',
       save: 'Save',
       saving: 'Saving...',
@@ -301,6 +306,8 @@ export const translations = {
       remaining: '{{seconds}}s remaining',
     },
     general: {
+      chineseLanguage: '简体中文 (Chinese)',
+      wecomTitle: 'WeCom',
       title: 'General Preferences',
       appearance: 'Appearance & Theme',
       appearanceDesc: 'Select how SoloQueue looks on your device.',
@@ -497,7 +504,7 @@ export const translations = {
       llmReasoningEffort: 'Reasoning Effort',
       llmReasoningNone: "None (don't send)",
       llmReasoningEffortHint:
-        'Sent to the API as-is. Ensure the selected model supports the chosen effort level.',
+        'The provider may adapt this value. Adaptive thinking does not send an explicit effort.',
       llmThinkingType: 'Thinking Type',
       llmThinkingTypePlaceholder: 'enabled (default)',
       llmVisionMultimodal: 'Vision / Multimodal',
@@ -710,6 +717,11 @@ export const translations = {
       restartFailed: 'Failed to restart backend',
     },
     profile: {
+      notificationChannels: 'Notification Channels',
+      notificationChannelsDesc: 'Configure assistant message channels for scheduled task results.',
+      notificationChannel: 'Notification channel for scheduled task results',
+      firstBoundChannel: 'None (use first bound channel)',
+      saveChannels: 'Save channel settings',
       title: 'Developer Profile',
       soul: 'Soul',
       soulDesc: 'Define the core agent behavior, style, and instructions.',
@@ -1389,6 +1401,11 @@ export const translations = {
       "error": "操作失败，已保留你的修改。"
 } ,
     common: {
+      copyCode: '复制代码',
+      copyTable: '复制表格',
+      copyTableAsMarkdown: '复制为 Markdown',
+      copyTableAsCsv: '复制为 CSV',
+      copyTableAsTsv: '复制为 TSV',
       cancel: '取消',
       save: '保存',
       saving: '保存中...',
@@ -1530,6 +1547,8 @@ export const translations = {
       remaining: '剩余 {{seconds}} 秒',
     },
     general: {
+      chineseLanguage: '简体中文 (Chinese)',
+      wecomTitle: 'WeCom · 企业微信',
       title: '偏好设置',
       appearance: '外观与主题',
       appearanceDesc: '选择 SoloQueue 在您设备上的显示外观。',
@@ -1706,7 +1725,7 @@ export const translations = {
       llmEnableThinking: '启用深度思考',
       llmReasoningEffort: '推理细致度 (Reasoning Effort)',
       llmReasoningNone: '无 (不发送)',
-      llmReasoningEffortHint: '此值将原样发送至 API。请确保所选模型支持该强度。',
+      llmReasoningEffortHint: '服务商可能调整此值；自适应思考模式不会发送明确的推理强度。',
       llmThinkingType: '思考类型',
       llmThinkingTypePlaceholder: 'enabled (默认)',
       llmVisionMultimodal: '多模态 / 视觉能力',
@@ -1915,6 +1934,11 @@ export const translations = {
       restartFailed: '重启后端失败',
     },
     profile: {
+      notificationChannels: '通知渠道',
+      notificationChannelsDesc: '配置助手的消息通知渠道。定时任务完成后将通过绑定渠道通知用户。',
+      notificationChannel: '通知通道（用于定时任务结果通知）',
+      firstBoundChannel: '无（使用第一个绑定渠道）',
+      saveChannels: '保存渠道配置',
       title: '助手画像',
       soul: 'Soul',
       soulDesc: '定义核心智能体的行为模式、风格及背景指令。',

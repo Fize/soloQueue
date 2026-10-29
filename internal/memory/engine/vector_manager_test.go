@@ -1,5 +1,6 @@
 package engine
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"bufio"
 	"context"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaobaitu/soloqueue/internal/infra/buildidentity"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding/local"
 	"github.com/xiaobaitu/soloqueue/internal/memory/engine/embedding/managed"
@@ -365,7 +367,7 @@ func TestManagedNativeOffline(t *testing.T) {
 	e := New(db, mu, nil, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	matching, _, err := e.Save(ctx, "南瓜可以切块蒸熟后压成泥，加入牛奶煮成南瓜汤。", "2026-01-01", "", "2026-01-01")
+	matching, _, err := e.Save(ctx, testfixtures.Chinese("vector_manager_test_001"), "2026-01-01", "", "2026-01-01")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,8 +377,29 @@ func TestManagedNativeOffline(t *testing.T) {
 	if _, err = db.Exec(`CREATE TABLE mem_vec(sentinel TEXT);INSERT INTO mem_vec VALUES('preserve legacy vectors')`); err != nil {
 		t.Fatal(err)
 	}
-	installer := managed.Installer{WorkDir: workDir, Client: &http.Client{Transport: offlineTransport{}}}
-	options := VectorOptions{Prepare: installer.Prepare}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relativeWorkDir, err := filepath.Rel(cwd, workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := managed.Installer{WorkDir: relativeWorkDir, Client: &http.Client{Transport: offlineTransport{}}}
+	binary := os.Getenv("SOLOQUEUE_TEST_MAIN_BINARY")
+	if binary == "" {
+		t.Fatal("SOLOQUEUE_TEST_MAIN_BINARY is required")
+	}
+	buildID, err := buildidentity.File(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := VectorOptions{Prepare: installer.Prepare, Start: func(ctx context.Context, cfg local.Config) (LocalWorker, error) {
+		cfg.Worker = binary
+		cfg.Internal = true
+		cfg.BuildID = buildID
+		return local.Start(ctx, cfg)
+	}}
 	m := NewVectorManager(db, mu, workDir, options)
 	e.SetVectorManager(m)
 	cfg := localVectorConfig()
@@ -402,7 +425,7 @@ func TestManagedNativeOffline(t *testing.T) {
 		m.Close()
 		t.Fatal("cross-language retrieval mismatch", results, err)
 	}
-	if _, _, err = e.Save(ctx, "新增记忆：南瓜汤也可以加入少量奶油。", "2026-01-02", "", "2026-01-02"); err != nil {
+	if _, _, err = e.Save(ctx, testfixtures.Chinese("vector_manager_test_002"), "2026-01-02", "", "2026-01-02"); err != nil {
 		m.Close()
 		t.Fatal(err)
 	}

@@ -58,3 +58,23 @@ func TestClassifierHotReloadSwitchesActualRouter(t *testing.T) {
 		t.Fatalf("llm calls=%d local calls=%d", client.CallCount(), decider.calls.Load())
 	}
 }
+
+func TestModelResolverDistinguishesProviders(t *testing.T) {
+	cfg, err := config.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = cfg.Set(func(s *config.Settings) {
+		s.Models = []config.LLMModel{{ID: "same", ProviderID: "first", Enabled: false}, {ID: "same", ProviderID: "second", Enabled: true}}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := BuildModelResolver(cfg)("second:same")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProviderID != "second" || got.APIModel != "same" {
+		t.Fatalf("resolved %+v", got)
+	}
+}

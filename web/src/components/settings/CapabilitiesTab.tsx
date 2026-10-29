@@ -10,8 +10,8 @@ export function CapabilitiesTab() {
 
   const subTabButtons = [
     { key: 'builtin' as const, label: t('config.builtinTools') },
-    { key: 'skills' as const, label: t('skills.title') || '智能体技能' },
-    { key: 'mcp' as const, label: t('mcp.title') || 'MCP 服务' },
+    { key: 'skills' as const, label: t('skills.title') },
+    { key: 'mcp' as const, label: t('mcp.title') },
   ]
 
   return (

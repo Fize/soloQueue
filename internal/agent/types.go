@@ -43,9 +43,6 @@ type Definition struct {
 	// ContextWindow is the model's context window (tokens). <= 0 falls back to 1M.
 	ContextWindow int
 
-	// ExplicitModel: template pinned this model — router cannot override.
-	ExplicitModel bool
-
 	Vision bool
 
 	// Channels: channel_type → instance_id. Each type appears at most once.

@@ -418,9 +418,9 @@ export function ProfileTab() {
       {/* Assistant notification channel config */}
       {(qqBotOptions.length > 0 || wechatBotOptions.length > 0 || telegramBotOptions.length > 0 || wecomBotOptions.length > 0) && (
         <div className="border rounded-lg bg-card p-5 shadow-sm">
-          <h3 className="text-sm font-bold mb-3">通知渠道 (Notification Channels)</h3>
+          <h3 className="text-sm font-bold mb-3">{t('profile.notificationChannels')}</h3>
           <p className="text-xs text-muted-foreground mb-4">
-            配置助手的消息通知渠道。定时任务完成后将通过绑定渠道通知用户。
+            {t('profile.notificationChannelsDesc')}
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
@@ -432,7 +432,7 @@ export function ProfileTab() {
                   onChange={(e) => setQqChannel(e.target.value)}
                   className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs"
                 >
-                  <option value="">无</option>
+                  <option value="">{t('common.none')}</option>
                   {qqBotOptions.map(bot => (
                     <option key={bot.id} value={bot.id}>{bot.name} ({bot.id})</option>
                   ))}
@@ -447,7 +447,7 @@ export function ProfileTab() {
                   onChange={(e) => setWechatChannel(e.target.value)}
                   className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs"
                 >
-                  <option value="">无</option>
+                  <option value="">{t('common.none')}</option>
                   {wechatBotOptions.map(bot => (
                     <option key={bot.id} value={bot.id}>{bot.name} ({bot.id})</option>
                   ))}
@@ -458,7 +458,7 @@ export function ProfileTab() {
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground">Telegram</label>
                 <select value={telegramChannel} onChange={(e) => setTelegramChannel(e.target.value)} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs">
-                  <option value="">无</option>
+                  <option value="">{t('common.none')}</option>
                   {telegramBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.username ? `@${bot.username}` : bot.id}</option>)}
                 </select>
               </div>
@@ -467,7 +467,7 @@ export function ProfileTab() {
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground">Wecom</label>
                 <select value={wecomChannel} onChange={(e) => setWecomChannel(e.target.value)} className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs">
-                  <option value="">无</option>
+                  <option value="">{t('common.none')}</option>
                   {wecomBotOptions.map(bot => <option key={bot.id} value={bot.id}>{bot.name} · {bot.id}</option>)}
                 </select>
               </div>
@@ -476,7 +476,7 @@ export function ProfileTab() {
 
           {(qqChannel || wechatChannel || telegramChannel || wecomChannel) && (
             <div className="flex flex-col gap-1.5 mb-3 pt-2 border-t border-border/50">
-              <label className="text-xs text-muted-foreground">通知通道 (用于定时任务结果通知)</label>
+              <label className="text-xs text-muted-foreground">{t('profile.notificationChannel')}</label>
               <div className="flex gap-4">
                 {qqChannel && (
                   <label className="flex items-center gap-1.5 text-xs cursor-pointer">
@@ -501,7 +501,7 @@ export function ProfileTab() {
                 <label className="flex items-center gap-1.5 text-xs cursor-pointer text-muted-foreground">
                   <input type="radio" name="l1NotifyChannel" value=""
                     checked={notifyChannel === ''} onChange={() => setNotifyChannel('')} className="h-3 w-3" />
-                  无 (使用第一个绑定渠道)
+                  {t('profile.firstBoundChannel')}
                 </label>
               </div>
             </div>
@@ -510,9 +510,9 @@ export function ProfileTab() {
           <div className="flex items-center gap-3 border-t border-border pt-3">
             <Button size="sm" onClick={handleSaveChannels} disabled={savingChannels}>
               {savingChannels ? (
-                <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> 保存中...</>
+                <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> {t('common.saving')}</>
               ) : (
-                <><Save className="mr-1 h-3 w-3" /> 保存渠道配置</>
+                <><Save className="mr-1 h-3 w-3" /> {t('profile.saveChannels')}</>
               )}
             </Button>
           </div>

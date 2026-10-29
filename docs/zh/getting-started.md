@@ -8,7 +8,7 @@
 
 ## 前置条件
 
-从源码构建需要 Go 1.25.8、Node.js、`pnpm` 和 Make。API Key 可在首次启动后通过 Web Console 配置。
+从源码构建需要 Go 1.25.8、支持 CGO 的 C 编译器、Node.js、`pnpm` 和 Make。Windows 上需要将 MinGW-w64 编译器加入 `PATH`。API Key 可在首次启动后通过 Web Console 配置。
 
 ---
 

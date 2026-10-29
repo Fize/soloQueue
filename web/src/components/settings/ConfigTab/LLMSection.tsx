@@ -380,7 +380,7 @@ export function LLMSection({
       },
       thinking: {
         enabled: modelForm.thinking?.enabled ?? false,
-        reasoningEffort: modelForm.thinking?.reasoningEffort || 'medium',
+        reasoningEffort: modelForm.thinking?.reasoningEffort ?? 'medium',
         thinkingType: modelForm.thinking?.thinkingType || '',
       },
       vision: !!modelForm.vision,

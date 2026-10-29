@@ -28,7 +28,7 @@ func (bc *buildContext) buildAgentInfra() {
 	bc.agentFactory = agent.NewDefaultFactory(
 		bc.agentRegistry, bc.llmClient, bc.toolsCfg, bc.log,
 		agent.WithModelResolver(bc.modelResolver),
-		agent.WithDefaultModelID(bc.defaultModel.ID),
+		agent.WithDefaultModelID(bc.defaultModel.ProviderID+":"+bc.defaultModel.ID),
 		agent.WithTemplates(bc.allTemplates),
 		agent.WithGroups(bc.groups),
 		agent.WithWorkDir(bc.workDir),

@@ -1,5 +1,6 @@
 package engine
 
+import "github.com/xiaobaitu/soloqueue/internal/textdata"
 import (
 	"context"
 	"fmt"
@@ -139,10 +140,10 @@ func canonicalizeMemory(content string) string {
 func isRoutineTaskRecord(content string) bool {
 	lower := strings.ToLower(content)
 	routineMarkers := []string{
-		"排版完成", "报告完成", "任务完成", "completed:", "completed ",
+		textdata.Chinese("routine_layout_complete"), textdata.Chinese("routine_report_complete"), textdata.Chinese("routine_task_complete"), "completed:", "completed ",
 		"build completed", "tests passed", "test passed", "commit and push",
-		"git commit", "输出 300dpi", "output file:", "午间复盘", "晚间复盘",
-		"盘前准备报告",
+		"git commit", textdata.Chinese("routine_output_300dpi"), "output file:", textdata.Chinese("routine_midday_review"), textdata.Chinese("routine_evening_review"),
+		textdata.Chinese("routine_premarket_report"),
 	}
 	for _, marker := range routineMarkers {
 		if strings.Contains(lower, marker) {

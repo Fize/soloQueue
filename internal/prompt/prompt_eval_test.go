@@ -1,5 +1,6 @@
 package prompt
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"strings"
 	"testing"
@@ -25,12 +26,12 @@ func TestPromptQualityGate_OmitsTemplateExplanation(t *testing.T) {
 		"The following rules apply to every agent regardless of role",
 		"Using Bash with cat wastes tokens",
 		"Shared Standards Apply",
-		"共享标准",
-		"工具规范、先搜索再读取、Skill 优先级、严格遵守范围、探索产物和安全边界",
+		testfixtures.Chinese("prompt_eval_test_001"),
+		testfixtures.Chinese("prompt_eval_test_002"),
 		"2-3 sentences minimum",
 		"3-5 sentences minimum",
-		"错误计划——过于模糊",
-		"正确计划——具体、可执行、自包含",
+		testfixtures.Chinese("prompt_eval_test_003"),
+		testfixtures.Chinese("prompt_eval_test_004"),
 		"If a non-trivial alternative was considered",
 	} {
 		assembled := assembleWithXML("soul", "", "", "", "teams", "", "/plans", "/work", "/explore", nil, nil)

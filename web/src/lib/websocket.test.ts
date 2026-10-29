@@ -1,3 +1,4 @@
+import chineseSamples from '@/testdata/chinese_samples.json'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { wsManager } from './websocket'
 import { useRuntimeStore } from '@/stores/runtimeStore'
@@ -359,7 +360,7 @@ describe('websocket', () => {
       origin: 'channel',
       request_id: 'req-reused-external',
       session_id: 'l1',
-      prompt: '第一次渠道消息',
+      prompt: chineseSamples.websocket_test_001,
       timestamp: '2026-09-21T10:24:00.000Z',
     })
     expect(wsManager.hasChatHandler('req-reused-external')).toBe(true)
@@ -408,7 +409,7 @@ describe('websocket', () => {
       origin: 'channel',
       request_id: 'req-reused-external',
       session_id: 'l1',
-      prompt: '第二次渠道消息',
+      prompt: chineseSamples.websocket_test_002,
       timestamp: '2026-09-21T10:25:00.000Z',
     })
     expect(wsManager.hasChatHandler('req-reused-external')).toBe(true)
@@ -418,7 +419,7 @@ describe('websocket', () => {
     ])
     expect(useChatStore.getState().messages.l1?.[0].segments[0]).toMatchObject({
       type: 'content',
-      text: '第二次渠道消息',
+      text: chineseSamples.websocket_test_002,
     })
 
     simulateMessage({ type: 'state', runtime: terminalRuntime(2) })
@@ -736,7 +737,7 @@ describe('websocket', () => {
       origin: 'channel',
       request_id: 'req-channel',
       session_id: 'l1',
-      prompt: '来自 QQ 的消息',
+      prompt: chineseSamples.websocket_test_003,
     })
     simulateMessage({
       type: 'chat_route',
@@ -751,13 +752,13 @@ describe('websocket', () => {
       origin: 'channel',
       request_id: 'req-channel',
       session_id: 'l1',
-      delta: '实时回复',
+      delta: chineseSamples.websocket_test_004,
     })
 
     const beforeDone = useChatStore.getState().messages.l1 || []
     expect(beforeDone.map((message) => message.role)).toEqual(['user', 'assistant'])
-    expect(beforeDone[0].segments[0]).toMatchObject({ type: 'content', text: '来自 QQ 的消息' })
-    expect(beforeDone[1].segments[0]).toMatchObject({ type: 'content', text: '实时回复' })
+    expect(beforeDone[0].segments[0]).toMatchObject({ type: 'content', text: chineseSamples.websocket_test_003 })
+    expect(beforeDone[1].segments[0]).toMatchObject({ type: 'content', text: chineseSamples.websocket_test_004 })
     expect(useChatStore.getState().routeSessions.l1).toMatchObject({
       requestId: 'req-channel',
       modelId: 'channel-model',
@@ -777,19 +778,19 @@ describe('websocket', () => {
       origin: 'channel',
       request_id: 'req-channel-final',
       session_id: 'l1',
-      prompt: '第二条消息',
+      prompt: chineseSamples.websocket_test_005,
     })
     simulateMessage({
       type: 'chat_done',
       origin: 'channel',
       request_id: 'req-channel-final',
       session_id: 'l1',
-      content: '未错过的终结内容',
+      content: chineseSamples.websocket_test_006,
     })
     const finalMessages = useChatStore.getState().messages.l1 || []
     expect(finalMessages.at(-1)?.segments[0]).toMatchObject({
       type: 'content',
-      text: '未错过的终结内容',
+      text: chineseSamples.websocket_test_006,
     })
   })
 
@@ -803,14 +804,14 @@ describe('websocket', () => {
       origin: 'channel',
       request_id: 'req-channel-recovery',
       session_id: 'l1',
-      delta: '恢复中的实时回复',
+      delta: chineseSamples.websocket_test_007,
     })
 
     const messages = useChatStore.getState().messages.l1 || []
     expect(messages.map((message) => message.role)).toEqual(['assistant'])
     expect(messages[0].segments[0]).toMatchObject({
       type: 'content',
-      text: '恢复中的实时回复',
+      text: chineseSamples.websocket_test_007,
     })
   })
 
@@ -822,14 +823,14 @@ describe('websocket', () => {
             id: 'hist-user',
             requestId: 'req-hydrated-channel',
             role: 'user',
-            segments: [{ type: 'content', text: '分析万华化学持仓' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_008 }],
             timestamp: '2026-09-21T04:00:39.487Z',
           },
           {
             id: 'hist-assistant',
             requestId: 'req-hydrated-channel',
             role: 'assistant',
-            segments: [{ type: 'content', text: '先说事实。' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_009 }],
             timestamp: '2026-09-21T04:00:46.719Z',
           },
         ],
@@ -856,7 +857,7 @@ describe('websocket', () => {
       id: 'msg-req-hydrated-channel',
       role: 'assistant',
       segments: [
-        { type: 'content', text: '先说事实。' },
+        { type: 'content', text: chineseSamples.websocket_test_009 },
         { type: 'tool_call', callId: 'delegate-call', name: 'delegate', done: false },
       ],
     })
@@ -869,25 +870,25 @@ describe('websocket', () => {
           {
             id: 'hist-old-user',
             role: 'user',
-            segments: [{ type: 'content', text: '旧渠道请求' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_010 }],
             timestamp: '2026-09-21T10:24:00.000Z',
           },
           {
             id: 'msg-req-delayed-channel',
             role: 'assistant',
-            segments: [{ type: 'content', text: '旧回复片段' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_011 }],
             timestamp: '2026-09-21T10:24:00.000Z',
           },
           {
             id: 'hist-new-user',
             role: 'user',
-            segments: [{ type: 'content', text: '新请求' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_012 }],
             timestamp: '2026-09-21T10:32:00.000Z',
           },
           {
             id: 'hist-new-assistant',
             role: 'assistant',
-            segments: [{ type: 'content', text: '新回复' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_013 }],
             timestamp: '2026-09-21T10:32:00.000Z',
           },
         ],
@@ -902,7 +903,7 @@ describe('websocket', () => {
       request_id: 'req-delayed-channel',
       session_id: 'l1',
       timestamp: '2026-09-21T10:24:00.000Z',
-      delta: '，继续输出',
+      delta: chineseSamples.websocket_test_014,
     })
     simulateMessage({
       type: 'chat_done',
@@ -910,7 +911,7 @@ describe('websocket', () => {
       request_id: 'req-delayed-channel',
       session_id: 'l1',
       timestamp: '2026-09-21T10:24:00.000Z',
-      content: '旧回复片段，继续输出',
+      content: chineseSamples.websocket_test_015,
     })
 
     const messages = useChatStore.getState().messages.l1 || []
@@ -920,7 +921,7 @@ describe('websocket', () => {
       'hist-new-user',
       'hist-new-assistant',
     ])
-    expect(messages[1].segments).toEqual([{ type: 'content', text: '旧回复片段，继续输出' }])
+    expect(messages[1].segments).toEqual([{ type: 'content', text: chineseSamples.websocket_test_015 }])
     expect(messages[0].timestamp).toBe('2026-09-21T10:24:00.000Z')
     expect(messages[1].timestamp).toBe('2026-09-21T10:24:00.000Z')
   })
@@ -932,13 +933,13 @@ describe('websocket', () => {
           {
             id: 'new-user',
             role: 'user',
-            segments: [{ type: 'content', text: '半秒后的新请求' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_016 }],
             timestamp: '2026-09-21T10:24:00.500Z',
           },
           {
             id: 'new-assistant',
             role: 'assistant',
-            segments: [{ type: 'content', text: '新请求的回复' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_017 }],
             timestamp: '2026-09-21T10:24:00.500Z',
           },
         ],
@@ -953,13 +954,13 @@ describe('websocket', () => {
       request_id: 'old',
       session_id: 'l1',
       timestamp: '2026-09-21T10:24:00.000Z',
-      delta: '旧请求迟到的回复',
+      delta: chineseSamples.websocket_test_018,
     })
 
     const messages = useChatStore.getState().messages.l1 || []
     expect(messages.map((message) => message.id)).toEqual(['msg-old', 'new-user', 'new-assistant'])
-    expect(messages[0].segments).toEqual([{ type: 'content', text: '旧请求迟到的回复' }])
-    expect(messages[2].segments).toEqual([{ type: 'content', text: '新请求的回复' }])
+    expect(messages[0].segments).toEqual([{ type: 'content', text: chineseSamples.websocket_test_018 }])
+    expect(messages[2].segments).toEqual([{ type: 'content', text: chineseSamples.websocket_test_017 }])
   })
 
   it('inserts a delayed channel assistant before later user turns', async () => {
@@ -969,13 +970,13 @@ describe('websocket', () => {
           {
             id: 'hist-new-user',
             role: 'user',
-            segments: [{ type: 'content', text: '新请求' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_012 }],
             timestamp: '2026-09-21T10:32:00.000Z',
           },
           {
             id: 'hist-new-assistant',
             role: 'assistant',
-            segments: [{ type: 'content', text: '新回复' }],
+            segments: [{ type: 'content', text: chineseSamples.websocket_test_013 }],
             timestamp: '2026-09-21T10:32:00.000Z',
           },
         ],
@@ -990,7 +991,7 @@ describe('websocket', () => {
       request_id: 'req-delayed-insert',
       session_id: 'l1',
       timestamp: '2026-09-21T10:24:00.000Z',
-      delta: '迟到的旧回复',
+      delta: chineseSamples.websocket_test_019,
     })
 
     const messages = useChatStore.getState().messages.l1 || []
@@ -1002,7 +1003,7 @@ describe('websocket', () => {
     expect(messages[0]).toMatchObject({
       role: 'assistant',
       timestamp: '2026-09-21T10:24:00.000Z',
-      segments: [{ type: 'content', text: '迟到的旧回复' }],
+      segments: [{ type: 'content', text: chineseSamples.websocket_test_019 }],
     })
   })
 
@@ -1016,7 +1017,7 @@ describe('websocket', () => {
       origin: 'channel',
       request_id: 'req-owned-channel',
       session_id: 'l1',
-      prompt: '真实渠道消息',
+      prompt: chineseSamples.websocket_test_020,
       timestamp: '2026-09-21T10:24:00.000Z',
     })
     simulateMessage({
@@ -1024,32 +1025,32 @@ describe('websocket', () => {
       origin: 'channel',
       request_id: 'req-owned-channel',
       session_id: 'l2:wrong',
-      delta: '错误会话',
+      delta: chineseSamples.websocket_test_021,
     })
     simulateMessage({
       type: 'chat_chunk',
       request_id: 'req-owned-channel',
       session_id: 'l1',
-      delta: '缺少来源',
+      delta: chineseSamples.websocket_test_022,
     })
     simulateMessage({
       type: 'chat_chunk',
       origin: 'browser',
       request_id: 'req-owned-channel',
       session_id: 'l1',
-      delta: '错误来源',
+      delta: chineseSamples.websocket_test_023,
     })
     simulateMessage({
       type: 'chat_chunk',
       origin: 'channel',
       request_id: 'req-owned-channel',
       session_id: 'l1',
-      delta: '正确回复',
+      delta: chineseSamples.websocket_test_024,
     })
 
     const messages = useChatStore.getState().messages.l1 || []
     expect(messages).toHaveLength(2)
-    expect(messages[1].segments).toEqual([{ type: 'content', text: '正确回复' }])
+    expect(messages[1].segments).toEqual([{ type: 'content', text: chineseSamples.websocket_test_024 }])
   })
 
   it('reports chat_send as unsent when the socket is not open', () => {

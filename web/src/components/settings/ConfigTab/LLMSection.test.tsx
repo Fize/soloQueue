@@ -233,3 +233,17 @@ describe('compact model layout', () => {
   expect(screen.queryByText('second model')).not.toBeInTheDocument()
  })
 })
+
+describe('reasoning effort', () => {
+  it('saves an explicit empty effort when editing a model', async () => {
+    const update = vi.fn().mockResolvedValue(undefined)
+    const retry = { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2 }
+    const provider = { id: 'test', name: 'Test', baseUrl: 'https://example.test', apiKeyEnv: '', enabled: true, isDefault: false, timeoutMs: 0, retry }
+    const model = { providerId: 'test', id: 'm', name: 'Test model', apiModel: 'm', contextWindow: 128000, enabled: true, generation: { temperature: 0.7, maxTokens: 4096 }, thinking: { enabled: true, reasoningEffort: '' } }
+    render(<LLMSection view="conversation" providers={[provider]} models={[model]} providerFilter="test" onProviderFilterChange={vi.fn()} defaultModels={{ general: '', engineering: '', research: '', classifier: '', vision: '', fallback: '' }} classifier={{ engine: 'llm' }} onClassifierChange={vi.fn()} onSaveDefaults={vi.fn()} onDefaultModelsChange={vi.fn()} onCreateProvider={vi.fn()} onUpdateProvider={vi.fn()} onDeleteProvider={vi.fn()} onToggleProviderStatus={vi.fn()} onSetProviderAsDefault={vi.fn()} onCreateModel={vi.fn()} onUpdateModel={update} onDeleteModel={vi.fn()} onToggleModelStatus={vi.fn()} />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' }).at(-1)!)
+    expect(screen.getByText("None (don't send)")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Update Model' }))
+    await waitFor(() => expect(update).toHaveBeenCalledWith('m', expect.objectContaining({ thinking: expect.objectContaining({ reasoningEffort: '' }) })))
+  })
+})

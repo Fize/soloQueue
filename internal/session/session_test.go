@@ -1,5 +1,6 @@
 package session
 
+import "github.com/xiaobaitu/soloqueue/internal/testfixtures"
 import (
 	"context"
 	"encoding/json"
@@ -2164,7 +2165,7 @@ func TestPartialFlushRemainder(t *testing.T) {
 		{"nothing persisted -> full buffer", "first", "", "first"},
 		{"no prefix match -> full buffer", "first", "xyz", "first"},
 		{"prefix overlap -> increment", "abc", "a", "bc"},
-		{"multibyte prefix", "中文回复后续", "中文回复", "后续"},
+		{"multibyte prefix", testfixtures.Chinese("session_test_001"), testfixtures.Chinese("session_test_002"), testfixtures.Chinese("session_test_003")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
