@@ -133,6 +133,8 @@ jobs:
         env:
           SOLOQUEUE_ONNX_INTEGRATION: '1'
           SOLOQUEUE_ONNX_ARTIFACTS: ${{ runner.temp }}/onnx-artifacts
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: go test -race ./internal/memory/engine/... ./internal/config/...
       - name: Real Laya model with Unicode work directory
         run: |

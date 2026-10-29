@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -35,13 +36,21 @@ func TestInternalWorkerRealModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, err = filepath.Rel(cwd, model)
+	relativeModel, err := filepath.Rel(cwd, model)
 	if err != nil {
-		t.Fatal(err)
+		if goruntime.GOOS != "windows" || strings.EqualFold(filepath.VolumeName(cwd), filepath.VolumeName(model)) {
+			t.Fatal(err)
+		}
+	} else {
+		model = relativeModel
 	}
-	runtime, err = filepath.Rel(cwd, runtime)
+	relativeRuntime, err := filepath.Rel(cwd, runtime)
 	if err != nil {
-		t.Fatal(err)
+		if goruntime.GOOS != "windows" || strings.EqualFold(filepath.VolumeName(cwd), filepath.VolumeName(runtime)) {
+			t.Fatal(err)
+		}
+	} else {
+		runtime = relativeRuntime
 	}
 	worker, err := startWorker(ctx, binary, model, runtime, true, testWorkerBuildID(t, binary))
 	if err != nil {

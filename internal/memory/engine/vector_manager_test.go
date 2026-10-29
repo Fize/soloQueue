@@ -383,7 +383,11 @@ func TestManagedNativeOffline(t *testing.T) {
 	}
 	relativeWorkDir, err := filepath.Rel(cwd, workDir)
 	if err != nil {
-		t.Fatal(err)
+		if runtime.GOOS != "windows" || strings.EqualFold(filepath.VolumeName(cwd), filepath.VolumeName(workDir)) {
+			t.Fatal(err)
+		}
+		// Windows cannot express paths relative to a different drive.
+		relativeWorkDir = workDir
 	}
 	installer := managed.Installer{WorkDir: relativeWorkDir, Client: &http.Client{Transport: offlineTransport{}}}
 	binary := os.Getenv("SOLOQUEUE_TEST_MAIN_BINARY")
