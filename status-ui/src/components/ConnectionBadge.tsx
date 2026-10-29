@@ -22,10 +22,6 @@ export function ConnectionBadge({ status }: ConnectionBadgeProps) {
       >
         <span className="relative flex h-2 w-2">
           <span
-            className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
-            style={{ backgroundColor: 'var(--color-success)' }}
-          />
-          <span
             className="relative inline-flex h-2 w-2 rounded-full"
             style={{ backgroundColor: 'var(--color-success)' }}
           />

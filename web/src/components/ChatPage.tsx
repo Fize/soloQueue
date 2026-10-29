@@ -92,7 +92,7 @@ export function ChatPage() {
 
   const { send, cancel } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { contentRef, followOutput, resetFollow, detachFollow } = useStickToBottom({ scrollRef });
+  const { contentRef, followOutput, resetFollow, detachFollow, showReturnToLatest, jumpToLatest } = useStickToBottom({ scrollRef });
   const loadingMore = useRef(false);
   const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   const connectionStatus = useRuntimeStore((s) => s.connectionStatus);
@@ -1004,7 +1004,7 @@ export function ChatPage() {
         >
           {/* Conversation stream */}
           <div className={cn(
-            "chat-layout h-full bg-background",
+            "chat-layout h-full bg-background relative",
             isResizing ? "transition-none" : "transition-all duration-300",
             designModeActive ? "flex-1 min-w-[320px]" : "flex-1 min-w-0"
           )}>
@@ -1115,7 +1115,9 @@ export function ChatPage() {
 
                     <div className="h-2" />
                   </div>
+                  {showReturnToLatest && <button type="button" onClick={jumpToLatest} className="sticky bottom-3 z-10 mx-auto block rounded-full border border-border bg-card px-4 py-2 text-xs font-medium text-foreground shadow-md hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring">{t("chat.returnToLatest")}</button>}
                 </div>
+
 
 
                 <div className="chat-composer px-6" data-chat-composer>

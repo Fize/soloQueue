@@ -70,6 +70,10 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
   })
 
   const handleClose = useCallback(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      onClose()
+      return
+    }
     setClosing(true)
     setTimeout(() => onClose(), 150)
   }, [onClose])
@@ -79,13 +83,15 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
   }
 
   const streamBodyRef = useRef<HTMLDivElement>(null)
+  const followsStream = useRef(true)
+  const [isFollowing, setIsFollowing] = useState(true)
 
-  // Architectural Decision: Preserve chronological segment order and auto-scroll on stream updates.
+  // Follow new output only while the reader remains near the bottom.
   const segments = stream?.segments || []
   const hasStreamData = segments.length > 0
 
   useEffect(() => {
-    if (streamBodyRef.current) {
+    if (streamBodyRef.current && followsStream.current) {
       streamBodyRef.current.scrollTop = streamBodyRef.current.scrollHeight
     }
   }, [segments])
@@ -232,7 +238,12 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
         )}
 
         {/* Live stream */}
-        <div ref={streamBodyRef} className="flex-1 overflow-y-auto p-5">
+        <div ref={streamBodyRef} className="flex-1 overflow-y-auto p-5" onScroll={(event) => {
+          const el = event.currentTarget
+          const attached = el.scrollHeight - el.scrollTop - el.clientHeight <= 48
+          followsStream.current = attached
+          setIsFollowing(attached)
+        }}>
           <div className="flex items-center gap-2 mb-3">
             <Terminal className="h-4 w-4" style={{ color: agent.state === 'processing' ? 'var(--color-signal)' : 'var(--color-muted-foreground)' }} />
             <span className="text-xs font-semibold" style={{ color: 'var(--color-muted-foreground)' }}>
@@ -370,6 +381,12 @@ export function AgentModal({ agent, stream, onClose, t }: AgentModalProps) {
             </div>
           )}
         </div>
+        {!isFollowing && <button type="button" className="self-center mb-3 rounded-full border px-4 py-2 text-xs" style={{ borderColor: 'var(--color-border)', color: 'var(--color-foreground)' }} onClick={() => {
+          followsStream.current = true
+          setIsFollowing(true)
+          const el = streamBodyRef.current
+          if (el) el.scrollTop = el.scrollHeight
+        }}>{t('modal.returnToLatest')}</button>}
       </div>
     </div>
   )

@@ -19,11 +19,7 @@ export function AgentStateBadge({ state }: AgentStateBadgeProps) {
         }}
       >
         <span className="relative flex h-1.5 w-1.5">
-          <span
-            className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
-            style={{ backgroundColor: 'var(--color-signal)' }}
-          />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ backgroundColor: 'var(--color-signal)' }} />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--color-signal)' }} />
         </span>
         {t('table.badges.processing')}
       </span>

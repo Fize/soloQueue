@@ -1025,6 +1025,7 @@ export const translations = {
       loadMore: 'Load more',
     },
     chat: {
+      returnToLatest: "Return to latest",
       title: 'Chat',
       newChat: 'New Chat',
       thinking: 'Thinking...',
@@ -2227,6 +2228,7 @@ export const translations = {
       loadMore: '加载更多',
     },
     chat: {
+      returnToLatest: "返回最新",
       title: '聊天',
       newChat: '新建会话',
       thinking: '思考中...',

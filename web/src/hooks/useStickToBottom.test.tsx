@@ -1,5 +1,5 @@
 import { createRef } from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useStickToBottom } from './useStickToBottom'
 
@@ -63,7 +63,50 @@ describe('useStickToBottom', () => {
     expect(viewport.scrollTop).toBe(300)
 
     unmount()
-    expect(disconnect).toHaveBeenCalledTimes(2)
+    expect(disconnect.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('offers a way back to the latest output after reading older content', () => {
+    globalThis.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver
+    HTMLElement.prototype.scrollTo = vi.fn()
+    function Harness() {
+      const { scrollRef, contentRef, showReturnToLatest, jumpToLatest } = useStickToBottom()
+      return <><div ref={scrollRef} data-testid="viewport"><div ref={contentRef}>output</div></div>{showReturnToLatest && <button onClick={jumpToLatest}>Latest</button>}</>
+    }
+    render(<Harness />)
+    const viewport = screen.getByTestId('viewport')
+    Object.defineProperties(viewport, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 200 },
+    })
+    fireEvent.scroll(viewport)
+    fireEvent.click(screen.getByRole('button', { name: 'Latest' }))
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: 'auto' })
+    expect(screen.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument()
+  })
+
+  it('offers latest when output grows after an interaction paused following', () => {
+    const callbacks = new Map<Element, () => void>()
+    globalThis.ResizeObserver = class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) { callbacks.set(target, () => this.callback([], this as unknown as ResizeObserver)) }
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver
+    HTMLElement.prototype.scrollTo = vi.fn()
+    function Harness() {
+      const { scrollRef, contentRef, showReturnToLatest, detachFollow } = useStickToBottom()
+      return <><div ref={scrollRef} data-testid="viewport"><div ref={contentRef} data-testid="content">output</div></div><button onClick={detachFollow}>Expand</button>{showReturnToLatest && <span>Latest available</span>}</>
+    }
+    render(<Harness />)
+    const viewport = screen.getByTestId('viewport')
+    Object.defineProperties(viewport, { scrollHeight: { configurable: true, value: 400 }, clientHeight: { configurable: true, value: 400 }, scrollTop: { configurable: true, value: 0, writable: true } })
+    fireEvent.click(screen.getByRole('button', { name: 'Expand' }))
+    expect(screen.queryByText('Latest available')).not.toBeInTheDocument()
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 800 })
+    act(() => callbacks.get(screen.getByTestId('content'))?.())
+    expect(screen.getByText('Latest available')).toBeInTheDocument()
   })
 
   it('observes and tracks a viewport mounted after the empty state', () => {

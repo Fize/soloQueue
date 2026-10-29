@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 
 interface UseStickToBottomOptions {
@@ -11,6 +11,7 @@ export function useStickToBottom(options?: UseStickToBottomOptions) {
   const activeScrollRef = useRef(scrollRef)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const isAttachedRef = useRef(true)
+  const [showReturnToLatest, setShowReturnToLatest] = useState(false)
   const viewportHeightRef = useRef(0)
 
   const followOutput = useCallback(() => {
@@ -21,11 +22,17 @@ export function useStickToBottom(options?: UseStickToBottomOptions) {
 
   const resetFollow = useCallback(() => {
     isAttachedRef.current = true
+    setShowReturnToLatest(false)
   }, [])
 
   const detachFollow = useCallback(() => {
     isAttachedRef.current = false
   }, [])
+
+  const jumpToLatest = useCallback(() => {
+    resetFollow()
+    followOutput()
+  }, [followOutput, resetFollow])
 
   const syncFollowState = useCallback(() => {
     const viewport = activeScrollRef.current.current
@@ -39,6 +46,7 @@ export function useStickToBottom(options?: UseStickToBottomOptions) {
       return
     }
     const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+    setShowReturnToLatest(distanceFromBottom > 48)
     if (distanceFromBottom > 48) {
       detachFollow()
     } else {
@@ -52,7 +60,14 @@ export function useStickToBottom(options?: UseStickToBottomOptions) {
     if (!content) return
 
     const observer = new ResizeObserver(() => {
-      followOutput()
+      if (isAttachedRef.current) {
+        followOutput()
+      } else {
+        const viewport = activeScrollRef.current.current
+        if (viewport) {
+          setShowReturnToLatest(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 48)
+        }
+      }
     })
     observer.observe(content)
     resizeObserverRef.current = observer
@@ -99,5 +114,5 @@ export function useStickToBottom(options?: UseStickToBottomOptions) {
     // ref can change while all hook dependencies remain the same.
   })
 
-  return { scrollRef, contentRef, followOutput, resetFollow, detachFollow, syncFollowState }
+  return { scrollRef, contentRef, followOutput, resetFollow, detachFollow, syncFollowState, showReturnToLatest, jumpToLatest }
 }

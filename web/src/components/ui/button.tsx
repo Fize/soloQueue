@@ -4,22 +4,22 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-clip-padding text-sm font-medium whitespace-nowrap transition-all duration-150 cubic-bezier(0, 0, 0, 1) outline-none select-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-clip-padding text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,filter] duration-150 cubic-bezier(0, 0, 0, 1) outline-none select-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          'bg-primary text-primary-foreground shadow-sm hover:shadow-md hover:-translate-y-0.5 active:scale-[0.97]',
+          'bg-primary text-primary-foreground shadow-sm hover:brightness-95 active:brightness-90',
         secondary:
-          'bg-secondary text-secondary-foreground shadow-sm hover:shadow-md hover:-translate-y-0.5 active:scale-[0.97]',
+          'bg-secondary text-secondary-foreground shadow-sm hover:brightness-95 active:brightness-90',
         success:
-          'bg-[var(--success)] text-[var(--success-foreground)] shadow-sm hover:shadow-md hover:-translate-y-0.5 active:scale-[0.97]',
+          'bg-[var(--success)] text-[var(--success-foreground)] shadow-sm hover:brightness-95 active:brightness-90',
         outline:
-          'border-border bg-card text-foreground shadow-sm hover:bg-muted hover:shadow-md hover:-translate-y-0.5 active:scale-[0.97]',
+          'border-border bg-card text-foreground shadow-sm hover:bg-muted hover:brightness-95 active:brightness-90',
         ghost:
-          'border-transparent bg-transparent text-foreground shadow-none hover:bg-muted active:scale-[0.98]',
+          'border-transparent bg-transparent text-foreground shadow-none hover:bg-muted active:brightness-95',
         destructive:
-          'bg-destructive text-destructive-foreground shadow-sm hover:shadow-md hover:-translate-y-0.5 active:scale-[0.97]',
+          'bg-destructive text-destructive-foreground shadow-sm hover:brightness-95 active:brightness-90',
         link: 'border-transparent text-foreground underline-offset-4 hover:underline shadow-none',
       },
       size: {
