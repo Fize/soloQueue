@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cn, getToolCallSummary, pathsMatch } from './utils'
+import { cn, formatToolCallHeader, getToolCallSummary, getToolSource, pathsMatch } from './utils'
 
 describe('cn', () => {
   it('merges class names', () => {
@@ -29,6 +29,50 @@ describe('getToolCallSummary', () => {
 
   it('does not add special handling to other image-like tools', () => {
     expect(getToolCallSummary('LegacyImageTool', '{"images":["source.png"]}')).toBe('')
+  })
+})
+
+describe('getToolSource', () => {
+  it('classifies lsp, mcp, skill and builtin tools', () => {
+    expect(getToolSource('lsp__hover')).toBe('lsp')
+    expect(getToolSource('mcp__playwright__browser_click')).toBe('mcp')
+    expect(getToolSource('Skill')).toBe('skill')
+    expect(getToolSource('Bash')).toBe('builtin')
+  })
+
+  it('does not treat look-alike names as a source prefix', () => {
+    expect(getToolSource('lsp')).toBe('builtin')
+    expect(getToolSource('mcp')).toBe('builtin')
+    expect(getToolSource('skills')).toBe('builtin')
+  })
+})
+
+describe('formatToolCallHeader', () => {
+  it('renders mcp tools as server/tool without emoji', () => {
+    expect(formatToolCallHeader('mcp__playwright__browser_click', '{}')).toBe(
+      'playwright/browser_click'
+    )
+  })
+
+  it('keeps every multi-segment mcp tool name', () => {
+    expect(formatToolCallHeader('mcp__a__b__c', '{}')).toBe('a/b__c')
+  })
+
+  it('renders lsp actions without prefix or emoji', () => {
+    expect(formatToolCallHeader('lsp__hover', '{"file":"/repo/src/utils.ts"}')).toBe(
+      'hover   utils.ts'
+    )
+  })
+
+  it('renders skill calls as summary only', () => {
+    expect(formatToolCallHeader('Skill', '{"skill":"qa-suite"}')).toBe('qa-suite')
+    expect(formatToolCallHeader('Skill', '{"skill":"qa-suite","args":"web"}')).toBe(
+      'qa-suite (web)'
+    )
+  })
+
+  it('leaves builtin tool headers unchanged', () => {
+    expect(formatToolCallHeader('Bash', '{"command":"pnpm test"}')).toBe('Bash   pnpm test')
   })
 })
 

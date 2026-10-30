@@ -52,6 +52,11 @@
   --color-model-minimax:  #0D9488;
   --color-model-kimi:     #D97706;
 
+  /* Tool-source identity colors for tool call cards. Identity only — never encode status. */
+  --color-tool-lsp:   #3B82F6; /* mirrors chart-4 */
+  --color-tool-mcp:   #8B5CF6; /* mirrors chart-5 */
+  --color-tool-skill: #D946EF; /* distinct from --color-warning; identity only */
+
   /* High-contrast chart colors for lines and bars. */
   /* Used by the statistics charts. */
   --color-chart-1: #6366F1;
@@ -149,6 +154,9 @@
   --color-signal: #0E7490;
   --color-signal-foreground: #FFFFFF;
   --color-surface-secondary: #FFFFFF;
+  --color-tool-lsp:   #1D4ED8;
+  --color-tool-mcp:   #6D28D9;
+  --color-tool-skill: #A21CAF;
 
   color-scheme: light;
 }

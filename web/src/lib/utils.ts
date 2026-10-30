@@ -189,27 +189,29 @@ export function getToolCallSummary(name: string, argsStr: string): string {
   return ''
 }
 
-export function formatToolCallHeader(name: string, argsStr: string): string {
-  let displayName = name
-  if (name.startsWith('mcp__')) {
-    const parts = name.split('__')
-    const server = parts[1] || ''
-    const tool = parts[2] || ''
-    displayName = `🔌 [MCP: ${server}] ${tool}`
-  } else if (name.startsWith('lsp__')) {
-    const action = name.replace('lsp__', '')
-    displayName = `🔌 [LSP] ${action}`
-  } else if (name === 'Skill') {
-    displayName = `🛠️ Skill`
-  }
+export type ToolSource = 'builtin' | 'lsp' | 'mcp' | 'skill'
 
+export function getToolSource(name: string): ToolSource {
+  if (name.startsWith('lsp__')) return 'lsp'
+  if (name.startsWith('mcp__')) return 'mcp'
+  if (name === 'Skill') return 'skill'
+  return 'builtin'
+}
+
+export function formatToolCallHeader(name: string, argsStr: string): string {
+  const source = getToolSource(name)
   const summary = getToolCallSummary(name, argsStr)
 
-  if (summary) {
-    return `${displayName}   ${summary}`
-  } else {
-    return displayName
+  if (source === 'skill') return summary
+
+  if (source === 'mcp') {
+    const [server = '', ...tool] = name.split('__').slice(1)
+    const displayName = `${server}/${tool.join('__')}`
+    return summary ? `${displayName}   ${summary}` : displayName
   }
+
+  const displayName = source === 'lsp' ? name.slice('lsp__'.length) : name
+  return summary ? `${displayName}   ${summary}` : displayName
 }
 
 export function getModelColorVar(modelName?: string): string {

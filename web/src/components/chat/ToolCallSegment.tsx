@@ -1,10 +1,37 @@
 import { useState, useMemo } from 'react'
-import { Loader2, AlertCircle, ChevronRight, ChevronDown } from 'lucide-react'
+import {
+  Loader2,
+  AlertCircle,
+  ChevronRight,
+  ChevronDown,
+  Wrench,
+  Braces,
+  Plug,
+  BookOpen,
+  Image,
+} from 'lucide-react'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { getFileUrl } from '@/lib/api'
-import { formatToolCallHeader } from '@/lib/utils'
+import { cn, formatToolCallHeader, getToolSource } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import type { ChatMessage } from '@/types'
+
+const SOURCE_META = {
+  builtin: {
+    icon: Wrench,
+    label: null,
+    iconClass: 'text-muted-foreground/80',
+    railClass: 'bg-transparent',
+  },
+  lsp: { icon: Braces, label: 'LSP', iconClass: 'text-tool-lsp', railClass: 'bg-tool-lsp' },
+  mcp: { icon: Plug, label: 'MCP', iconClass: 'text-tool-mcp', railClass: 'bg-tool-mcp' },
+  skill: {
+    icon: BookOpen,
+    label: 'SKILL',
+    iconClass: 'text-tool-skill',
+    railClass: 'bg-tool-skill',
+  },
+}
 
 export function ToolCallSegment({
   segment,
@@ -21,10 +48,21 @@ export function ToolCallSegment({
   const compact = isDesignMode
   const running = !segment.done
 
+  const source = getToolSource(segment.name)
+  const meta = SOURCE_META[source]
+  const isImageTool = segment.name === 'ImageTool' || segment.name === 'SendFile'
+  const SourceIcon = isImageTool ? Image : meta.icon
+  const railClass = isUser ? 'bg-transparent' : meta.railClass
+  const sourceIconClass = isUser ? 'text-primary-foreground/70' : meta.iconClass
+
   return (
     <div
-      className={`text-xs border rounded-xl overflow-hidden w-full border-border/60 bg-muted/20`}
+      className={`relative text-xs border rounded-xl overflow-hidden w-full border-border/60 bg-muted/20`}
     >
+      <span
+        aria-hidden
+        className={cn('pointer-events-none absolute inset-y-0 left-0 w-0.5', railClass)}
+      />
       <button
         onClick={() => {
           setExpanded(!expanded)
@@ -32,17 +70,25 @@ export function ToolCallSegment({
         }}
         className={`flex items-center gap-2 w-full ${compact ? 'px-2 py-1.5' : 'px-3 py-2'} transition-colors text-muted-foreground hover:text-foreground`}
       >
-        {running ? (
-          <Loader2
-            className={`h-3.5 w-3.5 animate-spin ${isUser ? 'text-primary-foreground' : 'text-signal'}`}
-          />
-        ) : segment.error ? (
-          <AlertCircle className="h-3.5 w-3.5 text-destructive" />
-        ) : (
-          <div className="h-3.5 w-3.5 rounded-full bg-success/20 flex items-center justify-center">
-            <div className="h-1.5 w-1.5 rounded-full bg-success" />
-          </div>
-        )}
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          {running ? (
+            <Loader2
+              className={`size-3.5 animate-spin ${isUser ? 'text-primary-foreground' : 'text-signal'}`}
+            />
+          ) : segment.error ? (
+            <AlertCircle className="size-3.5 text-destructive" />
+          ) : (
+            <span className="size-1.5 rounded-full bg-muted-foreground/50" />
+          )}
+        </span>
+        <span className="inline-flex shrink-0 items-center gap-1.5">
+          <SourceIcon className={cn('size-3 shrink-0', sourceIconClass)} aria-hidden />
+          {meta.label && (
+            <span className="text-[10px] font-semibold uppercase leading-none tracking-[0.08em] text-muted-foreground">
+              {meta.label}
+            </span>
+          )}
+        </span>
         <span className="font-mono text-[11px] text-left truncate flex-1 min-w-0 whitespace-nowrap">
           {formatToolCallHeader(segment.name, segment.args).replace(/\r?\n/g, ' ')}
         </span>
@@ -55,7 +101,10 @@ export function ToolCallSegment({
             </span>
           )}
           <span
-            className={`text-[10px] uppercase tracking-wider text-muted-foreground/40`}
+            className={cn(
+              'text-[10px] uppercase tracking-wider',
+              segment.error ? 'text-destructive/80' : 'text-muted-foreground/40'
+            )}
           >
             {running ? t('common.running') : segment.error ? t('common.failed') : t('common.done')}
           </span>
