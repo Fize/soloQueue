@@ -288,6 +288,19 @@ export function ChatPage() {
   );
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const hasActiveSession = activeSession != null;
+
+  const panelOpen = Boolean((showInspector && activeSession) || designModeActive);
+  // The panel stays mounted while its width animates to 0; the content unmounts
+  // after the 300ms transition so polling panels stop fetching.
+  const [panelContentAlive, setPanelContentAlive] = useState(panelOpen);
+  useEffect(() => {
+    if (panelOpen) {
+      setPanelContentAlive(true);
+      return;
+    }
+    const t = setTimeout(() => setPanelContentAlive(false), 320);
+    return () => clearTimeout(t);
+  }, [panelOpen]);
   const activeGroup = activeSession?.group ?? null;
   const activeProjectPath = activeSession?.project_path ?? null;
   const isL1Session = activeSessionId === "l1";
@@ -921,74 +934,73 @@ export function ChatPage() {
           </div>
 
           {/* Right section: panel header area — aligned to inspector width */}
-          {((showInspector && activeSession) || designModeActive) && (
-            <div
-              className={cn(
-                "shrink-0 flex items-center justify-between h-full border-l border-border/30 bg-card/20 px-3",
-                isResizing ? "transition-none" : "transition-all duration-300"
-              )}
-              style={{ width: isSinglePaneDesign ? undefined : designModeActive ? panelWidth + 4 : panelWidth }}
-            >
-              {designModeActive ? (
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-2">
-                    <Palette className="h-4 w-4 text-signal animate-pulse" />
-                    <span className="text-xs font-bold text-foreground font-mono">DESIGN PREVIEW</span>
-                  </div>
+          <div
+            className={cn(
+              "shrink-0 flex items-center justify-between h-full border-l border-border/30 bg-card/20 px-3 overflow-hidden",
+              isResizing ? "transition-none" : "transition-[width,opacity,border-color] duration-300 ease-out",
+              panelOpen ? "opacity-100 border-border/30" : "opacity-0 border-transparent pointer-events-none",
+            )}
+            style={{ width: isSinglePaneDesign ? undefined : panelOpen ? (designModeActive ? panelWidth + 4 : panelWidth) : 0 }}
+          >
+            {designModeActive ? (
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-signal animate-pulse" />
+                  <span className="text-xs font-bold text-foreground font-mono">DESIGN PREVIEW</span>
                 </div>
-              ) : (
-                <>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => updateInspectorSnapshot({ tab: "files" })}
-                      className={cn(
-                        "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
-                        inspectorTab === "files"
-                          ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:text-foreground hover:bg-foreground/5",
-                      )}
-                    >
-                      <FolderOpen className="h-3.5 w-3.5" />
-                      Files
-                    </button>
-                    <button
-                      onClick={() => updateInspectorSnapshot({ tab: "changes" })}
-                      className={cn(
-                        "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
-                        inspectorTab === "changes"
-                          ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:text-foreground hover:bg-foreground/5",
-                      )}
-                    >
-                      <Layers className="h-3.5 w-3.5" />
-                      Changes
-                    </button>
-                    {activeSession?.plans && activeSession.plans.length > 0 && (
-                      <button
-                        onClick={() => updateInspectorSnapshot({ tab: "plan" })}
-                        className={cn(
-                          "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
-                          inspectorTab === "plan"
-                            ? "bg-primary/10 text-primary"
-                            : "text-muted-foreground hover:text-foreground hover:bg-foreground/5",
-                        )}
-                      >
-                        <FileText className="h-3.5 w-3.5" />
-                        Plan
-                      </button>
-                    )}
-                  </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-1">
                   <button
-                    onClick={() => toggleInspector(false)}
-                    className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
-                    title="Close Panel"
+                    onClick={() => updateInspectorSnapshot({ tab: "files" })}
+                    className={cn(
+                      "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                      inspectorTab === "files"
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground hover:bg-foreground/5",
+                    )}
                   >
-                    <PanelRight className="h-3.5 w-3.5" />
+                    <FolderOpen className="h-3.5 w-3.5" />
+                    Files
                   </button>
-                </>
-              )}
-            </div>
-          )}
+                  <button
+                    onClick={() => updateInspectorSnapshot({ tab: "changes" })}
+                    className={cn(
+                      "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                      inspectorTab === "changes"
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground hover:bg-foreground/5",
+                    )}
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    Changes
+                  </button>
+                  {activeSession?.plans && activeSession.plans.length > 0 && (
+                    <button
+                      onClick={() => updateInspectorSnapshot({ tab: "plan" })}
+                      className={cn(
+                        "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
+                        inspectorTab === "plan"
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:text-foreground hover:bg-foreground/5",
+                      )}
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      Plan
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => toggleInspector(false)}
+                  className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
+                  title="Close Panel"
+                >
+                  <PanelRight className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
+          </div>
         </header>
 
         {/* Outer container for chat content + inspector split layout */}
@@ -1141,63 +1153,60 @@ export function ChatPage() {
           </div>
 
           {/* Right Inspector panel or Design Preview */}
-          {((showInspector && activeSession) || designModeActive) && (
-            <>
-              {/* Resize handle */}
-              {!designModeActive && (
-                <div
-                  onMouseDown={handleResizeStart}
-                  className={cn(
-                    "w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors",
-                    isResizing && "bg-primary/40",
-                  )}
-                />
+          {/* Resize handle */}
+          {!designModeActive && panelOpen && (
+            <div
+              onMouseDown={handleResizeStart}
+              className={cn(
+                "w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors",
+                isResizing && "bg-primary/40",
               )}
-              <div
-                className={cn(
-                  "h-full overflow-hidden bg-card/5 flex flex-col shrink-0 relative",
-                  isSinglePaneDesign ? "w-full flex-1 min-h-0 border-t" : "border-l",
-                  isResizing ? "transition-none" : "transition-all duration-300",
-                )}
-                style={{ width: isSinglePaneDesign ? undefined : designModeActive ? panelWidth + 4 : panelWidth }}
-              >
-                {designModeActive && !isSinglePaneDesign && (
-                  <div
-                    onMouseDown={handleResizeStart}
-                    className={cn(
-                      "absolute left-0 top-0 w-1 h-full cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors z-50",
-                      isResizing && "bg-primary/40",
-                    )}
-                  />
-                )}
-                {/* Panel content */}
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  {designModeActive ? (
-                    <ChatDesignPanel
-                      isDesignMode={designModeActive}
-                      onDesignModeToggle={(enabled) => setDesignMode(enabled)}
-                      panelWidth={panelWidth}
-                      onResizeStart={isSinglePaneDesign ? undefined : handleResizeStart}
-                      isResizing={isResizing}
-                      selectedProjectPath={selectedProjectPath}
-                      selectedGroup={selectedGroup}
-                      onSelectedTargetChange={setDesignSelectedTarget}
-                      onDesignContextChange={(ctx) => { designContextRef.current = ctx; }}
-                    />
-                  ) : (
-                    <SessionInspectorPanel
-                      activeSession={activeSession}
-                      inspectorTab={inspectorTab}
-                      panelWidth={panelWidth}
-                      projectPathFallback={selectedProjectPath || undefined}
-                      selectedPlan={inspectorSnapshot.selectedPlan}
-                      onSelectedPlanChange={(path) => updateInspectorSnapshot({ selectedPlan: path })}
-                    />
-                  )}
-                </div>
-              </div>
-            </>
+            />
           )}
+          <div
+            className={cn(
+              "h-full overflow-hidden bg-card/5 flex flex-col shrink-0 relative",
+              isSinglePaneDesign ? "w-full flex-1 min-h-0 border-t" : "border-l",
+              isResizing ? "transition-none" : "transition-[width,opacity,border-color] duration-300 ease-out",
+              panelOpen ? "opacity-100" : "opacity-0 border-transparent pointer-events-none",
+            )}
+            style={{ width: isSinglePaneDesign ? undefined : panelOpen ? (designModeActive ? panelWidth + 4 : panelWidth) : 0 }}
+          >
+            {designModeActive && !isSinglePaneDesign && (
+              <div
+                onMouseDown={handleResizeStart}
+                className={cn(
+                  "absolute left-0 top-0 w-1 h-full cursor-col-resize hover:bg-primary/40 active:bg-primary/40 transition-colors z-50",
+                  isResizing && "bg-primary/40",
+                )}
+              />
+            )}
+            {/* Panel content */}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {panelContentAlive && (designModeActive ? (
+                <ChatDesignPanel
+                  isDesignMode={designModeActive}
+                  onDesignModeToggle={(enabled) => setDesignMode(enabled)}
+                  panelWidth={panelWidth}
+                  onResizeStart={isSinglePaneDesign ? undefined : handleResizeStart}
+                  isResizing={isResizing}
+                  selectedProjectPath={selectedProjectPath}
+                  selectedGroup={selectedGroup}
+                  onSelectedTargetChange={setDesignSelectedTarget}
+                  onDesignContextChange={(ctx) => { designContextRef.current = ctx; }}
+                />
+              ) : (
+                <SessionInspectorPanel
+                  activeSession={activeSession}
+                  inspectorTab={inspectorTab}
+                  panelWidth={panelWidth}
+                  projectPathFallback={selectedProjectPath || undefined}
+                  selectedPlan={inspectorSnapshot.selectedPlan}
+                  onSelectedPlanChange={(path) => updateInspectorSnapshot({ selectedPlan: path })}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

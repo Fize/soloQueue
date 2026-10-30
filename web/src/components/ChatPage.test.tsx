@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
 import { useInspectorStateStore } from "@/stores/inspectorStateStore";
@@ -275,7 +275,12 @@ describe("ChatPage", () => {
 
     routeSessionId = 'channel-other';
     chatStoreState.activeSessionId = 'channel-other';
+    vi.useFakeTimers();
     view.rerender(<ChatPage />);
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    vi.useRealTimers();
     expect(screen.queryByTestId('inspector-panel')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle('Show Task Status Panel'));
