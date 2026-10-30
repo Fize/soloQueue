@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -58,11 +57,19 @@ type incoming struct {
 	Text    struct {
 		Content string `json:"content"`
 	} `json:"text"`
+	Image mediaImage `json:"image"`
+	Voice struct {
+		Content string `json:"content"`
+	} `json:"voice"`
+	Mixed struct {
+		Items []mixedItem `json:"msg_item"`
+	} `json:"mixed"`
 	Event struct {
 		Type string `json:"eventtype"`
 	} `json:"event"`
 }
 type connectionKey struct{}
+type downloadContextKey struct{}
 
 type response struct {
 	mu                sync.Mutex
@@ -247,7 +254,7 @@ func (c *Client) connect(ctx context.Context) error {
 			continue
 		}
 		if frame.Cmd == "aibot_msg_callback" {
-			c.dispatch(ctx, conn, frame)
+			c.dispatch(context.WithValue(ctx, downloadContextKey{}, connectionCtx), conn, frame)
 			continue
 		}
 		c.mu.Lock()
@@ -271,44 +278,48 @@ func (c *Client) write(conn *websocket.Conn, frame Frame) error {
 	return nil
 }
 func (c *Client) request(ctx context.Context, conn *websocket.Conn, cmd, reqID string, body any) error {
+	_, err := c.requestFrame(ctx, conn, cmd, reqID, body)
+	return err
+}
+func (c *Client) requestFrame(ctx context.Context, conn *websocket.Conn, cmd, reqID string, body any) (Frame, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return Frame{}, err
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return Frame{}, err
 	}
 	pending := make(chan Frame, 1)
 	c.mu.Lock()
 	if conn == nil || c.conn != conn || !c.status.Connected {
 		c.mu.Unlock()
-		return ErrClosed
+		return Frame{}, ErrClosed
 	}
 	if c.pending[reqID] != nil {
 		c.mu.Unlock()
-		return errors.New("wecom reply already awaiting acknowledgement")
+		return Frame{}, errors.New("wecom reply already awaiting acknowledgement")
 	}
 	c.pending[reqID] = pending
 	c.mu.Unlock()
 	defer func() { c.mu.Lock(); delete(c.pending, reqID); c.mu.Unlock() }()
 	if err := c.write(conn, Frame{Cmd: cmd, Headers: Headers{reqID}, Body: payload}); err != nil {
-		return err
+		return Frame{}, err
 	}
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	select {
 	case ack := <-pending:
 		if ack.ErrCode == nil {
-			return errors.New("wecom invalid acknowledgement")
+			return Frame{}, errors.New("wecom invalid acknowledgement")
 		}
 		if *ack.ErrCode != 0 {
-			return fmt.Errorf("wecom request rejected (code %d)", *ack.ErrCode)
+			return Frame{}, fmt.Errorf("wecom request rejected (code %d)", *ack.ErrCode)
 		}
-		return nil
+		return ack, nil
 	case <-ctx.Done():
-		return fmt.Errorf("wecom send interrupted; delivery is unknown: %w", ctx.Err())
+		return Frame{}, fmt.Errorf("wecom send interrupted; delivery is unknown: %w", ctx.Err())
 	case <-timer.C:
-		return errors.New("wecom acknowledgement timeout; delivery is unknown")
+		return Frame{}, errors.New("wecom acknowledgement timeout; delivery is unknown")
 	}
 }
 func (c *Client) allowed(user string) bool {
@@ -371,16 +382,23 @@ func (c *Client) dispatch(ctx context.Context, conn *websocket.Conn, frame Frame
 		defer func() { <-c.slots }()
 		ctx = context.WithValue(ctx, connectionKey{}, conn)
 		ctx = channel.ContextWithChatMeta(ctx, channel.ChatMeta{Channel: "wecom", AccountID: c.cfg.AccountID, ConversationID: destination, UserID: in.From.UserID})
-		if in.MsgType != "text" {
+		if in.MsgType != "text" && in.MsgType != "image" && in.MsgType != "mixed" && in.MsgType != "voice" {
 			if c.BeginResponse(ctx, msg) == nil {
-				_ = c.SendText(ctx, msg, "This channel currently supports text messages only.")
+				_ = c.SendText(ctx, msg, "This message type is not supported. Send text, images, or voice.")
 				_ = c.FinishResponse(ctx, msg, "")
 			}
 			return
 		}
-		if strings.TrimSpace(msg.Text) == "" {
+		normalized, err := c.normalize(ctx, msg, in)
+		if err != nil {
+			if c.BeginResponse(ctx, msg) == nil {
+				_ = c.SendText(ctx, msg, "Unable to read message media. Please resend it.")
+				_ = c.FinishResponse(ctx, msg, "")
+			}
 			return
 		}
+		msg = normalized
+
 		if c.handler != nil {
 			c.handler.OnMessage(ctx, msg)
 		}

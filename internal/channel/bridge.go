@@ -187,6 +187,9 @@ func (b *TextBridge) OnMessage(ctx context.Context, msg Message) {
 				}
 			} else if err := mediaSender.SendMedia(ctx, msg, result.MediaList); err != nil {
 				b.log.WarnContext(ctx, logger.CatApp, "channel media reply failed", "channel", msg.Channel, "err", err.Error())
+				if msg.Channel == "wecom" {
+					b.send(ctx, msg, "Media could not be sent: "+UserFacingError(err)+". Open the Web Console to view generated files.")
+				}
 			}
 		}
 		if strings.TrimSpace(result.Content) != "" {

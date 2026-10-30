@@ -248,7 +248,7 @@ func TestUnsupportedMediaAndWhitelist(t *testing.T) {
 		}
 		_ = conn.WriteJSON(Frame{Headers: auth.Headers, ErrCode: intPtr(0)})
 		for _, user := range []string{"denied", "allowed"} {
-			body, _ := json.Marshal(map[string]any{"msgid": user, "aibotid": "bot", "chattype": "single", "from": map[string]string{"userid": user}, "msgtype": "image"})
+			body, _ := json.Marshal(map[string]any{"msgid": user, "aibotid": "bot", "chattype": "single", "from": map[string]string{"userid": user}, "msgtype": "video"})
 			_ = conn.WriteJSON(Frame{Cmd: "aibot_msg_callback", Headers: Headers{user}, Body: body})
 		}
 		for {
@@ -283,7 +283,7 @@ func TestUnsupportedMediaAndWhitelist(t *testing.T) {
 			}
 			_ = json.Unmarshal(frame.Body, &body)
 			if body.Stream.Finish {
-				if !strings.Contains(body.Stream.Content, "text messages only") {
+				if !strings.Contains(body.Stream.Content, "not supported") {
 					t.Fatal("media response missing")
 				}
 				select {
