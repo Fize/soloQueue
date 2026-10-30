@@ -33,9 +33,9 @@ jobs:
           go-version-file: go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '24'
+          node-version: '26'
       - name: Install pnpm
-        run: npm install --global pnpm@11.13.1
+        run: npm install --global pnpm@12.16.1
       - name: Test release decisions
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
       - name: Test and build both embedded browser UIs
