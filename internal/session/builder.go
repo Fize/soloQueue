@@ -1093,6 +1093,11 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		timeline.ReplayInto(cw, segments)
 	}
 	cw.SetReplayMode(false)
+	// Persist the initial input once. Replayed history (including a summary)
+	// already owns the conversation context and must not receive another copy.
+	if err == nil && cw.Len() == 1 && childAgent.Def.ProjectInstructions != "" {
+		cw.Push(ctxwin.RoleUser, childAgent.Def.ProjectInstructions)
+	}
 
 	// Build the Session.
 	sessLogger := sessLog.Child()
@@ -1301,6 +1306,9 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	}
 	cw.SetReplayMode(false)
 
+	if childAgent.Def.ProjectInstructions != "" {
+		cw.Push(ctxwin.RoleUser, childAgent.Def.ProjectInstructions)
+	}
 	// Build the Session — no idle reaper, no router, no level file, no supervisor
 	// registration, no memory hooks. Cron sessions are short-lived.
 	sessLogger := sessLog.Child()

@@ -559,22 +559,18 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		finalPrompt = buildL3SystemPrompt(tmpl, groups, planDir, effectiveWorkDir, exploreDir)
 	}
 
-	// Inject project instructions (AGENTS.md / CLAUDE.md) into system prompt
-	if projRes.projectPrompt != "" {
-		finalPrompt = finalPrompt + projRes.projectPrompt
-	}
-
 	// 2. Construct the Definition
 	def := Definition{
-		ID:              tmpl.ID,
-		Name:            tmpl.Name,
-		Role:            RoleUser,
-		Kind:            KindCustom,
-		ModelID:         defaultModelID,
-		SystemPrompt:    finalPrompt,
-		ReasoningEffort: "", // populated below if resolver is set
-		Channels:        tmpl.Channels,
-		NotifyChannel:   tmpl.NotifyChannel,
+		ID:                  tmpl.ID,
+		Name:                tmpl.Name,
+		Role:                RoleUser,
+		Kind:                KindCustom,
+		ModelID:             defaultModelID,
+		SystemPrompt:        finalPrompt,
+		ProjectInstructions: projRes.projectPrompt,
+		ReasoningEffort:     "", // populated below if resolver is set
+		Channels:            tmpl.Channels,
+		NotifyChannel:       tmpl.NotifyChannel,
 	}
 
 	if tmpl.ModelID != "" && f.log != nil {
@@ -884,6 +880,9 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 	if a.Def.SystemPrompt != "" {
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
 	}
+	if a.Def.ProjectInstructions != "" {
+		cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions)
+	}
 
 	// 8. Register to registry
 	if err := f.registry.Register(a); err != nil {
@@ -914,9 +913,13 @@ type projectResources struct {
 //   - .claude/agents/*.md   → project-level agent definitions
 //   - .claude/skills/*/SKILL.md → project-level skills
 //   - .claude/mcp.json      → project-level MCP server config
-//   - AGENTS.md / CLAUDE.md → project instructions for system prompt
+//   - AGENTS.md / CLAUDE.md → initial project instructions as user input
 func (f *DefaultFactory) loadProjectResources(projectDir string) projectResources {
 	var res projectResources
+	if f.isTemporaryWorkspace(projectDir) {
+		// Scratch files are task data, not implicit project configuration.
+		return res
+	}
 
 	// 1. AGENTS.md or CLAUDE.md (project root)
 	agentsMDPath := filepath.Join(projectDir, "AGENTS.md")
@@ -964,6 +967,27 @@ func (f *DefaultFactory) loadProjectResources(projectDir string) projectResource
 	}
 
 	return res
+}
+
+func (f *DefaultFactory) isTemporaryWorkspace(dir string) bool {
+	if f.workDir == "" {
+		return false
+	}
+	within := func(root, path string) bool {
+		rel, err := filepath.Rel(root, path)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	root := filepath.Join(f.workDir, "workspace")
+	if within(root, dir) {
+		return true
+	}
+	// Delegated paths may use a symlink or the platform's canonical spelling.
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	return err == nil && within(resolvedRoot, resolvedDir)
 }
 
 // ─── Template loading ──────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ import (
 	sqlitedb "github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	memoryengine "github.com/xiaobaitu/soloqueue/internal/memory/engine"
 	"github.com/xiaobaitu/soloqueue/internal/prompt"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
@@ -1448,6 +1449,123 @@ func TestBuildL3SystemPrompt_NoPermanentMemory(t *testing.T) {
 
 // ─── loadProjectResources tests ──────────────────────────────────────
 
+func TestLoadProjectResources_TemporaryWorkspaceIsNotAProject(t *testing.T) {
+	workDir := t.TempDir()
+	f := &DefaultFactory{workDir: workDir}
+	for _, tc := range []struct {
+		name string
+		dir  string
+		load bool
+	}{
+		{"workspace root", filepath.Join(workDir, "workspace"), false},
+		{"team workspace", filepath.Join(workDir, "workspace", "engineering"), false},
+		{"nested workspace", filepath.Join(workDir, "workspace", "engineering", "scratch"), false},
+		{"similar prefix project", filepath.Join(workDir, "workspace-project"), true},
+		{"explicit project", t.TempDir(), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := map[string]string{
+				"AGENTS.md":                     "Temporary workspace instructions must not be injected.",
+				"CLAUDE.md":                     "Temporary workspace fallback must not be injected.",
+				".claude/agents/worker.md":      "---\nname: local-worker\ndescription: Local worker\n---\nLocal worker instructions.",
+				".claude/skills/local/SKILL.md": "---\nname: local\ndescription: Local skill\n---\nLocal skill instructions.",
+				".claude/mcp.json":              `{"mcpServers":{"local":{"command":"local-command","enabled":true}}}`,
+			}
+			for name, content := range files {
+				path := filepath.Join(tc.dir, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			res := f.loadProjectResources(tc.dir)
+			if tc.load {
+				if res.projectPrompt == "" || len(res.agents) != 1 || len(res.skills) != 1 || res.mcpCfg == nil {
+					t.Fatal("explicit project must retain its project resources")
+				}
+			} else if res.projectPrompt != "" || len(res.agents) != 0 || len(res.skills) != 0 || res.mcpCfg != nil {
+				t.Fatal("temporary workspace must not automatically load any project resources")
+			}
+		})
+	}
+	t.Run("workspace alias", func(t *testing.T) {
+		alias := filepath.Join(t.TempDir(), "scratch-alias")
+		if err := os.Symlink(filepath.Join(workDir, "workspace"), alias); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		res := f.loadProjectResources(alias)
+		if res.projectPrompt != "" || len(res.agents) != 0 || len(res.skills) != 0 || res.mcpCfg != nil {
+			t.Fatal("workspace alias must not automatically load project resources")
+		}
+	})
+}
+
+func TestDefaultFactory_ProjectInstructionsStartAsUserInput(t *testing.T) {
+	projectDir := t.TempDir()
+	const rules = "Project-specific rule: preserve the public API."
+	if err := os.WriteFile(filepath.Join(projectDir, "AGENTS.md"), []byte(rules), 0644); err != nil {
+		t.Fatal(err)
+	}
+	factory := NewDefaultFactory(NewRegistry(nil), &agenttest.FakeLLM{}, tools.Config{}, nil)
+	a, cw, err := factory.Create(t.Context(), AgentTemplate{ID: "project-agent", IsLeader: true}, projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	if strings.Contains(a.Def.SystemPrompt, rules) {
+		t.Fatal("project instructions must not be part of the system prompt")
+	}
+	if cw.Len() != 2 {
+		t.Fatalf("context has %d messages, want system and initial user input", cw.Len())
+	}
+	initial, _ := cw.MessageAt(1)
+	if initial.Role != ctxwin.RoleUser || !strings.Contains(initial.Content, rules) {
+		t.Fatalf("initial project input = %+v", initial)
+	}
+	cw.Push(ctxwin.RoleUser, "first task")
+	cw.Push(ctxwin.RoleAssistant, "done")
+	cw.Push(ctxwin.RoleUser, "follow-up")
+	count := 0
+	for i := 0; i < cw.Len(); i++ {
+		msg, _ := cw.MessageAt(i)
+		if strings.Contains(msg.Content, rules) {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("project instructions appear %d times, want once", count)
+	}
+}
+
+func TestDefaultFactory_ProjectInstructionsReachIsolatedWorkerAsUserInput(t *testing.T) {
+	projectDir := t.TempDir()
+	const rules = "Worker rule: use the project test command."
+	if err := os.WriteFile(filepath.Join(projectDir, "AGENTS.md"), []byte(rules), 0644); err != nil {
+		t.Fatal(err)
+	}
+	requests := make(chan llmtypes.LLMRequest, 2)
+	fake := &agenttest.FakeLLM{Responses: []string{"done"}, Hook: func(req llmtypes.LLMRequest) { requests <- req }}
+	factory := NewDefaultFactory(NewRegistry(nil), fake, tools.Config{}, nil)
+	a, _, err := factory.Create(t.Context(), AgentTemplate{ID: "worker"}, projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	for _, task := range []string{"first task", "independent task"} {
+		if _, err := a.Ask(t.Context(), task); err != nil {
+			t.Fatal(err)
+		}
+		req := <-requests
+		if len(req.Messages) != 3 || req.Messages[0].Role != "system" || strings.Contains(req.Messages[0].Content, rules) ||
+			req.Messages[1].Role != "user" || !strings.Contains(req.Messages[1].Content, rules) ||
+			req.Messages[2].Role != "user" || req.Messages[2].Content != task {
+			t.Fatalf("isolated worker must receive system, project user input, task: %+v", req.Messages)
+		}
+	}
+}
+
 func TestLoadProjectResources_AGENTSMD(t *testing.T) {
 	projectDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(projectDir, "AGENTS.md"), []byte("# Project Rules\nAlways write tests."), 0644); err != nil {
@@ -1892,6 +2010,14 @@ description: Project deploy skill
 
 func TestDefaultFactory_Create_WorkDirFallbackGroupWorkspace(t *testing.T) {
 	globalWorkDir := t.TempDir()
+	expectedWorkspaceDir := filepath.Join(globalWorkDir, "workspace", "DevOps")
+	if err := os.MkdirAll(expectedWorkspaceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	const scratchRules = "Do not auto-load these temporary workspace instructions."
+	if err := os.WriteFile(filepath.Join(expectedWorkspaceDir, "AGENTS.md"), []byte(scratchRules), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	log, err := logger.System(globalWorkDir, logger.WithConsole(false))
 	if err != nil {
@@ -1913,13 +2039,15 @@ func TestDefaultFactory_Create_WorkDirFallbackGroupWorkspace(t *testing.T) {
 		SystemPrompt: "You are dev.",
 		Group:        "DevOps",
 	}
-	ag1, _, err := factory.Create(context.Background(), tmplWithGroup, "")
+	ag1, cw1, err := factory.Create(context.Background(), tmplWithGroup, "")
 	if err != nil {
 		t.Fatalf("factory.Create case 1: %v", err)
 	}
 	defer ag1.Stop(time.Second)
 
-	expectedWorkspaceDir := filepath.Join(globalWorkDir, "workspace", "DevOps")
+	if ag1.Def.ProjectInstructions != "" || cw1.Len() != 1 {
+		t.Fatal("default workspace must not seed project user input")
+	}
 	if ag1.WorkDir != expectedWorkspaceDir {
 		t.Errorf("ag1.WorkDir = %q, want %q", ag1.WorkDir, expectedWorkspaceDir)
 	}
@@ -1936,6 +2064,18 @@ func TestDefaultFactory_Create_WorkDirFallbackGroupWorkspace(t *testing.T) {
 
 	if ag2.WorkDir != expectedWorkspaceDir {
 		t.Errorf("ag2.WorkDir = %q, want %q", ag2.WorkDir, expectedWorkspaceDir)
+	}
+	if ag2.Def.ProjectInstructions != "" {
+		t.Fatal("global work directory fallback must not load scratch instructions")
+	}
+	// A child inherits the parent's resolved workspace as an explicit path.
+	child, childCW, err := factory.Create(t.Context(), AgentTemplate{ID: "child", Group: "DevOps"}, ag1.WorkDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer child.Stop(time.Second)
+	if child.Def.ProjectInstructions != "" || childCW.Len() != 1 {
+		t.Fatal("inherited workspace must not seed project user input")
 	}
 
 	// Case 3: tmpl has no Group, workDir passed to Create is empty

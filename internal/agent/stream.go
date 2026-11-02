@@ -519,6 +519,11 @@ func msgTokens(tok *ctxwin.Tokenizer, msg LLMMessage) int {
 func (s *simpleStrategy) buildMessages(_ context.Context, a *Agent, iter int) ([]LLMMessage, []string, error) {
 	if iter == 0 {
 		s.msgs = buildMessages(s.systemPrompt, s.prompt)
+		if a.Def.ProjectInstructions != "" {
+			// Each history-free Ask starts a new conversation, including worker tasks.
+			task := s.msgs[len(s.msgs)-1]
+			s.msgs = append(s.msgs[:len(s.msgs)-1], LLMMessage{Role: "user", Content: a.Def.ProjectInstructions}, task)
+		}
 		s.totalTokens = 0
 		for _, msg := range s.msgs {
 			s.totalTokens += msgTokens(s.tok, msg)

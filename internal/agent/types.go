@@ -30,6 +30,9 @@ type Definition struct {
 	Temperature  float64
 	MaxTokens    int
 
+	// ProjectInstructions seed a conversation as user input, never system authority.
+	ProjectInstructions string
+
 	// ReasoningEffort: "high" | "max" | "" (not sent)
 	ReasoningEffort string
 

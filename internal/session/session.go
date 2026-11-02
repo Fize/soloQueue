@@ -1715,7 +1715,8 @@ func (s *Session) runPersonaReflection(ctx context.Context, raw string) <-chan s
 
 // Clear performs a soft clear: appends /clear control event to timeline, resets ContextWindow
 //
-// Does not delete any persistent data. ContextWindow only retains the system prompt.
+// Does not delete persistent data. The new conversation starts with the system
+// prompt and initial project user input.
 func (s *Session) Clear() error {
 	s.mu.Lock()
 
@@ -1748,6 +1749,9 @@ func (s *Session) Clear() error {
 
 	// Reset ContextWindow (retaining system prompt)
 	s.cw.Reset()
+	if a := s.CurrentAgent(); a != nil && a.Def.ProjectInstructions != "" {
+		s.cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions)
+	}
 	s.mu.Unlock()
 
 	// Trigger persona reflection on the cleared conversation (L1-only).
@@ -1962,6 +1966,12 @@ func (s *Session) ClearSilent() error {
 
 	// Reset context window (preserves system prompt)
 	s.cw.Reset()
+	if a := s.CurrentAgent(); a != nil && a.Def.ProjectInstructions != "" {
+		// Silent clear must not append another initial input to durable history.
+		s.cw.SetReplayMode(true)
+		s.cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions)
+		s.cw.SetReplayMode(false)
+	}
 	s.mu.Unlock()
 
 	// Call memory hook for each date group (outside lock)
