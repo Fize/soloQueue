@@ -1,4 +1,7 @@
-.PHONY: help build build-web build-status build-assets build-go start web clean
+.PHONY: help build build-web build-status build-assets build-go start web clean docker-build
+
+
+IMAGE ?= soloqueue:local
 
 
 help: ## Show this help
@@ -25,6 +28,10 @@ start: build ## Build and start backend + both browser UIs on one port
 
 web: build-web ## Build and start standalone Web Console
 	./soloqueue web
+
+docker-build: ## Build the container image for the host architecture
+	docker build -f deploy/docker/Dockerfile -t $(IMAGE) .
+
 
 clean: ## Remove generated binaries and embedded frontend bundles
 	rm -rf soloqueue soloqueue.exe soloqueue-embedding soloqueue-embedding.exe soloqueue-decide soloqueue-decide.exe web/dist status-ui/dist internal/assets/dist/web internal/assets/dist/status
