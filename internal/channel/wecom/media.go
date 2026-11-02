@@ -78,7 +78,14 @@ func downloadMedia(ctx context.Context, rawURL string) ([]byte, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, errors.New("media download failed")
+		// HTTP errors can contain signed URLs. Keep only safe transport diagnostics.
+		cause := err
+		for errors.Unwrap(cause) != nil {
+			cause = errors.Unwrap(cause)
+		}
+		var networkErr net.Error
+		return nil, fmt.Errorf("media download failed (cause=%T, timeout=%t, canceled=%t)",
+			cause, errors.As(err, &networkErr) && networkErr.Timeout(), errors.Is(err, context.Canceled))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -86,7 +93,7 @@ func downloadMedia(ctx context.Context, rawURL string) ([]byte, error) {
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxMediaBytes+65))
 	if err != nil {
-		return nil, errors.New("media read failed")
+		return nil, fmt.Errorf("media read failed (cause=%T)", err)
 	}
 	if len(data) > maxMediaBytes+64 {
 		return nil, errors.New("media too large")
@@ -95,6 +102,10 @@ func downloadMedia(ctx context.Context, rawURL string) ([]byte, error) {
 }
 func decryptImage(data []byte, encodedKey string) ([]byte, error) {
 	key, err := base64.StdEncoding.DecodeString(encodedKey)
+	if err != nil {
+		// WeCom also sends AES keys without the trailing Base64 padding.
+		key, err = base64.RawStdEncoding.DecodeString(encodedKey)
+	}
 	if err != nil || len(key) != 32 {
 		return nil, errors.New("invalid media key")
 	}
@@ -119,7 +130,12 @@ func decryptImage(data []byte, encodedKey string) ([]byte, error) {
 	return plain[:len(plain)-n], nil
 }
 func (c *Client) normalize(ctx context.Context, msg channel.Message, in incoming) (channel.Message, error) {
+	return c.normalizeWithDownloader(ctx, msg, in, downloadMedia)
+}
+
+func (c *Client) normalizeWithDownloader(ctx context.Context, msg channel.Message, in incoming, download func(context.Context, string) ([]byte, error)) (channel.Message, error) {
 	add := func(image mediaImage) error {
+		index := len(msg.Attachments) + 1
 		if len(msg.Attachments) >= 10 {
 			return errors.New("too many images")
 		}
@@ -127,17 +143,18 @@ func (c *Client) normalize(ctx context.Context, msg channel.Message, in incoming
 		if scoped, ok := ctx.Value(downloadContextKey{}).(context.Context); ok {
 			downloadCtx = scoped
 		}
-		data, err := downloadMedia(downloadCtx, image.URL)
+		data, err := download(downloadCtx, image.URL)
 		if err != nil {
-			return err
+			return fmt.Errorf("image %d download: %w", index, err)
 		}
+		cipherBytes := len(data)
 		data, err = decryptImage(data, image.AESKey)
 		if err != nil {
-			return err
+			return fmt.Errorf("image %d decrypt (cipher_bytes=%d, encoded_key_length=%d): %w", index, cipherBytes, len(image.AESKey), err)
 		}
 		mime := http.DetectContentType(data)
 		if !strings.HasPrefix(mime, "image/") || len(data) > maxMediaBytes {
-			return errors.New("invalid image")
+			return fmt.Errorf("image %d validate (mime=%s, plain_bytes=%d): invalid image", index, mime, len(data))
 		}
 		ext := ".jpg"
 		if mime == "image/png" {

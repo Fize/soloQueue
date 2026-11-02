@@ -391,6 +391,11 @@ func (c *Client) dispatch(ctx context.Context, conn *websocket.Conn, frame Frame
 		}
 		normalized, err := c.normalize(ctx, msg, in)
 		if err != nil {
+			if c.log != nil {
+				c.log.WarnContext(ctx, logger.CatApp, "wecom message media normalization failed",
+					"account_id", c.cfg.AccountID, "message_id", in.MsgID,
+					"message_type", in.MsgType, "err", err.Error())
+			}
 			if c.BeginResponse(ctx, msg) == nil {
 				_ = c.SendText(ctx, msg, "Unable to read message media. Please resend it.")
 				_ = c.FinishResponse(ctx, msg, "")
