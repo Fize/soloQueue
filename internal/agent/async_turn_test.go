@@ -16,9 +16,11 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
 	"github.com/xiaobaitu/soloqueue/internal/agenttools/tools"
+	"github.com/xiaobaitu/soloqueue/internal/dispatch"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
 
 // mockAsyncTool implements AsyncTool for testing.
@@ -2411,5 +2413,149 @@ func TestQueuedInputCanCompleteAsyncDelegation(t *testing.T) {
 	}
 	if !started || !completed {
 		t.Fatalf("delegation started=%v completed=%v", started, completed)
+	}
+}
+
+// recoveryTestLLM provides a distinct response for the parent continuation.
+type recoveryTestLLM struct {
+	LLMClient
+	recovery LLMClient
+	calls    atomic.Int32
+}
+
+func (f *recoveryTestLLM) ChatStream(ctx context.Context, req LLMRequest) (<-chan llm.Event, error) {
+	if f.calls.Add(1) == 1 {
+		return f.LLMClient.ChatStream(ctx, req)
+	}
+	return f.recovery.ChatStream(ctx, req)
+}
+
+type delegationTestClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *delegationTestClock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.now }
+func (c *delegationTestClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+func TestAsyncDelegationWatchdogFailureReturnsToParent(t *testing.T) {
+	for _, parentFails := range []bool{false, true} {
+		t.Run(fmt.Sprintf("parent_failure_%v", parentFails), func(t *testing.T) {
+			clock := &delegationTestClock{now: time.Unix(1700000000, 0)}
+			watch := runwatch.NewManager(runwatch.DefaultPolicy(), runwatch.WithClock(clock))
+			defer watch.Close()
+			base, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			ctx, root, err := watch.Start(base, runwatch.Metadata{RunID: "root"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Complete()
+			manager, err := dispatch.NewManager(t.TempDir(), "recovery")
+			if err != nil {
+				t.Fatal(err)
+			}
+			terminals := make(chan dispatch.Record, 2)
+			ctx = dispatch.WithScope(iface.ContextWithWorkDir(ctx, t.TempDir()), dispatch.Scope{Manager: manager, OnTerminal: func(r dispatch.Record) { terminals <- r }})
+			childStarted := make(chan struct{}, 1)
+			child := startedAgent(t, &agenttest.FakeLLM{Delay: time.Hour, Hook: func(LLMRequest) { childStarted <- struct{}{} }})
+			resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+				return &LocatableAdapter{Agent: child}, false, nil
+			}
+			delegate := tools.NewDelegateTool("L1", 0, resolver, nil, nil, tools.WorkDirExplicitOrInherited, tools.WithAlwaysAsyncDelegation())
+			recoveredRequest := make(chan LLMRequest, 1)
+			recoveryErr := errors.New("L1 recovery unavailable")
+			recovery := &agenttest.FakeLLM{Responses: []string{"handled child failure"}, Hook: func(req LLMRequest) { recoveredRequest <- req }}
+			if parentFails {
+				recovery.Err = recoveryErr
+			}
+			parent := startedAgent(t, &recoveryTestLLM{LLMClient: &agenttest.FakeLLM{ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{Index: 0, ID: "delegate-fail", Name: "delegate", Arguments: `{"target":"child","task_name":"test","task":"test"}`}}}}, recovery: recovery}, WithPriorityMailbox(), WithTools(delegate))
+			cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+			events, err := parent.AskStreamWithHistory(ctx, cw, "delegate")
+			if err != nil {
+				t.Fatal(err)
+			}
+			collected := make(chan []AgentEvent, 1)
+			go func() {
+				var all []AgentEvent
+				for ev := range events {
+					all = append(all, ev)
+				}
+				collected <- all
+			}()
+			select {
+			case <-childStarted:
+			case <-base.Done():
+				t.Fatal("child did not start")
+			}
+			clock.Advance(3 * time.Minute)
+			watch.Scan()
+			if ctx.Err() != nil {
+				t.Fatalf("child timeout cancelled L1: %v", context.Cause(ctx))
+			}
+			var all []AgentEvent
+			select {
+			case all = <-collected:
+			case <-base.Done():
+				t.Fatal("L1 did not finish recovery")
+			}
+			select {
+			case req := <-recoveredRequest:
+				var result string
+				for _, msg := range req.Messages {
+					result += msg.Content
+				}
+				if !strings.Contains(result, string(runwatch.CodeModelTransportStalled)) {
+					t.Fatalf("L1 did not receive typed child error: %s", result)
+				}
+			default:
+				t.Fatal("L1 was never resumed")
+			}
+			select {
+			case record := <-terminals:
+				if record.Status != dispatch.StatusFailed || !strings.Contains(record.Error, string(runwatch.CodeModelTransportStalled)) {
+					t.Fatalf("terminal record: %+v", record)
+				}
+			default:
+				t.Fatal("no terminal notification for failed delegation")
+			}
+			records := manager.List()
+			if len(records) != 1 || records[0].Status != dispatch.StatusFailed {
+				t.Fatalf("dispatch still running: %+v", records)
+			}
+			completed, finished := false, false
+			var surfaced error
+			for _, ev := range all {
+				switch e := ev.(type) {
+				case ToolExecDoneEvent:
+					if e.CallID == "delegate-fail" {
+						completed = strings.Contains(e.Result, string(runwatch.CodeModelTransportStalled)) && runwatch.CodeOf(e.Err) == runwatch.CodeModelTransportStalled
+					}
+				case DoneEvent:
+					finished = strings.Contains(e.Content, "handled child failure")
+				case ErrorEvent:
+					surfaced = e.Err
+				}
+			}
+			if !completed {
+				t.Fatal("missing failed delegation completion event")
+			}
+			if parentFails {
+				if !errors.Is(surfaced, recoveryErr) {
+					t.Fatalf("user error = %v, want L1 error", surfaced)
+				}
+			} else if surfaced != nil || !finished {
+				t.Fatalf("L1 recovery finished=%v error=%v", finished, surfaced)
+			}
+			next, err := root.BeginOperation(runwatch.KindModel, "next-request", runwatch.Policy{})
+			if err != nil {
+				t.Fatalf("request unusable after child failure: %v", err)
+			}
+			next.Complete()
+		})
 	}
 }

@@ -2079,8 +2079,7 @@ func (s *Session) checkAutoClear() {
 
 // AskStream streaming version; caller must range over the returned channel until closed
 //
-// Context window pushes user + assistant upon receiving DoneEvent;
-// removes user prompt via PopLast upon receiving ErrorEvent.
+// Failed requests retain their conversation context for a later continuation.
 // caller abandoning range must cancel ctx.
 //
 // Async delegation support: when L1 delegates a task to L2, DelegationStartedEvent releases inFlight,
@@ -2525,6 +2524,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 	}
 	s.maybeInjectPersonaState()
 	s.cw.Push(ctxwin.RoleUser, prompt, pushOpts...)
+	inputMessage, _ := s.cw.MessageAt(s.cw.Len() - 1)
 	s.mu.Unlock()
 
 	s.logger.DebugContext(ctx, logger.CatApp, "askstream: prompt pushed to context window",
@@ -2532,6 +2532,14 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 		"prompt_len", len(prompt),
 	)
 
+	recordFailedRequest := func(failedRequestID string) {
+		ts, marked := s.cw.MarkRequestFailed(failedRequestID, inputMessage.Timestamp)
+		if marked && s.tl != nil {
+			if err := s.tl.AppendControl(&timeline.ControlPayload{Action: "request_failed", TargetTs: []string{ts.Format(time.RFC3339Nano)}}); err != nil {
+				s.logger.WarnContext(ctx, logger.CatApp, "failed to persist request outcome", "err", err)
+			}
+		}
+	}
 	srcCh, jobHandle, err := s.askStream(askCtx, s.cw, prompt)
 	if err != nil {
 		// A stopped Agent may be restarted; a quarantined generation must be
@@ -2567,6 +2575,16 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 			}
 		}
 
+		// Retain failed input unless the user or caller explicitly stopped it.
+		cause := context.Cause(askCtx)
+		stopped := clientCtx.Err() != nil || runwatch.CodeOf(cause) == runwatch.CodeCancelledByUser || (errors.Is(cause, context.Canceled) && runwatch.CodeOf(cause) == "")
+		if stopped {
+			s.mu.Lock()
+			s.cw.Truncate(cwLenBeforeTurn)
+			s.mu.Unlock()
+		} else if !iface.IsCronExecution(ctx) {
+			recordFailedRequest(requestID)
+		}
 		// Enqueue failure: cleanup
 		s.unregisterActiveCancel(cancelID)
 		askCancel(context.Canceled)
@@ -2574,9 +2592,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 			runHandle.Complete()
 		}
 
-		s.mu.Lock()
-		s.cw.Truncate(cwLenBeforeTurn)
-		s.mu.Unlock()
 		s.releaseFlight(flightID)
 		finishLifecycle("error")
 
@@ -2755,8 +2770,15 @@ enqueued:
 		shouldExposeTerminal := func(cause error) bool {
 			return !errors.Is(cause, context.Canceled) || runwatch.CodeOf(cause) != ""
 		}
-		preserveCronHistory := func(cause error) bool {
-			return iface.IsCronExecution(ctx) && clientCtx.Err() == nil && runwatch.CodeOf(cause) != runwatch.CodeCancelledByUser
+		var failureOnce sync.Once
+		recordFailure := func() {
+			failureOnce.Do(func() { recordFailedRequest(deliveryRequestID) })
+		}
+		preserveFailureHistory := func(cause error) bool {
+			// Explicit cancellation retains the existing stop behavior. Provider
+			// failures and watchdog timeouts must not erase the user's request.
+			return clientCtx.Err() == nil && runwatch.CodeOf(cause) != runwatch.CodeCancelledByUser &&
+				(!errors.Is(cause, context.Canceled) || askCtx.Err() == nil || runwatch.CodeOf(cause) != "")
 		}
 		terminateContext := func() bool {
 			cause := context.Cause(askCtx)
@@ -2769,8 +2791,10 @@ enqueued:
 			}
 			terminalMessage = cause.Error()
 			s.recoverAgentAfterCancellation(cause, askAgent, jobHandle)
-			if !preserveCronHistory(cause) {
+			if !preserveFailureHistory(cause) {
 				rollbackTurn()
+			} else if !iface.IsCronExecution(ctx) {
+				recordFailure()
 			}
 			if shouldExposeTerminal(cause) {
 				emitTerminalError(terminalErrorForCause(cause))
@@ -2855,11 +2879,13 @@ enqueued:
 					ev = agent.ErrorEvent{Err: terminalErrorForCause(cause)}
 					sourceTerminal = true
 				}
-				keepHistory := preserveCronHistory(e.Err)
-				// Failed Cron attempts retain completed pairs for the next continuation.
-				// Owner/user stops and foreground errors retain whole-turn rollback.
+				keepHistory := preserveFailureHistory(e.Err)
+				// Completed tool pairs and the user's prompt remain available to a
+				// later request; BuildPayload filters any incomplete tool calls.
 				if !keepHistory {
 					rollbackTurn()
+				} else if !iface.IsCronExecution(ctx) {
+					recordFailure()
 				}
 				s.logger.WarnContext(ctx, logger.CatApp, "askstream error event",
 					"target_id", s.TargetID,

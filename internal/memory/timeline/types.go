@@ -55,6 +55,7 @@ type TemporalPartPayload struct {
 // MessagePayload represents the payload for a message event.
 type MessagePayload struct {
 	IsSummary        bool                  `json:"-"`
+	RequestFailed    bool                  `json:"-"`
 	Role             string                `json:"role"`                       // system/user/assistant/tool
 	Content          string                `json:"content"`                    // Message content
 	ReasoningContent string                `json:"reasoning,omitempty"`        // DeepSeek reasoning

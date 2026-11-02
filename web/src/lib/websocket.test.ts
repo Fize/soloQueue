@@ -759,6 +759,19 @@ describe('websocket', () => {
     expect(useChatStore.getState().messages.l1.map((m) => [m.queued, !!m.queueError])).toEqual([[false, false], [false, false], [false, true]])
   })
 
+  it('marks a failed delegation immediately when tool completion precedes its terminal notification', async () => {
+    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'chat_accepted', origin: 'channel', request_id: 'immediate-429', session_id: 'l1', prompt: 'start' })
+    simulateMessage({ type: 'tool_start', origin: 'channel', session_id: 'l1', request_id: 'immediate-429', dispatch_id: 'd-429', call_id: 'c-429', name: 'delegate', args: '{}' })
+    simulateMessage({ type: 'tool_done', origin: 'channel', session_id: 'l1', request_id: 'immediate-429', call_id: 'c-429', name: 'delegate', result: 'error: HTTP 429', error: 'HTTP 429' })
+    let segment = useChatStore.getState().messages.l1.flatMap((m) => m.segments).find((s) => s.type === 'tool_call')
+    expect(segment).toMatchObject({ done: true, error: 'HTTP 429' })
+    simulateMessage({ type: 'dispatch_terminal', session_id: 'l1', request_id: 'immediate-429', dispatch_id: 'd-429', call_id: 'c-429', result: 'failed', error: 'failed', revision: 1 })
+    segment = useChatStore.getState().messages.l1.flatMap((m) => m.segments).find((s) => s.type === 'tool_call')
+    expect(segment).toMatchObject({ done: true, error: 'failed' })
+  })
+
   it('applies a delegation terminal arriving before its tool starts', async () => {
     useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
     await wsManager.connect(); simulateOpen()

@@ -1,6 +1,7 @@
 package ctxwin
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -600,5 +601,22 @@ func TestDrainPendingAssignsAggregateToLastQueuedRequest(t *testing.T) {
 	}
 	if msg.RequestID != "req-second" {
 		t.Fatalf("pending aggregate request ID = %q, want last queued request req-second", msg.RequestID)
+	}
+}
+
+func TestMarkRequestFailedAssociatesOutcomeWithoutReordering(t *testing.T) {
+	cw := NewContextWindow(128000, 2000, 0, NewTokenizer())
+	cw.Push(RoleUser, "first", WithRequestID("first"))
+	cw.Push(RoleUser, "second", WithRequestID("second"))
+	ts, ok := cw.MarkRequestFailed("first", time.Time{})
+	if !ok || ts.IsZero() {
+		t.Fatal("failed request not marked")
+	}
+	if _, marked := cw.MarkRequestFailed("first", time.Time{}); marked {
+		t.Fatal("failure marked twice")
+	}
+	messages := cw.BuildPayload()
+	if len(messages) != 2 || !strings.Contains(messages[0].Content, "first\n[System: This request failed") || messages[1].Content != "second" {
+		t.Fatalf("payload = %+v", messages)
 	}
 }

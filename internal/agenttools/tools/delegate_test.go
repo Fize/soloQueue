@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -589,4 +590,92 @@ func TestL1DynamicWorkerRejectsUnsupportedSkillID(t *testing.T) {
 	if _, err := dt.ExecuteAsync(ctx, args); err == nil || !strings.Contains(err.Error(), "skill_id") {
 		t.Fatalf("error = %v", err)
 	}
+}
+
+type delegationWatchClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *delegationWatchClock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.now }
+func (c *delegationWatchClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+type silentDelegationTarget struct {
+	dispatchTestTarget
+	started chan struct{}
+}
+
+func (t silentDelegationTarget) AskStream(ctx context.Context, _ string) (<-chan iface.AgentEvent, error) {
+	watch := runwatch.HandleFromContext(ctx)
+	if _, err := watch.BeginOperation(runwatch.KindModel, "silent-model", runwatch.Policy{}); err != nil {
+		return nil, err
+	}
+	close(t.started)
+	return make(chan iface.AgentEvent), nil
+}
+
+func TestSyncDelegateWatchdogFailureStopsSilentStreamAndPreservesParent(t *testing.T) {
+	clock := &delegationWatchClock{now: time.Unix(1700000000, 0)}
+	watch := runwatch.NewManager(runwatch.DefaultPolicy(), runwatch.WithClock(clock))
+	defer watch.Close()
+	rootCtx, root, err := watch.Start(context.Background(), runwatch.Metadata{RunID: "sync-silent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Complete()
+	manager, err := dispatch.NewManager(t.TempDir(), "sync-silent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := make(chan dispatch.Record, 1)
+	ctx := dispatch.WithScope(iface.ContextWithWorkDir(rootCtx, t.TempDir()), dispatch.Scope{Manager: manager, OnTerminal: func(r dispatch.Record) { terminal <- r }})
+	target := silentDelegationTarget{started: make(chan struct{})}
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		return target, false, nil
+	}
+	delegate := NewDelegateTool("L1", 0, resolver, nil, nil, WorkDirExplicitOrInherited)
+	result := make(chan error, 1)
+	go func() {
+		_, err := delegate.Execute(ctx, `{"target":"worker","task_name":"silent","task":"work"}`)
+		result <- err
+	}()
+	select {
+	case <-target.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("child never started")
+	}
+	clock.advance(3 * time.Minute)
+	watch.Scan()
+	select {
+	case err := <-result:
+		if runwatch.CodeOf(err) != runwatch.CodeModelTransportStalled {
+			t.Fatalf("error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("sync delegation did not stop after watchdog expiry")
+	}
+	if rootCtx.Err() != nil {
+		t.Fatalf("parent cancelled: %v", context.Cause(rootCtx))
+	}
+	select {
+	case record := <-terminal:
+		if record.Status != dispatch.StatusFailed || !strings.Contains(record.Error, string(runwatch.CodeModelTransportStalled)) {
+			t.Fatalf("terminal = %+v", record)
+		}
+	default:
+		t.Fatal("missing failed terminal notification")
+	}
+	records := manager.List()
+	if len(records) != 1 || records[0].Status != dispatch.StatusFailed {
+		t.Fatalf("records = %+v", records)
+	}
+	next, err := root.BeginOperation(runwatch.KindModel, "recovery", runwatch.Policy{})
+	if err != nil {
+		t.Fatalf("parent unusable after failure: %v", err)
+	}
+	next.Complete()
 }

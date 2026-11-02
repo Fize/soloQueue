@@ -57,6 +57,7 @@ type asyncTurnState struct {
 	// Concurrency safety: each worker writes to its distinct callIndex index.
 	// happens-before established by pending atomic counter hitting 0.
 	results   []string
+	errors    []error
 	durations []time.Duration
 	pending   atomic.Int32 // number of pending asynchronous calls
 	callerCtx context.Context
@@ -118,7 +119,7 @@ func (t *asyncTurnState) recordCancellation(callIndex int) bool {
 	return true
 }
 
-func (t *asyncTurnState) recordResult(callIndex int, result string, duration time.Duration) (accepted, allDone bool) {
+func (t *asyncTurnState) recordResult(callIndex int, result string, resultErr error, duration time.Duration) (accepted, allDone bool) {
 	if t == nil {
 		return false, false
 	}
@@ -129,6 +130,10 @@ func (t *asyncTurnState) recordResult(callIndex int, result string, duration tim
 	}
 	if callIndex >= 0 && callIndex < len(t.results) {
 		t.results[callIndex] = result
+		if len(t.errors) < len(t.results) {
+			t.errors = make([]error, len(t.results))
+		}
+		t.errors[callIndex] = resultErr
 		t.setDuration(callIndex, duration)
 	}
 	return true, t.pending.Add(-1) == 0
@@ -412,7 +417,7 @@ func (a *Agent) execToolsWithAsyncState(
 			// --- Use AskStream + manual consumption instead of Ask ---
 			evCh, err := action.Target.AskStream(delCtx, action.Prompt)
 			if err != nil {
-				result.err = err
+				result.err = errors.Join(err, context.Cause(delCtx))
 				if delCtx.Err() == context.DeadlineExceeded {
 					if s, ok := action.Target.(interface{ Stop(time.Duration) error }); ok {
 						go func() { _ = s.Stop(5 * time.Second) }()
@@ -439,7 +444,7 @@ func (a *Agent) execToolsWithAsyncState(
 				var ok bool
 				select {
 				case <-delCtx.Done():
-					finalErr = errors.Join(finalErr, delCtx.Err())
+					finalErr = errors.Join(finalErr, context.Cause(delCtx))
 					break eventLoop
 				case ev, ok = <-evCh:
 					if !ok {
@@ -453,7 +458,7 @@ func (a *Agent) execToolsWithAsyncState(
 				// buffered events after observing cancellation; those events must
 				// not reach persistence or response aggregation.
 				if delCtx.Err() != nil {
-					finalErr = errors.Join(finalErr, delCtx.Err())
+					finalErr = errors.Join(finalErr, context.Cause(delCtx))
 					break eventLoop
 				}
 				if action.OnEvent != nil {
@@ -481,8 +486,8 @@ func (a *Agent) execToolsWithAsyncState(
 				}
 			}
 
-			if finalErr == nil && delCtx.Err() != nil {
-				finalErr = delCtx.Err()
+			if delCtx.Err() != nil && !errors.Is(finalErr, context.Cause(delCtx)) {
+				finalErr = errors.Join(finalErr, context.Cause(delCtx))
 			}
 
 			// Stop target agent if delegation timed out.
@@ -579,7 +584,7 @@ func (a *Agent) watchDelegatedTask(task *delegatedTask) {
 			toolResult = "error: " + result.err.Error()
 			a.RecordError(result.err)
 		}
-		accepted, allDone := task.turn.recordResult(task.callIndex, toolResult, result.duration)
+		accepted, allDone := task.turn.recordResult(task.callIndex, toolResult, result.err, result.duration)
 		if accepted && allDone {
 			a.submitAsyncResume(task.turn, func(ctx context.Context) {
 				a.resumeTurn(task.turn)
@@ -765,7 +770,12 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 		if i < len(turn.durations) {
 			dur = turn.durations[i]
 		}
+		var resultErr error
+		if i < len(turn.errors) {
+			resultErr = turn.errors[i]
+		}
 		a.emit(turn.callerCtx, turn.out, ToolExecDoneEvent{
+			Err:      resultErr,
 			Iter:     turn.iter,
 			CallID:   tc.ID,
 			Name:     tc.Function.Name,

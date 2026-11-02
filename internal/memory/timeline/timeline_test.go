@@ -1562,3 +1562,34 @@ func TestReplayLegacySummaryUsesUserContext(t *testing.T) {
 		t.Fatalf("legacy summary: %+v", got)
 	}
 }
+
+func TestTimelineReplaysFailureOutcomeOnMatchingUserMessage(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	if err := w.AppendMessage(&MessagePayload{Role: "user", Content: "first", Timestamp: ts, RequestID: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.AppendMessage(&MessagePayload{Role: "user", Content: "second", RequestID: "two"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.AppendControl(&ControlPayload{Action: "request_failed", TargetTs: []string{ts}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	segments, _, err := ReadTail(dir, "timeline", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	ReplayInto(cw, segments)
+	messages := cw.BuildPayload()
+	if len(messages) != 2 || !strings.Contains(messages[0].Content, "first\n[System: This request failed") || messages[1].Content != "second" {
+		t.Fatalf("replayed payload = %+v", messages)
+	}
+}

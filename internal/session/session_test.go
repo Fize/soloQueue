@@ -363,7 +363,7 @@ func TestSession_AskStream_PreservesLongPrompt(t *testing.T) {
 	}
 }
 
-func TestSession_AskStream_ErrorNoHistoryAppend(t *testing.T) {
+func TestSession_AskStream_ErrorPreservesUserHistory(t *testing.T) {
 	fake := &agenttest.FakeLLM{Err: errors.New("bad")}
 	a := startAgent(t, fake)
 	s := NewSession("s1", "t1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
@@ -373,8 +373,8 @@ func TestSession_AskStream_ErrorNoHistoryAppend(t *testing.T) {
 	}
 	for range ch {
 	}
-	if len(s.History()) != 0 {
-		t.Errorf("history len = %d, want 0", len(s.History()))
+	if history := s.History(); len(history) != 1 || history[0].Role != "user" || !strings.HasPrefix(history[0].Content, "hi\n[System: This request failed") {
+		t.Errorf("history = %+v, want the failed request's user prompt", history)
 	}
 }
 
@@ -449,6 +449,81 @@ func TestSession_AskStream_CronSourceErrorPreservesCompletedToolHistoryForContin
 		t.Fatalf("tool result = %+v", request.Messages[2])
 	}
 	if request.Messages[3].Role != "user" || request.Messages[3].Content != "continue" {
+		t.Fatalf("continuation user message = %+v", request.Messages[3])
+	}
+}
+
+func TestSession_AskStream_ForegroundFailurePreservesCompletedToolHistoryForContinuation(t *testing.T) {
+	upstreamErr := errors.New("temporary upstream interruption")
+	var llmCalls atomic.Int32
+	var fake *agenttest.FakeLLM
+	fake = &agenttest.FakeLLM{
+		Responses: []string{"continued"},
+		ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+			Index: 0, ID: "call_1", Name: "echo", Arguments: `{}`,
+		}}},
+		FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
+		Hook: func(agent.LLMRequest) {
+			if llmCalls.Add(1) == 2 {
+				fake.Err = upstreamErr
+			}
+		},
+	}
+	a := agent.NewAgent(agent.Definition{ID: "cron-history-agent"}, fake, nil, agent.WithTools(syncEchoTool{}))
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(time.Second) })
+	s := NewSession("cron-history", "L1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+
+	first, err := s.AskStream(context.Background(), "initial task")
+	if err != nil {
+		t.Fatalf("first AskStream: %v", err)
+	}
+	var gotSourceError bool
+	for event := range first {
+		if errorEvent, ok := event.(agent.ErrorEvent); ok && errors.Is(errorEvent.Err, upstreamErr) {
+			gotSourceError = true
+		}
+	}
+	if !gotSourceError {
+		t.Fatal("first AskStream did not expose the ordinary source error")
+	}
+
+	fake.Err = nil
+	requests := make(chan agent.LLMRequest, 1)
+	fake.Hook = func(req agent.LLMRequest) {
+		select {
+		case requests <- req:
+		default:
+		}
+	}
+	second, err := s.AskStream(context.Background(), "continue")
+	if err != nil {
+		t.Fatalf("continuation AskStream: %v", err)
+	}
+	for range second {
+	}
+
+	var request agent.LLMRequest
+	select {
+	case request = <-requests:
+	case <-time.After(time.Second):
+		t.Fatal("continuation request was not captured")
+	}
+	if len(request.Messages) < 4 {
+		t.Fatalf("continuation payload = %+v, want initial user, assistant tool call, tool result, and continuation user", request.Messages)
+	}
+	if request.Messages[0].Role != "user" || !strings.Contains(request.Messages[0].Content, "initial task\n[System: This request failed") {
+		t.Fatalf("initial user message = %+v", request.Messages[0])
+	}
+	if request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 1 || request.Messages[1].ToolCalls[0].ID != "call_1" {
+		t.Fatalf("assistant tool call = %+v", request.Messages[1])
+	}
+	if request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call_1" || request.Messages[2].Content != "echoed" {
+		t.Fatalf("tool result = %+v", request.Messages[2])
+	}
+	if request.Messages[len(request.Messages)-1].Role != "user" || request.Messages[len(request.Messages)-1].Content != "continue" {
 		t.Fatalf("continuation user message = %+v", request.Messages[3])
 	}
 }
@@ -536,6 +611,103 @@ func TestSession_AskStream_CronWatchdogAndDeadlinePreserveCompletedToolHistory(t
 				t.Fatalf("continuation payload = %+v, want initial user, assistant tool call, tool result, and continuation user", request.Messages)
 			}
 			if request.Messages[0].Role != "user" || request.Messages[0].Content != "initial task" {
+				t.Fatalf("initial user message = %+v", request.Messages[0])
+			}
+			if request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 1 || request.Messages[1].ToolCalls[0].ID != "call_1" {
+				t.Fatalf("assistant tool call = %+v", request.Messages[1])
+			}
+			if request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call_1" || request.Messages[2].Content != "echoed" {
+				t.Fatalf("tool result = %+v", request.Messages[2])
+			}
+			if request.Messages[3].Role != "user" || request.Messages[3].Content != "continue" {
+				t.Fatalf("continuation user message = %+v", request.Messages[3])
+			}
+		})
+	}
+}
+func TestSession_AskStream_ForegroundWatchdogAndDeadlinePreserveCompletedToolHistory(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		t.Run(fmt.Sprint(deadline), func(t *testing.T) {
+			clock := &sessionFakeClock{now: time.Unix(1700000000, 0)}
+			watchdog := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute, TransportIdle: time.Second}, runwatch.WithClock(clock))
+			defer watchdog.Close()
+			upstreamErr := &runwatch.Cause{Code: runwatch.CodeModelTransportStalled}
+			var llmCalls atomic.Int32
+			var fake *agenttest.FakeLLM
+			fake = &agenttest.FakeLLM{
+				Responses: []string{"continued"},
+				ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{
+					Index: 0, ID: "call_1", Name: "echo", Arguments: `{}`,
+				}}},
+				FinishByTurn: []llm.FinishReason{llm.FinishToolCalls},
+				Hook: func(agent.LLMRequest) {
+					if llmCalls.Add(1) == 2 {
+						if deadline {
+							time.Sleep(150 * time.Millisecond)
+						} else {
+							clock.Advance(2 * time.Second)
+							watchdog.Scan()
+						}
+					}
+				},
+			}
+			a := agent.NewAgent(agent.Definition{ID: "cron-history-agent"}, fake, nil, agent.WithTools(syncEchoTool{}))
+			if err := a.Start(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = a.Stop(time.Second) })
+			s := NewSession("cron-history", "L1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+
+			s.SetRunWatch(watchdog)
+			if deadline {
+				s.requestTimeout = 100 * time.Millisecond
+			}
+			first, err := s.AskStream(context.Background(), "initial task")
+			if err != nil {
+				t.Fatalf("first AskStream: %v", err)
+			}
+			var gotSourceError bool
+			for event := range first {
+				if errorEvent, ok := event.(agent.ErrorEvent); ok && (runwatch.CodeOf(errorEvent.Err) == upstreamErr.Code || (deadline && strings.Contains(errorEvent.Err.Error(), "timed out"))) {
+					gotSourceError = true
+				}
+			}
+			if !gotSourceError {
+				t.Fatal("first AskStream did not expose the ordinary source error")
+			}
+
+			// Wait for the failed model invocation to unwind before replacing the test hook.
+			until := time.Now().Add(time.Second)
+			for a.State() != agent.StateIdle && time.Now().Before(until) {
+				time.Sleep(time.Millisecond)
+			}
+			if a.State() != agent.StateIdle {
+				t.Fatal("failed attempt did not unwind")
+			}
+			requests := make(chan agent.LLMRequest, 1)
+			fake.Hook = func(req agent.LLMRequest) {
+				select {
+				case requests <- req:
+				default:
+				}
+			}
+			second, err := s.AskStream(context.Background(), "continue")
+			if err != nil {
+				t.Fatalf("continuation AskStream: %v", err)
+			}
+			for range second {
+			}
+
+			var request agent.LLMRequest
+			select {
+			case request = <-requests:
+			case <-time.After(time.Second):
+				t.Fatal("continuation request was not captured")
+			}
+			if len(request.Messages) != 4 {
+				t.Fatalf("continuation payload = %+v, want initial user, assistant tool call, tool result, and continuation user", request.Messages)
+			}
+			if request.Messages[0].Role != "user" || !strings.Contains(request.Messages[0].Content, "initial task\n[System: This request failed") {
 				t.Fatalf("initial user message = %+v", request.Messages[0])
 			}
 			if request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 1 || request.Messages[1].ToolCalls[0].ID != "call_1" {
@@ -2782,5 +2954,58 @@ func TestSyntheticSummaryExcludedFromMemoryAndActivity(t *testing.T) {
 		if msg.IsSummary {
 			t.Fatal("summary was retained in memory/router input")
 		}
+	}
+}
+
+func TestSession_AskStream_SetupFailureRetainsRequestForNextModelCall(t *testing.T) {
+	requests := make(chan agent.LLMRequest, 1)
+	fake := &agenttest.FakeLLM{Responses: []string{"continued"}, Hook: func(req agent.LLMRequest) { requests <- req }}
+	a := startAgent(t, fake)
+	s := NewSession("setup-history", "L1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	originalAsk := s.askStreamHistory
+	setupErr := errors.New("setup unavailable secret")
+	s.askStreamHistory = func(context.Context, *ctxwin.ContextWindow, string) (<-chan agent.AgentEvent, error) {
+		return nil, setupErr
+	}
+	if _, err := s.AskStream(context.Background(), "initial task"); !errors.Is(err, setupErr) {
+		t.Fatalf("setup error = %v", err)
+	}
+	s.askStreamHistory = originalAsk
+	stream, err := s.AskStream(context.Background(), "continue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream {
+	}
+	select {
+	case req := <-requests:
+		if len(req.Messages) != 2 || !strings.Contains(req.Messages[0].Content, "initial task\n[System: This request failed") || strings.Contains(req.Messages[0].Content, "secret") || req.Messages[1].Content != "continue" {
+			t.Fatalf("payload = %+v", req.Messages)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no follow-up model request")
+	}
+}
+
+func TestSession_AskStream_SetupUserCancelDoesNotRetainInput(t *testing.T) {
+	a := startAgent(t, &agenttest.FakeLLM{})
+	s := NewSession("setup-cancel", "L1", a, ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer()), nil, nil)
+	started := make(chan struct{})
+	s.askStreamHistory = func(ctx context.Context, _ *ctxwin.ContextWindow, _ string) (<-chan agent.AgentEvent, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	done := make(chan error, 1)
+	go func() { _, err := s.AskStream(context.Background(), "cancelled task"); done <- err }()
+	<-started
+	if err := s.CancelCurrentByUser("stop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("setup error = %v", err)
+	}
+	if got := s.History(); len(got) != 0 {
+		t.Fatalf("cancelled input retained: %+v", got)
 	}
 }

@@ -187,6 +187,7 @@ type Message struct {
 	Timestamp           time.Time          // Timestamp when the message was pushed; restored from timeline events during replay
 	ExposeTimestamp     bool               // Restricts LLM-visible temporal context to explicitly eligible input.
 	TemporalParts       []TemporalPart     // Components of one aggregated pending user turn.
+	RequestFailed       bool               // Internal outcome, attached to this user input.
 	RequestID           string             // Stable request identity for timeline/UI ownership; never sent to the LLM.
 	suppressAutoCompact bool
 }
@@ -258,6 +259,30 @@ func WithTemporalParts(parts []TemporalPart) PushOption {
 // WithRequestID associates a persisted message with the request that produced it.
 func WithRequestID(requestID string) PushOption {
 	return func(m *Message) { m.RequestID = requestID }
+}
+
+// WithRequestFailed restores a recorded unsuccessful request outcome.
+func WithRequestFailed() PushOption { return func(m *Message) { m.RequestFailed = true } }
+
+// MarkRequestFailed binds an outcome to the original input instead of appending
+// a synthetic message which could be interleaved with another request.
+func (cw *ContextWindow) MarkRequestFailed(requestID string, fallback time.Time) (time.Time, bool) {
+	cw.Lock()
+	defer cw.Unlock()
+	for i := len(cw.messages) - 1; i >= 0; i-- {
+		m := &cw.messages[i]
+		if m.Role != RoleUser || m.IsSummary || m.IsPersonaState {
+			continue
+		}
+		if (requestID != "" && m.RequestID == requestID) || (requestID == "" && m.Timestamp.Equal(fallback)) {
+			if m.RequestFailed {
+				return m.Timestamp, false
+			}
+			m.RequestFailed = true
+			return m.Timestamp, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // ─── PushHook ───────────────────────────────────────────────────────────────
@@ -637,11 +662,15 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 				}
 				pendingCalls = 0
 			}
+			content := m.Content
+			if m.Role == RoleUser && m.RequestFailed {
+				content += "\n[System: This request failed before completion.]"
+			}
 			out = append(out, PayloadMessage{
 				IsSummary:        m.IsSummary,
 				IsPersonaState:   m.IsPersonaState,
 				Role:             string(m.Role),
-				Content:          m.Content,
+				Content:          content,
 				ReasoningContent: m.ReasoningContent,
 				Name:             m.Name,
 				ToolCallID:       m.ToolCallID,

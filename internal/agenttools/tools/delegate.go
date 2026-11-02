@@ -370,9 +370,7 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 	var terminalErr error
 	finish := func(status dispatch.Status, finishErr error) error {
 		finishOnce.Do(func() {
-			if scope, ok := dispatch.ScopeFromContext(delCtx); ok && dispatchID != "" {
-				terminalErr = scope.Manager.Finish(dispatchID, status, finishErr)
-			}
+			terminalErr = dt.finishDispatch(delCtx, dispatchID, status, finishErr)
 		})
 		return terminalErr
 	}
@@ -385,11 +383,12 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 	}()
 	var delegationWatch *runwatch.Handle
 	if parent := runwatch.HandleFromContext(delCtx); parent != nil && dispatchID != "" {
-		delegationWatch, err = parent.BeginOperation(runwatch.KindDelegation, dispatchID, runwatch.Policy{})
+		var localCtx context.Context
+		localCtx, delegationWatch, err = parent.BeginLocalOperation(delCtx, runwatch.KindDelegation, dispatchID, runwatch.Policy{})
 		if err != nil {
 			return "", errors.Join(err, finish(dispatch.StatusFailed, err))
 		}
-		delCtx = runwatch.ContextWithHandle(delCtx, delegationWatch)
+		delCtx = localCtx
 		defer delegationWatch.Complete()
 	}
 	// 2. Resolve work directory
@@ -448,7 +447,21 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 	var persistenceErr error
 	var eventCount int
 
-	for ev := range evCh {
+eventLoop:
+	for {
+		var ev iface.AgentEvent
+		select {
+		case <-delCtx.Done():
+			break eventLoop
+		case next, ok := <-evCh:
+			if !ok {
+				break eventLoop
+			}
+			ev = next
+		}
+		if delCtx.Err() != nil {
+			break
+		}
 		if ev == nil {
 			continue
 		}
@@ -485,8 +498,8 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 			finalErr = errValue
 		}
 	}
-	if finalErr == nil && delCtx.Err() != nil {
-		finalErr = delCtx.Err()
+	if delCtx.Err() != nil {
+		finalErr = errors.Join(finalErr, context.Cause(delCtx))
 	}
 
 	if dn, ok := targetAgent.(iface.DoneNotifier); ok {
@@ -606,11 +619,12 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 		}
 	}()
 	if parent := runwatch.HandleFromContext(delCtx); parent != nil && dispatchID != "" {
-		delegationWatch, err = parent.BeginOperation(runwatch.KindDelegation, dispatchID, runwatch.Policy{})
+		var localCtx context.Context
+		localCtx, delegationWatch, err = parent.BeginLocalOperation(delCtx, runwatch.KindDelegation, dispatchID, runwatch.Policy{})
 		if err != nil {
 			return nil, errors.Join(err, finish(dispatch.StatusFailed, err))
 		}
-		delCtx = runwatch.ContextWithHandle(delCtx, delegationWatch)
+		delCtx = localCtx
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {

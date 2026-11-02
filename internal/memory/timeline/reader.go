@@ -108,6 +108,7 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 	hasSummary := false
 	validThreshold := ""
 	deletedSet := make(map[string]bool)
+	failedSet := make(map[string]bool)
 
 	for i := len(lastSegmentEvents) - 1; i >= 0 && (maxTurns <= 0 || userCount < maxTurns); i-- {
 		evt := lastSegmentEvents[i]
@@ -131,6 +132,10 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 						validThreshold = ts
 					}
 				}
+			case "request_failed":
+				for _, ts := range evt.Control.TargetTs {
+					failedSet[ts] = true
+				}
 			case "delete":
 				for _, ts := range evt.Control.TargetTs {
 					deletedSet[ts] = true
@@ -146,6 +151,9 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 				break
 			}
 			msg := *evt.Message
+			if msg.Role == "user" && failedSet[msg.Timestamp] {
+				msg.RequestFailed = true
+			}
 
 			// Backward traversal logic for rewind and delete
 			if msg.Timestamp != "" {
@@ -334,6 +342,9 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 	opts := make([]ctxwin.PushOption, 0, 5)
 	if msg.IsSummary {
 		opts = append(opts, ctxwin.WithSummary())
+	}
+	if msg.RequestFailed {
+		opts = append(opts, ctxwin.WithRequestFailed())
 	}
 	if msg.ReasoningContent != "" {
 		opts = append(opts, ctxwin.WithReasoningContent(msg.ReasoningContent))
