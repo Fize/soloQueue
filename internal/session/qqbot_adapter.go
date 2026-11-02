@@ -173,13 +173,30 @@ func (b *channelAdapterBase) compactAndReap(ctx context.Context, sess *Session) 
 // Same-route messages retain the existing pending-merge behavior; a different
 // route waits instead of entering Session.pending, whose string-only payload
 // cannot remember which bridge must deliver the eventual response.
-func (b *channelAdapterBase) askChannelStream(ctx context.Context, sess *Session, prompt string) (<-chan iface.AgentEvent, func(), error) {
+func (b *channelAdapterBase) askChannelStream(ctx context.Context, sess *Session, prompt string) (stream <-chan iface.AgentEvent, release func(), resultErr error) {
 	route := channelRouteKey(ctx)
 	structuredInput := ctx.Value(ctxwin.FilesContextKey) != nil || ctx.Value(ctxwin.ImageContextKey) != nil
+	receivedAt := time.Now()
+	if metadata, ok := temporalExposureFromContext(ctx); ok {
+		receivedAt = metadata.receivedAt
+	}
+	var notified bool
+	defer func() {
+		if notified && resultErr != nil && !errors.Is(resultErr, ErrQueued) {
+			sess.notifyChannelQueueFailed(ctx)
+		}
+	}()
+	notifyQueued := func() {
+		if !notified {
+			notified = true
+			sess.notifyChannelQueued(ctx, prompt, receivedAt)
+		}
+	}
 	for {
 		sess.channelRouteMu.Lock()
 		if sess.channelRouteKey != "" && sess.channelRouteKey != route {
 			sess.channelRouteMu.Unlock()
+			notifyQueued()
 			timer := time.NewTimer(25 * time.Millisecond)
 			select {
 			case <-ctx.Done():
@@ -203,6 +220,9 @@ func (b *channelAdapterBase) askChannelStream(ctx context.Context, sess *Session
 		eventCh, err := sess.AskStream(askCtx, prompt)
 		if err != nil {
 			releaseChannelRoute(sess, route)
+			if errors.Is(err, ErrQueued) {
+				notifyQueued()
+			}
 			if errors.Is(err, ErrQueued) && (!sameRouteActive || structuredInput) {
 				timer := time.NewTimer(25 * time.Millisecond)
 				select {

@@ -1,3 +1,4 @@
+import { removeCancelledInputs } from '@/lib/channelQueueRemoval'
 import { create } from 'zustand'
 import { preserveWorkedStateKeys } from '@/components/chat/preserveWorkedStateKeys'
 import type {
@@ -17,6 +18,17 @@ import {
 } from '@/lib/api'
 import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
 import { useInspectorStateStore } from './inspectorStateStore'
+
+function mergeCancelledInputs(current: ChatMessage[], history: ChatMessage[]): ChatMessage[] {
+  const result = [...history]
+  for (const message of current) {
+    if (message.role !== 'user' || (!message.queueCancelled && !message.queued) || !message.requestId || result.some((item) => item.role === 'user' && item.requestId === message.requestId)) continue
+    const timestamp = Date.parse(message.timestamp)
+    const index = result.findIndex((item) => Number.isFinite(timestamp) && Date.parse(item.timestamp) > timestamp)
+    result.splice(index < 0 ? result.length : index, 0, message)
+  }
+  return result
+}
 
 export type ChatRequestStatus = 'starting' | 'streaming' | 'queued' | 'cancelling'
 
@@ -443,7 +455,7 @@ export const useChatStore = create<ChatState>((set) => ({
             ),
           },
           sessions: updatedSessions,
-          messages: { ...s.messages, [sessionId]: preserveWorkedStateKeys(current || [], msgs) },
+          messages: { ...s.messages, [sessionId]: preserveWorkedStateKeys(current || [], mergeCancelledInputs(current || [], msgs)) },
           historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
           historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
         }
@@ -463,7 +475,7 @@ export const useChatStore = create<ChatState>((set) => ({
           return {}
         }
         return {
-          messages: { ...s.messages, [sessionId]: [] },
+          messages: { ...s.messages, [sessionId]: mergeCancelledInputs(current || [], []) },
           historyHasMore: { ...s.historyHasMore, [sessionId]: false },
           historyCursor: { ...s.historyCursor, [sessionId]: null },
         }
@@ -1052,6 +1064,7 @@ export const useChatStore = create<ChatState>((set) => ({
           if (!m.timestamp) return true
           return m.timestamp < targetTs
         })
+        removeCancelledInputs(sessionId, msgs.filter((m) => !filtered.includes(m)))
         return {
           messages: { ...s.messages, [sessionId]: filtered },
         }
@@ -1088,6 +1101,7 @@ export const useChatStore = create<ChatState>((set) => ({
           if (!m.timestamp) return true
           return !expandedSet.has(m.timestamp)
         })
+        removeCancelledInputs(sessionId, sMsgs.filter((m) => !filtered.includes(m)))
         return {
           messages: { ...s.messages, [sessionId]: filtered },
         }

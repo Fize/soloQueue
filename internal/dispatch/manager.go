@@ -808,9 +808,10 @@ func newID() (string, error) {
 type contextKey struct{}
 
 type Scope struct {
-	Manager  *Manager
-	RootID   string
-	ParentID string
+	OnTerminal func(Record)
+	Manager    *Manager
+	RootID     string
+	ParentID   string
 }
 
 func WithScope(ctx context.Context, scope Scope) context.Context {

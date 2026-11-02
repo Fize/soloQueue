@@ -9,6 +9,24 @@ export interface WSStateMessage {
 }
 
 // Chat streaming messages (server → client)
+export interface WSChannelQueueState {
+  type: "channel_queue_started" | "channel_queue_failed" | "channel_queue_cancelled";
+  session_id: string;
+  request_id?: string;
+  request_ids?: string[];
+}
+
+export interface WSDispatchTerminal {
+  type: "dispatch_terminal";
+  session_id: string;
+  request_id: string;
+  dispatch_id: string;
+  revision?: number;
+  call_id: string;
+  result: string;
+  error?: string;
+}
+
 export interface WSChatEnvelope {
   timestamp?: string;
 }
@@ -75,6 +93,10 @@ export interface WSChatError extends WSChatEnvelope {
 }
 
 export interface WSChatQueued extends WSChatEnvelope {
+  origin?: string;
+  prompt?: string;
+  files?: { name: string; path: string }[];
+  image_count?: number;
   type: "chat_queued";
   request_id: string;
   session_id?: string;
@@ -160,6 +182,8 @@ export interface WSCompactionStatusMessage {
 }
 
 export type WSMessage =
+  | WSDispatchTerminal
+  | WSChannelQueueState
   | WSStateMessage
   | WSChatRoute
   | WSChatAccepted
@@ -246,6 +270,10 @@ export interface ChatRouteInfo {
 }
 
 export interface ChatMessage {
+  queued?: boolean;
+  queueError?: boolean;
+  queueCancelled?: boolean;
+  queuedImageCount?: number;
   id: string;
   /** Stable backend request ownership used to reconcile history with live frames. */
   requestId?: string;

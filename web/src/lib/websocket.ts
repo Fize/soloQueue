@@ -1,3 +1,4 @@
+import { isRemovedCancelledInput, rememberCancelledInput } from '@/lib/channelQueueRemoval'
 import type {
   WSMessage,
   RuntimeStatus,
@@ -73,6 +74,9 @@ class WebSocketManager {
   private cachedStreams: Record<string, AgentStreamState> = {}
   private streamTimestamps: Record<string, number> = {}
   private chatHandlers: Map<string, ChatHandler> = new Map()
+  private terminalDispatches = new Map<string, Extract<WSMessage, { type: "dispatch_terminal" }>>()
+  private channelQueueOutcomes = new Map<string, "started" | "failed" | "cancelled">()
+  private channelQueueGroups = new Map<string, string[]>()
   private externalChatOwners = new Map<string, { sessionId: string; origin: 'channel' }>()
   // A transient close can drop chat events while handlers remain registered
   // during the reconnect grace period. Mark those requests so the UI can
@@ -301,6 +305,40 @@ class WebSocketManager {
   }
 
   private dispatch(msg: WSMessage) {
+    if (msg.type === 'channel_queue_started' || msg.type === 'channel_queue_failed' || msg.type === 'channel_queue_cancelled' || msg.type === 'chat_queue_started') {
+      const sid = msg.session_id
+      const ids = msg.type === 'channel_queue_failed' || msg.type === 'channel_queue_cancelled' ? [msg.request_id] : msg.request_ids
+      if (sid && ids?.length) {
+        for (const id of ids) if (id) {
+          this.channelQueueOutcomes.set(`${sid}:${id}`, msg.type === 'channel_queue_cancelled' ? 'cancelled' : msg.type === 'channel_queue_failed' ? 'failed' : 'started')
+          if (msg.type === 'channel_queue_cancelled') rememberCancelledInput(sid, id)
+          if (msg.type !== 'channel_queue_failed' && msg.type !== 'channel_queue_cancelled') this.channelQueueGroups.set(`${sid}:${id}`, ids.filter((item): item is string => !!item))
+        }
+        while (this.channelQueueGroups.size > 1000) this.channelQueueGroups.delete(this.channelQueueGroups.keys().next().value!)
+        while (this.channelQueueOutcomes.size > 1000) this.channelQueueOutcomes.delete(this.channelQueueOutcomes.keys().next().value!)
+      }
+      if (sid && ids?.length) useChatStore.setState((state) => ({ messages: { ...state.messages, [sid]: (state.messages[sid] || []).map((message) => message.role === 'user' && message.queued !== undefined && message.requestId && ids.includes(message.requestId) ? { ...message, queued: false, queueError: msg.type === 'channel_queue_failed', queueCancelled: msg.type === 'channel_queue_cancelled' } : message) } }))
+      if (msg.type !== 'chat_queue_started') return
+    }
+    if (msg.type === 'dispatch_terminal') {
+      const key = `${msg.session_id}:${msg.request_id}:${msg.call_id}`
+      const prior = this.terminalDispatches.get(key)
+      if (prior && (prior.revision || 0) > (msg.revision || 0)) return
+      this.terminalDispatches.set(key, msg)
+      if (this.terminalDispatches.size > 1000) this.terminalDispatches.delete(this.terminalDispatches.keys().next().value!)
+      useChatStore.setState((state) => {
+        const messages = state.messages[msg.session_id]
+        if (!messages) return state
+        return { messages: { ...state.messages, [msg.session_id]: messages.map((message) => {
+          if (message.role !== 'assistant' || message.requestId !== msg.request_id) return message
+          return { ...message, segments: message.segments.map((segment) => {
+            if (segment.type !== 'tool_call' || (segment.dispatchId ? segment.dispatchId !== msg.dispatch_id : segment.callId !== msg.call_id)) return segment
+            return { ...segment, dispatchId: msg.dispatch_id, done: true, error: msg.error, result: segment.result }
+          }) }
+        }) } }
+      })
+      return
+    }
     const frame = msg as WSMessage & { request_id?: string; session_id?: string; origin?: string }
     const externalOwner = frame.request_id
       ? this.externalChatOwners.get(frame.request_id)
@@ -369,9 +407,13 @@ class WebSocketManager {
           target_agent_id: msg.target_agent_id,
           dispatch_id: 'dispatch_id' in msg ? msg.dispatch_id : undefined,
         })
+        const terminal = this.terminalDispatches.get(`${frame.session_id}:${msg.request_id}:${msg.call_id}`)
+        if (terminal) this.dispatch(terminal)
         return
       }
       case 'tool_done': {
+        const terminal = this.terminalDispatches.get(`${frame.session_id}:${msg.request_id}:${msg.call_id}`)
+        if (terminal?.error) { this.dispatch(terminal); return }
         let h = this.chatHandlers.get(msg.request_id)
         if (!h) {
           this.registerExternalChannelChat(msg)
@@ -408,6 +450,36 @@ class WebSocketManager {
         return
       }
       case 'chat_queued': {
+        if (msg.origin === 'channel' && msg.session_id && msg.prompt) {
+          const sid = msg.session_id
+          const requestId = msg.request_id
+          if (isRemovedCancelledInput(sid, requestId)) return
+          const outcome = this.channelQueueOutcomes.get(`${sid}:${requestId}`)
+          useChatStore.setState((state) => {
+            const messages = state.messages[sid] || []
+            const existing = messages.findIndex((message) => message.role === 'user' && message.requestId === requestId)
+            if (existing >= 0) {
+              const previous = messages[existing]
+              const updated = [...messages]
+              updated[existing] = { ...previous, queued: previous.queued === false ? false : outcome === undefined, queueError: outcome === 'failed', queueCancelled: outcome === 'cancelled', files: msg.files, queuedImageCount: msg.image_count, segments: [{ type: 'content', text: msg.prompt! }], timestamp: msg.timestamp || previous.timestamp }
+              return { messages: { ...state.messages, [sid]: updated } }
+            }
+            const timestamp = msg.timestamp || new Date().toISOString()
+            const time = Date.parse(timestamp)
+            const group = this.channelQueueGroups.get(`${sid}:${requestId}`)
+            const position = group?.indexOf(requestId) ?? -1
+            let insertion = position < 0 ? -1 : messages.findIndex((message) => {
+              if (!message.requestId || !group) return false
+              const other = group.indexOf(message.requestId)
+              return other > position || (message.role === 'assistant' && other >= position)
+            })
+            if (insertion < 0) insertion = messages.findIndex((message) => !!msg.timestamp && Number.isFinite(time) && Number.isFinite(Date.parse(message.timestamp)) && Date.parse(message.timestamp) >= time)
+            const updated = [...messages]
+            updated.splice(insertion < 0 ? updated.length : insertion, 0, { id: `channel-user-${requestId}`, requestId, role: 'user', queued: outcome === undefined, queueError: outcome === 'failed', queueCancelled: outcome === 'cancelled', files: msg.files, queuedImageCount: msg.image_count, segments: [{ type: 'content', text: msg.prompt! }], timestamp })
+            return { messages: { ...state.messages, [sid]: updated } }
+          })
+          return
+        }
         let h = this.chatHandlers.get(msg.request_id)
         if (!h) {
           this.registerExternalChannelChat(msg)
@@ -683,7 +755,7 @@ class WebSocketManager {
       // A reload may hydrate the active turn with history-only IDs before the
       // first live channel frame arrives. Adopt that turn so every later frame
       // updates the same top-level assistant message.
-      if (userIndex >= 0) current[userIndex] = { ...current[userIndex], id: userId }
+      if (userIndex >= 0) current[userIndex] = { ...current[userIndex], id: userId, queued: false }
       if (assistantIndex >= 0)
         current[assistantIndex] = { ...current[assistantIndex], id: assistantId }
 

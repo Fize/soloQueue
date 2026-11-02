@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, Loader2, Check } from 'lucide-react'
+import { ChevronDown, Loader2, Check, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SegmentView } from './SegmentView'
 import type { GroupedDelegation } from '../ChatMessage'
@@ -29,6 +29,8 @@ export function DelegationGroupView({
     return false
   })
 
+  const failed = group.segments.some(({ segment }) => segment.type === 'tool_call' ? !!segment.error : segment.type === 'delegation' && (segment.status === 'failed' || segment.status === 'cancelled'))
+
   // Automatic expansion follows the live running state until the user makes
   // an explicit choice. The choice is intentionally component-local and is
   // lost on refresh, matching worked-block behavior.
@@ -55,6 +57,8 @@ export function DelegationGroupView({
         <div className="flex items-center gap-2.5">
           {isRunning ? (
             <Loader2 className="h-4 w-4 animate-spin text-signal" />
+          ) : failed ? (
+            <XCircle className="h-4 w-4 text-destructive" />
           ) : (
             <Check className="h-4 w-4 text-success" />
           )}

@@ -2353,3 +2353,63 @@ func TestAsyncDelegationChildToolResultUsesRoutedContextBudget(t *testing.T) {
 		})
 	}
 }
+
+func TestAsyncCancelHandoffPreservesQueuedRequestContext(t *testing.T) {
+	a := NewAgent(Definition{ID: "handoff"}, &agenttest.FakeLLM{}, newTestLogger(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := make(chan AgentEvent)
+	turn := &asyncTurnState{out: out, callerCtx: context.WithValue(ctx, struct{}{}, "queued")}
+	a.registerAsyncTurn(turn)
+	a.saveAsyncCancel(out, cancel)
+	if ctx.Err() != nil {
+		t.Fatal("queued request caused the active delegation to be cancelled")
+	}
+}
+
+func TestQueuedInputCanCompleteAsyncDelegation(t *testing.T) {
+	target := &mockLocatable{askFunc: func(ctx context.Context, _ string) (string, error) {
+		select {
+		case <-time.After(40 * time.Millisecond):
+			return "delegation-result", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}}
+	delegate := &mockAsyncTool{name: "delegate", action: &tools.AsyncAction{Target: target, Prompt: "task"}}
+	fake := &agenttest.FakeLLM{ToolCallDeltasByTurn: [][]llm.ToolCallDelta{{{Index: 0, ID: "queued-call", Name: "delegate", Arguments: `{"task":"test"}`}}}, StreamDeltas: [][]string{{"finished"}}}
+	a := NewAgent(Definition{ID: "l1"}, fake, newTestLogger(t), WithTools(delegate), WithPriorityMailbox())
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop(2 * time.Second)
+	cw := ctxwin.NewContextWindow(128000, 2000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "test")
+	var drained atomic.Bool
+	cw.SetPendingDrainer(func() ctxwin.PendingInput {
+		if drained.CompareAndSwap(false, true) {
+			return ctxwin.PendingInput{Content: "queued", RequestIDs: []string{"queued-id"}}
+		}
+		return ctxwin.PendingInput{}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	events, err := a.AskStreamWithHistory(ctx, cw, "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started, completed bool
+	for ev := range events {
+		switch e := ev.(type) {
+		case DelegationStartedEvent:
+			started = true
+		case DelegationCompletedEvent:
+			completed = true
+		case ErrorEvent:
+			t.Fatalf("delegation failed: %v", e.Err)
+		}
+	}
+	if !started || !completed {
+		t.Fatalf("delegation started=%v completed=%v", started, completed)
+	}
+}

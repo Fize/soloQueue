@@ -993,3 +993,60 @@ func TestWecomL2BindingGuardPreservesOtherChannels(t *testing.T) {
 		})
 	}
 }
+
+func TestWaitingChannelInputPublishesQueueAndCancellation(t *testing.T) {
+	log := newTestLog(t)
+	sess := &Session{logger: log, pending: &PendingQueue{}, channelRouteKey: "different", channelRouteOwners: 1}
+	sess.inFlight.Store(1)
+	received := make(chan string, 1)
+	failed := make(chan string, 1)
+	sess.requestHooks.OnChannelQueued = func(_ context.Context, _, id, prompt string, _ time.Time, _ []ctxwin.FileAttachment) {
+		received <- id + ":" + prompt
+	}
+	sess.requestHooks.OnChannelQueueFailed = func(_ context.Context, _, id string) { failed <- id }
+	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "queued-input"})
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { _, _, err := (&channelAdapterBase{log: log}).askChannelStream(ctx, sess, "hello"); done <- err }()
+	select {
+	case got := <-received:
+		if got != "queued-input:hello" {
+			t.Fatalf("queued: %s", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing queued notification")
+	}
+	cancel()
+	select {
+	case got := <-failed:
+		if got != "queued-input" {
+			t.Fatalf("failed: %s", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing failure notification")
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("error: %v", err)
+	}
+}
+
+func TestCancelCurrentByUserClearsQueuedChannelInput(t *testing.T) {
+	sess := &Session{logger: newTestLog(t), pending: &PendingQueue{}}
+	sess.pending.EnqueueMessage(PendingMessage{Prompt: "waiting", RequestID: "queued-id"})
+	failed := make(chan string, 1)
+	sess.requestHooks.OnChannelQueueCancelled = func(_ context.Context, _, id string) { failed <- id }
+	if err := sess.CancelCurrentByUser("stop"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case id := <-failed:
+		if id != "queued-id" {
+			t.Fatalf("id: %s", id)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing queue cancellation")
+	}
+	if sess.pending.Len() != 0 {
+		t.Fatal("pending input was retained")
+	}
+}

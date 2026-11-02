@@ -43,6 +43,18 @@ beforeEach(() => {
 })
 
 describe('chatStore', () => {
+  it('preserves only cancelled channel inputs across repeated history loads', async () => {
+    const sid = 'l1'
+    useChatStore.setState({ messages: { [sid]: [
+      { id: 'cancelled', requestId: 'cancelled', role: 'user', queueCancelled: true, timestamp: '2026-01-01T00:00:01Z', segments: [{ type: 'content', text: 'cancelled input' }] },
+      { id: 'failed', requestId: 'failed', role: 'user', queueError: true, timestamp: '2026-01-01T00:00:02Z', segments: [{ type: 'content', text: 'failed input' }] },
+    ] } })
+    vi.mocked(fetchSessionHistory).mockResolvedValue({ messages: [], has_more: false })
+    await useChatStore.getState().loadHistory(sid)
+    await useChatStore.getState().loadHistory(sid)
+    expect(useChatStore.getState().messages[sid].map((message) => message.id)).toEqual(['cancelled'])
+  })
+
   it.each(['failed', 'interrupted'] as const)(
     'does not turn historical %s statuses into live notices',
     async (status) => {

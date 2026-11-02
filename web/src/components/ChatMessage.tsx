@@ -339,6 +339,10 @@ function ChatMessageViewInner({
                     )
                   }
                 })}
+                {isUser && message.queuedImageCount && message.queuedImageCount > 0 && <span className="text-xs text-muted-foreground">{t('observability.images')} ({message.queuedImageCount})</span>}
+                {isUser && message.queued && <span className="text-xs text-muted-foreground">{t('observability.queued')}</span>}
+                {isUser && message.queueCancelled && <span className="text-xs text-muted-foreground">{t('observability.cancelled')}</span>}
+                {isUser && message.queueError && <span className="text-xs text-destructive">{t('observability.callError')}</span>}
                 {/* Render uploaded files/images here */}
                 {message.files && message.files.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2 pt-1.5 border-t border-dashed border-border/10">

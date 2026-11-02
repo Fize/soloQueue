@@ -795,14 +795,14 @@ func (a *Agent) resumeTurn(turn *asyncTurnState) {
 	//
 	// Nested async path: continueToolLoop yielded again (another async
 	// delegation started in this stream loop). The new asyncTurnState has
-	// the same callerCtx (merged) but does NOT have cancelMerged set
+	// the same output stream but does NOT have cancelMerged set
 	// (saveAsyncCancel is only called by the outer AskStreamWithHistory,
 	// not by the inner continueToolLoop). Transfer our cancelMerged to
 	// the new turn so it can cancel on its own completion.
 	cancelMerged := turn.takeCancelMerged()
 	if yielded {
 		if cancelMerged != nil {
-			a.saveAsyncCancel(turn.callerCtx, cancelMerged)
+			a.saveAsyncCancel(turn.out, cancelMerged)
 		}
 	} else if cancelMerged != nil {
 		cancelMerged()
@@ -821,17 +821,17 @@ func (a *Agent) continueToolLoop(
 }
 
 // saveAsyncCancel stores the cancel function into the asyncTurnState whose
-// callerCtx matches ctx. Called by AskStreamWithHistory when streamLoop
+// output stream matches the yielding job. Called by AskStreamWithHistory when streamLoop
 // yields so that resumeTurn can cancel the merged context after the final
 // streamLoop completes.
 //
 // If no matching asyncTurnState is found (should not happen), cancel is
 // invoked immediately to prevent context leak.
-func (a *Agent) saveAsyncCancel(ctx context.Context, cancel context.CancelFunc) {
+func (a *Agent) saveAsyncCancel(out chan<- AgentEvent, cancel context.CancelFunc) {
 	a.turnMu.RLock()
 	var turn *asyncTurnState
 	for _, ts := range a.asyncTurns {
-		if ts.callerCtx == ctx {
+		if ts.out == out {
 			turn = ts
 			break
 		}

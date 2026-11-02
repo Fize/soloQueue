@@ -1,3 +1,4 @@
+import { removeAllCancelledInputs, removeCancelledInputs } from '@/lib/channelQueueRemoval'
 import { useCallback, useRef } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
@@ -109,6 +110,8 @@ export function useChatStream() {
       const isSystemCommand = isSystemSlashCommand(prompt)
 
       if (isClear) {
+        removeCancelledInputs(sid, useChatStore.getState().messages[sid] || [])
+        removeAllCancelledInputs(sid)
         useChatStore.setState((prev) => ({
           messages: {
             ...prev.messages,

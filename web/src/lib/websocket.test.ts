@@ -1,3 +1,4 @@
+import { removeAllCancelledInputs, removeCancelledInputs } from '@/lib/channelQueueRemoval'
 import chineseSamples from '@/testdata/chinese_samples.json'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { wsManager } from './websocket'
@@ -725,6 +726,125 @@ describe('websocket', () => {
     simulateMessage(accepted)
 
     expect(onAccepted).toHaveBeenCalledWith(accepted)
+  })
+
+  it('shows a queued channel input once before execution starts', async () => {
+    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
+    await wsManager.connect()
+    simulateOpen()
+    const queued = { type: 'chat_queued', origin: 'channel', request_id: 'req-external-queued', session_id: 'l1', prompt: 'waiting' }
+    simulateMessage(queued)
+    simulateMessage(queued)
+    expect(useChatStore.getState().messages.l1).toMatchObject([{ role: 'user', queued: true }])
+    expect(useChatStore.getState().streamingSessions.l1).toBeFalsy()
+    simulateMessage({ ...queued, type: 'chat_accepted' })
+    expect(useChatStore.getState().messages.l1.filter((m) => m.role === 'user')).toHaveLength(1)
+    expect(useChatStore.getState().messages.l1[0].queued).toBe(false)
+  })
+
+  it('updates a delegated tool when its parent stream has ended', async () => {
+    useChatStore.setState({ messages: { l1: [{ id: 'a', requestId: 'root', role: 'assistant', timestamp: '', segments: [{ type: 'tool_call', callId: 'call', name: 'delegate', args: '', done: false, dispatchId: 'd' }] }] } })
+    await wsManager.connect()
+    simulateOpen()
+    simulateMessage({ type: 'dispatch_terminal', session_id: 'l1', request_id: 'root', dispatch_id: 'd', call_id: 'call', result: 'failed', error: 'failed' })
+    expect(useChatStore.getState().messages.l1[0].segments[0]).toMatchObject({ done: true, error: 'failed' })
+  })
+
+  it('clears all merged channel inputs and reports failed waiting', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect(); simulateOpen()
+    for (const id of ['one', 'two', 'three']) simulateMessage({ type: 'chat_queued', origin: 'channel', request_id: id, session_id: 'l1', prompt: id })
+    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['one', 'two'] })
+    simulateMessage({ type: 'channel_queue_failed', session_id: 'l1', request_id: 'three' })
+    expect(useChatStore.getState().messages.l1.map((m) => [m.queued, !!m.queueError])).toEqual([[false, false], [false, false], [false, true]])
+  })
+
+  it('applies a delegation terminal arriving before its tool starts', async () => {
+    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'chat_accepted', origin: 'channel', request_id: 'race', session_id: 'l1', prompt: 'start' })
+    simulateMessage({ type: 'dispatch_terminal', session_id: 'l1', request_id: 'race', dispatch_id: 'd-race', call_id: 'call-race', result: 'failed', error: 'failed', revision: 3 })
+    simulateMessage({ type: 'tool_start', origin: 'channel', session_id: 'l1', request_id: 'race', dispatch_id: 'd-race', call_id: 'call-race', name: 'delegate', args: '{}' })
+    const segments = useChatStore.getState().messages.l1.flatMap((m) => m.segments)
+    expect(segments.find((s) => s.type === 'tool_call')).toMatchObject({ done: true, error: 'failed' })
+  })
+
+  it('preserves queue completion that arrives before the queued input', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'channel_queue_failed', session_id: 'l1', request_id: 'early-failed' })
+    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['early-started'] })
+    for (const id of ['early-failed', 'early-started']) simulateMessage({ type: 'chat_queued', origin: 'channel', request_id: id, session_id: 'l1', prompt: id })
+    expect(useChatStore.getState().messages.l1.map((m) => [m.queued, !!m.queueError])).toEqual([[false, true], [false, false]])
+  })
+
+  it('replaces an early aggregate accepted prompt with the original queued input', async () => {
+    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['late'] })
+    simulateMessage({ type: 'chat_accepted', origin: 'channel', session_id: 'l1', request_id: 'late', prompt: 'first\n\nsecond' })
+    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'late', prompt: 'second', timestamp: '2026-01-01T00:00:00Z', files: [{ name: 'a.txt', path: '/tmp/a.txt' }] })
+    const message = useChatStore.getState().messages.l1.find((m) => m.role === 'user')!
+    expect(message).toMatchObject({ queued: false, timestamp: '2026-01-01T00:00:00Z', segments: [{ type: 'content', text: 'second' }], files: [{ name: 'a.txt', path: '/tmp/a.txt' }] })
+  })
+
+  it('keeps earlier queued messages before a reply when accepted arrives first', async () => {
+    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['earlier', 'later'] })
+    simulateMessage({ type: 'chat_accepted', origin: 'channel', session_id: 'l1', request_id: 'later', prompt: 'earlier\n\nlater', timestamp: '2026-01-01T00:00:00Z' })
+    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'earlier', prompt: 'earlier', timestamp: '2026-01-01T00:00:00Z' })
+    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'later', prompt: 'later', timestamp: '2026-01-01T00:00:01Z' })
+    expect(useChatStore.getState().messages.l1.map((m) => [m.role, m.requestId])).toEqual([['user','earlier'], ['user','later'], ['assistant','later']])
+  })
+
+  it('orders three late queued messages before their aggregate response', async () => {
+    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['a', 'b', 'c'] })
+    simulateMessage({ type: 'chat_accepted', origin: 'channel', session_id: 'l1', request_id: 'c', prompt: 'a\n\nb\n\nc', timestamp: '2026-01-01T00:00:00Z' })
+    for (const [id, time] of [['b','01'], ['a','00'], ['c','02']]) simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: id, prompt: id, timestamp: `2026-01-01T00:00:${time}Z` })
+    expect(useChatStore.getState().messages.l1.map((m) => [m.role, m.requestId])).toEqual([['user','a'],['user','b'],['user','c'],['assistant','c']])
+  })
+
+  it('marks a stopped channel input as cancelled, including when notification arrives first', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'channel_queue_cancelled', session_id: 'l1', request_id: 'cancel-early' })
+    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'cancel-early', prompt: 'pending' })
+    expect(useChatStore.getState().messages.l1[0]).toMatchObject({ queued: false, queueCancelled: true, queueError: false })
+  })
+
+  it('does not restore a deleted cancelled input when the queued event arrives late', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'removed-cancelled', prompt: 'pending' })
+    simulateMessage({ type: 'channel_queue_cancelled', session_id: 'l1', request_id: 'removed-cancelled' })
+    removeAllCancelledInputs('l1')
+    useChatStore.setState({ messages: { l1: [] } })
+    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'removed-cancelled', prompt: 'pending' })
+    expect(useChatStore.getState().messages.l1).toEqual([])
+  })
+
+  it('does not restore an input cancelled before clear and received after clear', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'channel_queue_cancelled', session_id: 'l1', request_id: 'cancelled-before-clear' })
+    removeAllCancelledInputs('l1')
+    useChatStore.setState({ messages: { l1: [] } })
+    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'cancelled-before-clear', prompt: 'pending' })
+    expect(useChatStore.getState().messages.l1).toEqual([])
+  })
+
+  it('does not restore a deleted queued input when cancellation arrives later', async () => {
+    useChatStore.setState({ messages: {} })
+    await wsManager.connect(); simulateOpen()
+    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'removed-before-cancel', prompt: 'pending' })
+    removeCancelledInputs('l1', useChatStore.getState().messages.l1)
+    useChatStore.setState({ messages: { l1: [] } })
+    simulateMessage({ type: 'channel_queue_cancelled', session_id: 'l1', request_id: 'removed-before-cancel' })
+    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'removed-before-cancel', prompt: 'pending' })
+    expect(useChatStore.getState().messages.l1).toEqual([])
   })
 
   it('hydrates an unowned channel stream into the active chat store', async () => {

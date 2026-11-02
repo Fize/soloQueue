@@ -12,7 +12,10 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
+	"github.com/xiaobaitu/soloqueue/internal/dispatch"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
+	"github.com/xiaobaitu/soloqueue/internal/llm"
+	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
@@ -46,6 +49,7 @@ type NotificationPayload struct {
 // WSMessage is the envelope for all WebSocket messages sent to clients.
 type WSMessage struct {
 	DispatchID string `json:"dispatch_id,omitempty"`
+	Revision   uint64 `json:"revision,omitempty"`
 	Type       string `json:"type"`
 	// Origin identifies messages mirrored from a non-browser transport. Empty
 	// means the message belongs to the browser request that opened the stream.
@@ -75,6 +79,8 @@ type WSMessage struct {
 	Content          string                            `json:"content,omitempty"`
 	ReasoningContent string                            `json:"reasoning_content,omitempty"`
 	Prompt           string                            `json:"prompt,omitempty"`
+	Files            []ClientFile                      `json:"files,omitempty"`
+	ImageCount       int                               `json:"image_count,omitempty"`
 	TargetAgentID    string                            `json:"target_agent_id,omitempty"`
 	AgentName        string                            `json:"agent_name,omitempty"`
 	ResultContent    string                            `json:"result_content,omitempty"`
@@ -225,6 +231,28 @@ func (h *Hub) configureRequestLifecycle() {
 		OnStart: func(ctx context.Context, sessionID, requestID string) error {
 			return h.reserveLifecycleRequest(ctx, sessionID, requestID)
 		},
+		OnDispatchTerminal: func(sessionID string, record dispatch.Record) {
+			status := string(record.Status)
+			message := &WSMessage{Type: "dispatch_terminal", SessionID: logicalRuntimeSessionID(sessionID), RequestID: record.RequestID, DispatchID: record.ID, Revision: record.Revision, CallID: record.ToolCallID, Result: status}
+			if record.Status != dispatch.StatusCompleted {
+				message.Error = status
+			}
+			h.BroadcastMessage(message)
+		},
+		OnChannelQueueCancelled: func(ctx context.Context, sessionID, requestID string) {
+			h.BroadcastMessage(&WSMessage{Type: "channel_queue_cancelled", SessionID: logicalRuntimeSessionID(sessionID), RequestID: requestID})
+		},
+		OnChannelQueueFailed: func(ctx context.Context, sessionID, requestID string) {
+			h.BroadcastMessage(&WSMessage{Type: "channel_queue_failed", SessionID: logicalRuntimeSessionID(sessionID), RequestID: requestID, Error: "failed"})
+		},
+		OnChannelQueued: func(ctx context.Context, sessionID, requestID, prompt string, receivedAt time.Time, attachments []ctxwin.FileAttachment) {
+			images, _ := ctx.Value(ctxwin.ImageContextKey).([]llm.ImageContent)
+			files := make([]ClientFile, 0, len(attachments))
+			for _, file := range attachments {
+				files = append(files, ClientFile{Name: file.Name, Path: file.Path})
+			}
+			h.BroadcastMessage(&WSMessage{Type: "chat_queued", Origin: "channel", SessionID: logicalRuntimeSessionID(sessionID), RequestID: requestID, Prompt: prompt, Files: files, ImageCount: len(images), Timestamp: receivedAt.UTC().Format(time.RFC3339Nano)})
+		},
 		OnInput: func(ctx context.Context, sessionID, requestID, prompt string) {
 			logicalSessionID := logicalRuntimeSessionID(sessionID)
 			msg := &WSMessage{
@@ -283,6 +311,7 @@ func (h *Hub) configureRequestLifecycle() {
 				if boundary.PreviousRequestID != "" {
 					wsMsg.RequestID = boundary.PreviousRequestID
 				}
+				h.BroadcastMessage(&WSMessage{Type: "channel_queue_started", Origin: "channel", SessionID: logicalSessionID, RequestIDs: boundary.RequestIDs})
 				// The root request still owns execution and cancellation. Publish
 				// the newly consumed input before moving the visible reply to it.
 				input := &WSMessage{
