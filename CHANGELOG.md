@@ -4,6 +4,48 @@ Notable changes are recorded here for each release in English and Simplified Chi
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-02
+
+### Added
+
+- Added WeCom image and voice message support, including mixed text and images and platform-transcribed voice.
+- Added tool source labels in chat and automatic project branch refresh in the composer.
+- Added a Docker build target and expanded the container's development tools.
+
+### Improved
+
+- Improved delegation and request tracing, and animated the chat inspector panel.
+- Updated the Docker image's language runtimes and development tools.
+
+### Fixed
+
+- Isolated delegation failures, preserved conversation context, and synchronized queued channel and delegation states.
+- Corrected project instruction loading and accepted unpadded WeCom media keys.
+
+### Compatibility notes
+
+- WeCom supports generated images and AMR voice in current conversations. Files, videos, and scheduled media notifications are not supported. Incoming media is limited to 10 MiB per item and 10 images per message.
+
+### 新增
+
+- 新增企业微信图片和语音消息支持，包括图文混合消息及平台转写的语音。
+- 聊天工具卡片新增来源标识，输入框自动刷新项目分支。
+- 新增 Docker 构建目标，并扩充容器内的开发工具。
+
+### 改进
+
+- 改进委派和请求追踪，并为聊天检查面板增加动画。
+- 更新 Docker 镜像中的语言运行环境和开发工具。
+
+### 修复
+
+- 隔离委派失败、保留会话上下文，并同步渠道排队消息和委派状态。
+- 修正项目指令加载，并支持未填充的企业微信媒体密钥。
+
+### 兼容性说明
+
+- 企业微信当前会话支持接收生成的图片和 AMR 语音，暂不支持文件、视频和定时媒体通知。接收媒体限制为单项 10 MiB、每条消息最多 10 张图片。
+
 ## [0.3.0] - 2026-10-29
 
 ### Added
