@@ -538,3 +538,55 @@ func TestDelegateTool_ExecuteAsyncAlwaysAsyncRejectsDepth(t *testing.T) {
 		t.Fatalf("resolver calls = %d, want 0 when depth validation fails", got)
 	}
 }
+
+func TestL1DynamicWorkerDoesNotRequireParallelPlan(t *testing.T) {
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		return dispatchTestTarget{}, false, nil
+	}
+	dt := NewDelegateTool("assistant", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited, WithL1DynamicWorkers())
+	ctx := iface.ContextWithWorkDir(context.Background(), t.TempDir())
+	if _, err := dt.Execute(ctx, `{"target":"temporary","task_name":"investigate","task":"investigate","dynamic_worker":true}`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDynamicWorkerRejectsVisibleTarget(t *testing.T) {
+	dt := NewDelegateTool("assistant", time.Minute, nil, nil, nil, WorkDirExplicitOrInherited, WithL1DynamicWorkers(), WithTargetValidator(func(target string) bool { return target == "engineering" }))
+	ctx := iface.ContextWithWorkDir(context.Background(), t.TempDir())
+	if _, err := dt.Execute(ctx, `{"target":"engineering","task_name":"x","task":"x","dynamic_worker":true}`); err == nil || !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+type panicOnInstanceTarget struct {
+	dispatchTestTarget
+	done atomic.Int32
+}
+
+func (*panicOnInstanceTarget) InstanceID() string  { panic("setup failed") }
+func (p *panicOnInstanceTarget) OnDelegationDone() { p.done.Add(1) }
+func TestAsyncSetupPanicCleansSpawnedExecutor(t *testing.T) {
+	manager, err := dispatch.NewManager(t.TempDir(), "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := &panicOnInstanceTarget{}
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		return target, true, nil
+	}
+	dt := NewDelegateTool("assistant", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited, WithL1DynamicWorkers(), WithAlwaysAsyncDelegation())
+	ctx := dispatch.WithScope(iface.ContextWithWorkDir(context.Background(), t.TempDir()), dispatch.Scope{Manager: manager})
+	_, err = dt.ExecuteAsync(ctx, `{"target":"temp","task_name":"test","task":"test","dynamic_worker":true}`)
+	if err == nil || target.done.Load() != 1 {
+		t.Fatalf("error=%v, cleanup=%d", err, target.done.Load())
+	}
+}
+
+func TestL1DynamicWorkerRejectsUnsupportedSkillID(t *testing.T) {
+	dt := NewDelegateTool("assistant", time.Minute, nil, nil, nil, WorkDirExplicitOrInherited, WithL1DynamicWorkers(), WithAlwaysAsyncDelegation())
+	ctx := iface.ContextWithWorkDir(context.Background(), t.TempDir())
+	args := `{"target":"temp","task_name":"test","task":"test","dynamic_worker":true,"skill_id":"example"}`
+	if _, err := dt.ExecuteAsync(ctx, args); err == nil || !strings.Contains(err.Error(), "skill_id") {
+		t.Fatalf("error = %v", err)
+	}
+}

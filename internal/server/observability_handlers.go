@@ -171,6 +171,10 @@ func (m *Mux) dispatchOwner(s string) string {
 	return s
 }
 func (m *Mux) findObservationDispatches(s, q string) []observationDispatch {
+	return m.findObservationDispatchesLimit(s, q, 100)
+}
+
+func (m *Mux) findObservationDispatchesLimit(s, q string, limit int) []observationDispatch {
 	out := []observationDispatch{}
 	paths, _ := filepath.Glob(filepath.Join(m.workDir, "logs", "timelines", "*", "delegations", "dlg_*", "meta.json"))
 	owner := m.dispatchOwner(s)
@@ -191,14 +195,26 @@ func (m *Mux) findObservationDispatches(s, q string) []observationDispatch {
 			continue
 		}
 		out = append(out, observationDispatch{Record: rec, Events: []dispatch.Event{}})
-		if len(out) >= 100 {
+		if limit > 0 && len(out) >= limit {
 			break
 		}
 	}
 	return out
 }
 func observationSafePath(root, path string) bool {
-	root, e := filepath.EvalSymlinks(root)
+	originalRoot, e := filepath.Abs(root)
+	if e != nil {
+		return false
+	}
+	originalPath, e := filepath.Abs(path)
+	if e != nil {
+		return false
+	}
+	rel, e := filepath.Rel(originalRoot, originalPath)
+	if e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	root, e = filepath.EvalSymlinks(originalRoot)
 	if e != nil {
 		return false
 	}
@@ -206,8 +222,7 @@ func observationSafePath(root, path string) bool {
 	if e != nil {
 		return false
 	}
-	rel, e := filepath.Rel(root, resolved)
-	return e == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && resolved == filepath.Clean(path)
+	return resolved == filepath.Join(root, rel)
 }
 func (m *Mux) handleObservationDispatch(w http.ResponseWriter, r *http.Request) {
 	s := r.URL.Query().Get("session_id")

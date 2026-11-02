@@ -475,3 +475,27 @@ func TestVerifyJWTSignatureRS256(t *testing.T) {
 		t.Fatal("unsupported signing algorithm accepted")
 	}
 }
+
+func TestObservedWireBodyMatchesHTTPBytes(t *testing.T) {
+	manager, err := NewManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.cred.AccessToken = "test-token"
+	manager.cred.ExpiresAt = time.Now().Add(time.Hour).Unix()
+	client := NewClient(manager, 0)
+	var observed, received []byte
+	observer := llm.NewCallObserver(nil)
+	observer.SetRequestBodyObserver(func(body []byte) { observed = append([]byte(nil), body...) })
+	client.http = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		received, _ = io.ReadAll(req.Body)
+		return &http.Response{StatusCode: 400, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"stop"}}`)), Request: req}, nil
+	})}
+	_, _ = client.ChatStream(llm.WithCallObserver(context.Background(), observer), agent.LLMRequest{Model: "gpt-test", Messages: []agent.LLMMessage{{Role: "system", Content: "fixed"}, {Role: "user", Content: "question"}}})
+	if len(received) == 0 || !bytes.Equal(observed, received) {
+		t.Fatalf("observed=%q received=%q", observed, received)
+	}
+	if bytes.Contains(observed, []byte("test-token")) {
+		t.Fatal("authorization leaked into body")
+	}
+}

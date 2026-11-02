@@ -116,7 +116,8 @@ func readTailSince(dir, baseName string, maxTurns int, since time.Time, agentID 
 			case "summary":
 				if evt.Control.Content != "" {
 					msg := MessagePayload{
-						Role:      "system",
+						Role:      "user",
+						IsSummary: true,
 						Content:   "[Conversation Summary]\n" + evt.Control.Content,
 						Timestamp: evt.Timestamp,
 					}
@@ -326,7 +327,14 @@ func replaySegment(cw *ctxwin.ContextWindow, msgs []MessagePayload) {
 
 // pushMessage pushes a single message to the ContextWindow.
 func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
+	if msg.Role == "system" && (strings.HasPrefix(msg.Content, "[Conversation Summary]\n") || strings.HasPrefix(msg.Content, "[Previous Conversation Summary]\n")) {
+		msg.Role = "user"
+		msg.IsSummary = true
+	}
 	opts := make([]ctxwin.PushOption, 0, 5)
+	if msg.IsSummary {
+		opts = append(opts, ctxwin.WithSummary())
+	}
 	if msg.ReasoningContent != "" {
 		opts = append(opts, ctxwin.WithReasoningContent(msg.ReasoningContent))
 	}

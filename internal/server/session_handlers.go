@@ -52,7 +52,7 @@ func (m *Mux) handleGetSessionStatus(w http.ResponseWriter, r *http.Request) {
 	payload := sess.CW().BuildPayload()
 	msgs := make([]SessionMessageInfo, 0, len(payload))
 	for _, msg := range payload {
-		if msg.Role == "system" {
+		if msg.Role == "system" || msg.IsSummary || msg.IsPersonaState {
 			continue // skip system prompt messages for cleaner chat UI
 		}
 		msgs = append(msgs, SessionMessageInfo{
@@ -1170,6 +1170,26 @@ func (m *Mux) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	nextEvent:
+	}
+
+	// Dispatch records remain authoritative when a parent stream ends before
+	// the delegate tool can publish its terminal event.
+	for _, observed := range m.findObservationDispatchesLimit(sessionID, "", 0) {
+		record := observed.Record
+		if record.Status == "running" || record.Status == "persistence_pending" {
+			continue
+		}
+		for _, pending := range pendingToolCalls {
+			if !isDelegationToolName(pending.name) || pending.callID != record.ToolCallID || !requestIDsMatch(pending.requestID, record.RequestID) || pending.msgIdx >= len(msgs) || pending.segIdx >= len(msgs[pending.msgIdx].Segments) {
+				continue
+			}
+			segment := msgs[pending.msgIdx].Segments[pending.segIdx]
+			segment["done"] = true
+			segment["dispatch_id"] = record.ID
+			if record.Status != "completed" {
+				segment["error"] = string(record.Status)
+			}
+		}
 	}
 
 	if msgs == nil {

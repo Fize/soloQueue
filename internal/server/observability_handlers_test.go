@@ -438,3 +438,32 @@ func TestObservationPagesToolsWithoutInflatingLLMCount(t *testing.T) {
 		}
 	}
 }
+
+func TestObservationSafePathAllowsRootAliasButRejectsInternalSymlink(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "root-alias")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "records"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "records", "meta.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !observationSafePath(alias, filepath.Join(alias, "records", "meta.json")) {
+		t.Fatal("root alias rejected")
+	}
+	if err := os.Symlink(filepath.Join(root, "records"), filepath.Join(root, "internal-link")); err != nil {
+		t.Fatal(err)
+	}
+	if observationSafePath(alias, filepath.Join(alias, "internal-link", "meta.json")) {
+		t.Fatal("internal symlink accepted")
+	}
+	if observationSafePath(alias, filepath.Join(alias, "..", "outside")) {
+		t.Fatal("outside path accepted")
+	}
+}

@@ -12,7 +12,7 @@ import (
 // The groups argument remains for API compatibility with PromptConfig callers.
 func buildRoutingTable(leaders []LeaderInfo, _ map[string]GroupFile) string {
 	if len(leaders) == 0 {
-		return "No matching teams are currently available. Handle all tasks yourself."
+		return "No Teams are currently available. Handle simple tasks directly and use a temporary executor for work requiring investigation or multiple steps."
 	}
 
 	// Sort by Group and canonical target ID to ensure stable output.
@@ -26,7 +26,7 @@ func buildRoutingTable(leaders []LeaderInfo, _ map[string]GroupFile) string {
 	})
 
 	var b strings.Builder
-	b.WriteString("Available Teams for matching-domain work or explicit Team requests. Use only these listed Team targets; if none matches, handle the work directly:\n")
+	b.WriteString("Available Teams for matching-domain work or explicit Team requests. Use listed Teams for matching multi-step work; if none matches, use a temporary executor:\n")
 
 	// Keep the group heading as a compact classification label, but include
 	// only the team description, never the leader's role description.

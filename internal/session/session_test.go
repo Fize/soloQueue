@@ -2748,3 +2748,39 @@ func TestSession_PageStopUsesUserCancellationTerminalCode(t *testing.T) {
 		t.Fatal("missing completion")
 	}
 }
+
+func TestHistoryHidesSyntheticSummary(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "instructions")
+	cw.Push(ctxwin.RoleUser, "[Conversation Summary]\nstale", ctxwin.WithSummary())
+	cw.Push(ctxwin.RoleUser, "real user")
+	s := NewSession("s1", "t1", nil, cw, nil, nil)
+	got := s.History()
+	for _, msg := range got {
+		if strings.Contains(msg.Content, "stale") {
+			t.Fatalf("summary visible in history: %+v", got)
+		}
+	}
+	if got[len(got)-1].Content != "real user" {
+		t.Fatalf("real user missing: %+v", got)
+	}
+}
+
+func TestSyntheticSummaryExcludedFromMemoryAndActivity(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "instructions")
+	cw.Push(ctxwin.RoleUser, "[Conversation Summary]\nstale", ctxwin.WithSummary())
+	s := NewSession("s1", "t1", nil, cw, nil, nil)
+	if !s.LastMessageTime().IsZero() {
+		t.Fatalf("synthetic summary counted as activity")
+	}
+	payload := cw.BuildPayload()
+	if strings.Contains(formatPayloadForMemory(payload), "stale") {
+		t.Fatal("summary was presented as user memory")
+	}
+	for _, msg := range filterPayloadSince(payload, time.Time{}) {
+		if msg.IsSummary {
+			t.Fatal("summary was retained in memory/router input")
+		}
+	}
+}

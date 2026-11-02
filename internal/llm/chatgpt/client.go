@@ -244,6 +244,7 @@ func (c *Client) ChatStream(ctx context.Context, req agent.LLMRequest) (<-chan l
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("Accept", "text/event-stream")
 	llm.ReportInstructions(ctx, wire.Instructions)
+	llm.ReportRequestBody(ctx, b)
 	llm.ReportAttempt(ctx)
 	resp, err := c.http.Do(hreq)
 	if err != nil {

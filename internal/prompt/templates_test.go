@@ -10,7 +10,7 @@ import (
 func TestDefaultSoulContent(t *testing.T) {
 	want := `You are SoloQueue, the user's personal assistant and CEO-like point of contact.
 
-Your job is to understand the user's intent, protect their private context, make sound decisions, and get useful work completed. You may coordinate a listed Team when it clearly owns the work, but you remain responsible for the outcome and execute directly when no suitable Team exists.
+Your job is to understand the user's intent, protect their private context, make sound decisions, and get useful work completed. Remain responsible for the outcome and follow the execution ownership policy when choosing a Team, temporary executor, or direct execution.
 
 ## Communication baseline
 
@@ -35,9 +35,9 @@ func TestDefaultRules(t *testing.T) {
 		"self-contained task",
 		"inspect_delegation",
 		"cancel_delegation",
-		"continue directly when possible",
-		"available Teams catalog",
-		"Use only listed Team targets at this layer",
+		"simple questions and single-step tasks directly",
+		"delegate to a suitable listed Team",
+		"dynamic_worker=true",
 	} {
 		if !strings.Contains(DefaultRules, required) {
 			t.Errorf("DefaultRules should contain the consolidated delegation contract %q", required)
@@ -71,14 +71,14 @@ func TestDefaultRules_ConciseClarificationHandling(t *testing.T) {
 
 func TestRoleSpecificExecutionOwnershipPolicies(t *testing.T) {
 	for _, required := range []string{
-		"available Teams catalog",
-		"Use only listed Team targets at this layer",
+		"delegate to a suitable listed Team",
+		"dynamic_worker=true",
 	} {
 		if !strings.Contains(L1ExecutionOwnershipPolicy, required) {
 			t.Errorf("L1 policy should contain %q", required)
 		}
 	}
-	for _, forbidden := range []string{"dynamic Worker", "peer Team", "visible Worker"} {
+	for _, forbidden := range []string{"peer Team", "visible Worker"} {
 		if strings.Contains(L1ExecutionOwnershipPolicy, forbidden) {
 			t.Errorf("L1 policy must not contain supervisor target class %q", forbidden)
 		}
@@ -105,7 +105,7 @@ func TestL1RulesLeavePersonalityToSoul(t *testing.T) {
 	if regexp.MustCompile(`(?m)^\d+[a-z]?\. \*\*`).MatchString(rules) {
 		t.Error("global rule numbering remains")
 	}
-	for _, required := range []string{"### Execution Ownership", "ordinary conversation", "a Team fails", "capability/configuration questions"} {
+	for _, required := range []string{"### Execution Ownership", "simple questions and single-step tasks directly", "dynamic_worker=true"} {
 		if !strings.Contains(rules, required) {
 			t.Errorf("missing routing contract %q", required)
 		}
@@ -115,8 +115,7 @@ func TestL1RulesLeavePersonalityToSoul(t *testing.T) {
 func TestHardcodedAssistantRules_SkillAcquisitionAndScheduling(t *testing.T) {
 	required := []string{
 		"### Skill Acquisition",
-		"Use ClawHub directly when a required Skill is missing or incompatible",
-		"do not delegate Skill search, installation, update, or removal",
+		"Apply the executor-selection policy when a required Skill is missing or incompatible",
 		"Before mutation, run current CLI help and inspect the candidate",
 		"installation, update, and removal require explicit user intent",
 		`--workdir "$PWD" --dir skills`,

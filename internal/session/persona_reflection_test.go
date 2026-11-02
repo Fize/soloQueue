@@ -451,3 +451,86 @@ func TestFlushMemoryWaitsForCancelableReflection(t *testing.T) {
 		t.Fatal("flush did not cancel")
 	}
 }
+
+func TestPersonaStateIsSyntheticUserBeforeHistoryAndInsertedOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.md")
+	if err := os.WriteFile(path, []byte("tone: calm"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "fixed instructions")
+	cw.Push(ctxwin.RoleUser, "prior user")
+	s := NewSession("s", "l1", nil, cw, nil, newReflectionTestLogger(t))
+	s.SetPersonaStatePath(path)
+	s.maybeInjectPersonaState()
+	s.maybeInjectPersonaState()
+	if cw.Len() != 3 {
+		t.Fatalf("messages: %d", cw.Len())
+	}
+	state, _ := cw.MessageAt(1)
+	if state.Role != ctxwin.RoleUser || !state.IsPersonaState || !strings.Contains(state.Content, "tone: calm") {
+		t.Fatalf("persona: %+v", state)
+	}
+}
+
+func TestPersonaStateUnchangedDuringConversationAndClearReloads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.md")
+	if err := os.WriteFile(path, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "fixed")
+	s := NewSession("s", "l1", nil, cw, nil, newReflectionTestLogger(t))
+	s.SetPersonaStatePath(path)
+	s.maybeInjectPersonaState()
+	if err := os.WriteFile(path, []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.maybeInjectPersonaState()
+	old, _ := cw.MessageAt(1)
+	if !strings.Contains(old.Content, "old") {
+		t.Fatalf("changed during session: %+v", old)
+	}
+	cw.Reset()
+	s.maybeInjectPersonaState()
+	next, _ := cw.MessageAt(1)
+	if !next.IsPersonaState || !strings.Contains(next.Content, "new") {
+		t.Fatalf("reload: %+v", next)
+	}
+}
+func TestQuotedPersonaMarkerIsNotSynthetic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.md")
+	if err := os.WriteFile(path, []byte("actual state"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "fixed")
+	cw.Push(ctxwin.RoleUser, "[persona_state]\nquoted by user")
+	s := NewSession("s", "l1", nil, cw, nil, newReflectionTestLogger(t))
+	s.SetPersonaStatePath(path)
+	s.maybeInjectPersonaState()
+	state, _ := cw.MessageAt(1)
+	user, _ := cw.MessageAt(2)
+	if !state.IsPersonaState || !strings.Contains(state.Content, "actual state") || user.IsPersonaState {
+		t.Fatalf("state=%+v user=%+v", state, user)
+	}
+}
+
+func TestLegacySystemPersonaNormalizesWithoutMistakingUserQuote(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.md")
+	if err := os.WriteFile(path, []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
+	cw.Push(ctxwin.RoleSystem, "fixed")
+	cw.Push(ctxwin.RoleUser, "ordinary user")
+	cw.Push(ctxwin.RoleSystem, "[persona_state]\nlegacy")
+	s := NewSession("s", "l1", nil, cw, nil, newReflectionTestLogger(t))
+	s.SetPersonaStatePath(path)
+	s.maybeInjectPersonaState()
+	p, _ := cw.MessageAt(1)
+	q, _ := cw.MessageAt(2)
+	if p.Role != ctxwin.RoleUser || !p.IsPersonaState || !strings.Contains(p.Content, "legacy") || q.Content != "ordinary user" {
+		t.Fatalf("persona=%+v user=%+v", p, q)
+	}
+}

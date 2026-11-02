@@ -187,9 +187,11 @@ func (c *TelemetryClient) logCallAsync(
 			record.call.RecordingStatus = "partial"
 		}
 		if record.store != nil {
-			if err := record.store.SaveCall(record.call, nil); err != nil {
+			record.promptMu.Lock()
+			if err := record.store.SaveCall(record.call, record.prompt); err != nil {
 				record.call.RecordingStatus = "partial"
 			}
+			record.promptMu.Unlock()
 		}
 	}
 	if c.db == nil {

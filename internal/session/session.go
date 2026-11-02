@@ -187,9 +187,13 @@ type RequestLifecycleHooks struct {
 	// OnInput observes the accepted user prompt before routing begins. It is
 	// used by transports that do not own a browser WebSocket request to publish
 	// the user message into the shared live stream.
-	OnInput func(context.Context, string, string, string)
-	OnBind  func(string, string, func() error) error
-	OnRoute func(string, string, RequestRoute)
+	OnInput                 func(context.Context, string, string, string)
+	OnChannelQueued         func(context.Context, string, string, string, time.Time, []ctxwin.FileAttachment)
+	OnChannelQueueFailed    func(context.Context, string, string)
+	OnChannelQueueCancelled func(context.Context, string, string)
+	OnDispatchTerminal      func(string, dispatch.Record)
+	OnBind                  func(string, string, func() error) error
+	OnRoute                 func(string, string, RequestRoute)
 	// OnEvent observes normalized AgentEvents before they are delivered to the
 	// request consumer. The consumer remains responsible for draining the
 	// stream; this hook only mirrors the event to shared observers.
@@ -604,6 +608,31 @@ func (s *Session) SetRequestLifecycleHooks(hooks RequestLifecycleHooks) {
 	s.agentMu.Unlock()
 }
 
+func filesFromContext(ctx context.Context) []ctxwin.FileAttachment {
+	files, _ := ctx.Value(ctxwin.FilesContextKey).([]ctxwin.FileAttachment)
+	return files
+}
+
+func (s *Session) notifyChannelQueued(ctx context.Context, prompt string, receivedAt time.Time) {
+	s.agentMu.RLock()
+	hook := s.requestHooks.OnChannelQueued
+	s.agentMu.RUnlock()
+	id := telemetry.MetadataFromContext(ctx).RequestID
+	if hook != nil && id != "" {
+		hook(ctx, s.TargetID, id, prompt, receivedAt, filesFromContext(ctx))
+	}
+}
+
+func (s *Session) notifyChannelQueueFailed(ctx context.Context) {
+	s.agentMu.RLock()
+	hook := s.requestHooks.OnChannelQueueFailed
+	s.agentMu.RUnlock()
+	id := telemetry.MetadataFromContext(ctx).RequestID
+	if hook != nil && id != "" {
+		hook(ctx, s.TargetID, id)
+	}
+}
+
 // CancelRunOwned cancels one request after the runtime owner has verified that
 // the caller controls it. Channel adapters use this path so /cancel cannot
 // affect a browser request sharing the same session.
@@ -913,6 +942,9 @@ func (s *Session) History() []agent.LLMMessage {
 	payload := s.cw.BuildPayload()
 	out := make([]agent.LLMMessage, 0, len(payload))
 	for _, p := range payload {
+		if p.IsSummary || p.IsPersonaState {
+			continue
+		}
 		content := p.Content
 		if p.Role == "user" {
 			content = StripRecalledMemories(content)
@@ -1372,7 +1404,14 @@ func (s *Session) withDispatchScope(ctx context.Context) context.Context {
 	if s.dispatchManager == nil {
 		return ctx
 	}
-	return dispatch.WithScope(ctx, dispatch.Scope{Manager: s.dispatchManager})
+	return dispatch.WithScope(ctx, dispatch.Scope{Manager: s.dispatchManager, OnTerminal: func(record dispatch.Record) {
+		s.agentMu.RLock()
+		hook := s.requestHooks.OnDispatchTerminal
+		s.agentMu.RUnlock()
+		if hook != nil {
+			hook(s.TargetID, record)
+		}
+	}})
 }
 
 // beginRunLifecycle attaches one Runtime-owned watchdog root to a public
@@ -1588,6 +1627,15 @@ func (s *Session) SetMemoryManager(mm *conversation.Manager) {
 // the context window. Empty disables persona state injection.
 func (s *Session) SetPersonaStatePath(p string) {
 	s.personaStatePath = p
+	if s.cw != nil {
+		s.cw.SetPersonaStateSource(func() string {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return ""
+			}
+			return strings.TrimSpace(string(data))
+		})
+	}
 }
 
 // SetPersonaReflection enables persona reflection for this session. L1-only:
@@ -1609,20 +1657,15 @@ func (s *Session) maybeInjectPersonaState() {
 	if s.personaStatePath == "" || s.cw == nil {
 		return
 	}
-	for i := 0; i < s.cw.Len(); i++ {
-		if m, ok := s.cw.MessageAt(i); ok && strings.Contains(m.Content, "[persona_state]") {
-			return
-		}
+	if s.cw.HasPersonaState() {
+		s.cw.EnsurePersonaState("")
+		return
 	}
 	data, err := os.ReadFile(s.personaStatePath)
 	if err != nil {
-		return // missing state.md: silently skip
-	}
-	content := strings.TrimSpace(string(data))
-	if content == "" {
 		return
 	}
-	s.cw.Push(ctxwin.RoleSystem, "[persona_state]\n"+content)
+	s.cw.EnsurePersonaState(strings.TrimSpace(string(data)))
 }
 
 // runPersonaReflection runs the state.md reflection asynchronously on the
@@ -1773,7 +1816,7 @@ func (s *Session) LastMessageTime() time.Time {
 	defer s.mu.Unlock()
 	payload := s.cw.BuildPayload()
 	for i := len(payload) - 1; i >= 0; i-- {
-		if payload[i].Role != "system" {
+		if payload[i].Role != "system" && !payload[i].IsSummary && !payload[i].IsPersonaState {
 			return payload[i].Timestamp
 		}
 	}
@@ -2385,7 +2428,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 		s.lastLevelMu.RUnlock()
 
 		routerCtx := telemetry.WithTelemetryContext(ctx, s.TeamID, telemetry.UsageRouter)
-		result, err := s.Router(routerCtx, prompt, priorLevel, s.cw.BuildPayload())
+		history := filterPayloadSince(s.cw.BuildPayload(), time.Time{})
+		result, err := s.Router(routerCtx, prompt, priorLevel, history)
 		if err != nil {
 			s.logger.WarnContext(ctx, logger.CatApp, "task router failed, using default model",
 				"target_id", s.TargetID,
@@ -3176,11 +3220,23 @@ func (s *Session) cancelCurrent(reason string, byUser bool) error {
 	for id, turn := range s.activeCancels {
 		turns = append(turns, identifiedTurn{id: id, activeTurnCancel: turn})
 	}
-	pendingCount := 0
+	var cancelledPending PendingDrain
 	if byUser && s.pending != nil {
-		pendingCount = len(s.pending.Drain().Parts)
+		cancelledPending = s.pending.Drain()
 	}
 	s.cancelMu.Unlock()
+	for _, part := range cancelledPending.Parts {
+		if part.RequestID == "" {
+			continue
+		}
+		s.agentMu.RLock()
+		hook := s.requestHooks.OnChannelQueueCancelled
+		s.agentMu.RUnlock()
+		if hook != nil {
+			hook(context.Background(), s.TargetID, part.RequestID)
+		}
+	}
+	pendingCount := len(cancelledPending.Parts)
 
 	if len(turns) == 0 {
 		if pendingCount > 0 {
@@ -3516,7 +3572,7 @@ func formatPayloadForMemory(payload []ctxwin.PayloadMessage) string {
 	var b strings.Builder
 	var lastTS time.Time
 	for _, m := range payload {
-		if m.Role == "system" {
+		if m.Role == "system" || m.IsSummary || m.IsPersonaState {
 			continue
 		}
 		// Emit timestamp when it changes (new turn boundary), regardless of role.
@@ -3562,12 +3618,9 @@ type payloadDateGroup struct {
 // filterPayloadSince returns messages whose Timestamp is strictly after cursor.
 // Returns the full slice when cursor is zero (never recorded).
 func filterPayloadSince(payload []ctxwin.PayloadMessage, cursor time.Time) []ctxwin.PayloadMessage {
-	if cursor.IsZero() {
-		return payload
-	}
 	var out []ctxwin.PayloadMessage
 	for _, m := range payload {
-		if m.Timestamp.After(cursor) {
+		if !m.IsSummary && !m.IsPersonaState && (cursor.IsZero() || m.Timestamp.After(cursor)) {
 			out = append(out, m)
 		}
 	}

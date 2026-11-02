@@ -10,6 +10,7 @@ import (
 
 // LLMMessage is a single message in the LLM conversation history.
 type LLMMessage struct {
+	Category         string `json:"category,omitempty"`
 	Role             string
 	Content          string
 	Images           []llm.ImageContent // Multimodal images (used only in user messages)

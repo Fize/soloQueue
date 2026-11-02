@@ -549,7 +549,7 @@ func (a *Agent) AskStreamWithHistoryTracked(ctx context.Context, cw *ctxwin.Cont
 			// stay alive because resumeTurn (and the subsequent streamLoop)
 			// still need it. Save the cancel into the asyncTurnState so
 			// resumeTurn can call it after the final streamLoop completes.
-			a.saveAsyncCancel(merged, cancel)
+			a.saveAsyncCancel(out, cancel)
 		} else {
 			cancel()
 		}

@@ -138,6 +138,8 @@ func truncateTemporalContent(content string, parts []TemporalPart, headRatio, ta
 // Independent of agent.LLMMessage to avoid circular dependency between ctxwin and agent.
 // The Agent package is responsible for converting PayloadMessage to agent.LLMMessage.
 type PayloadMessage struct {
+	IsSummary        bool `json:"-"`
+	IsPersonaState   bool `json:"-"`
 	Role             string
 	Content          string
 	Images           []llm.ImageContent // Multimodal images (only used in user messages)
@@ -170,6 +172,8 @@ const (
 //   - Calibrate proportionally adjusts each msg.Tokens so that sum ≈ currentTokens
 //   - Eviction strategies use currentTokens for decisions; msg.Tokens is only used for incremental calculations
 type Message struct {
+	IsSummary           bool // Synthetic history context, not a user turn.
+	IsPersonaState      bool // Synthetic persona state, distinct from a user turn.
 	Role                MessageRole
 	Content             string
 	Images              []llm.ImageContent // Multimodal images (only used in user messages)
@@ -191,6 +195,9 @@ type Message struct {
 
 // PushOption configures optional fields of a Message
 type PushOption func(*Message)
+
+// WithSummary marks a synthetic history summary.
+func WithSummary() PushOption { return func(m *Message) { m.IsSummary = true } }
 
 // WithEphemeral sets the IsEphemeral flag on the message
 func WithEphemeral(isEphemeral bool) PushOption {
@@ -372,6 +379,7 @@ type ContextWindow struct {
 	lifecycleCtx         context.Context
 	pendingPrimarySystem *string
 	pendingDrain         func() PendingInput
+	personaState         func() string
 }
 
 // NewContextWindow creates a context window
@@ -583,6 +591,8 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 			}
 			pendingCalls = len(m.ToolCalls)
 			out = append(out, PayloadMessage{
+				IsSummary:        m.IsSummary,
+				IsPersonaState:   m.IsPersonaState,
 				Role:             string(m.Role),
 				Content:          m.Content,
 				ReasoningContent: m.ReasoningContent,
@@ -601,6 +611,8 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 				pendingCalls--
 			}
 			out = append(out, PayloadMessage{
+				IsSummary:        m.IsSummary,
+				IsPersonaState:   m.IsPersonaState,
 				Role:             string(m.Role),
 				Content:          m.Content,
 				ReasoningContent: m.ReasoningContent,
@@ -626,6 +638,8 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 				pendingCalls = 0
 			}
 			out = append(out, PayloadMessage{
+				IsSummary:        m.IsSummary,
+				IsPersonaState:   m.IsPersonaState,
 				Role:             string(m.Role),
 				Content:          m.Content,
 				ReasoningContent: m.ReasoningContent,
@@ -895,6 +909,63 @@ func (cw *ContextWindow) replacePrimarySystem(content string) {
 	cw.currentTokens += msg.Tokens
 }
 
+// SetPersonaStateSource sets the current state reader used after compaction.
+func (cw *ContextWindow) SetPersonaStateSource(read func() string) {
+	cw.Lock()
+	defer cw.Unlock()
+	cw.personaState = read
+}
+
+// HasPersonaState reports a synthetic or legacy system persona state.
+func (cw *ContextWindow) HasPersonaState() bool {
+	cw.RLock()
+	defer cw.RUnlock()
+	for _, m := range cw.messages {
+		if m.IsPersonaState || (m.Role == RoleSystem && strings.HasPrefix(m.Content, "[persona_state]\n")) {
+			return true
+		}
+	}
+	return false
+}
+
+// EnsurePersonaState installs persona state immediately after the fixed prompt.
+func (cw *ContextWindow) EnsurePersonaState(content string) {
+	cw.Lock()
+	defer cw.Unlock()
+	for i, m := range cw.messages {
+		if m.IsPersonaState || (m.Role == RoleSystem && strings.HasPrefix(m.Content, "[persona_state]\n")) {
+			if !m.IsPersonaState || i != 1 {
+				cw.historyEpoch++
+				cw.messages = append(cw.messages[:i], cw.messages[i+1:]...)
+				m.Role = RoleUser
+				m.IsPersonaState = true
+				pos := 0
+				if len(cw.messages) > 0 && cw.messages[0].Role == RoleSystem {
+					pos = 1
+				}
+				cw.messages = append(cw.messages, Message{})
+				copy(cw.messages[pos+1:], cw.messages[pos:])
+				cw.messages[pos] = m
+			}
+			return
+		}
+	}
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+	cw.historyEpoch++
+	m := Message{Role: RoleUser, IsPersonaState: true, Content: "[persona_state]\n" + content, Timestamp: time.Now()}
+	m.Tokens = cw.tokenizer.Count(m.Content)
+	pos := 0
+	if len(cw.messages) > 0 && cw.messages[0].Role == RoleSystem {
+		pos = 1
+	}
+	cw.messages = append(cw.messages, Message{})
+	copy(cw.messages[pos+1:], cw.messages[pos:])
+	cw.messages[pos] = m
+	cw.currentTokens += m.Tokens
+}
+
 // CurrentTokens returns the current token count of the context window.
 // Thread-safe (read-locked).
 func (cw *ContextWindow) CurrentTokens() int {
@@ -986,7 +1057,7 @@ func (cw *ContextWindow) Rewind(targetTs time.Time) {
 	var kept []Message
 	newTokens := 0
 	for _, m := range cw.messages {
-		if m.Role == RoleSystem {
+		if m.Role == RoleSystem || m.IsSummary || m.IsPersonaState {
 			kept = append(kept, m)
 			newTokens += m.Tokens
 			continue
@@ -1162,7 +1233,8 @@ func (cw *ContextWindow) CompactAndReplace(ctx context.Context) (string, error) 
 		}
 
 		summaryMsg := Message{
-			Role:      RoleSystem,
+			Role:      RoleUser,
+			IsSummary: true,
 			Content:   "[Previous Conversation Summary]\n" + finalSummary,
 			Tokens:    summaryTokens,
 			Timestamp: lastMsgTimestamp,
@@ -1212,7 +1284,21 @@ func (cw *ContextWindow) replaceSummaryLocked(snapshotLen int, summary Message) 
 	if len(cw.messages) > snapshotLen {
 		suffix = append([]Message(nil), cw.messages[snapshotLen:]...)
 	}
-	cw.messages = append(cw.messages[:1], summary)
+	hadPersona := false
+	for _, msg := range cw.messages[:snapshotLen] {
+		if msg.IsPersonaState {
+			hadPersona = true
+			break
+		}
+	}
+	cw.messages = cw.messages[:1]
+	if hadPersona && cw.personaState != nil {
+		if state := strings.TrimSpace(cw.personaState()); state != "" {
+			content := "[persona_state]\n" + state
+			cw.messages = append(cw.messages, Message{Role: RoleUser, IsPersonaState: true, Content: content, Tokens: cw.tokenizer.Count(content), Timestamp: time.Now()})
+		}
+	}
+	cw.messages = append(cw.messages, summary)
 	cw.messages = append(cw.messages, suffix...)
 	total := 0
 	for _, msg := range cw.messages {
@@ -1343,7 +1429,8 @@ func (cw *ContextWindow) asyncCompact() {
 		}
 
 		summaryMsg := Message{
-			Role:      RoleSystem,
+			Role:      RoleUser,
+			IsSummary: true,
 			Content:   summaryContent,
 			Tokens:    summaryTokens,
 			Timestamp: lastMsgTimestamp,
@@ -1388,7 +1475,13 @@ func (cw *ContextWindow) asyncCompact() {
 //   - err: if any required batch or merge step fails
 func (cw *ContextWindow) compactSegments(ctx context.Context, msgs []Message) ([]SummarySegment, string, error) {
 	// 1. Drop oversized tool messages (memory only needs "what tool was called")
-	filtered := filterOversizedToolMessages(msgs[1:]) // skip system prompt
+	history := make([]Message, 0, len(msgs)-1)
+	for _, msg := range msgs[1:] {
+		if !msg.IsPersonaState {
+			history = append(history, msg)
+		}
+	}
+	filtered := filterOversizedToolMessages(history) // skip system prompt and persona state
 	filtered = stripRecalledMemoryBlocks(filtered)
 	// Prior summaries are durable conversation state. Keep them in the input so
 	// a later pass cannot erase the active goal or remaining work recorded by an
@@ -1564,7 +1657,7 @@ func stripPriorSummaryMessages(msgs []Message) []Message {
 func buildContinuityAnchor(msgs []Message) string {
 	var users []string
 	for _, m := range msgs {
-		if m.Role == RoleUser && strings.TrimSpace(m.Content) != "" {
+		if m.Role == RoleUser && !m.IsSummary && !m.IsPersonaState && strings.TrimSpace(m.Content) != "" {
 			users = append(users, m.Content)
 		}
 	}

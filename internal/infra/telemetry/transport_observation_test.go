@@ -7,8 +7,10 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/llm/deepseek"
 	"github.com/xiaobaitu/soloqueue/internal/observability"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,7 +18,10 @@ import (
 
 func TestTransportObservationCountsRealRetries(t *testing.T) {
 	var n atomic.Int32
+	var received []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received = append(received, string(body))
 		if n.Add(1) == 1 {
 			w.WriteHeader(503)
 			_, _ = fmt.Fprint(w, `{"error":{"message":"temporary"}}`)
@@ -39,6 +44,13 @@ func TestTransportObservationCountsRealRetries(t *testing.T) {
 	r, e := store.Request("l1", "r")
 	if e != nil || r.CallCount != 1 || r.Calls[0].AttemptCount != 2 || r.Calls[0].RetryCount != 1 || n.Load() != 2 {
 		t.Fatalf("%#v %v", r, e)
+	}
+	p, err := store.CallPrompt("l1", "r", r.Calls[0].CallID)
+	if err != nil || len(p.WireRequests) != 1 || len(received) != 2 || p.WireRequests[0] != received[0] || received[0] != received[1] {
+		t.Fatalf("wire=%+v received=%+v err=%v", p.WireRequests, received, err)
+	}
+	if strings.Contains(p.WireRequests[0], "test-only") {
+		t.Fatal("authentication leaked")
 	}
 }
 func TestTransportObservationRecordsCancellation(t *testing.T) {

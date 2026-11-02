@@ -509,3 +509,15 @@ it('refreshes a running tool loaded from a later page when the execution complet
   view.rerender(<ExecutionDetails sessionId="l1" requestId="req1" running />)
   expect(await within(dialog).findByText('Completed later tool')).toBeInTheDocument()
 })
+
+it('shows logical and exact transport request on demand', async () => {
+  api.getObservedPrompt.mockResolvedValue({ call_id: 'call1', recording_status: 'complete', representation: 'messages', snapshot_version: 2, wire_recording_status: 'complete', messages: [{ role: 'system', content: 'fixed' }], logical_request: { Messages: [{ Role: 'user', Content: 'private question' }] }, wire_requests: ['{"input":"private question"}\n'] })
+  render(<ExecutionDetails sessionId="l1" requestId="req1" />)
+  fireEvent.click(screen.getByRole('button', { name: /observability.title/ }))
+  const dialog = await screen.findByRole('dialog')
+  fireEvent.click(await within(dialog).findByText('provider / model'))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'observability.prompt' }))
+  expect(await within(dialog).findByText('observability.logicalRequest')).toBeInTheDocument()
+  expect(within(dialog).getByText('observability.wireRequest 1')).toBeInTheDocument()
+  expect(within(dialog).queryByText('observability.legacyPromptOnly')).not.toBeInTheDocument()
+})

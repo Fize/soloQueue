@@ -141,7 +141,7 @@ func TestBuildPrompt_NoUserCtx(t *testing.T) {
 	if contains(result, "<user_context>") {
 		t.Error("should not contain <user_context> when user.md is missing")
 	}
-	if !contains(result, "No matching teams") {
+	if !contains(result, "No Teams are currently available") {
 		t.Error("should contain fallback routing message for empty leaders")
 	}
 	if !contains(result, "<plan_before_action>") {

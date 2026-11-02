@@ -239,7 +239,11 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 	totalTokensFreed := 0
 
 	for cw.currentTokens > targetTokens {
-		if len(cw.messages) <= 1 {
+		start := 1
+		for start < len(cw.messages) && cw.messages[start].IsPersonaState {
+			start++
+		}
+		if len(cw.messages) <= start {
 			if cw.log != nil {
 				cw.log.DebugContext(context.Background(), logger.CatMessages, "slide_fifo: cannot remove more turns",
 					"reason", "only_system_prompt_left",
@@ -249,8 +253,8 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 			}
 			break // Only system prompt left
 		}
-		turnEnd := cw.findTurnEnd(1)
-		if turnEnd <= 1 {
+		turnEnd := cw.findTurnEnd(start)
+		if turnEnd <= start {
 			if cw.log != nil {
 				cw.log.DebugContext(context.Background(), logger.CatMessages, "slide_fifo: cannot remove more turns",
 					"reason", "no_turn_found",
@@ -288,7 +292,7 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 		// Collect `tool_call_ids` from all assistant messages in the turn to be deleted
 		// These will be used to clean up orphan tool messages in subsequent turns.
 		orphanIDs := make(map[string]bool)
-		for i := 1; i < turnEnd; i++ {
+		for i := start; i < turnEnd; i++ {
 			for _, tc := range cw.messages[i].ToolCalls {
 				orphanIDs[tc.ID] = true
 			}
@@ -297,7 +301,7 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 		// Calculate tokens for the turn to be deleted
 		removedTokens := 0
 		removedCount := 0
-		for i := 1; i < turnEnd; i++ {
+		for i := start; i < turnEnd; i++ {
 			removedTokens += cw.messages[i].Tokens
 			removedCount++
 		}
@@ -314,7 +318,7 @@ func (cw *ContextWindow) slideFIFO(targetTokens int) {
 		}
 
 		// Delete messages[1:turnEnd]
-		cw.messages = append(cw.messages[:1], cw.messages[turnEnd:]...)
+		cw.messages = append(cw.messages[:start], cw.messages[turnEnd:]...)
 		cw.currentTokens -= removedTokens
 		turnsRemoved++
 		totalTokensFreed += removedTokens
@@ -366,7 +370,7 @@ func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 	// Step 1: aggressively truncate ephemeral messages
 	for i := 1; i < len(cw.messages); i++ {
 		msg := &cw.messages[i]
-		if !msg.IsEphemeral || msg.Tokens <= ephemeralTruncateThreshold {
+		if msg.IsPersonaState || !msg.IsEphemeral || msg.Tokens <= ephemeralTruncateThreshold {
 			continue
 		}
 		newContent, retainedParts := truncateTemporalContent(msg.Content, msg.TemporalParts, 0.05, 0.05)
@@ -391,7 +395,7 @@ func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 	// Step 2: aggressively truncate non-ephemeral long messages
 	for i := 1; i < len(cw.messages); i++ {
 		msg := &cw.messages[i]
-		if msg.IsEphemeral || msg.Tokens <= ephemeralTruncateThreshold {
+		if msg.IsPersonaState || msg.IsEphemeral || msg.Tokens <= ephemeralTruncateThreshold {
 			continue
 		}
 		newContent, retainedParts := truncateTemporalContent(msg.Content, msg.TemporalParts, 0.10, 0.10)
@@ -417,7 +421,7 @@ func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 	maxIdx := -1
 	maxTokens := 0
 	for i := 1; i < len(cw.messages); i++ {
-		if cw.messages[i].Tokens > maxTokens {
+		if !cw.messages[i].IsPersonaState && cw.messages[i].Tokens > maxTokens {
 			maxTokens = cw.messages[i].Tokens
 			maxIdx = i
 		}
@@ -446,7 +450,7 @@ func (cw *ContextWindow) aggressiveTruncateLastTurn(targetTokens int) int {
 // If there is no next user message, it returns `len(messages)`.
 func (cw *ContextWindow) findTurnEnd(start int) int {
 	for i := start + 1; i < len(cw.messages); i++ {
-		if cw.messages[i].Role == RoleUser {
+		if cw.messages[i].Role == RoleUser && !cw.messages[i].IsSummary && !cw.messages[i].IsPersonaState {
 			return i
 		}
 	}
@@ -465,7 +469,7 @@ func (cw *ContextWindow) pruneOlderTurnsEphemeralContent(protectTurns int) {
 	boundaryIdx := -1
 	userCount := 0
 	for i := len(cw.messages) - 1; i >= 0; i-- {
-		if cw.messages[i].Role == RoleUser {
+		if cw.messages[i].Role == RoleUser && !cw.messages[i].IsSummary && !cw.messages[i].IsPersonaState {
 			userCount++
 			if userCount == protectTurns {
 				boundaryIdx = i

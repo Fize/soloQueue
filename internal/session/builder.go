@@ -277,6 +277,16 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 
 	// Inject unified delegate tool for L1 agent
 	delegateResolver := func(ctx context.Context, name, systemPrompt, modelID, task, workDir, skillID string) (iface.Locatable, bool, error) {
+		if tools.DynamicWorkerRequested(ctx) {
+			tmpl := agent.AgentTemplate{ID: "temporary-" + uuid.NewString(), Name: name, Description: "Temporary task executor", SystemPrompt: systemPrompt, MCPServers: b.RT.L1MCPServers()}
+			child, _, err := b.RT.AgentFactory.Create(ctx, tmpl, workDir)
+			if err != nil {
+				return nil, false, err
+			}
+			sv := agent.NewSupervisor(child, b.RT.AgentFactory, sessLog)
+			b.RT.AddSupervisor(sv)
+			return agent.NewSelfReapableAdapterWithCleanup(child, sv, func() { b.RT.RemoveSupervisor(sv) }), true, nil
+		}
 		// Resolve the prompt-visible display name to the same canonical ID used by
 		// the validator, registry and template lookup. This keeps legacy display
 		// names working without creating a second target-resolution rule.
@@ -385,7 +395,7 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		return ok
 	}
 	dt := tools.NewDelegateTool("assistant", 0, delegateResolver, b.RT.AgentRegistry, sessLog, tools.WorkDirExplicitOrInherited,
-		tools.WithAlwaysAsyncDelegation(), tools.WithTargetValidator(allowedTeam))
+		tools.WithAlwaysAsyncDelegation(), tools.WithTargetValidator(allowedTeam), tools.WithL1DynamicWorkers())
 	dt.SkillInstructionsLook = func(skillID string) (string, string, string, bool) {
 		if s, ok := b.RT.SkillRegistry.GetSkill(skillID); ok {
 			return s.Instructions, s.Agent, s.Dir, true
@@ -875,7 +885,7 @@ func FormatCtxwinMessages(msgs []ctxwin.Message) string {
 	var buf strings.Builder
 	var lastTS time.Time
 	for _, m := range msgs {
-		if m.Role == ctxwin.RoleSystem {
+		if m.Role == ctxwin.RoleSystem || m.IsSummary || m.IsPersonaState {
 			continue
 		}
 		if !m.Timestamp.IsZero() && !m.Timestamp.Equal(lastTS) {

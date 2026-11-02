@@ -30,6 +30,7 @@ export interface ObservedRequest {
 export interface ObservedPrompt {
   call_id: string; recording_status: RecordingStatus; representation: 'messages' | 'instructions'
   messages: { role: string; content: string }[]; instructions?: string
+  snapshot_version?: number; logical_request?: unknown; wire_requests?: string[]; wire_recording_status?: RecordingStatus
 }
 function query(sessionId: string, values: Record<string, string | undefined>) {
   const params = new URLSearchParams({ session_id: sessionId })

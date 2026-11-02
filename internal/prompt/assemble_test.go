@@ -436,7 +436,7 @@ func TestAssembledL1PromptOmitsSupervisorSkillSteps(t *testing.T) {
 	if strings.Count(got, "# Strict Scope Adherence") != 1 {
 		t.Fatalf("L1 prompt should inject strict-scope guidance once, got %d", strings.Count(got, "# Strict Scope Adherence"))
 	}
-	if !strings.Contains(got, "available Teams catalog") || !strings.Contains(got, "Use only listed Team targets at this layer") {
-		t.Fatal("L1 prompt should describe the Team-only delegation boundary")
+	if !strings.Contains(got, "delegate to a suitable listed Team") || !strings.Contains(got, "dynamic_worker=true") {
+		t.Fatal("L1 prompt should describe delegation and temporary executor policy")
 	}
 }

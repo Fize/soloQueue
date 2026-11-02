@@ -1313,3 +1313,62 @@ func TestHTTP_PageStopReportsCancellationFailure(t *testing.T) {
 		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestHistoryRestoresFailedDelegationBeyondObservationLimit(t *testing.T) {
+	workDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+	dir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	events := []string{
+		`{"ts":"2026-06-19T09:03:39+08:00","type":"message","msg":{"role":"user","content":"run","request_id":"req"}}`,
+		`{"ts":"2026-06-19T09:03:49+08:00","type":"message","msg":{"role":"assistant","request_id":"req","tool_calls":[{"id":"call","type":"function","name":"delegate","arguments":"{}"}]}}`,
+		`{"ts":"2026-06-19T09:03:50+08:00","type":"message","msg":{"role":"tool","request_id":"req","name":"delegate","tool_call_id":"call","content":""}}`,
+	}
+	if err := os.WriteFile(filepath.Join(dir, "timeline-2026-06-19.jsonl"), []byte(strings.Join(events, "\n")+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 101; i++ {
+		d := filepath.Join(dir, "delegations", fmt.Sprintf("dlg_%03d", i))
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+		data := fmt.Sprintf(`{"dispatch_id":"dlg_%03d","owner_session_id":"l1-session","request_id":"other","tool_call_id":"other","status":"completed"}`, i)
+		if i == 100 {
+			data = `{"dispatch_id":"dlg_100","owner_session_id":"l1-session","request_id":"req","tool_call_id":"call","status":"failed","error":"private path"}`
+		}
+		if err := os.WriteFile(filepath.Join(d, "meta.json"), []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	var body struct {
+		Messages []struct {
+			Segments []map[string]any `json:"segments"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, msg := range body.Messages {
+		for _, seg := range msg.Segments {
+			if seg["call_id"] == "call" {
+				if seg["done"] != true || seg["error"] != "failed" {
+					t.Fatalf("segment: %#v", seg)
+				}
+				return
+			}
+		}
+	}
+	t.Fatalf("call missing: %s", rec.Body.String())
+}

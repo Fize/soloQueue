@@ -150,8 +150,8 @@ func TestObservationSessionCaptureThroughREST(t *testing.T) {
 					t.Fatalf("prompt inaccessible: %s", w.Body.String())
 				}
 			}
-			if len(main) != 3 || main[0].PromptSourceCallID != "" || main[1].PromptSourceCallID != main[0].CallID || main[2].PromptSourceCallID != "" {
-				t.Fatalf("A-A-B mismatch: %+v", main)
+			if len(main) != 3 || main[0].PromptSourceCallID != "" || main[1].PromptSourceCallID != "" || main[2].PromptSourceCallID != "" {
+				t.Fatalf("distinct full request snapshots must remain visible: %+v", main)
 			}
 			// Tools now share the span cursor; find the repeated LLM call
 			// by stable identity rather than its former LLM-only offset.
@@ -165,7 +165,7 @@ func TestObservationSessionCaptureThroughREST(t *testing.T) {
 				for _, c := range page.Calls {
 					if c.CallID == main[1].CallID {
 						found = true
-						if c.PromptSourceCallID != main[0].CallID {
+						if c.PromptSourceCallID != "" {
 							t.Fatalf("page changed prompt identity: %+v", c)
 						}
 					}

@@ -47,7 +47,7 @@ func TestAsyncCompactRestoresSkillContent(t *testing.T) {
 		t.Fatalf("expected summary message after compact, got %d messages", cw.Len())
 	}
 	summary, _ := cw.MessageAt(1)
-	if summary.Role != RoleSystem {
+	if summary.Role != RoleUser || !summary.IsSummary {
 		t.Fatalf("second message should be the summary, got role %q", summary.Role)
 	}
 	if !strings.Contains(summary.Content, "Docx skill instructions: create heading structure") {

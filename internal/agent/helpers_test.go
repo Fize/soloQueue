@@ -109,3 +109,11 @@ func TestPayloadToLLMMessagesRendersMixedAggregateParts(t *testing.T) {
 		t.Fatalf("content = %#v, want one aggregate message with selective prefix", got)
 	}
 }
+
+func TestPayloadSyntheticCategoriesRemainVisibleInLogicalMessages(t *testing.T) {
+	payload := []ctxwin.PayloadMessage{{Role: "user", Content: "state", IsPersonaState: true}, {Role: "user", Content: "summary", IsSummary: true}, {Role: "user", Content: "question"}}
+	got := payloadToLLMMessages(payload)
+	if len(got) != 3 || got[0].Category != "persona_state" || got[1].Category != "conversation_summary" || got[2].Category != "" {
+		t.Fatalf("messages=%+v", got)
+	}
+}

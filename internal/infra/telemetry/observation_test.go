@@ -5,6 +5,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/llm"
 	"github.com/xiaobaitu/soloqueue/internal/observability"
+	"strings"
 	"testing"
 	"time"
 )
@@ -132,5 +133,56 @@ func TestTerminalObservationPrecedesTerminalDelivery(t *testing.T) {
 	r, e := store.Request("l1", "r")
 	if e != nil || len(r.Calls) != 1 || r.Calls[0].Status != "success" {
 		t.Fatalf("final observation not ready %#v %v", r, e)
+	}
+}
+
+type wireObservationFake struct{}
+
+func (wireObservationFake) Chat(ctx context.Context, r agent.LLMRequest) (*agent.LLMResponse, error) {
+	llm.ReportRequestBody(ctx, []byte(`{"input":"first"}`))
+	llm.ReportRequestBody(ctx, []byte(`{"input":"first"}`))
+	llm.ReportRequestBody(ctx, []byte(`{"input":"second"}`))
+	llm.ReportInstructions(ctx, "actual system")
+	return &agent.LLMResponse{}, nil
+}
+func (wireObservationFake) ChatStream(context.Context, agent.LLMRequest) (<-chan llm.Event, error) {
+	return nil, nil
+}
+func TestObservationKeepsLogicalRequestAndDistinctWireBodies(t *testing.T) {
+	s := observability.ForWorkDir(t.TempDir())
+	c := NewTelemetryClient(wireObservationFake{}, nil, s)
+	ctx := WithTelemetryMetadata(context.Background(), Metadata{SessionID: "l1", RequestID: "request"})
+	_, err := c.Chat(ctx, agent.LLMRequest{Model: "m", Messages: []agent.LLMMessage{{Role: "user", Content: "hello"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Request("l1", "request")
+	if err != nil || len(r.Calls) != 1 {
+		t.Fatalf("request: %+v %v", r, err)
+	}
+	p, err := s.CallPrompt("l1", "request", r.Calls[0].CallID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(p.LogicalRequest), "hello") || len(p.WireRequests) != 2 || p.Instructions != "actual system" {
+		t.Fatalf("prompt: %+v", p)
+	}
+}
+
+func TestOversizedLogicalRequestMarkedPartial(t *testing.T) {
+	store := observability.ForWorkDir(t.TempDir())
+	client := NewTelemetryClient(observationFake{}, nil, store)
+	ctx := WithTelemetryMetadata(context.Background(), Metadata{SessionID: "l1", RequestID: "large"})
+	_, err := client.Chat(ctx, agent.LLMRequest{Model: "m", Messages: []agent.LLMMessage{{Role: "user", Content: strings.Repeat("x", (8<<20)+1)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := store.Request("l1", "large")
+	if err != nil || len(r.Calls) != 1 {
+		t.Fatalf("request=%+v err=%v", r, err)
+	}
+	p, err := store.CallPrompt("l1", "large", r.Calls[0].CallID)
+	if err != nil || p.RecordingStatus != "partial" || len(p.LogicalRequest) != 0 {
+		t.Fatalf("prompt status=%s logical=%d err=%v", p.RecordingStatus, len(p.LogicalRequest), err)
 	}
 }

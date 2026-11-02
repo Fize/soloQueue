@@ -632,3 +632,35 @@ func TestPruneOlderTurnsEphemeralContent(t *testing.T) {
 		t.Errorf("Turn 2 tool output should be evicted to save space, got %q", msgB2.Content)
 	}
 }
+
+func TestPersonaSurvivesPushAndResizeEviction(t *testing.T) {
+	for _, mode := range []string{"push", "resize"} {
+		t.Run(mode, func(t *testing.T) {
+			cw := NewContextWindow(1200, 0, 0, NewTokenizer())
+			cw.Push(RoleSystem, "fixed")
+			cw.EnsurePersonaState("stable persona")
+			for i := 0; i < 5; i++ {
+				cw.Push(RoleUser, strings.Repeat("old history ", 40))
+				cw.Push(RoleAssistant, strings.Repeat("answer ", 40))
+			}
+			if mode == "resize" {
+				cw.Resize(250, 0, 0)
+			} else {
+				cw.Push(RoleUser, strings.Repeat("new user ", 100))
+			}
+			found := false
+			for i := 0; i < cw.Len(); i++ {
+				m, _ := cw.MessageAt(i)
+				if m.IsPersonaState {
+					found = true
+					if m.Content != "[persona_state]\nstable persona" {
+						t.Fatalf("persona truncated: %q", m.Content)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("persona removed by eviction")
+			}
+		})
+	}
+}

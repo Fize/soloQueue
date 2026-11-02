@@ -119,3 +119,59 @@ func TestFinalStateGlobalReusedPromptAndReplacementCost(t *testing.T) {
 		t.Fatal(files)
 	}
 }
+
+func TestReplacingSnapshotsReclaimsOrphansWithinBudget(t *testing.T) {
+	s := ForWorkDir(t.TempDir())
+	s.SetPolicy(func() Policy { return Policy{MaxBytes: 900 << 10, MaxTurnBytes: 900 << 10, MaxFileBytes: 700 << 10} })
+	for i := 0; i < 8; i++ {
+		p := budgetPrompt(300)
+		p.Messages[0].Content += strings.Repeat("x", i)
+		if err := s.SaveCall(budgetCall("r", "call", 20), p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := s.Request("l1", "r")
+	if err != nil || len(r.Calls) != 1 || !r.Calls[0].PromptAvailable || r.RecordingStatus != "complete" {
+		t.Fatalf("request=%+v err=%v", r, err)
+	}
+	files, _ := filepath.Glob(filepath.Join(s.Root(), "prompts", "*.json"))
+	if len(files) != 1 {
+		t.Fatalf("orphan snapshots: %v", files)
+	}
+}
+
+func TestReplacingSnapshotPreservesAnotherCallReference(t *testing.T) {
+	s := ForWorkDir(t.TempDir())
+	shared := budgetPrompt(50)
+	for _, id := range []string{"a", "b"} {
+		if err := s.SaveCall(budgetCall("r", id, 0), shared); err != nil {
+			t.Fatal(err)
+		}
+	}
+	next := budgetPrompt(60)
+	if err := s.SaveCall(budgetCall("r", "a", 0), next); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.CallPrompt("l1", "r", "b")
+	if err != nil || len(p.Messages) != 1 || len(p.Messages[0].Content) != 50<<10 {
+		t.Fatalf("shared reference lost: err=%v", err)
+	}
+}
+
+func TestOverBudgetReplacementRetainsPreviousSnapshotAsPartial(t *testing.T) {
+	s := ForWorkDir(t.TempDir())
+	s.SetPolicy(func() Policy { return Policy{MaxBytes: 600 << 10, MaxTurnBytes: 900 << 10, MaxFileBytes: 700 << 10} })
+	c := budgetCall("r", "call", 0)
+	old := budgetPrompt(350)
+	if err := s.SaveCall(c, old); err != nil {
+		t.Fatal(err)
+	}
+	newer := budgetPrompt(360)
+	if err := s.SaveCall(c, newer); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.CallPrompt("l1", "r", "call")
+	if err != nil || p.RecordingStatus != "partial" || len(p.Messages) != 1 || len(p.Messages[0].Content) != 350<<10 {
+		t.Fatalf("status=%s messages=%d err=%v", p.RecordingStatus, len(p.Messages), err)
+	}
+}

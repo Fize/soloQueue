@@ -57,11 +57,15 @@ type Instruction struct {
 	Content string `json:"content"`
 }
 type Prompt struct {
-	CallID          string        `json:"call_id,omitempty"`
-	RecordingStatus string        `json:"recording_status"`
-	Representation  string        `json:"representation"`
-	Messages        []Instruction `json:"messages"`
-	Instructions    string        `json:"instructions,omitempty"`
+	SnapshotVersion     int             `json:"snapshot_version,omitempty"`
+	WireRecordingStatus string          `json:"wire_recording_status,omitempty"`
+	LogicalRequest      json.RawMessage `json:"logical_request,omitempty"`
+	WireRequests        []string        `json:"wire_requests,omitempty"`
+	CallID              string          `json:"call_id,omitempty"`
+	RecordingStatus     string          `json:"recording_status"`
+	Representation      string          `json:"representation"`
+	Messages            []Instruction   `json:"messages"`
+	Instructions        string          `json:"instructions,omitempty"`
 }
 type Call struct {
 	Kind                  string     `json:"kind,omitempty"`
@@ -357,7 +361,13 @@ func (s *Store) SaveCall(c Call, p *Prompt) error {
 		return nil
 	}
 	diskMu.Lock()
-	defer diskMu.Unlock()
+	shouldPrune := false
+	defer func() {
+		diskMu.Unlock()
+		if shouldPrune {
+			_ = s.PrunePrompts()
+		}
+	}()
 	m := s.meta(c.SessionID, c.RequestID)
 	dir := s.callsDir(c.SessionID, c.RequestID, m.Generation)
 	if m.Generation != "" && c.StartedAt.Before(m.StartedAt) {
@@ -423,8 +433,11 @@ func (s *Store) SaveCall(c Call, p *Prompt) error {
 		dc.Reasoning = ""
 		dc.RecordingStatus = "partial"
 		if !budget.fits(policy, dc) {
-			dc.Hash = ""
-			dc.PromptAvailable = false
+			dc.Hash = prior.Hash
+			dc.PromptAvailable = prior.Hash != ""
+			if dc.PromptAvailable {
+				dc.PromptStatus = "partial"
+			}
 			dc.Content = originalContent
 			dc.Reasoning = originalReasoning
 			if !budget.fits(policy, dc) {
@@ -442,6 +455,7 @@ func (s *Store) SaveCall(c Call, p *Prompt) error {
 	if e := writeJSON(filepath.Join(dir, c.CallID+".json"), dc); e != nil {
 		return e
 	}
+	shouldPrune = prior.Hash != "" && prior.Hash != dc.Hash
 	m = s.meta(c.SessionID, c.RequestID)
 	if m.Status == "unrecorded" {
 		m.Status = "running"
@@ -605,6 +619,9 @@ func (s *Store) CallPrompt(session, request, id string) (Prompt, error) {
 		return p, e
 	}
 	p.CallID = id
+	if dc.PromptStatus == "partial" {
+		p.RecordingStatus = "partial"
+	}
 	if p.Messages == nil {
 		p.Messages = []Instruction{}
 	}

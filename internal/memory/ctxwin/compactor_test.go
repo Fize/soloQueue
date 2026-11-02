@@ -120,8 +120,8 @@ func TestAsyncCompactReducesTokens(t *testing.T) {
 	// Second message should be the summary
 	if cw.Len() > 1 {
 		summary, _ := cw.MessageAt(1)
-		if summary.Role != RoleSystem {
-			t.Errorf("Second message should be system (summary), got %q", summary.Role)
+		if summary.Role != RoleUser || !summary.IsSummary {
+			t.Errorf("Second message should be user summary, got %q", summary.Role)
 		}
 	}
 }
@@ -401,8 +401,8 @@ func TestAsyncCompact_MultiSegment(t *testing.T) {
 	}
 
 	msg1, _ := cw.MessageAt(1)
-	if msg1.Role != RoleSystem {
-		t.Errorf("second message role = %v, want system", msg1.Role)
+	if msg1.Role != RoleUser || !msg1.IsSummary {
+		t.Errorf("second message role = %v, want user summary", msg1.Role)
 	}
 }
 
@@ -635,5 +635,36 @@ func TestCompactionSummaryHookUsesCancelableOwner(t *testing.T) {
 			}
 			<-done
 		})
+	}
+}
+
+func TestContinuityAnchorExcludesSyntheticSummary(t *testing.T) {
+	msgs := []Message{{Role: RoleUser, Content: "stale summary", IsSummary: true}, {Role: RoleUser, Content: "latest request"}}
+	got := buildContinuityAnchor(msgs)
+	if strings.Contains(got, "stale summary") || !strings.Contains(got, "latest request") {
+		t.Fatalf("unexpected anchor: %s", got)
+	}
+}
+
+func TestCompactionRefreshesPersonaOutsideSummary(t *testing.T) {
+	mc := &mockCompactor{compactFn: func(_ context.Context, msgs []Message) (string, error) {
+		for _, m := range msgs {
+			if strings.Contains(m.Content, "old persona") {
+				t.Errorf("persona included in compactor input")
+			}
+		}
+		return "summary", nil
+	}}
+	cw := NewContextWindow(100000, 2000, 50000, NewTokenizer(), WithCompactor(mc))
+	cw.Push(RoleSystem, "fixed")
+	cw.SetPersonaStateSource(func() string { return "new persona" })
+	cw.EnsurePersonaState("old persona")
+	cw.Push(RoleUser, "task")
+	cw.SetLifecycleContext(t.Context())
+	cw.asyncCompact()
+	persona, _ := cw.MessageAt(1)
+	summary, _ := cw.MessageAt(2)
+	if !persona.IsPersonaState || !strings.Contains(persona.Content, "new persona") || !summary.IsSummary {
+		t.Fatalf("persona=%+v summary=%+v", persona, summary)
 	}
 }

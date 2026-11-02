@@ -93,6 +93,10 @@ type DelegateToolOption func(*DelegateTool)
 // WithDynamicWorkers allows an L2 leader to create a worker explicitly when
 // parallel execution is expected to improve the result. L1 and L3 delegates do
 // not receive this capability.
+func WithL1DynamicWorkers() DelegateToolOption {
+	return func(dt *DelegateTool) { dt.allowDynamicWorkers = true; dt.l1DynamicWorkers = true }
+}
+
 func WithDynamicWorkers() DelegateToolOption {
 	return func(dt *DelegateTool) { dt.allowDynamicWorkers = true }
 }
@@ -143,6 +147,7 @@ type DelegateTool struct {
 	SkillInstructionsLook      func(skillID string) (instructions string, agentName string, skillDir string, ok bool)
 	targetValidator            func(string) bool
 	allowDynamicWorkers        bool
+	l1DynamicWorkers           bool
 	alwaysAsync                bool
 	isPeerTarget               func(string) bool
 	progressCheckpointInterval time.Duration
@@ -185,9 +190,10 @@ func (dt *DelegateTool) SetLogger(l *logger.Logger) {
 func (dt *DelegateTool) Name() string { return "delegate" }
 
 func (dt *DelegateTool) Description() string {
-	return "Delegate a task to a visible Team Leader or worker using its canonical target ID. " +
-		"For L2 parallel work only, set dynamic_worker=true with a new stable target ID, at least two independent parallel_tasks, and explain the expected efficiency gain. " +
-		"Provide a stable task_name and the exact work content."
+	if dt.l1DynamicWorkers {
+		return "Delegate to a visible Team, or use dynamic_worker=true with a new target for a complex task when no Team matches. Provide a stable task_name and exact work content."
+	}
+	return "Delegate a task to a visible Team Leader or worker using its canonical target ID. For L2 parallel work only, set dynamic_worker=true with a new stable target ID, at least two independent parallel_tasks, and explain the expected efficiency gain. Provide a stable task_name and the exact work content."
 }
 
 func (dt *DelegateTool) Parameters() json.RawMessage {
@@ -199,7 +205,7 @@ func (dt *DelegateTool) Parameters() json.RawMessage {
       "description": "Optional working directory for the agent. Defaults to caller's working directory."
     }`
 	}
-	return json.RawMessage(fmt.Sprintf(`{
+	schema := fmt.Sprintf(`{
   "type": "object",
   "properties": {
     "target": {
@@ -241,7 +247,13 @@ func (dt *DelegateTool) Parameters() json.RawMessage {
 	}%s
   },
   "required": ["target", "task_name", "task"]
-}`, workDirProperty))
+}`, workDirProperty)
+	if dt.l1DynamicWorkers {
+		schema = strings.ReplaceAll(schema, "L2 only: create a new worker instead of using an existing visible target. Use only when parallel execution is expected to improve efficiency.", "Create a temporary executor for a complex task only when no visible Team matches.")
+		schema = strings.ReplaceAll(schema, "For dynamic_worker=true, list at least two independent subtasks that can run concurrently.", "For L2 dynamic workers only: list at least two independent subtasks.")
+		schema = strings.ReplaceAll(schema, "For dynamic_worker=true, explain why parallel execution is faster or more effective than direct execution or an existing Team.", "For L2 dynamic workers only: explain the expected efficiency gain.")
+	}
+	return json.RawMessage(schema)
 }
 
 func (dt *DelegateTool) resolveWorkDir(ctx context.Context, requested string) (string, error) {
@@ -301,13 +313,19 @@ func (dt *DelegateTool) Execute(ctx context.Context, args string) (result string
 		return "", fmt.Errorf("delegate: target is required")
 	}
 	if dArgs.DynamicWorker {
+		if dt.l1DynamicWorkers && dArgs.SkillID != "" {
+			return "", errors.New("delegate: skill_id is not supported for a temporary executor; include the skill requirement in the task")
+		}
+		if dt.targetValidator != nil && dt.targetValidator(dArgs.Target) {
+			return "", fmt.Errorf("delegate: dynamic target %q conflicts with an available target", dArgs.Target)
+		}
 		if !dt.allowDynamicWorkers {
 			return "", fmt.Errorf("delegate: dynamic workers are not enabled for this executor")
 		}
-		if len(dArgs.ParallelTasks) < 2 {
+		if !dt.l1DynamicWorkers && len(dArgs.ParallelTasks) < 2 {
 			return "", fmt.Errorf("delegate: dynamic_worker requires at least two independent parallel_tasks")
 		}
-		if strings.TrimSpace(dArgs.EfficiencyReason) == "" {
+		if !dt.l1DynamicWorkers && strings.TrimSpace(dArgs.EfficiencyReason) == "" {
 			return "", fmt.Errorf("delegate: dynamic_worker requires efficiency_reason")
 		}
 	} else if dt.targetValidator != nil && !dt.targetValidator(dArgs.Target) {
@@ -524,13 +542,19 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 		return nil, fmt.Errorf("delegate async: target is required")
 	}
 	if dArgs.DynamicWorker {
+		if dt.l1DynamicWorkers && dArgs.SkillID != "" {
+			return nil, errors.New("delegate: skill_id is not supported for a temporary executor; include the skill requirement in the task")
+		}
+		if dt.targetValidator != nil && dt.targetValidator(dArgs.Target) {
+			return nil, fmt.Errorf("delegate: dynamic target %q conflicts with an available target", dArgs.Target)
+		}
 		if !dt.allowDynamicWorkers {
 			return nil, fmt.Errorf("delegate async: dynamic workers are not enabled for this executor")
 		}
-		if len(dArgs.ParallelTasks) < 2 {
+		if !dt.l1DynamicWorkers && len(dArgs.ParallelTasks) < 2 {
 			return nil, fmt.Errorf("delegate async: dynamic_worker requires at least two independent parallel_tasks")
 		}
-		if strings.TrimSpace(dArgs.EfficiencyReason) == "" {
+		if !dt.l1DynamicWorkers && strings.TrimSpace(dArgs.EfficiencyReason) == "" {
 			return nil, fmt.Errorf("delegate async: dynamic_worker requires efficiency_reason")
 		}
 	} else if dt.targetValidator != nil && !dt.targetValidator(dArgs.Target) {
@@ -602,9 +626,20 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 	}
 
 	var target iface.Locatable
+	var spawned bool
+	transferred := false
+	defer func() {
+		if spawned && !transferred && target != nil {
+			if dn, ok := target.(iface.DoneNotifier); ok {
+				dn.OnDelegationDone()
+			} else {
+				dt.maybeReap(target, true)
+			}
+		}
+	}()
 	if dt.LocateOrSpawn != nil {
 		var err error
-		target, _, err = dt.LocateOrSpawn(delCtx, dArgs.Target, dArgs.SystemPrompt, "", dArgs.Task, workDir, dArgs.SkillID)
+		target, spawned, err = dt.LocateOrSpawn(delCtx, dArgs.Target, dArgs.SystemPrompt, "", dArgs.Task, workDir, dArgs.SkillID)
 		if err != nil {
 			wrapped := fmt.Errorf("failed to reach agent %q: %w", dArgs.Target, err)
 			return nil, errors.Join(wrapped, finish(dispatch.StatusFailed, wrapped))
@@ -658,6 +693,7 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 		},
 	}
 	watchTransferred = true
+	transferred = true
 	return action, nil
 }
 
@@ -703,7 +739,7 @@ func (dt *DelegateTool) beginDispatch(ctx context.Context, args delegateArgs) (s
 	if err != nil {
 		return "", false, ctx, err
 	}
-	childScope := dispatch.Scope{Manager: scope.Manager, RootID: result.Record.RootID, ParentID: result.Record.ID}
+	childScope := dispatch.Scope{OnTerminal: scope.OnTerminal, Manager: scope.Manager, RootID: result.Record.RootID, ParentID: result.Record.ID}
 	ctx = telemetryctx.WithMetadata(ctx, telemetryctx.Metadata{ParentDispatchID: scope.ParentID})
 	return result.Record.ID, result.Reused, dispatch.WithScope(ctx, childScope), nil
 }
@@ -721,7 +757,13 @@ func (dt *DelegateTool) assignExecutorInstance(ctx context.Context, id string, t
 
 func (dt *DelegateTool) finishDispatch(ctx context.Context, id string, status dispatch.Status, err error) error {
 	if scope, ok := dispatch.ScopeFromContext(ctx); ok && id != "" {
-		return scope.Manager.Finish(id, status, err)
+		finishErr := scope.Manager.Finish(id, status, err)
+		if finishErr == nil && scope.OnTerminal != nil {
+			if record, ok := scope.Manager.Get(id); ok && record.Status != dispatch.StatusRunning {
+				scope.OnTerminal(record)
+			}
+		}
+		return finishErr
 	}
 	return nil
 }

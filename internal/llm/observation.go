@@ -12,6 +12,7 @@ type CallObserver struct {
 	attempts    int
 	reported    bool
 	instruction func(string)
+	body        func([]byte)
 }
 type observerContextKey struct{}
 
@@ -20,6 +21,12 @@ func WithCallObserver(ctx context.Context, o *CallObserver) context.Context {
 }
 func NewCallObserver(instruction func(string)) *CallObserver {
 	return &CallObserver{instruction: instruction}
+}
+func (o *CallObserver) SetRequestBodyObserver(fn func([]byte)) { o.body = fn }
+func ReportRequestBody(ctx context.Context, body []byte) {
+	if o, _ := ctx.Value(observerContextKey{}).(*CallObserver); o != nil && o.body != nil {
+		o.body(body)
+	}
 }
 func ReportAttempt(ctx context.Context) {
 	if o, _ := ctx.Value(observerContextKey{}).(*CallObserver); o != nil {

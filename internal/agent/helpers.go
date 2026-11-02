@@ -23,7 +23,14 @@ func payloadToLLMMessages(payload []ctxwin.PayloadMessage) []LLMMessage {
 		} else if p.Role == "user" {
 			content = renderTemporalContent(content, p.Timestamp, p.ExposeTimestamp)
 		}
+		category := ""
+		if p.IsSummary {
+			category = "conversation_summary"
+		} else if p.IsPersonaState {
+			category = "persona_state"
+		}
 		out = append(out, LLMMessage{
+			Category:         category,
 			Role:             p.Role,
 			Content:          content,
 			Images:           p.Images,

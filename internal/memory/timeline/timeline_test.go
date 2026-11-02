@@ -1433,8 +1433,8 @@ func TestReadTailAndReplay_WithSummaryControlEvent(t *testing.T) {
 	if !strings.Contains(msgs[0].Content, "This is a summary of q1 and a1") {
 		t.Errorf("msg[0] content = %q, want summary", msgs[0].Content)
 	}
-	if msgs[0].Role != "system" {
-		t.Errorf("msg[0] role = %q, want system", msgs[0].Role)
+	if msgs[0].Role != "user" {
+		t.Errorf("msg[0] role = %q, want user", msgs[0].Role)
 	}
 	if msgs[1].Content != "q2" {
 		t.Errorf("msg[1] content = %q, want q2", msgs[1].Content)
@@ -1453,7 +1453,7 @@ func TestReadTailAndReplay_WithSummaryControlEvent(t *testing.T) {
 		t.Fatalf("expected 3 messages in ContextWindow, got %d", cw.Len())
 	}
 	m0, _ := cw.MessageAt(0)
-	if m0.Role != ctxwin.RoleSystem || !strings.Contains(m0.Content, "[Conversation Summary]") {
+	if m0.Role != ctxwin.RoleUser || !strings.Contains(m0.Content, "[Conversation Summary]") {
 		t.Errorf("cw msg[0] = %+v", m0)
 	}
 }
@@ -1524,11 +1524,11 @@ func TestReadTailAndReplay_WithMultipleContiguousSummaryControlEvents(t *testing
 		t.Fatalf("expected 4 messages in ContextWindow, got %d", cw.Len())
 	}
 	m0, _ := cw.MessageAt(0)
-	if m0.Role != ctxwin.RoleSystem || !strings.Contains(m0.Content, "Summary of part 1") {
+	if m0.Role != ctxwin.RoleUser || !m0.IsSummary || !strings.Contains(m0.Content, "Summary of part 1") {
 		t.Errorf("cw msg[0] = %+v", m0)
 	}
 	m1, _ := cw.MessageAt(1)
-	if m1.Role != ctxwin.RoleSystem || !strings.Contains(m1.Content, "Summary of part 2") {
+	if m1.Role != ctxwin.RoleUser || !m1.IsSummary || !strings.Contains(m1.Content, "Summary of part 2") {
 		t.Errorf("cw msg[1] = %+v", m1)
 	}
 }
@@ -1550,5 +1550,15 @@ func TestReadTail_ClearAtEnd(t *testing.T) {
 	// Therefore, it should return no segments (len = 0) or an empty segment list, NOT replaying the pre-clear events.
 	if len(segs) > 0 && len(segs[len(segs)-1].Messages) > 0 {
 		t.Fatalf("expected empty replayed messages, got %d messages: %+v", len(segs[0].Messages), segs[0].Messages)
+	}
+}
+
+func TestReplayLegacySummaryUsesUserContext(t *testing.T) {
+	cw := ctxwin.NewContextWindow(100000, 2000, 0, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+	ReplayInto(cw, []Segment{{Messages: []MessagePayload{{Role: "system", Content: "[Previous Conversation Summary]\nold state"}}}})
+	got, ok := cw.MessageAt(0)
+	if !ok || got.Role != ctxwin.RoleUser || !got.IsSummary {
+		t.Fatalf("legacy summary: %+v", got)
 	}
 }

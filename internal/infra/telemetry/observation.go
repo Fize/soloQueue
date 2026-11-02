@@ -2,7 +2,9 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -18,6 +20,8 @@ type callRecord struct {
 	call                           observability.Call
 	store                          *observability.Store
 	observer                       *llm.CallObserver
+	promptMu                       sync.Mutex
+	prompt                         *observability.Prompt
 	done                           atomic.Bool
 	content, reasoning             string
 	contentBuffer, reasoningBuffer strings.Builder
@@ -65,7 +69,14 @@ func (c *TelemetryClient) begin(ctx context.Context, req agent.LLMRequest, start
 		r.call.DispatchID = scope.ParentID
 		r.call.ParentDispatchID = m.ParentDispatchID
 	}
-	p := &observability.Prompt{RecordingStatus: "complete", Representation: "messages", Messages: []observability.Instruction{}}
+	p := &observability.Prompt{SnapshotVersion: 2, WireRecordingStatus: "unrecorded", RecordingStatus: "complete", Representation: "messages", Messages: []observability.Instruction{}}
+	logical, err := json.Marshal(req)
+	if err == nil && len(logical) <= 8<<20 {
+		p.LogicalRequest = logical
+	} else {
+		p.RecordingStatus = "partial"
+	}
+	r.prompt = p
 	for _, msg := range req.Messages {
 		if msg.Role == "system" || msg.Role == "developer" {
 			p.Messages = append(p.Messages, observability.Instruction{Role: msg.Role, Content: msg.Content})
@@ -78,9 +89,43 @@ func (c *TelemetryClient) begin(ctx context.Context, req agent.LLMRequest, start
 		}
 	}
 	r.observer = llm.NewCallObserver(func(text string) {
+		r.promptMu.Lock()
+		defer r.promptMu.Unlock()
+		r.prompt.Instructions = text
+	})
+	r.observer.SetRequestBodyObserver(func(body []byte) {
+		r.promptMu.Lock()
+		defer r.promptMu.Unlock()
+		if !json.Valid(body) {
+			r.prompt.WireRecordingStatus = "partial"
+			r.prompt.RecordingStatus = "partial"
+			return
+		}
+		for _, previous := range r.prompt.WireRequests {
+			if previous == string(body) {
+				return
+			}
+		}
+		total := len(body)
+		for _, previous := range r.prompt.WireRequests {
+			total += len(previous)
+		}
+		if total > 8<<20 {
+			r.prompt.WireRecordingStatus = "partial"
+			r.prompt.RecordingStatus = "partial"
+			if store != nil {
+				_ = store.SaveCall(r.call, r.prompt)
+			}
+			return
+		}
+		r.prompt.WireRequests = append(r.prompt.WireRequests, string(body))
+		if r.prompt.WireRecordingStatus != "partial" {
+			r.prompt.WireRecordingStatus = "complete"
+		}
 		if store != nil {
-			snapshot := &observability.Prompt{RecordingStatus: "complete", Representation: "instructions", Messages: []observability.Instruction{}, Instructions: text}
-			_ = store.SaveCall(r.call, snapshot)
+			if err := store.SaveCall(r.call, r.prompt); err != nil {
+				r.call.RecordingStatus = "partial"
+			}
 		}
 	})
 	return context.WithValue(llm.WithCallObserver(ctx, r.observer), callRecordKey{}, r), r

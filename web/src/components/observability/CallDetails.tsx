@@ -170,7 +170,20 @@ export function CallInspector({ call, sessionId, requestId }: CallProps) {
           ) : (
             <>
               {prompt.recording_status === 'partial' && <p>{t('observability.partial')}</p>}
-              {prompt.representation === 'instructions' ? (
+              {!prompt.snapshot_version && <p>{t('observability.legacyPromptOnly')}</p>}
+              {!!prompt.snapshot_version && !prompt.logical_request && <p>{t('observability.logicalMissing')}</p>}
+              {!!prompt.snapshot_version && prompt.wire_recording_status !== 'complete' && <p>{t('observability.wireMissing')}</p>}
+              {prompt.logical_request != null && (
+                <details><summary>{t('observability.logicalRequest')}</summary>
+                  <pre className="whitespace-pre-wrap break-words rounded bg-muted/40 p-3">{JSON.stringify(prompt.logical_request, null, 2)}</pre>
+                </details>
+              )}
+              {prompt.wire_requests?.map((body, index) => (
+                <details key={index}><summary>{t('observability.wireRequest')} {index + 1}</summary>
+                  <pre className="whitespace-pre-wrap break-words rounded bg-muted/40 p-3">{body}</pre>
+                </details>
+              ))}
+              {prompt.instructions ? (
                 <pre className="whitespace-pre-wrap break-words rounded bg-muted/40 p-3">
                   {prompt.instructions}
                 </pre>
