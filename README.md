@@ -20,6 +20,8 @@ SoloQueue draws inspiration from OpenClaw and my exploration of multi-agent orch
 
 SoloQueue has been running on my personal computer for a long time. It is lightweight and easy to deploy and extend. Connect a compatible model provider to run it on a personal computer or server, then use the web interface, QQ, WeChat, Telegram, or WeCom to start tasks, track progress, and receive results.
 
+> The vast majority of SoloQueue's code was written using Codex and SoloQueue itself.
+
 ## Quick Start
 
 Building from source requires Go 1.25.8, a C compiler for CGO, Node.js, `pnpm`, and Make:

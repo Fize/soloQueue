@@ -20,6 +20,8 @@ SoloQueue 的灵感来自 OpenClaw，也源于我对多 Agent 编排与协作的
 
 SoloQueue 已在我的个人电脑上长期运行。它轻量、易于部署和扩展；接入兼容的模型服务后，可运行在个人电脑或服务器上，并通过 Web、QQ、微信、Telegram 或企业微信发起任务、查看进度和接收结果。
 
+> SoloQueue 的绝大多数代码是使用 codex 和 SoloQueue 自身完成的。
+
 ## 快速开始
 
 源码构建需要 Go 1.25.8、支持 CGO 的 C 编译器、Node.js、`pnpm` 和 Make：
