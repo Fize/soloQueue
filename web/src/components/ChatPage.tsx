@@ -294,11 +294,7 @@ export function ChatPage() {
   // after the 300ms transition so polling panels stop fetching.
   const [panelContentAlive, setPanelContentAlive] = useState(panelOpen);
   useEffect(() => {
-    if (panelOpen) {
-      setPanelContentAlive(true);
-      return;
-    }
-    const t = setTimeout(() => setPanelContentAlive(false), 320);
+    const t = setTimeout(() => setPanelContentAlive(panelOpen), panelOpen ? 0 : 320);
     return () => clearTimeout(t);
   }, [panelOpen]);
   const activeGroup = activeSession?.group ?? null;
@@ -1183,7 +1179,7 @@ export function ChatPage() {
             )}
             {/* Panel content */}
             <div className="flex-1 min-h-0 overflow-hidden">
-              {panelContentAlive && (designModeActive ? (
+              {(panelOpen || panelContentAlive) && (designModeActive ? (
                 <ChatDesignPanel
                   isDesignMode={designModeActive}
                   onDesignModeToggle={(enabled) => setDesignMode(enabled)}
