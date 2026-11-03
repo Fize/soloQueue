@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	_ "time/tzdata" // Keep IANA timezones available on systems without a timezone database.
 
 	"github.com/spf13/cobra"
 
