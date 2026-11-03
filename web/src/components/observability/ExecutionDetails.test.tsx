@@ -366,7 +366,7 @@ it('shows historical measured span and unknown attempts once, without an empty p
     ],
   })
   render(<ExecutionDetails sessionId="l1" requestId="legacy" />)
-  expect(await screen.findByText('observability.callSpan 88.4 s')).toBeInTheDocument()
+  expect(await screen.findByText('observability.callSpan 1m 28s')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /observability.title/ }))
   const dialog = await screen.findByRole('dialog')
   expect(await within(dialog).findAllByText('observability.metricsOnly')).toHaveLength(1)

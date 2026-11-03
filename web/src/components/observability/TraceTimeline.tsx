@@ -9,7 +9,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
-import { formatExecutionTime } from '@/lib/api/observability-api'
+import { formatExecutionTime, formatExecutionTimeCompact } from '@/lib/api/observability-api'
 import { cn } from '@/lib/utils'
 import { isTraceError, type TraceNode } from './trace'
 
@@ -150,7 +150,9 @@ export function TraceTimeline({
                 )}
               </span>
               <span className="text-right text-[10px] tabular-nums text-muted-foreground">
-                {known ? `+${formatExecutionTime(node.start! - start!)} · ${duration}` : duration}
+                {known
+                  ? `+${formatExecutionTimeCompact(node.start! - start!)} · ${formatExecutionTimeCompact(node.end! - node.start!)}`
+                  : duration}
               </span>
             </span>
           </button>

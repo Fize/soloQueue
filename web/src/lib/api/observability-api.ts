@@ -43,4 +43,22 @@ export const getObservedPrompt = (sessionId: string, requestId: string, callId: 
   request<ObservedPrompt>(`/observability/prompt?${query(sessionId, { request_id: requestId, call_id: callId })}`, { signal })
 export const getObservedDispatch = (sessionId: string, dispatchId: string, cursor?: string, signal?: AbortSignal) =>
   request<ObservedDispatch>(`/observability/dispatch?${query(sessionId, { dispatch_id: dispatchId, cursor, limit: '50' })}`, { signal })
-export function formatExecutionTime(ms: number): string { return `${(Math.max(0, ms) / 1000).toFixed(1)} s` }
+function formatDuration(ms: number, gap: string): string {
+  if (!Number.isFinite(ms)) return '—'
+  const total = Math.round(Math.max(0, ms))
+  if (total < 1000) return `${total}${gap}ms`
+  if (total < 60000) return `${(Math.floor(total / 100) / 10).toFixed(1)}${gap}s`
+  const seconds = Math.floor(total / 1000)
+  const tiers: [number, string][] = [
+    [Math.floor(seconds / 86400), 'd'],
+    [Math.floor(seconds / 3600) % 24, 'h'],
+    [Math.floor(seconds / 60) % 60, 'm'],
+    [seconds % 60, 's'],
+  ]
+  return tiers
+    .filter(([value]) => value > 0)
+    .map(([value, unit]) => `${value}${unit}`)
+    .join(gap)
+}
+export function formatExecutionTime(ms: number): string { return formatDuration(ms, ' ') }
+export function formatExecutionTimeCompact(ms: number): string { return formatDuration(ms, '') }
