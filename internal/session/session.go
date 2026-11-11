@@ -262,6 +262,7 @@ type Session struct {
 
 	// inFlight CAS lock for concurrent requests: 0 -> 1 enter; returns ErrSessionBusy on failure
 	inFlight    atomic.Int32
+	flightMu    sync.Mutex // serializes busy enqueue with the final pending check/release
 	flightSeq   atomic.Uint64
 	flightOwner atomic.Uint64
 
@@ -515,8 +516,7 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 			}
 			trimmed := strings.TrimSpace(pending.Content)
 			lower := strings.ToLower(trimmed)
-			switch lower {
-			case "/cancel", "/compact", "/help", "/?", "/clear", "/version":
+			if isPendingControlCommand(lower) {
 				s.logger.WarnContext(context.Background(), logger.CatApp, "pending drain: dropping stale slash command",
 					"target_id", s.TargetID,
 					"command", lower,
@@ -733,6 +733,12 @@ func (s *Session) CurrentSupervisor() *agent.Supervisor {
 }
 
 func (s *Session) acquireFlight() (uint64, bool) {
+	s.flightMu.Lock()
+	defer s.flightMu.Unlock()
+	return s.acquireFlightLocked()
+}
+
+func (s *Session) acquireFlightLocked() (uint64, bool) {
 	if !s.inFlight.CompareAndSwap(0, 1) {
 		return 0, false
 	}
@@ -758,6 +764,12 @@ func (s *Session) applyPendingSystemPrompt() {
 }
 
 func (s *Session) releaseFlight(id uint64) {
+	s.flightMu.Lock()
+	defer s.flightMu.Unlock()
+	s.releaseFlightLocked(id)
+}
+
+func (s *Session) releaseFlightLocked(id uint64) {
 	if id != 0 && s.flightOwner.CompareAndSwap(id, 0) {
 		s.inFlight.Store(0)
 	}
@@ -2338,7 +2350,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 	// L1 async delegation does not block new messages. Agent mailbox guarantees serial execution of jobs:
 	// resumeTurn (high priority) executes before new message jobs, keeping CW order naturally correct.
 
-	flightID, acquired := s.acquireFlight()
+	s.flightMu.Lock()
+	flightID, acquired := s.acquireFlightLocked()
 	if !acquired {
 		s.logger.InfoContext(ctx, logger.CatApp, "askstream rejected: session busy, message queued",
 			"target_id", s.TargetID,
@@ -2347,9 +2360,11 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 		if !rejectsBusyQueue(ctx) {
 			s.enqueuePending(ctx, prompt)
 		}
+		s.flightMu.Unlock()
 		finishLifecycle("queued")
 		return nil, ErrQueued
 	}
+	s.flightMu.Unlock()
 	if requestID != "" && hooks.OnStart != nil {
 		if err := hooks.OnStart(ctx, s.TargetID, requestID); err != nil {
 			s.releaseFlight(flightID)
@@ -2639,7 +2654,15 @@ enqueued:
 			}
 		}()
 		defer func() { finishLifecycle(terminalCode) }()
-		defer s.releaseFlight(flightID)
+		flightLocked := false
+		defer func() {
+			if flightLocked {
+				s.releaseFlightLocked(flightID)
+				s.flightMu.Unlock()
+			} else {
+				s.releaseFlight(flightID)
+			}
+		}()
 		defer s.touch()
 		defer s.closeTurnDone()
 		defer func() {
@@ -2811,6 +2834,7 @@ enqueued:
 			}
 			return true
 		}
+	consume:
 		for {
 			var ev agent.AgentEvent
 			if clientDisconnected {
@@ -3005,6 +3029,35 @@ enqueued:
 					"reasoning_len", len(finalReasoning),
 				)
 			}
+		}
+		// A message may arrive during the final model call, after its payload
+		// was built. Keep this stream (and its channel route/cancellation root)
+		// alive to consume it. Enqueue and the idle transition share flightMu:
+		// an arrival either belongs to this continuation or acquires a new turn.
+		s.flightMu.Lock()
+		flightLocked = true
+		continuePending := gotDone && askCtx.Err() == nil && !s.closed.Load() &&
+			s.flightOwner.Load() == flightID && s.pending.hasContinuationInput()
+		if continuePending {
+			flightLocked = false
+			s.flightMu.Unlock()
+			cwLenBeforeTurn = s.cw.Len()
+			gotDone = false
+			finalContent, finalReasoning = "", ""
+			accContent.Reset()
+			accReasoning.Reset()
+			lastPushedContent, persistedAssistantDump = "", ""
+			firstAssistantOutputAt = time.Time{}
+			rollbackOnce = sync.Once{}
+			// No synthetic user message: the normal agent boundary drains the
+			// queue once, preserving request IDs and received-at timestamps.
+			srcCh, jobHandle, err = s.askStream(askCtx, s.cw, "")
+			if err != nil {
+				terminalCode = "error"
+				emitTerminalError(err)
+				return
+			}
+			goto consume
 		}
 		// Delegation completed: release the shared lifecycle signal.
 		s.closeTurnDone()

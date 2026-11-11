@@ -288,7 +288,9 @@ func (b *channelAdapterBase) consumeAskStreamEventsWithDelegation(
 		case agent.ContentDeltaEvent:
 			contentBuf.WriteString(e.Delta)
 
-		case agent.ToolExecStartEvent:
+		case agent.ToolExecStartEvent, agent.PendingInputStartedEvent:
+			// Deliver the completed reply before a queued continuation can fail.
+			// Reuse the request's immutable route and sent offset to avoid duplicates.
 			if onIntermediate != nil && contentBuf.Len() > sentLen {
 				intermediate := contentBuf.String()[sentLen:]
 				onIntermediate(ctx, intermediate)

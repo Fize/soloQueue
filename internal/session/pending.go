@@ -69,6 +69,31 @@ func (q *PendingQueue) HasPending() bool {
 	return len(q.msgs) > 0
 }
 
+// hasContinuationInput drops the same stale control command that the model
+// boundary would discard. Such a queue must not start an empty follow-up turn.
+func (q *PendingQueue) hasContinuationInput() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	contents := make([]string, len(q.msgs))
+	for i, msg := range q.msgs {
+		contents[i] = msg.Prompt
+	}
+	content := strings.TrimSpace(strings.Join(contents, "\n\n"))
+	if content == "" || isPendingControlCommand(content) {
+		q.msgs = nil
+	}
+	return len(q.msgs) > 0
+}
+
+func isPendingControlCommand(content string) bool {
+	switch strings.ToLower(strings.TrimSpace(content)) {
+	case "/cancel", "/compact", "/help", "/?", "/clear", "/version":
+		return true
+	default:
+		return false
+	}
+}
+
 // Len returns the number of queued messages.
 func (q *PendingQueue) Len() int {
 	q.mu.Lock()
