@@ -191,29 +191,41 @@ func TestRunWithRetry_ZeroMaxRetries_NoRetry(t *testing.T) {
 }
 
 func TestRunWithRetry_BackoffBoundedByMax(t *testing.T) {
-	// Observe that delay does not exceed MaxDelay
+	// Check scheduled delays, not elapsed time: runner scheduling can delay timers.
 	var delays []time.Duration
-	lastCall := time.Now()
+	var calls int
+	transientErr := errors.New("transient")
 
-	_ = RunWithRetry(context.Background(),
+	err := RunWithRetryHooks(context.Background(),
 		RetryPolicy{
 			MaxRetries:   4,
 			InitialDelay: 10 * time.Millisecond,
 			MaxDelay:     20 * time.Millisecond,
 			Multiplier:   10, // Will quickly exceed MaxDelay
 		},
+		nil, nil,
+		func(attempt int, delay time.Duration, err error) {
+			delays = append(delays, delay)
+		},
 		nil,
 		func(ctx context.Context) error {
-			now := time.Now()
-			delays = append(delays, now.Sub(lastCall))
-			lastCall = now
-			return errors.New("transient")
+			calls++
+			return transientErr
 		})
 
-	// The first delay is approximately 0 (first call), others should be ≤ MaxDelay + tolerance
-	for i := 1; i < len(delays); i++ {
-		if delays[i] > 60*time.Millisecond {
-			t.Errorf("delay[%d] = %v, want ≤ MaxDelay (+ tolerance)", i, delays[i])
+	if !errors.Is(err, transientErr) {
+		t.Errorf("err = %v, want %v", err, transientErr)
+	}
+	if calls != 5 {
+		t.Errorf("calls = %d, want 5", calls)
+	}
+	wantDelays := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 20 * time.Millisecond, 20 * time.Millisecond}
+	if len(delays) != len(wantDelays) {
+		t.Fatalf("delays = %v, want %v", delays, wantDelays)
+	}
+	for i, want := range wantDelays {
+		if delays[i] != want {
+			t.Errorf("delay[%d] = %v, want %v", i, delays[i], want)
 		}
 	}
 }
