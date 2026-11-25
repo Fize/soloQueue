@@ -124,6 +124,16 @@ vi.mock("@/hooks/useChatStream", () => ({
   useChatStream: () => ({ send: mocks.chatStreamSend, cancel: vi.fn() }),
 }));
 
+vi.mock("@/hooks/useTranscript", () => ({
+  useTranscript: (sessionId: string | null) => ({
+    messages: (sessionId && chatStoreState.messages[sessionId as "channel-l2"]) || [],
+    status: "live",
+    hasMore: false,
+    loadingOlder: false,
+    loadOlder: mocks.loadMoreHistory,
+  }),
+}));
+
 vi.mock("@/hooks/useAgentStream", () => ({
   useAgentStream: () => ({
     agent_id: "l2-instance",

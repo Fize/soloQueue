@@ -34,8 +34,8 @@ func TestHandleChatSendReturnsPromptSizeError(t *testing.T) {
 	if err := json.Unmarshal(<-client.send, &msg); err != nil {
 		t.Fatalf("decode server response: %v", err)
 	}
-	if msg.Type != "chat_error" || !strings.Contains(msg.Error, "4 MiB") {
-		t.Fatalf("response = %#v, want a 4 MiB chat_error", msg)
+	if msg.Type != "chat_ack" || msg.Status != "rejected" || !strings.Contains(msg.Error, "4 MiB") {
+		t.Fatalf("response = %#v, want a rejected chat_ack naming the 4 MiB limit", msg)
 	}
 }
 

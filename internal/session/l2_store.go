@@ -15,6 +15,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
 	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
 type l2LifecycleState uint8
@@ -71,11 +72,12 @@ type L2SessionStore struct {
 	channelSenders      map[string]map[string]func(context.Context, string) error // group -> channel type -> sender
 	channelMediaSenders map[string]map[string]func(context.Context, []channel.OutboundMedia) error
 
-	builder   *Builder
-	buildL2   func(context.Context, string, string, string) (*Session, error)
-	logger    *logger.Logger
-	metaStore ChannelMetadataStore
-	workDir   string
+	builder     *Builder
+	buildL2     func(context.Context, string, string, string) (*Session, error)
+	logger      *logger.Logger
+	metaStore   ChannelMetadataStore
+	workDir     string
+	transcripts *transcript.Registry
 }
 
 // NewL2SessionStore creates a new L2SessionStore.
@@ -121,6 +123,20 @@ func (s *L2SessionStore) SetChannelSenderForGroup(group, channelType string, fn 
 }
 
 // SetChannelMetadataStore configures the DB store for channel metadata.
+// SetTranscriptRegistry selects the registry that carries the live transcript
+// of every L2 session. It applies to active sessions and to sessions activated
+// later.
+func (s *L2SessionStore) SetTranscriptRegistry(r *transcript.Registry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.transcripts = r
+	for _, entry := range s.sessions {
+		if entry.Session != nil {
+			entry.Session.SetTranscriptRegistry(r)
+		}
+	}
+}
+
 func (s *L2SessionStore) SetChannelMetadataStore(store ChannelMetadataStore) {
 	s.metaStore = store
 }
@@ -433,6 +449,7 @@ func (s *L2SessionStore) Activate(ctx context.Context, id string) (*Session, err
 			return nil, fmt.Errorf("activate L2 session %q cancelled by deletion", id)
 		}
 
+		sess.SetTranscriptRegistry(s.transcripts)
 		entry.Session = sess
 		entry.state = l2StateActive
 		if entry.GitBaseRef == "" {

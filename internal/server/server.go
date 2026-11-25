@@ -57,10 +57,14 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router/laya"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
 // Mux is the root HTTP handler.
 type Mux struct {
+	// transcripts carries the live transcript of every session this Mux
+	// serves; the session owners publish into it.
+	transcripts       *transcript.Registry
 	storage           *storage.Manager
 	storageMu         sync.Mutex
 	embedding         *engine.VectorManager
@@ -216,6 +220,13 @@ func WithSessionManager(mgr *session.SessionManager) MuxOption {
 	return func(m *Mux) { m.sessionMgr = mgr }
 }
 
+// WithTranscriptRegistry shares the registry the session owners publish
+// into. Without it the Mux creates its own and installs it in the session
+// manager and L2 store it was given.
+func WithTranscriptRegistry(reg *transcript.Registry) MuxOption {
+	return func(m *Mux) { m.transcripts = reg }
+}
+
 // WithL2SessionStore sets the L2 session store for /api/session/l2 endpoints.
 func WithL2SessionStore(store *session.L2SessionStore) MuxOption {
 	return func(m *Mux) { m.l2Store = store }
@@ -272,6 +283,16 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 
 	for _, opt := range opts {
 		opt(m)
+	}
+
+	if m.transcripts == nil {
+		m.transcripts = transcript.NewRegistry(transcript.DefaultConfig())
+	}
+	if m.sessionMgr != nil {
+		m.sessionMgr.SetTranscriptRegistry(m.transcripts)
+	}
+	if m.l2Store != nil {
+		m.l2Store.SetTranscriptRegistry(m.transcripts)
 	}
 
 	if m.webFS == nil {
@@ -345,7 +366,7 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 		r.Get("/", m.handleGetSessionStatus)
 		r.Post("/ask", m.handleAskSession)
 		r.Post("/upload", m.handleUploadFile)
-		r.Get("/history", m.handleSessionHistory)
+		r.Get("/transcript", m.handleSessionTranscript)
 		r.Post("/cancel", m.handleCancelSession)
 		r.Post("/clear", m.handleClearSession)
 		r.Post("/rewind", m.handleRewindSession)

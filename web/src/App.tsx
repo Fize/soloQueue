@@ -11,6 +11,7 @@ import { notificationManager } from '@/lib/notification'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useChatStore } from '@/stores/chatStore'
+import { useTranscriptStore } from '@/stores/transcriptStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useTranslation } from '@/lib/i18n'
 import { useWorkspaceCapabilities } from '@/hooks/useWorkspaceCapabilities'
@@ -205,9 +206,11 @@ function App() {
       useChatStore.getState().loadSessions()
       useAgentStore.getState().fetchLiveAgents()
 
+      // An open transcript resumes over the WebSocket; only a session whose
+      // snapshot failed to load needs another attempt.
       const activeSessionId = useChatStore.getState().activeSessionId
       if (activeSessionId) {
-        useChatStore.getState().loadHistory(activeSessionId)
+        void useTranscriptStore.getState().open(activeSessionId)
       }
     }
 

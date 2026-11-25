@@ -1,4 +1,3 @@
-import { useWorkedStateKeys } from "@/hooks/useWorkedStateKeys";
 import { useEffect, useRef, useCallback, useMemo, useState, useLayoutEffect } from "react";
 import { ChatMessageView } from "@/components/ChatMessage";
 import { CompactionStatusRows } from "@/components/chat/CompactionStatusRows";
@@ -7,38 +6,27 @@ import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
 import { Sparkles, Loader2 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
-import { useAgentStream } from "@/hooks/useAgentStream";
+import { useTranscript } from "@/hooks/useTranscript";
+import { useShallow } from "zustand/react/shallow";
 import { useAgentStore } from "@/stores/agentStore";
 import { runtimeSessionId, useRuntimeStore } from "@/stores/runtimeStore";
 import { cn } from "@/lib/utils";
 import { getSkills } from "@/lib/api";
-import { wsManager } from "@/lib/websocket";
-import type { SkillInfo, ChatSegment } from "@/types";
-import {
-  findRequestStream,
-  recoverInFlightMessageStreams,
-} from "@/components/chat/recoverInFlightMessages";
-import type { RequestStreamRecovery } from "@/components/chat/recoverInFlightMessages";
+import type { SkillInfo } from "@/types";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { useTranslation } from "@/lib/i18n";
 
 export function AssistantPage() {
   const { t } = useTranslation();
-  const {
-    activeSessionId,
-    messages,
-    compactions = {},
-    streamingSessions,
-    systemCommandSessions,
-    delegatingSessions,
-    routeSessions,
-    activeRequests,
-    historyHasMore,
-    historyLoading,
-    loadMoreHistory,
-    setActiveSession,
-    loadHistory,
-  } = useChatStore();
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const compactions = useChatStore((s) => s.compactions);
+  const streamingSessions = useChatStore(useShallow((s) => s.streamingSessions));
+  const systemCommandSessions = useChatStore(useShallow((s) => s.systemCommandSessions));
+  const delegatingSessions = useChatStore(useShallow((s) => s.delegatingSessions));
+  const routeSessions = useChatStore(useShallow((s) => s.routeSessions));
+  const activeRequests = useChatStore(useShallow((s) => s.activeRequests));
+  const setActiveSession = useChatStore((s) => s.setActiveSession);
+  const transcript = useTranscript("l1");
 
   const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false;
   const isSystemCommandRunning = activeSessionId
@@ -87,61 +75,10 @@ export function AssistantPage() {
 
   const agentName = t('sidebar.assistant');
 
-  const isL1Session = activeSessionId === "l1";
   const l1Agent = useMemo(() => {
     return agentsData?.agents.find((a) => a.id === "l1-agent") || null;
   }, [agentsData]);
-  const l1AgentState = l1Agent?.state;
   const l1AgentInstanceId = l1Agent?.instance_id || null;
-  const liveRequestId = routeSessions["l1"]?.requestId;
-  const stream = useAgentStream(l1AgentInstanceId, liveRequestId);
-
-  // L1 may execute several requests at once. The selected route is only
-  // suitable for input metadata; recovery must use every active request from
-  // runtime state and preserve each request's own virtual assistant message.
-  const recoveryRequestIDs = useMemo(() => {
-    const ids = new Set<string>();
-
-    for (const request of Object.values(activeRequests ?? {})) {
-      if (request.sessionId === "l1") ids.add(request.requestId);
-    }
-
-    for (const [key, runtime] of Object.entries(runtimeStatus?.sessions ?? {})) {
-      const runtimeSessionID = runtimeSessionId(key, runtime);
-      if (
-        runtimeSessionID === "l1" &&
-        runtime.request_id &&
-        ((runtime.state !== "idle" && runtime.state !== "error") || runtime.terminal_code)
-      ) {
-        ids.add(runtime.request_id);
-      }
-    }
-
-    if (liveRequestId && (l1AgentState === "processing" || streaming || delegating)) {
-      ids.add(liveRequestId);
-    }
-
-    for (const streamState of Object.values(runtimeStatus?.agent_streams ?? {})) {
-      if (
-        (streamState.processing || !!streamState.error) &&
-        streamState.request_id &&
-        !!l1AgentInstanceId &&
-        streamState.agent_id === l1AgentInstanceId
-      ) {
-        ids.add(streamState.request_id);
-      }
-    }
-
-    return [...ids];
-  }, [
-    activeRequests,
-    delegating,
-    l1AgentInstanceId,
-    l1AgentState,
-    liveRequestId,
-    runtimeStatus,
-    streaming,
-  ]);
 
   const filteredSkillNames = useMemo(() => {
     return skills.map((s) => s.name);
@@ -168,39 +105,10 @@ export function AssistantPage() {
   const ctxwinUsed = l1Runtime?.ctxwin_used ?? 0;
   const ctxwinLimit = l1Runtime?.ctxwin_limit ?? 0;
 
-  // ── Sync history upon agent state transitions (start/end processing) ──
-  const prevL1AgentState = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (isL1Session && l1AgentState) {
-      const wasProcessing = prevL1AgentState.current === "processing";
-      const isProcessing = l1AgentState === "processing";
-      if (
-        prevL1AgentState.current !== undefined &&
-        wasProcessing !== isProcessing
-      ) {
-        loadHistory("l1");
-      } else if (prevL1AgentState.current === undefined) {
-        loadHistory("l1");
-      }
-    }
-    prevL1AgentState.current = l1AgentState;
-  }, [isL1Session, l1AgentState, loadHistory]);
-
-  const hydratedTerminalRequests = useRef(new Set<string>());
-  useEffect(() => {
-    if (!isL1Session) return;
-    for (const [key, runtime] of Object.entries(runtimeStatus?.sessions ?? {})) {
-      if (runtimeSessionId(key, runtime) !== "l1" || !runtime.request_id || !runtime.terminal_code) continue;
-      const terminalKey = `l1:${runtime.request_id}:${runtime.terminal_code}`;
-      if (hydratedTerminalRequests.current.has(terminalKey)) continue;
-      hydratedTerminalRequests.current.add(terminalKey);
-      loadHistory("l1");
-    }
-  }, [isL1Session, loadHistory, runtimeStatus]);
-
   // ── Load more history when scrolling up ───────────────────────────────────
-  const hasMore = historyHasMore["l1"] ?? false;
-  const isLoadingMore = historyLoading["l1"] ?? false;
+  const hasMore = transcript.hasMore;
+  const isLoadingMore = transcript.loadingOlder;
+  const loadOlder = transcript.loadOlder;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -216,7 +124,7 @@ export function AssistantPage() {
       ) {
         loadingMoreRef.current = true;
         const prevHeight = scrollHeight;
-        loadMoreHistory("l1").then(() => {
+        loadOlder().then(() => {
           if (scrollRef.current) {
             const diff = scrollRef.current.scrollHeight - prevHeight;
             scrollRef.current.scrollTop = diff;
@@ -227,9 +135,8 @@ export function AssistantPage() {
     };
     el.addEventListener("scroll", handleScroll);
     return () => el.removeEventListener("scroll", handleScroll);
-  }, [hasMore, isLoadingMore, loadMoreHistory]);
+  }, [hasMore, isLoadingMore, loadOlder]);
 
-  const currentMessages = useMemo(() => messages["l1"] ?? [], [messages]);
 
   // ── Send & Cancel ─────────────────────────────────────────────────────────
   const handleSend = useCallback(
@@ -244,103 +151,14 @@ export function AssistantPage() {
     cancel();
   }, [cancel]);
 
-  // ── Live Stream Virtual Message ───────────────────────────────────────────
-  const streamChatSegments = useMemo(() => {
-    if (!stream?.segments) return [];
-    return stream.segments.map((seg) => {
-      if (seg.type === "tool_call") {
-        return {
-          type: "tool_call" as const,
-          callId: seg.call_id,
-          name: seg.name,
-          args: seg.args,
-          agentInstanceId: seg.agent_instance_id || undefined,
-          dispatchId: seg.dispatch_id || undefined,
-          result: seg.result || undefined,
-          error: seg.error || undefined,
-          durationMs: seg.duration_ms || undefined,
-          done: seg.done,
-        };
-      }
-      return seg;
-    });
-  }, [stream]);
-
-  const recoveryStreams = useMemo<RequestStreamRecovery[]>(() => {
-    const runtimeStreams = Object.values(runtimeStatus?.agent_streams ?? {});
-    return recoveryRequestIDs.flatMap((requestId) => {
-      const runtimeRequest = Object.entries(runtimeStatus?.sessions ?? {})
-        .find(([key, runtime]) => runtime.request_id === requestId && runtimeSessionId(key, runtime) === "l1")?.[1];
-      const runtimeStream = findRequestStream(runtimeStreams, l1AgentInstanceId, requestId);
-      if (runtimeStream?.segments.length) {
-        return [{
-          requestId,
-          startedAt: runtimeRequest?.started_at,
-          segments: runtimeStream.segments.map((seg): ChatSegment => {
-            if (seg.type === "tool_call") {
-              return {
-                type: "tool_call" as const,
-                callId: seg.call_id,
-                name: seg.name,
-                args: seg.args,
-                agentInstanceId: seg.agent_instance_id || undefined,
-          dispatchId: seg.dispatch_id || undefined,
-                result: seg.result || undefined,
-                error: seg.error || undefined,
-                durationMs: seg.duration_ms || undefined,
-                done: seg.done,
-              };
-            }
-            return seg;
-          }),
-        }];
-      }
-      if (runtimeStream?.error || runtimeRequest?.terminal_code) {
-        const message = runtimeStream?.error || runtimeRequest?.error ||
-          (runtimeRequest?.terminal_code === "completed" ? "Response completed; loading history…" : `Request ${runtimeRequest?.terminal_code || "ended"}.`);
-        const terminalSegment = runtimeStream?.error || runtimeRequest?.error
-          ? { type: "error" as const, text: message }
-          : { type: "content" as const, text: message };
-        return [{
-          requestId,
-          startedAt: runtimeRequest?.started_at,
-          terminal: true,
-          segments: [terminalSegment],
-        }];
-      }
-      if (requestId === liveRequestId && stream?.segments?.length) {
-        return [{ requestId, segments: streamChatSegments, startedAt: runtimeRequest?.started_at }];
-      }
-      return [];
-    });
-  }, [
-    l1AgentInstanceId,
-    liveRequestId,
-    recoveryRequestIDs,
-    runtimeStatus,
-    stream,
-    streamChatSegments,
-  ]);
-
-  const recoveredMessages = useMemo(() => {
-    return recoverInFlightMessageStreams(
-      currentMessages,
-      recoveryStreams,
-      (requestId) => !wsManager.hasChatHandler(requestId),
-    );
-  }, [
-    currentMessages,
-    recoveryStreams,
-  ]);
-
-  const finalMessages = useWorkedStateKeys("l1", recoveredMessages);
+  const finalMessages = transcript.messages;
 
   useLayoutEffect(() => {
     if (finalMessages.length === 0) return;
     followOutput();
   }, [finalMessages, followOutput]);
 
-  const isHistoryLoading = historyLoading["l1"] ?? false;
+  const isHistoryLoading = transcript.status === "loading";
 
   const requestActive = (streaming || delegating || runtimeProcessing || runtimeDelegating) && !isSystemCommandRunning;
   const activeRoute = routeSessions["l1"];

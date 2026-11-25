@@ -1,34 +1,17 @@
-import { removeCancelledInputs } from '@/lib/channelQueueRemoval'
 import { create } from 'zustand'
-import { preserveWorkedStateKeys } from '@/components/chat/preserveWorkedStateKeys'
-import type {
-  ChatSession,
-  ChatMessage,
-  ChatSegment,
-  ChatRouteInfo,
-  CompactionStatus,
-} from '@/types'
+import type { ChatSession, ChatRouteInfo, CompactionStatus } from '@/types'
 import {
   listSessions,
   createL2Session,
   deleteL2Session,
-  fetchSessionHistory,
   rewindSession as apiRewindSession,
   deleteSessionMessages as apiDeleteSessionMessages,
 } from '@/lib/api'
-import type { SessionHistoryMessage, SessionHistorySegment } from '@/types'
 import { useInspectorStateStore } from './inspectorStateStore'
 
-function mergeCancelledInputs(current: ChatMessage[], history: ChatMessage[]): ChatMessage[] {
-  const result = [...history]
-  for (const message of current) {
-    if (message.role !== 'user' || (!message.queueCancelled && !message.queued) || !message.requestId || result.some((item) => item.role === 'user' && item.requestId === message.requestId)) continue
-    const timestamp = Date.parse(message.timestamp)
-    const index = result.findIndex((item) => Number.isFinite(timestamp) && Date.parse(item.timestamp) > timestamp)
-    result.splice(index < 0 ? result.length : index, 0, message)
-  }
-  return result
-}
+// Conversation content lives in transcriptStore. This store keeps the session
+// list, compaction notices and the per-session activity flags derived from the
+// transcript (or from runtime snapshots for sessions that are not open).
 
 export type ChatRequestStatus = 'starting' | 'streaming' | 'queued' | 'cancelling'
 
@@ -41,78 +24,58 @@ export interface ActiveChatRequest {
   route?: ChatRouteInfo
 }
 
+export interface SessionActivity {
+  streaming: boolean
+  delegating: boolean
+  systemCommand: boolean
+  route?: ChatRouteInfo
+  requests: ActiveChatRequest[]
+}
+
 interface ChatState {
   sessions: ChatSession[]
   activeSessionId: string | null
-  messages: Record<string, ChatMessage[]> // keyed by session id
   compactions: Record<string, CompactionStatus[]>
   compactionClearWatermarks: Record<string, string>
   activeRequests: Record<string, ActiveChatRequest>
   streamingSessions: Record<string, boolean>
-  systemCommandSessions: Record<string, boolean> // keyed by session id, true while a built-in system slash command (/clear, /compact, /cancel, /help, /version) is being executed. Used to suppress the L0–L3 / model chips in the working indicator, since those commands don't run a routed task.
-  delegatingSessions: Record<string, boolean> // keyed by session id, true when async delegation is in progress (L1 waiting for L2)
+  /** True while a built-in slash command runs; hides routing chips. */
+  systemCommandSessions: Record<string, boolean>
+  /** True while async delegation is in progress. */
+  delegatingSessions: Record<string, boolean>
   routeSessions: Record<string, ChatRouteInfo | undefined>
-  titleGenerated: Record<string, boolean> // track which sessions already had title generated
-  historyLoading: Record<string, boolean> // track which sessions are loading history
-  setCompactionStatus: (sessionId: string, status: CompactionStatus) => void
-  clearCompactions: (sessionId: string) => void
-  historyHasMore: Record<string, boolean> // track which sessions have more history to load
-  historyCursor: Record<string, string | null> // cursor for next load-more page
-  historyPreservedMessageIds: Record<string, string[]> // one-shot protection for request-owned terminal errors during runtime hydration
-  sessionsLoading: boolean // true while loadSessions() is in flight — drives the "Loading sessions…" UI
-  sessionsLoaded: boolean // true once a listSessions call has succeeded — stale-session guard may only trust absence after this
+  titleGenerated: Record<string, boolean>
+  /** True while loadSessions() is in flight. */
+  sessionsLoading: boolean
+  /** True once a listSessions call has succeeded. */
+  sessionsLoaded: boolean
 
   loadSessions: () => Promise<void>
   createL2Session: (group: string, workDir?: string) => Promise<string | null>
   deleteL2Session: (id: string) => Promise<void>
   setActiveSession: (id: string) => void
-  loadHistory: (sessionId: string) => Promise<void>
-  loadMoreHistory: (sessionId: string) => Promise<void>
   renameSession: (id: string, name: string) => void
   updateSessionPlans: (id: string, plans: string[]) => void
   markTitleGenerated: (id: string) => void
+  setSessionContextUsage: (id: string, used?: number, limit?: number) => void
 
-  addMessage: (sessionId: string, message: ChatMessage) => void
-  insertMessageAfterRequest: (sessionId: string, requestId: string, message: ChatMessage) => void
-  registerRequest: (requestId: string, sessionId: string, route?: ChatRouteInfo) => void
-  updateRequestStatus: (requestId: string, status: ChatRequestStatus) => void
-  updateRequestCancelId: (requestId: string, cancelRequestId: string) => void
-  updateRequestRoute: (requestId: string, route: ChatRouteInfo) => void
-  removeRequest: (requestId: string) => void
-  reconcileRuntimeTerminal: (requestId: string, sessionId: string) => void
-  updateAssistantSegment: (sessionId: string, messageId: string, segment: ChatSegment) => void
-  appendAssistantContent: (sessionId: string, messageId: string, text: string) => void
-  appendAssistantThinking: (sessionId: string, messageId: string, text: string) => void
-  appendAssistantCompact: (sessionId: string, messageId: string, text: string) => void
-  updateToolCallResult: (
-    sessionId: string,
-    callId: string,
-    result: string,
-    error?: string,
-    durationMs?: number
-  ) => void
+  setCompactionStatus: (sessionId: string, status: CompactionStatus, requestId?: string) => void
+  applyCompactionSnapshot: (sessionId: string, statuses: CompactionStatus[]) => void
+  clearCompactions: (sessionId: string) => void
+
+  /** Replace every activity flag of one session. */
+  setSessionActivity: (sessionId: string, activity: SessionActivity) => void
+  /** Runtime-derived flags for sessions without a live transcript. */
+  setRuntimeActivity: (sessionId: string, streaming: boolean, delegating: boolean) => void
   setStreaming: (v: boolean, sessionId?: string | null) => void
-  setSystemCommandRunning: (v: boolean, sessionId?: string | null) => void
   setDelegating: (v: boolean, sessionId?: string | null) => void
-  setRoute: (route: ChatRouteInfo) => void
-  clearRoute: (sessionId: string, requestId: string) => void
-  removeLastEmptyAssistantMessage: (sessionId: string) => void
-  addDelegationSegment: (sessionId: string, delegation: { agentName: string; task: string }) => void
-  completeLastDelegation: (
-    sessionId: string,
-    agentName: string,
-    durationMs?: number,
-    resultContent?: string
-  ) => void
-  cancelRunningDelegations: (sessionId: string) => void
-  failAssistantMessage: (sessionId: string, messageId: string, error: string) => void
+  setSystemCommandRunning: (v: boolean, sessionId?: string | null) => void
+  removeRequest: (requestId: string) => void
 
   rewindSession: (sessionId: string, targetTs: string) => Promise<void>
   deleteSessionMessages: (sessionId: string, targetTsList: string[]) => Promise<void>
 }
 
-const PAGE_SIZE = 30 // number of messages to load per page
-const ACTIVE_CHAT_ROUTES_STORAGE_KEY = 'soloqueue_active_chat_routes'
 const COMPACTION_ERROR_NOTICE_MS = 30_000
 
 function isAfterCompactionClear(status: CompactionStatus, watermark?: string) {
@@ -122,16 +85,10 @@ function isAfterCompactionClear(status: CompactionStatus, watermark?: string) {
   return Number.isFinite(startedAt) && Number.isFinite(clearedAt) && startedAt >= clearedAt
 }
 
-function mergeCompactionStatuses(
-  snapshot: CompactionStatus[],
-  current: CompactionStatus[],
-  watermark?: string
-) {
+function mergeCompactionStatuses(snapshot: CompactionStatus[], current: CompactionStatus[], watermark?: string) {
   const terminal = new Set(['completed', 'failed', 'interrupted'])
   const merged = new Map(
-    snapshot
-      .filter((status) => isAfterCompactionClear(status, watermark))
-      .map((status) => [status.id, status])
+    snapshot.filter((status) => isAfterCompactionClear(status, watermark)).map((status) => [status.id, status])
   )
   for (const live of current.filter((status) => isAfterCompactionClear(status, watermark))) {
     const saved = merged.get(live.id)
@@ -148,132 +105,33 @@ function mergeCompactionStatuses(
     if (liveTerminal && savedTerminal && (live.finished_at || '') > (saved.finished_at || '')) {
       merged.set(live.id, live)
     }
-    // Hydration may update the lifecycle, but cannot restart a live notice or
-    // discard the request ownership needed to suppress a duplicate error.
+    // A snapshot may update the lifecycle, but cannot restart a live notice or
+    // discard the request ownership used to suppress a duplicate error.
     const selected = merged.get(live.id)!
-    merged.set(live.id, {
-      ...selected,
-      noticeExpiresAt: live.noticeExpiresAt,
-      requestId: live.requestId,
-    })
+    merged.set(live.id, { ...selected, noticeExpiresAt: live.noticeExpiresAt, requestId: live.requestId })
   }
   return Array.from(merged.values())
 }
 
-function isPersistedChatRoute(value: unknown, sessionId: string): value is ChatRouteInfo {
-  if (!value || typeof value !== 'object') return false
-  const route = value as Partial<ChatRouteInfo>
-  return (
-    route.sessionId === sessionId &&
-    typeof route.requestId === 'string' &&
-    typeof route.taskLevel === 'string' &&
-    typeof route.modelId === 'string'
-  )
-}
-
-function loadActiveChatRoutes(): Record<string, ChatRouteInfo> {
-  const raw = localStorage.getItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY)
-  if (!raw) return {}
-
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([sessionId, route]) => isPersistedChatRoute(route, sessionId))
-    ) as Record<string, ChatRouteInfo>
-  } catch {
-    return {}
-  }
-}
-
-function persistActiveChatRoutes(routes: Record<string, ChatRouteInfo | undefined>) {
-  try {
-    const activeRoutes = Object.fromEntries(Object.entries(routes).filter(([, route]) => route))
-    if (Object.keys(activeRoutes).length === 0) {
-      localStorage.removeItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY)
-      return
-    }
-    localStorage.setItem(ACTIVE_CHAT_ROUTES_STORAGE_KEY, JSON.stringify(activeRoutes))
-  } catch {
-    // Browser storage is best-effort. Runtime route state must remain authoritative.
-  }
-}
-
-// Coalesce concurrent loadSessions() calls (e.g. App.tsx auto-retry effect
-// AND SessionTree mount AND focus/visibility handler all firing in the same
-// render tick). The first call kicks off the fetch; subsequent callers await
-// the same in-flight promise instead of issuing duplicate requests.
+// Coalesce concurrent loadSessions() calls.
 let inflightSessionsLoad: Promise<void> | null = null
 
 export const useChatStore = create<ChatState>((set) => ({
   sessions: [],
   activeSessionId: null,
-  messages: {},
   compactions: {},
   compactionClearWatermarks: {},
   activeRequests: {},
   streamingSessions: {},
   systemCommandSessions: {},
   delegatingSessions: {},
-  routeSessions: loadActiveChatRoutes(),
+  routeSessions: {},
   titleGenerated: {},
-  historyLoading: {},
-  setCompactionStatus: (sessionId, status) =>
-    set((s) => {
-      if (!isAfterCompactionClear(status, s.compactionClearWatermarks[sessionId])) return {}
-      const rows = [...(s.compactions[sessionId] || [])]
-      const i = rows.findIndex((r) => r.id === status.id)
-      const previous = rows[i]
-      if (previous && ['completed', 'failed', 'interrupted'].includes(previous.status)) return {}
-      const requestId =
-        previous?.requestId ??
-        (status.reason === 'user_command'
-          ? Object.values(s.activeRequests).find(
-              (request) =>
-                request.sessionId === sessionId &&
-                request.status !== 'queued' &&
-                (s.messages[sessionId] || []).some(
-                  (message) =>
-                    message.role === 'user' &&
-                    message.requestId === request.requestId &&
-                    message.segments.some(
-                      (segment) =>
-                        segment.type === 'content' &&
-                        segment.text.trim().toLowerCase() === '/compact'
-                    )
-                )
-            )?.requestId
-          : undefined)
-      const row: CompactionStatus = {
-        ...status,
-        requestId,
-        noticeExpiresAt:
-          status.status === 'failed' || status.status === 'interrupted'
-            ? Date.now() + COMPACTION_ERROR_NOTICE_MS
-            : undefined,
-      }
-      if (i < 0) rows.push(row)
-      else rows[i] = row
-      return { compactions: { ...s.compactions, [sessionId]: rows } }
-    }),
-  clearCompactions: (sessionId) =>
-    set((s) => ({
-      compactions: { ...s.compactions, [sessionId]: [] },
-      compactionClearWatermarks: {
-        ...s.compactionClearWatermarks,
-        [sessionId]: new Date().toISOString(),
-      },
-    })),
-  historyHasMore: {},
-  historyCursor: {},
-  historyPreservedMessageIds: {},
   sessionsLoading: false,
   sessionsLoaded: false,
 
   loadSessions: async () => {
     if (inflightSessionsLoad) return inflightSessionsLoad
-
     set({ sessionsLoading: true })
     const applyResult = (data: { sessions?: any[] }) => {
       const mapped = (data.sessions || []).map((s: any) => ({
@@ -281,16 +139,10 @@ export const useChatStore = create<ChatState>((set) => ({
         createdAt: s.createdAt || s.created_at || new Date().toISOString(),
       }))
       set((prev) => {
-        // Preserve the active session if missing from API response
-        // (race: list request sent before create completed).
-        if (prev.activeSessionId) {
-          const hasActive = mapped.some((m) => m.id === prev.activeSessionId)
-          if (!hasActive) {
-            const activeFromStore = prev.sessions.find((ss) => ss.id === prev.activeSessionId)
-            if (activeFromStore) {
-              mapped.push(activeFromStore)
-            }
-          }
+        // Preserve the active session if the list raced its creation.
+        if (prev.activeSessionId && !mapped.some((m) => m.id === prev.activeSessionId)) {
+          const activeFromStore = prev.sessions.find((ss) => ss.id === prev.activeSessionId)
+          if (activeFromStore) mapped.push(activeFromStore)
         }
         return { sessions: mapped, sessionsLoaded: true }
       })
@@ -299,10 +151,7 @@ export const useChatStore = create<ChatState>((set) => ({
       try {
         applyResult(await listSessions())
       } catch {
-        // First attempt failed — most often because the backend was still
-        // starting when this fired. Retry once. If the backend is genuinely
-        // down the retry will also fail and the caller is back to the
-        // empty state, ready for the next backendRunning transition.
+        // The backend may still be starting; retry once.
         try {
           applyResult(await listSessions())
         } catch {
@@ -341,32 +190,22 @@ export const useChatStore = create<ChatState>((set) => ({
     try {
       await deleteL2Session(uuid)
       set((s) => {
-        const { [id]: _msg, ...restMessages } = s.messages
-        const { [id]: _title, ...restTitle } = s.titleGenerated
-        const { [id]: _loading, ...restLoading } = s.historyLoading
-        const { [id]: _more, ...restHasMore } = s.historyHasMore
-        const { [id]: _cursor, ...restCursor } = s.historyCursor
-        const { [id]: _route, ...restRoutes } = s.routeSessions
-        const { [id]: _streaming, ...restStreaming } = s.streamingSessions
-        const { [id]: _system, ...restSystem } = s.systemCommandSessions
-        const { [id]: _delegating, ...restDelegating } = s.delegatingSessions
-        const activeRequests = Object.fromEntries(
-          Object.entries(s.activeRequests).filter(([, request]) => request.sessionId !== id)
-        )
-        persistActiveChatRoutes(restRoutes)
+        const without = <T,>(record: Record<string, T>) => {
+          const { [id]: _removed, ...rest } = record
+          return rest
+        }
         return {
           sessions: s.sessions.filter((sess) => sess.id !== id),
           activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
-          messages: restMessages,
-          titleGenerated: restTitle,
-          historyLoading: restLoading,
-          historyHasMore: restHasMore,
-          historyCursor: restCursor,
-          routeSessions: restRoutes,
-          streamingSessions: restStreaming,
-          systemCommandSessions: restSystem,
-          delegatingSessions: restDelegating,
-          activeRequests,
+          titleGenerated: without(s.titleGenerated),
+          routeSessions: without(s.routeSessions),
+          streamingSessions: without(s.streamingSessions),
+          systemCommandSessions: without(s.systemCommandSessions),
+          delegatingSessions: without(s.delegatingSessions),
+          compactions: without(s.compactions),
+          activeRequests: Object.fromEntries(
+            Object.entries(s.activeRequests).filter(([, request]) => request.sessionId !== id)
+          ),
         }
       })
       useInspectorStateStore.getState().removeSession(id)
@@ -375,778 +214,131 @@ export const useChatStore = create<ChatState>((set) => ({
     }
   },
 
-  setActiveSession: (id: string) => {
-    set({ activeSessionId: id })
-    // If no messages cached for this session, load history.
-    const state = useChatStore.getState()
-    const existing = state.messages[id]
-    if (!existing || existing.length === 0) {
-      state.loadHistory(id)
-    }
-  },
+  setActiveSession: (id: string) => set({ activeSessionId: id }),
 
-  loadHistory: async (sessionId: string) => {
-    const state = useChatStore.getState()
-    const cachedMessages = state.messages[sessionId]
-    // A live request normally owns the local message list, so history must not
-    // overwrite it. After a renderer reload, however, runtime state is restored
-    // before the in-memory messages/handler. Allow that empty cache to hydrate
-    // from the persisted timeline even while the backend is still processing.
-    if (state.streamingSessions[sessionId] && cachedMessages?.length) {
-      return
-    }
+  renameSession: (id: string, name: string) =>
+    set((s) => ({ sessions: s.sessions.map((sess) => (sess.id === id ? { ...sess, name } : sess)) })),
+
+  updateSessionPlans: (id: string, plans: string[]) =>
+    set((s) => ({ sessions: s.sessions.map((sess) => (sess.id === id ? { ...sess, plans } : sess)) })),
+
+  markTitleGenerated: (id: string) => set((s) => ({ titleGenerated: { ...s.titleGenerated, [id]: true } })),
+
+  setSessionContextUsage: (id, used, limit) =>
     set((s) => ({
-      historyLoading: { ...s.historyLoading, [sessionId]: true },
-    }))
-    try {
-      const data = await fetchSessionHistory(sessionId, undefined, PAGE_SIZE)
-      const msgs: ChatMessage[] = data.messages.map((hm: SessionHistoryMessage) => ({
-        id: hm.id,
-        requestId: hm.request_id,
-        role: hm.role as 'user' | 'assistant',
-        segments: hm.segments.map(convertHistorySegment),
-        timestamp: hm.timestamp,
-        files: hm.files,
-      }))
-      set((s) => {
-        // Don't overwrite messages that were added by a racing send().
-        const current = s.messages[sessionId]
-        if (current && current.length > 0 && s.streamingSessions[sessionId]) {
-          return {}
-        }
-        const preservedIds = s.historyPreservedMessageIds[sessionId] || []
-        const preserveCurrentMessages = preservedIds.some((messageId) =>
-          current?.some((message) => message.id === messageId)
-        )
-        const updatedSessions = s.sessions.map((sess) => {
-          if (sess.id === sessionId) {
-            return {
+      sessions: s.sessions.map((sess) =>
+        sess.id === id
+          ? {
               ...sess,
-              ctxwin_used: data.ctxwin_used !== undefined ? data.ctxwin_used : sess.ctxwin_used,
-              ctxwin_limit: data.ctxwin_limit !== undefined ? data.ctxwin_limit : sess.ctxwin_limit,
+              ctxwin_used: used !== undefined ? used : sess.ctxwin_used,
+              ctxwin_limit: limit !== undefined ? limit : sess.ctxwin_limit,
             }
-          }
-          return sess
-        })
-        if (preserveCurrentMessages) {
-          const { [sessionId]: _consumed, ...remainingPreservedIds } = s.historyPreservedMessageIds
-          return {
-            compactions: {
-              ...s.compactions,
-              [sessionId]: mergeCompactionStatuses(
-                data.compactions || [],
-                s.compactions[sessionId] || [],
-                s.compactionClearWatermarks[sessionId]
-              ),
-            },
-            sessions: updatedSessions,
-            historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
-            historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
-            historyPreservedMessageIds: remainingPreservedIds,
-          }
-        }
-        return {
-          compactions: {
-            ...s.compactions,
-            [sessionId]: mergeCompactionStatuses(
-              data.compactions || [],
-              s.compactions[sessionId] || [],
-              s.compactionClearWatermarks[sessionId]
-            ),
-          },
-          sessions: updatedSessions,
-          messages: { ...s.messages, [sessionId]: preserveWorkedStateKeys(current || [], mergeCancelledInputs(current || [], msgs)) },
-          historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
-          historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
-        }
-      })
-    } catch {
-      // Timeline may not exist yet for new sessions; that's fine.
-      set((s) => {
-        // Don't clear messages that were added by a racing send().
-        const current = s.messages[sessionId]
-        if (current && current.length > 0 && s.streamingSessions[sessionId]) {
-          return {}
-        }
-        const preservedIds = s.historyPreservedMessageIds[sessionId] || []
-        if (
-          preservedIds.some((messageId) => current?.some((message) => message.id === messageId))
-        ) {
-          return {}
-        }
-        return {
-          messages: { ...s.messages, [sessionId]: mergeCancelledInputs(current || [], []) },
-          historyHasMore: { ...s.historyHasMore, [sessionId]: false },
-          historyCursor: { ...s.historyCursor, [sessionId]: null },
-        }
-      })
-    } finally {
-      set((s) => ({
-        historyLoading: { ...s.historyLoading, [sessionId]: false },
-      }))
-    }
-  },
+          : sess
+      ),
+    })),
 
-  loadMoreHistory: async (sessionId: string) => {
-    const cursor = useChatStore.getState().historyCursor[sessionId]
-    if (!cursor) return // no more to load
-
-    set((s) => ({
-      historyLoading: { ...s.historyLoading, [sessionId]: true },
-    }))
-    try {
-      const data = await fetchSessionHistory(sessionId, cursor, PAGE_SIZE)
-      const olderMsgs: ChatMessage[] = data.messages.map((hm: SessionHistoryMessage) => ({
-        id: hm.id,
-        requestId: hm.request_id,
-        role: hm.role as 'user' | 'assistant',
-        segments: hm.segments.map(convertHistorySegment),
-        timestamp: hm.timestamp,
-        files: hm.files,
-      }))
-      set((s) => {
-        const current = s.messages[sessionId] || []
-        const updatedSessions = s.sessions.map((sess) => {
-          if (sess.id === sessionId) {
-            return {
-              ...sess,
-              ctxwin_used: data.ctxwin_used !== undefined ? data.ctxwin_used : sess.ctxwin_used,
-              ctxwin_limit: data.ctxwin_limit !== undefined ? data.ctxwin_limit : sess.ctxwin_limit,
-            }
-          }
-          return sess
-        })
-        return {
-          ...(data.compactions
-            ? {
-                compactions: {
-                  ...s.compactions,
-                  [sessionId]: mergeCompactionStatuses(
-                    data.compactions,
-                    s.compactions[sessionId] || [],
-                    s.compactionClearWatermarks[sessionId]
-                  ),
-                },
-              }
-            : {}),
-          sessions: updatedSessions,
-          messages: { ...s.messages, [sessionId]: [...olderMsgs, ...current] },
-          historyHasMore: { ...s.historyHasMore, [sessionId]: data.has_more || false },
-          historyCursor: { ...s.historyCursor, [sessionId]: data.cursor || null },
-        }
-      })
-    } catch {
-      // If the request fails, keep the current cursor so the user can retry
-    } finally {
-      set((s) => ({
-        historyLoading: { ...s.historyLoading, [sessionId]: false },
-      }))
-    }
-  },
-
-  renameSession: (id: string, name: string) => {
-    set((s) => ({
-      sessions: s.sessions.map((sess) => (sess.id === id ? { ...sess, name } : sess)),
-    }))
-  },
-
-  updateSessionPlans: (id: string, plans: string[]) => {
-    set((s) => ({
-      sessions: s.sessions.map((sess) => (sess.id === id ? { ...sess, plans } : sess)),
-    }))
-  },
-
-  markTitleGenerated: (id: string) => {
-    set((s) => ({
-      titleGenerated: { ...s.titleGenerated, [id]: true },
-    }))
-  },
-
-  addMessage: (sessionId: string, message: ChatMessage) => {
+  setCompactionStatus: (sessionId, status, requestId) =>
     set((s) => {
-      const msgs = s.messages[sessionId] || []
-      return {
-        messages: {
-          ...s.messages,
-          [sessionId]: [...msgs, message],
-        },
+      if (!isAfterCompactionClear(status, s.compactionClearWatermarks[sessionId])) return {}
+      const rows = [...(s.compactions[sessionId] || [])]
+      const i = rows.findIndex((r) => r.id === status.id)
+      const previous = rows[i]
+      if (previous && ['completed', 'failed', 'interrupted'].includes(previous.status)) return {}
+      const row: CompactionStatus = {
+        ...status,
+        requestId: previous?.requestId ?? (status.reason === 'user_command' ? requestId : undefined),
+        noticeExpiresAt:
+          status.status === 'failed' || status.status === 'interrupted'
+            ? Date.now() + COMPACTION_ERROR_NOTICE_MS
+            : undefined,
       }
-    })
-  },
+      if (i < 0) rows.push(row)
+      else rows[i] = row
+      return { compactions: { ...s.compactions, [sessionId]: rows } }
+    }),
 
-  insertMessageAfterRequest: (sessionId: string, requestId: string, message: ChatMessage) => {
-    set((s) => {
-      const msgs = [...(s.messages[sessionId] || [])]
-      let anchorIndex = -1
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (msgs[i].role === 'user' && msgs[i].requestId === requestId) {
-          anchorIndex = i
-          break
-        }
-      }
-      msgs.splice(anchorIndex >= 0 ? anchorIndex + 1 : msgs.length, 0, message)
-      return {
-        messages: {
-          ...s.messages,
-          [sessionId]: msgs,
-        },
-      }
-    })
-  },
-
-  registerRequest: (requestId: string, sessionId: string, route?: ChatRouteInfo) =>
+  applyCompactionSnapshot: (sessionId, statuses) =>
     set((s) => ({
-      activeRequests: {
-        ...s.activeRequests,
-        [requestId]: {
-          requestId,
-          cancelRequestId: requestId,
-          sessionId,
-          status: 'starting',
-          route,
-        },
+      compactions: {
+        ...s.compactions,
+        [sessionId]: mergeCompactionStatuses(
+          statuses,
+          s.compactions[sessionId] || [],
+          s.compactionClearWatermarks[sessionId]
+        ),
       },
     })),
-  updateRequestStatus: (requestId: string, status: ChatRequestStatus) =>
+
+  clearCompactions: (sessionId) =>
+    set((s) => ({
+      compactions: { ...s.compactions, [sessionId]: [] },
+      compactionClearWatermarks: { ...s.compactionClearWatermarks, [sessionId]: new Date().toISOString() },
+    })),
+
+  setSessionActivity: (sessionId, activity) =>
     set((s) => {
-      const request = s.activeRequests[requestId]
-      if (!request) return s
-      if (request.status === 'cancelling' && status !== 'cancelling') {
+      const activeRequests = Object.fromEntries(
+        Object.entries(s.activeRequests).filter(([, request]) => request.sessionId !== sessionId)
+      )
+      for (const request of activity.requests) activeRequests[request.requestId] = request
+      const routeSessions = { ...s.routeSessions }
+      if (activity.route) routeSessions[sessionId] = activity.route
+      else delete routeSessions[sessionId]
+      return {
+        activeRequests,
+        routeSessions,
+        streamingSessions: { ...s.streamingSessions, [sessionId]: activity.streaming },
+        delegatingSessions: { ...s.delegatingSessions, [sessionId]: activity.delegating },
+        systemCommandSessions: { ...s.systemCommandSessions, [sessionId]: activity.systemCommand },
+      }
+    }),
+
+  setRuntimeActivity: (sessionId, streaming, delegating) =>
+    set((s) => {
+      if (!!s.streamingSessions[sessionId] === streaming && !!s.delegatingSessions[sessionId] === delegating) {
         return s
       }
       return {
-        activeRequests: {
-          ...s.activeRequests,
-          [requestId]: { ...request, status },
-        },
+        streamingSessions: { ...s.streamingSessions, [sessionId]: streaming },
+        delegatingSessions: { ...s.delegatingSessions, [sessionId]: delegating },
       }
     }),
-  updateRequestCancelId: (requestId: string, cancelRequestId: string) =>
+
+  setStreaming: (v, sessionId) =>
     set((s) => {
-      const request = s.activeRequests[requestId]
-      if (!request) return s
-      return {
-        activeRequests: {
-          ...s.activeRequests,
-          [requestId]: { ...request, cancelRequestId },
-        },
-      }
+      const id = sessionId || s.activeSessionId
+      if (!id) return s
+      return { streamingSessions: { ...s.streamingSessions, [id]: v } }
     }),
-  updateRequestRoute: (requestId: string, route: ChatRouteInfo) =>
+
+  setDelegating: (v, sessionId) =>
     set((s) => {
-      const request = s.activeRequests[requestId]
-      if (!request) return s
-      return {
-        activeRequests: {
-          ...s.activeRequests,
-          [requestId]: { ...request, route },
-        },
-      }
+      const id = sessionId || s.activeSessionId
+      if (!id) return s
+      return { delegatingSessions: { ...s.delegatingSessions, [id]: v } }
     }),
-  removeRequest: (requestId: string) =>
+
+  setSystemCommandRunning: (v, sessionId) =>
+    set((s) => {
+      const id = sessionId || s.activeSessionId
+      if (!id) return s
+      return { systemCommandSessions: { ...s.systemCommandSessions, [id]: v } }
+    }),
+
+  removeRequest: (requestId) =>
     set((s) => {
       if (!s.activeRequests[requestId]) return s
       const { [requestId]: _removed, ...activeRequests } = s.activeRequests
       return { activeRequests }
     }),
-  reconcileRuntimeTerminal: (requestId: string, sessionId: string) =>
-    set((s) => {
-      const request = s.activeRequests[requestId]
-      const { [requestId]: _removed, ...activeRequests } = s.activeRequests
-      if (!request || request.sessionId !== sessionId) return s
 
-      const remaining = Object.values(activeRequests).filter((item) => item.sessionId === sessionId)
-      const route = s.routeSessions[sessionId]
-      const routeSessions = { ...s.routeSessions }
-      if (route?.requestId === requestId) {
-        const fallbackRoute = [...remaining].reverse().find((item) => item.route)?.route
-        if (fallbackRoute) routeSessions[sessionId] = fallbackRoute
-        else if (remaining.length === 0) delete routeSessions[sessionId]
-        persistActiveChatRoutes(routeSessions)
-      }
-      const streamingSessions = { ...s.streamingSessions }
-      const delegatingSessions = { ...s.delegatingSessions }
-      const systemCommandSessions = { ...s.systemCommandSessions }
-      if (remaining.length === 0) {
-        streamingSessions[sessionId] = false
-        delegatingSessions[sessionId] = false
-        systemCommandSessions[sessionId] = false
-      }
-      return {
-        activeRequests,
-        routeSessions,
-        streamingSessions,
-        delegatingSessions,
-        systemCommandSessions,
-      }
-    }),
-
-  updateAssistantSegment: (sessionId: string, messageId: string, segment: ChatSegment) => {
-    set((s) => {
-      const sid = sessionId
-      const msgs = [...(s.messages[sid] || [])]
-      const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
-      if (idx === -1) return s
-      const target = msgs[idx]
-      const updated = { ...target, segments: [...target.segments, segment] }
-      msgs[idx] = updated
-      return { messages: { ...s.messages, [sid]: msgs } }
-    })
+  // The server publishes a transcript reset after both operations; the open
+  // transcript reloads its snapshot from it.
+  rewindSession: async (sessionId, targetTs) => {
+    await apiRewindSession(sessionId, targetTs)
   },
 
-  appendAssistantContent: (sessionId: string, messageId: string, text: string) => {
-    set((s) => {
-      const sid = sessionId
-      const msgs = [...(s.messages[sid] || [])]
-      const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
-      if (idx === -1) {
-        if (text && text.trim()) {
-          console.warn(
-            `[chatStore] Dropping content delta (${text.length} chars) for session ${sid}: no assistant message found`
-          )
-        }
-        return s
-      }
-      const target = msgs[idx]
-      const segs = [...target.segments]
-      const lastSeg = segs[segs.length - 1]
-      if (lastSeg && lastSeg.type === 'content') {
-        segs[segs.length - 1] = { ...lastSeg, text: lastSeg.text + text }
-      } else {
-        segs.push({ type: 'content', text })
-      }
-      msgs[idx] = { ...target, segments: segs }
-      return {
-        messages: {
-          ...s.messages,
-          [sid]: msgs,
-        },
-      }
-    })
-  },
-
-  appendAssistantThinking: (sessionId: string, messageId: string, text: string) => {
-    set((s) => {
-      const sid = sessionId
-      const msgs = [...(s.messages[sid] || [])]
-      const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
-      if (idx === -1) {
-        if (text && text.trim()) {
-          console.warn(
-            `[chatStore] Dropping thinking delta (${text.length} chars) for session ${sid}: no assistant message found`
-          )
-        }
-        return s
-      }
-      const target = msgs[idx]
-      const segs = [...target.segments]
-      const lastSeg = segs[segs.length - 1]
-      if (lastSeg && lastSeg.type === 'thinking') {
-        segs[segs.length - 1] = { ...lastSeg, text: lastSeg.text + text }
-      } else {
-        segs.push({ type: 'thinking', text })
-      }
-      msgs[idx] = { ...target, segments: segs }
-      return {
-        messages: { ...s.messages, [sid]: msgs },
-      }
-    })
-  },
-
-  appendAssistantCompact: (sessionId: string, messageId: string, text: string) => {
-    set((s) => {
-      const sid = sessionId
-      const msgs = [...(s.messages[sid] || [])]
-      const idx = msgs.findIndex((msg) => msg.id === messageId && msg.role === 'assistant')
-      if (idx === -1) return s
-      const target = msgs[idx]
-      const segs = [...target.segments]
-      const lastSeg = segs[segs.length - 1]
-      if (lastSeg && lastSeg.type === 'compact') {
-        segs[segs.length - 1] = { ...lastSeg, text: lastSeg.text + text }
-      } else {
-        segs.push({ type: 'compact', text })
-      }
-      msgs[idx] = { ...target, segments: segs }
-      return {
-        messages: { ...s.messages, [sid]: msgs },
-      }
-    })
-  },
-
-  updateToolCallResult: (
-    sessionId: string,
-    callId: string,
-    result: string,
-    error?: string,
-    durationMs?: number
-  ) => {
-    set((s) => {
-      const sid = sessionId
-      const msgs = [...(s.messages[sid] || [])]
-
-      let found = false
-      const updated = [...msgs]
-      for (let i = updated.length - 1; i >= 0; i--) {
-        const msg = updated[i]
-        if (msg.role !== 'assistant') continue
-
-        let segFound = false
-        const segs = msg.segments.map((seg) => {
-          if (seg.type === 'tool_call' && seg.callId === callId) {
-            segFound = true
-            found = true
-            return { ...seg, result, error, durationMs, done: true }
-          }
-          return seg
-        })
-
-        if (segFound) {
-          updated[i] = { ...msg, segments: segs }
-          break
-        }
-      }
-
-      if (!found) return s
-      return {
-        messages: { ...s.messages, [sid]: updated },
-      }
-    })
-  },
-
-  setStreaming: (v: boolean, sessionId?: string | null) =>
-    set((s) => {
-      const id = sessionId || s.activeSessionId
-      if (!id) return s
-      return {
-        streamingSessions: {
-          ...s.streamingSessions,
-          [id]: v,
-        },
-      }
-    }),
-  setSystemCommandRunning: (v: boolean, sessionId?: string | null) =>
-    set((s) => {
-      const id = sessionId || s.activeSessionId
-      if (!id) return s
-      return {
-        systemCommandSessions: {
-          ...s.systemCommandSessions,
-          [id]: v,
-        },
-      }
-    }),
-  setDelegating: (v: boolean, sessionId?: string | null) =>
-    set((s) => {
-      const id = sessionId || s.activeSessionId
-      if (!id) return s
-      return {
-        delegatingSessions: {
-          ...s.delegatingSessions,
-          [id]: v,
-        },
-      }
-    }),
-  setRoute: (route: ChatRouteInfo) =>
-    set((s) => {
-      const routeSessions = {
-        ...s.routeSessions,
-        [route.sessionId]: route,
-      }
-      persistActiveChatRoutes(routeSessions)
-      return {
-        routeSessions,
-        sessions: route.agentInstanceId
-          ? s.sessions.map((session) =>
-              session.id === route.sessionId && session.agent_instance_id !== route.agentInstanceId
-                ? { ...session, agent_instance_id: route.agentInstanceId }
-                : session
-            )
-          : s.sessions,
-      }
-    }),
-  clearRoute: (sessionId: string, requestId: string) =>
-    set((s) => {
-      if (s.routeSessions[sessionId]?.requestId !== requestId) return s
-      const { [sessionId]: _route, ...routeSessions } = s.routeSessions
-      persistActiveChatRoutes(routeSessions)
-      return { routeSessions }
-    }),
-
-  removeLastEmptyAssistantMessage: (sessionId: string) => {
-    set((s) => {
-      const sid = sessionId
-      const msgs = s.messages[sid] || []
-      if (msgs.length === 0) return s
-      const last = msgs[msgs.length - 1]
-      if (last.role !== 'assistant' || last.segments.length > 0) return s
-      return {
-        messages: { ...s.messages, [sid]: msgs.slice(0, -1) },
-      }
-    })
-  },
-
-  addDelegationSegment: (sessionId: string, delegation: { agentName: string; task: string }) => {
-    set((s) => {
-      const sid = sessionId
-      const msgs = [...(s.messages[sid] || [])]
-      const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') return s
-      const seg: ChatSegment = {
-        type: 'delegation',
-        agentName: delegation.agentName,
-        task: delegation.task,
-        status: 'running',
-      }
-      return {
-        messages: {
-          ...s.messages,
-          [sid]: [...msgs.slice(0, -1), { ...last, segments: [...last.segments, seg] }],
-        },
-      }
-    })
-  },
-
-  completeLastDelegation: (
-    sessionId: string,
-    agentName: string,
-    durationMs?: number,
-    resultContent?: string
-  ) => {
-    set((s) => {
-      const sid = sessionId
-      const msgs = [...(s.messages[sid] || [])]
-      const last = msgs[msgs.length - 1]
-      if (!last || last.role !== 'assistant') return s
-
-      const normalize = (n: string) => n.toLowerCase().replace(/[\s_]/g, '')
-      const target = normalize(agentName)
-
-      const segs = last.segments.map((seg) => {
-        if (seg.type !== 'delegation' || seg.status !== 'running') return seg
-        if (target && normalize(seg.agentName) === target) {
-          return { ...seg, status: 'completed' as const, durationMs, resultContent }
-        }
-        return seg
-      })
-
-      // Fallback: if no exact match, complete the last running delegation.
-      let lastRunningIdx = -1
-      for (let i = segs.length - 1; i >= 0; i--) {
-        const seg = segs[i]
-        if (seg.type === 'delegation' && seg.status === 'running') {
-          lastRunningIdx = i
-          break
-        }
-      }
-      if (lastRunningIdx >= 0) {
-        const seg = segs[lastRunningIdx]
-        if (seg.type === 'delegation') {
-          segs[lastRunningIdx] = {
-            ...seg,
-            status: 'completed' as const,
-            durationMs,
-            resultContent,
-          }
-        }
-      }
-
-      return {
-        messages: { ...s.messages, [sid]: [...msgs.slice(0, -1), { ...last, segments: segs }] },
-      }
-    })
-  },
-
-  cancelRunningDelegations: (sessionId: string) => {
-    set((s) => {
-      const msgs = s.messages[sessionId] || []
-      let changed = false
-      const updated = msgs.map((msg) => {
-        if (msg.role !== 'assistant') return msg
-        let messageChanged = false
-        const segments = msg.segments.map((seg) => {
-          if (
-            seg.type === 'tool_call' &&
-            (seg.name === 'delegate' || seg.name.startsWith('delegate_')) &&
-            !seg.done
-          ) {
-            changed = true
-            messageChanged = true
-            return { ...seg, done: true, error: 'Cancelled by user' }
-          }
-          if (seg.type === 'delegation' && seg.status === 'running') {
-            changed = true
-            messageChanged = true
-            return { ...seg, status: 'cancelled' as const }
-          }
-          return seg
-        })
-        return messageChanged ? { ...msg, segments } : msg
-      })
-      if (!changed) return s
-      return { messages: { ...s.messages, [sessionId]: updated } }
-    })
-  },
-
-  failAssistantMessage: (sessionId: string, messageId: string, error: string) => {
-    set((s) => {
-      const messages = s.messages[sessionId] || []
-      const assistant = messages.find(
-        (message) => message.id === messageId && message.role === 'assistant'
-      )
-      if (
-        assistant?.requestId &&
-        (s.compactions[sessionId] || []).some(
-          (row) =>
-            row.requestId === assistant.requestId &&
-            row.reason === 'user_command' &&
-            (row.status === 'failed' || row.status === 'interrupted')
-        )
-      ) {
-        // The lifecycle notice already reports this request's failure. An empty
-        // assistant bubble must not turn the same error into permanent chat content.
-        return assistant.segments.length === 0
-          ? {
-              messages: {
-                ...s.messages,
-                [sessionId]: messages.filter((message) => message.id !== messageId),
-              },
-            }
-          : {}
-      }
-      let changed = false
-      const updated = messages.map((message) => {
-        if (message.id !== messageId || message.role !== 'assistant') return message
-
-        let hasVisibleError = false
-        const segments = message.segments.map((segment): ChatSegment => {
-          if (segment.type === 'error' && segment.text === error) {
-            hasVisibleError = true
-            return segment
-          }
-          if (segment.type === 'tool_call' && !segment.done) {
-            changed = true
-            return { ...segment, done: true, error }
-          }
-          if (segment.type === 'delegation' && segment.status === 'running') {
-            changed = true
-            return { ...segment, status: 'failed', resultContent: error }
-          }
-          return segment
-        })
-
-        if (!hasVisibleError) {
-          changed = true
-          segments.push({ type: 'error', text: error })
-        }
-        return { ...message, segments }
-      })
-      if (!changed) return s
-      const preservedIds = s.historyPreservedMessageIds[sessionId] || []
-      return {
-        messages: { ...s.messages, [sessionId]: updated },
-        historyPreservedMessageIds: {
-          ...s.historyPreservedMessageIds,
-          [sessionId]: preservedIds.includes(messageId)
-            ? preservedIds
-            : [...preservedIds, messageId],
-        },
-      }
-    })
-  },
-
-  rewindSession: async (sessionId: string, targetTs: string) => {
-    try {
-      await apiRewindSession(sessionId, targetTs)
-      set((s) => {
-        const msgs = s.messages[sessionId] || []
-        const filtered = msgs.filter((m) => {
-          if (!m.timestamp) return true
-          return m.timestamp < targetTs
-        })
-        removeCancelledInputs(sessionId, msgs.filter((m) => !filtered.includes(m)))
-        return {
-          messages: { ...s.messages, [sessionId]: filtered },
-        }
-      })
-    } catch (e) {
-      console.error('Failed to rewind session', e)
-      throw e
-    }
-  },
-
-  deleteSessionMessages: async (sessionId: string, targetTsList: string[]) => {
-    try {
-      // Expand targetTsList to include paired assistant messages
-      const msgs = useChatStore.getState().messages[sessionId] || []
-      const expandedSet = new Set(targetTsList)
-
-      targetTsList.forEach((ts) => {
-        const idx = msgs.findIndex((m: ChatMessage) => m.timestamp === ts)
-        if (idx !== -1 && msgs[idx].role === 'user') {
-          // Find subsequent assistant messages until the next user message
-          for (let i = idx + 1; i < msgs.length; i++) {
-            if (msgs[i].role === 'user') break
-            if (msgs[i].timestamp) expandedSet.add(msgs[i].timestamp)
-          }
-        }
-      })
-
-      const expandedTsList = Array.from(expandedSet)
-
-      await apiDeleteSessionMessages(sessionId, expandedTsList)
-      set((s) => {
-        const sMsgs = s.messages[sessionId] || []
-        const filtered = sMsgs.filter((m: ChatMessage) => {
-          if (!m.timestamp) return true
-          return !expandedSet.has(m.timestamp)
-        })
-        removeCancelledInputs(sessionId, sMsgs.filter((m) => !filtered.includes(m)))
-        return {
-          messages: { ...s.messages, [sessionId]: filtered },
-        }
-      })
-    } catch (e) {
-      console.error('Failed to delete messages', e)
-      throw e
-    }
+  deleteSessionMessages: async (sessionId, targetTsList) => {
+    await apiDeleteSessionMessages(sessionId, targetTsList)
   },
 }))
-
-// convertHistorySegment maps backend history segment format to frontend ChatSegment.
-function convertHistorySegment(seg: SessionHistorySegment): ChatSegment {
-  switch (seg.type) {
-    case 'content':
-      return { type: 'content', text: seg.text || '' }
-    case 'thinking':
-      return { type: 'thinking', text: seg.text || '' }
-    case 'compact':
-      return { type: 'compact', text: seg.text || '' }
-    case 'tool_call':
-      return {
-        type: 'tool_call',
-        callId: seg.call_id || '',
-        name: seg.name || '',
-        args: seg.args || '',
-        dispatchId: seg.dispatch_id,
-        agentInstanceId: seg.agent_instance_id,
-        result: seg.result,
-        error: seg.error,
-        durationMs: seg.duration_ms,
-        done: seg.done ?? true,
-      }
-    case 'delegation':
-      return {
-        type: 'delegation',
-        agentName: seg.agent_name || seg.name || '',
-        task: seg.task || '',
-        status: (seg.status as 'running' | 'completed' | 'failed' | 'cancelled') || 'completed',
-        durationMs: seg.duration_ms,
-        resultContent: seg.result,
-      }
-    case 'error':
-      return { type: 'error', text: seg.text || '' }
-    default:
-      return { type: 'error', text: 'Unknown segment type' }
-  }
-}

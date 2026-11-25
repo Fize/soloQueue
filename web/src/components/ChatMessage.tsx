@@ -1,15 +1,16 @@
 import type { ChatMessage } from '@/types'
-import { User, Sparkles, Copy, Check, RotateCcw, Trash2 } from 'lucide-react'
+import { User, Sparkles, Copy, Check, RotateCcw, Trash2, CornerDownRight } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
 import { useState, useMemo, memo } from 'react'
 import { toast } from 'sonner'
 import { getModelColorVar } from '@/lib/utils'
-import { runtimeSessionId, useRuntimeStore } from '@/stores/runtimeStore'
+import { useRuntimeStore } from '@/stores/runtimeStore'
+import { useTranscriptStore } from '@/stores/transcriptStore'
 import { useChatStore } from '@/stores/chatStore'
 import { SegmentView, LoadingIndicator } from './chat/SegmentView'
 import { WorkedSegment } from './chat/WorkedSegment'
 import { groupSegments } from './chat/groupSegments'
-import { workedStateKey } from './chat/preserveWorkedStateKeys'
+import { workedStateKey } from './chat/workedStateKey'
 export type { GroupedWorked, GroupedDelegation } from './chat/groupSegments'
 import { MessageAttachment } from './chat/MessageAttachment'
 import { DelegationGroupView } from './chat/DelegationGroupView'
@@ -34,161 +35,19 @@ function ChatMessageViewInner({
   onUserInteraction,
   modelName,
   sessionId,
-  sessionAgentId,
 }: ChatMessageProps) {
   const { t } = useTranslation()
   const isUser = message.role === 'user'
   const isEmpty = message.segments.length === 0
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const messageRequestId = useChatStore((s) => {
-    const routeSessionId = sessionId || s.activeSessionId
-    const routeRequestId = routeSessionId ? s.routeSessions[routeSessionId]?.requestId : undefined
-    if (isUser) return undefined
-
-    // Recovered virtual messages carry their request identity explicitly. This
-    // supports arbitrary request IDs (including channel UUIDs) without
-    // guessing that every historical `msg-*` assistant ID is live.
-    const embeddedRequestId = message.requestId
-    if (embeddedRequestId) return embeddedRequestId
-
-    // Preserve the selected route behavior for older/history messages.
-    if (routeRequestId && message.id === `msg-${routeRequestId}`) {
-      return routeRequestId
-    }
-
-    // A message created by the current stream can predate recovery metadata.
-    // Accept its ID only when the request registry confirms ownership by this
-    // session; historical messages are never inferred from their ID alone.
-    const requestMessagePrefix = 'msg-'
-    if (!message.id.startsWith(requestMessagePrefix) || !routeSessionId) return undefined
-    const candidateRequestId = message.id.slice(requestMessagePrefix.length)
-    const activeRequest = s.activeRequests?.[candidateRequestId]
-    return activeRequest?.sessionId === routeSessionId ? candidateRequestId : undefined
-  })
   const rewindSession = useChatStore((s) => s.rewindSession)
   const deleteSessionMessages = useChatStore((s) => s.deleteSessionMessages)
   const currentSessionId = sessionId || activeSessionId
-  const runtimeStatus = useRuntimeStore((s) => s.status)
-  const recoveredRuntimeOwnership = useMemo(() => {
-    if (isUser || messageRequestId || !currentSessionId || !runtimeStatus) {
-      return { requestId: undefined as string | undefined, segments: message.segments }
-    }
-
-    const requestIDs = new Set(
-      Object.entries(runtimeStatus.sessions ?? {})
-        .filter(
-          ([key, runtime]) =>
-            runtimeSessionId(key, runtime) === currentSessionId && runtime.request_id
-        )
-        .map(([, runtime]) => runtime.request_id as string)
-    )
-    const streams = Object.values(runtimeStatus.agent_streams ?? {}).filter((stream) => {
-      if (!stream.request_id) return false
-      if (requestIDs.size > 0) return requestIDs.has(stream.request_id)
-      // A channel request can leave its logical session idle while its agent
-      // stream is still processing. The page-owned agent is the remaining
-      // session boundary in that state (not a global stream lookup).
-      if (sessionAgentId) return stream.agent_id === sessionAgentId
-      return currentSessionId === 'l1'
-    })
-    const matches = new Map<string, Map<string, string | undefined>>()
-    for (const stream of streams) {
-      for (const segment of stream.segments) {
-        if (segment.type !== 'tool_call' || !segment.call_id) continue
-        if (
-          message.segments.some(
-            (current) => current.type === 'tool_call' && current.callId === segment.call_id
-          )
-        ) {
-          const requestMatches =
-            matches.get(segment.call_id) ?? new Map<string, string | undefined>()
-          requestMatches.set(stream.request_id!, segment.agent_instance_id)
-          matches.set(segment.call_id, requestMatches)
-        }
-      }
-    }
-
-    const matchedRequestIDs = new Set(
-      [...matches.values()].flatMap((requestMatches) => [...requestMatches.keys()])
-    )
-    if (matchedRequestIDs.size !== 1) {
-      return { requestId: undefined, segments: message.segments }
-    }
-    const requestId = [...matchedRequestIDs][0]
-    const segments = message.segments.map((segment) => {
-      if (segment.type !== 'tool_call' || segment.agentInstanceId) return segment
-      const requestMatches = matches.get(segment.callId)
-      const agentInstanceIds = new Set(
-        requestMatches ? ([...requestMatches.values()].filter(Boolean) as string[]) : []
-      )
-      return agentInstanceIds.size === 1
-        ? { ...segment, agentInstanceId: [...agentInstanceIds][0] }
-        : segment
-    })
-    return { requestId, segments }
-  }, [currentSessionId, isUser, message, messageRequestId, runtimeStatus, sessionAgentId])
-  const effectiveRequestId = messageRequestId || recoveredRuntimeOwnership.requestId
-  const renderedMessage = useMemo(
-    () =>
-      recoveredRuntimeOwnership.segments === message.segments
-        ? message
-        : { ...message, segments: recoveredRuntimeOwnership.segments },
-    [message, recoveredRuntimeOwnership.segments]
-  )
-  const localRequestStatus = useChatStore((s) => {
-    if (!messageRequestId || !currentSessionId) return undefined
-    const request = s.activeRequests?.[messageRequestId]
-    return request?.sessionId === currentSessionId ? request.status : undefined
-  })
-  const liveVirtualMessage = useChatStore((s) => {
-    if (isUser || !currentSessionId || !message.id.startsWith('msg-')) return false
-    const requestId = message.id.slice('msg-'.length)
-    const locallyOwned = Object.values(s.activeRequests).some(
-      (request) => request.requestId === requestId && request.sessionId === currentSessionId
-    )
-    if (locallyOwned) return true
-    return Object.entries(runtimeStatus?.sessions ?? {}).some(
-      ([key, runtime]) =>
-        runtime.request_id === requestId &&
-        runtimeSessionId(key, runtime) === currentSessionId &&
-        runtime.state !== 'idle' &&
-        runtime.state !== 'error'
-    )
-  })
-  const routeAgentId = useChatStore((s) => {
-    const route = currentSessionId ? s.routeSessions[currentSessionId] : undefined
-    return route?.requestId === effectiveRequestId ? route?.agentInstanceId : undefined
-  })
-  const runtimeIsRunning = useRuntimeStore((s) => {
-    if (!effectiveRequestId || !currentSessionId) return undefined
-    // QQ and reloaded pages recover requests from runtime snapshots without
-    // registering a locally submitted request. Match both ownership fields:
-    // the runtime map can hold several concurrent requests for one session.
-    const runtime = Object.entries(s.status?.sessions ?? {}).find(
-      ([key, request]) =>
-        runtimeSessionId(key, request) === currentSessionId &&
-        request.request_id === effectiveRequestId
-    )?.[1]
-    if (runtime) return runtime.state !== 'idle' && runtime.state !== 'error'
-
-    // Channel requests bypass the browser request registry, so an idle session
-    // without a request ID is not a terminal event for this request. Both pages
-    // already resolve their session's agent when recovering its stream; retain
-    // that ownership even when a snapshot clears the selected browser route.
-    const agentId = sessionAgentId || routeAgentId
-    if (!agentId) return undefined
-    return Object.values(s.status?.agent_streams ?? {}).find(
-      (stream) => stream.agent_id === agentId && stream.request_id === effectiveRequestId
-    )?.processing
-  })
-  const messageIsRunning =
-    localRequestStatus !== 'queued' &&
-    ((runtimeIsRunning ?? !!localRequestStatus) ||
-      // A live renderer creates request-owned virtual messages with `msg-`
-      // IDs before the runtime snapshot arrives. Keep their last worked group
-      // open during that short hand-off window without opening old history.
-      (!effectiveRequestId && isStreaming && liveVirtualMessage))
+  // Transcript bubbles carry their request and live state explicitly.
+  const effectiveRequestId = isUser ? undefined : message.requestId
+  const messageIsRunning = !isUser && !!message.running
+  const renderedMessage = message
   const compact = isDesignMode
   const [confirmAction, setConfirmAction] = useState<'rewind' | 'delete' | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
@@ -213,7 +72,10 @@ function ChatMessageViewInner({
         )
         toast.success(t('chat.rewindSuccess') || 'Session rewound successfully')
       } else {
-        await deleteSessionMessages(currentSessionId, [message.timestamp])
+        await deleteSessionMessages(
+          currentSessionId,
+          useTranscriptStore.getState().deleteTargets(currentSessionId, [message.timestamp])
+        )
         toast.success(t('chat.deleteSuccess') || 'Message deleted successfully')
       }
       setConfirmAction(null)
@@ -275,6 +137,12 @@ function ChatMessageViewInner({
               <span className={`text-[11px] font-medium text-muted-foreground/80`}>
                 {isUser ? 'You' : agentName}
               </span>
+              {!isUser && message.continuation && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/60 select-none">
+                  <CornerDownRight className="h-3 w-3" aria-hidden="true" />
+                  {t('chat.continuedReply')}
+                </span>
+              )}
               {message.timestamp && (
                 <span className="text-[10px] text-muted-foreground/40 font-normal select-none">
                   {formatTimestamp(message.timestamp)}
@@ -419,15 +287,15 @@ function ChatMessageViewInner({
 
 /**
  * ChatMessageView is wrapped in React.memo so that re-renders triggered by
- * per-token chat_chunk updates skip previously-rendered messages whose
- * props (message / agentName / onUserInteraction) have not changed. The
- * chatStore's request-targeted assistant updates keep references for all
- * non-target messages stable, so this memoization hits on every token.
+ * per-token transcript frames skip previously-rendered messages whose props
+ * have not changed. The transcript presentation keeps the identity of every
+ * bubble whose items did not change, so this memoization hits on every token.
  */
 export const ChatMessageView = memo(
   ChatMessageViewInner,
   (prev, next) =>
     prev.message === next.message &&
+    prev.modelName === next.modelName &&
     prev.agentName === next.agentName &&
     prev.isStreaming === next.isStreaming &&
     prev.onUserInteraction === next.onUserInteraction &&

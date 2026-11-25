@@ -162,11 +162,12 @@ describe('ChatMessageView request-owned streams', () => {
     render(
       <ChatMessageView
         message={{
-          id: 'msg-request-active',
+          id: 'out:request-active:0',
           requestId: 'request-active',
           role: 'assistant',
           segments: [],
           timestamp: '2026-08-31T10:00:00Z',
+          running: true,
         }}
         sessionId="session-1"
       />
@@ -175,11 +176,12 @@ describe('ChatMessageView request-owned streams', () => {
     expect(screen.getByText('loading')).toBeInTheDocument()
   })
 
-  it('keeps an unowned empty assistant bubble hidden', () => {
+  it('keeps an empty assistant bubble of a finished request hidden', () => {
     const { container } = render(
       <ChatMessageView
         message={{
-          id: 'historical-empty',
+          id: 'out:done:0',
+          requestId: 'done',
           role: 'assistant',
           segments: [],
           timestamp: '2026-08-31T10:00:00Z',
@@ -191,98 +193,37 @@ describe('ChatMessageView request-owned streams', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('passes the active request ID only to its virtual assistant message', () => {
-    const current: ChatMessage = {
-      ...message('assistant', 'current delegation'),
-      id: 'msg-request-active',
-    }
-    const { rerender } = render(<ChatMessageView message={current} sessionId="session-1" />)
-    expect(screen.getByTestId('segment-current delegation')).toHaveAttribute(
-      'data-request-id',
-      'request-active'
-    )
-
-    rerender(
-      <ChatMessageView
-        message={message('assistant', 'historical delegation')}
-        sessionId="session-1"
-      />
-    )
-    expect(screen.getByTestId('segment-historical delegation')).toHaveAttribute(
-      'data-request-id',
-      ''
-    )
-  })
-
-  it('passes the identity embedded in a concurrent recovered message', () => {
+  it('passes the bubble request identity to its segments', () => {
     render(
       <ChatMessageView
-        message={{
-          ...message('assistant', 'background delegation'),
-          id: 'msg-req-background',
-        }}
+        message={{ ...message('assistant', 'channel delegation'), id: 'out:channel-run-id:0', requestId: 'channel-run-id' }}
         sessionId="session-1"
       />
     )
 
-    expect(screen.getByTestId('segment-background delegation')).toHaveAttribute(
-      'data-request-id',
-      'req-background'
-    )
+    expect(screen.getByTestId('segment-channel delegation')).toHaveAttribute('data-request-id', 'channel-run-id')
   })
 
-  it('passes a UUID request identity embedded in a recovered message', () => {
+  it('never infers a request from a message ID', () => {
     render(
       <ChatMessageView
-        message={{
-          ...message('assistant', 'uuid delegation'),
-          id: 'msg-860eb610-a88a-433a-937d-7620d7e84642',
-        }}
+        message={{ ...message('assistant', 'prefixed delegation'), id: 'msg-request-active' }}
         sessionId="session-1"
       />
     )
 
-    expect(screen.getByTestId('segment-uuid delegation')).toHaveAttribute(
-      'data-request-id',
-      '860eb610-a88a-433a-937d-7620d7e84642'
-    )
+    expect(screen.getByTestId('segment-prefixed delegation')).toHaveAttribute('data-request-id', '')
   })
 
-  it('uses explicit request metadata for arbitrary channel request IDs', () => {
+  it('labels a reply that continues after later messages', () => {
     render(
       <ChatMessageView
-        message={
-          {
-            ...message('assistant', 'channel delegation'),
-            id: 'msg-channel-run-id',
-            requestId: 'channel-run-id',
-          } as ChatMessage & { requestId: string }
-        }
+        message={{ ...message('assistant', 'delegation result'), requestId: 'r', continuation: true }}
         sessionId="session-1"
       />
     )
 
-    expect(screen.getByTestId('segment-channel delegation')).toHaveAttribute(
-      'data-request-id',
-      'channel-run-id'
-    )
-  })
-
-  it('does not infer a request from a historical msg-prefixed assistant ID', () => {
-    render(
-      <ChatMessageView
-        message={{
-          ...message('assistant', 'historical prefixed delegation'),
-          id: 'msg-old-history',
-        }}
-        sessionId="session-1"
-      />
-    )
-
-    expect(screen.getByTestId('segment-historical prefixed delegation')).toHaveAttribute(
-      'data-request-id',
-      ''
-    )
+    expect(screen.getByText('chat.continuedReply')).toBeInTheDocument()
   })
 })
 

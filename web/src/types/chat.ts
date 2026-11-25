@@ -1,135 +1,25 @@
 // ─── WebSocket Message Types ────────────────────────────────────────────────
 
 import type { RuntimeStatus, AgentListResponse } from './agent'
+import type {
+  ClientSubscribe,
+  ClientUnsubscribe,
+  WSChatAck,
+  WSCommandResult,
+  WSFramesMessage,
+  WSResyncRequired,
+} from './transcript'
 
 export interface WSStateMessage {
   type: "state";
-  runtime: RuntimeStatus;
-  agents: AgentListResponse;
+  runtime?: RuntimeStatus;
+  agents?: AgentListResponse;
 }
 
-// Chat streaming messages (server → client)
-export interface WSChannelQueueState {
-  type: "channel_queue_started" | "channel_queue_failed" | "channel_queue_cancelled";
-  session_id: string;
-  request_id?: string;
-  request_ids?: string[];
-}
-
-export interface WSDispatchTerminal {
-  type: "dispatch_terminal";
-  session_id: string;
-  request_id: string;
-  dispatch_id: string;
-  revision?: number;
-  call_id: string;
-  result: string;
-  error?: string;
-}
-
-export interface WSChatEnvelope {
-  timestamp?: string;
-}
-
-export interface WSChatChunk extends WSChatEnvelope {
-  type: "chat_chunk";
-  request_id: string;
-  delta: string;
-}
-
-export interface WSReasoningChunk extends WSChatEnvelope {
-  type: "reasoning_chunk";
-  request_id: string;
-  delta: string;
-}
-
-export interface WSChatRoute extends WSChatEnvelope {
-  type: "chat_route";
+export interface WSCancelConfirmed {
+  type: "chat_cancel_confirmed";
   request_id: string;
   session_id: string;
-	task_type: string;
-  model_id: string;
-  provider_id?: string;
-  agent_instance_id?: string;
-}
-
-export interface WSChatAccepted extends WSChatEnvelope {
-  type: "chat_accepted";
-  request_id: string;
-  session_id: string;
-}
-
-export interface WSToolStart extends WSChatEnvelope {
-  type: "tool_start";
-  request_id: string;
-  call_id: string;
-  name: string;
-  args: string;
-  target_agent_id?: string;
-  dispatch_id?: string;
-}
-
-export interface WSToolDone extends WSChatEnvelope {
-  type: "tool_done";
-  request_id: string;
-  call_id: string;
-  name: string;
-  result: string;
-  error: string;
-  duration_ms: number;
-}
-
-export interface WSChatDone extends WSChatEnvelope {
-  type: "chat_done";
-  request_id: string;
-  content: string;
-  reasoning_content: string;
-}
-
-export interface WSChatError extends WSChatEnvelope {
-  type: "chat_error";
-  request_id: string;
-  error: string;
-}
-
-export interface WSChatQueued extends WSChatEnvelope {
-  origin?: string;
-  prompt?: string;
-  files?: { name: string; path: string }[];
-  image_count?: number;
-  type: "chat_queued";
-  request_id: string;
-  session_id?: string;
-  error?: string;
-}
-
-export interface WSChatQueueStarted extends WSChatEnvelope {
-  type: "chat_queue_started";
-  request_id: string;
-  request_ids: string[];
-  cancel_request_id: string;
-  session_id: string;
-}
-
-export interface WSDelegationStart extends WSChatEnvelope {
-  type: "delegation_start";
-  request_id: string;
-  num_tasks: number;
-}
-
-export interface WSDelegationDone extends WSChatEnvelope {
-  type: "delegation_done";
-  request_id: string;
-  target_agent_id: string;
-  agent_name?: string;
-  duration_ms?: number;
-  result_content?: string;
-}
-
-export interface WSSessionName {
-  type: "session_name";
-  request_id: string;
-  name: string;
 }
 
 export interface WSConnected {
@@ -138,12 +28,6 @@ export interface WSConnected {
 
 export interface WSPong {
   type: "pong";
-}
-
-export interface WSSessionPlans {
-  type: "session_plans";
-  request_id?: string;
-  plans: string[];
 }
 
 // ─── Desktop Notification ────────────────────────────────────────────────────
@@ -174,35 +58,21 @@ export interface CompactionStatus {
   requestId?: string;
 }
 
-export interface WSCompactionStatusMessage {
-  type: "compaction_status";
-  session_id: string;
-  compaction: CompactionStatus;
-  timestamp?: string;
-}
-
+/**
+ * Messages the server sends. The conversation itself arrives only as ordered
+ * transcript frames; every other message is runtime state or a reply to this
+ * client.
+ */
 export type WSMessage =
-  | WSDispatchTerminal
-  | WSChannelQueueState
+  | WSFramesMessage
+  | WSResyncRequired
+  | WSChatAck
+  | WSCommandResult
+  | WSCancelConfirmed
   | WSStateMessage
-  | WSChatRoute
-  | WSChatAccepted
-  | WSChatChunk
-  | WSReasoningChunk
-  | WSToolStart
-  | WSToolDone
-  | WSChatDone
-  | WSChatError
-  | WSChatQueued
-  | WSChatQueueStarted
-  | WSDelegationStart
-  | WSDelegationDone
-  | WSSessionName
-  | WSSessionPlans
-  | WSConnected
-  | WSPong
   | WSNotificationMessage
-  | WSCompactionStatusMessage;
+  | WSConnected
+  | WSPong;
 
 // Client → server messages
 export interface ClientChatSend {
@@ -225,7 +95,9 @@ export interface ClientChatCancel {
 
 export type ClientMessage =
   | ClientChatSend
-  | ClientChatCancel;
+  | ClientChatCancel
+  | ClientSubscribe
+  | ClientUnsubscribe;
 
 // ─── Chat Types ────────────────────────────────────────────────────────────
 
@@ -283,6 +155,10 @@ export interface ChatMessage {
   segments: ChatSegment[];
   timestamp: string;
   files?: { name: string; path: string }[];
+  /** The owning request is still producing output for this bubble. */
+  running?: boolean;
+  /** The request resumed after other items; this bubble continues its reply. */
+  continuation?: boolean;
 }
 
 export type ChatSegment =
@@ -324,47 +200,6 @@ export interface CreateL2SessionResponse {
   design_dir?: string;
   created_at: string;
   plans?: string[];
-}
-
-export interface SessionHistorySegment {
-  dispatch_id?: string;
-  agent_instance_id?: string;
-  type:
-    | "content"
-    | "thinking"
-    | "tool_call"
-    | "delegation"
-    | "error"
-    | "compact";
-  text?: string;
-  call_id?: string;
-  name?: string;
-  args?: string;
-  result?: string;
-  error?: string;
-  duration_ms?: number;
-  done?: boolean;
-  status?: string;
-  agent_name?: string;
-  task?: string;
-}
-
-export interface SessionHistoryMessage {
-  id: string;
-  request_id?: string;
-  role: "user" | "assistant";
-  segments: SessionHistorySegment[];
-  timestamp: string;
-  files?: { name: string; path: string }[];
-}
-
-export interface SessionHistoryResponse {
-  messages: SessionHistoryMessage[];
-  has_more: boolean;
-  cursor?: string;
-  ctxwin_used?: number;
-  ctxwin_limit?: number;
-  compactions?: CompactionStatus[];
 }
 
 // ─── Session Changes / Diff Types ───────────────────────────────────────────

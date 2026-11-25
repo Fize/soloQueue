@@ -53,6 +53,7 @@ sequenceDiagram
   participant LLM as LLM Provider
   participant Tool as 工具子系统
   Browser->>API: 通过 /ws 发送 chat_send
+  API-->>Browser: chat_ack（accepted / queued / rejected）
   API->>Session: 定位会话并提交请求
   Session->>Router: 分类任务并选择路由
   Session->>Agent: AskStream
@@ -63,12 +64,23 @@ sequenceDiagram
     Tool-->>Agent: 返回工具结果
     Agent->>LLM: 携带工具结果继续请求
   end
-  Agent-->>Session: 流式事件与最终答复
-  Session-->>API: 持久化会话事件
-  API-->>Browser: 通过 /ws 推送更新
+  Agent-->>Session: 每个事件发布到会话 Transcript
+  Session-->>API: 带 seq 的有序 Transcript 帧
+  API-->>Browser: 通过 /ws 推送给所有订阅者
 ```
 
 Web Console 的其他页面通过 REST 接口读写配置、会话、团队、定时任务和状态数据。QQ、微信、Telegram 和企业微信适配器会规范化外部消息；定时任务则通过同一会话与 Agent 运行时启动工作。它们的入口和结果投递方式不同，但执行阶段共享 Core。
+
+## 实时 Transcript
+
+每个逻辑会话（`l1` 或 `l2:<uuid>`）都有一份追加式 Transcript 日志（`internal/transcript`）。所有会改变可见对话的事件都在产生时立即发布：已提交和排队中的输入、正文与推理增量、工具和委派进度、请求的开始/路由/结束、压缩状态、标题与计划更新，以及 `/clear` 或回退之后的重置。每一帧都带有会话内单调递增的 `seq`，每个条目保留其开启时的 `seq`，因此 Web Console 按产生顺序而不是到达顺序渲染。时间线记录同样持久化条目 ID 和 `seq`。
+
+- **快照：** `GET /api/session/transcript?session_id=…` 返回已持久化和进行中的条目，以及水位线（`epoch`、`seq`）。在快照上应用水位线之后的帧，等价于之后任意时刻的快照。更早的条目通过 `before` 和 `limit` 分页。
+- **订阅：** 客户端通过 `/ws` 发送 `subscribe {session_id, epoch, after_seq}`。服务器从有界环形缓冲区补发遗漏的帧，然后以 `frames` 批次推送新帧。游标超出缓冲区或属于其他 epoch 时返回 `resync_required`，客户端重新加载快照，而不会静默丢帧。
+- **仅发给单个客户端的回复：** `chat_ack` 回应 `chat_send`；`command_result` 携带信息类命令的输出；`chat_cancel_confirmed` 回应 `chat_cancel`。它们不属于对话内容。
+- **运行状态：** `state` 按客户端合并（只保留最新值，每秒最多四次），不携带对话内容。
+
+仍在发送或排队中的输入显示在待发送区域，直到 Transcript 提交它们。请求在其他条目之后继续产生的输出会显示为一条标注“继续回复”的新气泡。
 
 ## 组件与职责
 
@@ -77,6 +89,7 @@ Web Console 的其他页面通过 REST 接口读写配置、会话、团队、�
 | [`cmd/soloqueue/cli`](../../cmd/soloqueue/cli) | 进程入口和启动装配。 |
 | [`internal/runtime`](../../internal/runtime) | 构建共享依赖容器 `Stack`，包括客户端、注册表、数据库和热加载监听器。 |
 | [`internal/server`](../../internal/server) | REST API、WebSocket Hub、前端静态资源服务和 HTTP 边界。 |
+| [`internal/transcript`](../../internal/transcript) | 会话级有序 Transcript 日志、快照，以及持久化时间线的重建。 |
 | [`internal/session`](../../internal/session) | 创建和管理会话、上下文窗口、时间线写入器及 Agent 实例。 |
 | [`internal/agent`](../../internal/agent) | 执行 Agent 循环、处理工具调用并协调委派 Agent。 |
 | [`internal/router`](../../internal/router)、[`internal/llm`](../../internal/llm) | 分类任务、选择已配置路由并与模型 Provider 通信。 |
@@ -121,7 +134,7 @@ Core 的工作目录默认为 `~/.soloqueue`，也可通过 `SOLOQUEUE_WORK_DIR`
 
 ## 外部集成
 
-- **Web：** REST 用于资源和设置；WebSocket 用于实时对话和运行事件。
+- **Web：** REST 用于资源、设置和 Transcript 快照；WebSocket 用于 Transcript 订阅和运行事件。
 - **消息渠道：** QQ、微信、Telegram 和企业微信适配器将平台消息转换为 Core 会话请求，并通过各平台 API 投递答复。
 - **工具：** 内置工具在 Core 进程中运行；Skills 提供可复用的指令和工作流；MCP 连接配置的外部工具服务；LSP 支持作为 MCP 集成配置。
 - **模型 Provider：** 由路由和 LLM 客户端层负责模型选择与通信。

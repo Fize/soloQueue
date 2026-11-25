@@ -1,4 +1,3 @@
-import { useWorkedStateKeys } from "@/hooks/useWorkedStateKeys";
 import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
@@ -7,7 +6,7 @@ import { CompactionStatusRows } from "@/components/chat/CompactionStatusRows";
 import { ChatInput } from "@/components/ChatInput";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
-import { useAgentStream } from "@/hooks/useAgentStream";
+import { useTranscript } from "@/hooks/useTranscript";
 import { wsManager } from "@/lib/websocket";
 import {
   PanelRight,
@@ -25,7 +24,7 @@ import { useConnectionStore } from "@/stores/connectionStore";
 
 import { cn, pathsMatch } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
-import type { AgentInfo, Project, AgentResponse, SkillInfo, ChatSegment, CompactionStatus } from "@/types";
+import type { AgentInfo, Project, AgentResponse, SkillInfo, CompactionStatus } from "@/types";
 import { useResizablePanes } from "@/hooks/useResizablePanes";
 import { SessionInspectorPanel } from "./chat/SessionInspectorPanel";
 import type { PreviewCommentSnapshot } from "@/types/annotation";
@@ -34,11 +33,6 @@ import {
 } from "@/lib/api";
 import { ChatDesignPanel } from "@/components/ChatDesignPanel";
 import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
-import {
-  findRequestStream,
-  recoverInFlightMessageStreams,
-} from "@/components/chat/recoverInFlightMessages";
-import type { RequestStreamRecovery } from "@/components/chat/recoverInFlightMessages";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
 import { toast } from "sonner";
@@ -71,22 +65,18 @@ export function ChatPage() {
   const compactions = useChatStore((s) =>
     activeSessionId ? s.compactions?.[activeSessionId] ?? EMPTY_COMPACTIONS : EMPTY_COMPACTIONS
   )
-  const messages = useChatStore((s) => s.messages)
   const streamingSessions = useChatStore(useShallow((s) => s.streamingSessions))
   const systemCommandSessions = useChatStore(useShallow((s) => s.systemCommandSessions))
   const delegatingSessions = useChatStore(useShallow((s) => s.delegatingSessions))
   const routeSessions = useChatStore(useShallow((s) => s.routeSessions))
   const activeRequests = useChatStore(useShallow((s) => s.activeRequests))
+  const transcript = useTranscript(activeSessionId || null)
   const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false
   const isSystemCommandRunning = activeSessionId ? (systemCommandSessions[activeSessionId] ?? false) : false
   const sessions = useChatStore(useShallow((s) => s.sessions))
   const sessionsLoading = useChatStore((s) => s.sessionsLoading)
   const sessionsLoaded = useChatStore((s) => s.sessionsLoaded)
-  const historyHasMore = useChatStore(useShallow((s) => s.historyHasMore))
-  const historyLoading = useChatStore(useShallow((s) => s.historyLoading))
-  const loadMoreHistory = useChatStore((s) => s.loadMoreHistory)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
-  const loadHistory = useChatStore((s) => s.loadHistory)
   const createL2Session = useChatStore((s) => s.createL2Session)
   const deleteL2Session = useChatStore((s) => s.deleteL2Session)
 
@@ -282,10 +272,7 @@ export function ChatPage() {
   // subscription made this whole component re-render on every chat_chunk;
   // the per-message React.memo on ChatMessageView now prevents the old
   // messages from re-rendering, so this re-render is cheap.
-  const currentMessages = useMemo(
-    () => messages[activeSessionId || ""] ?? [],
-    [messages, activeSessionId],
-  );
+  const currentMessages = transcript.messages;
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const hasActiveSession = activeSession != null;
 
@@ -449,181 +436,7 @@ export function ChatPage() {
   }, [isL1Session, activeSession, activeAgent, t]);
 
   const activeAgentInstanceId = isL1Session ? (groupAgents[0]?.instance_id || null) : (activeAgent?.instance_id || null);
-  const activeAgentState = isL1Session ? groupAgents[0]?.state : activeAgent?.state;
-  const liveRequestId = activeSessionId
-    ? routeSessions[activeSessionId]?.requestId
-    : undefined;
-  const stream = useAgentStream(activeAgentInstanceId, liveRequestId);
-
-  // Runtime status can contain one request entry per concurrent L1 turn. The
-  // route map intentionally keeps only the selected route for input metadata,
-  // so recovery must derive its request set from all active runtime entries.
-  const recoveryRequestIDs = useMemo(() => {
-    if (!activeSessionId) return []
-    const ids = new Set<string>()
-
-    for (const request of Object.values(activeRequests ?? {})) {
-      if (request.sessionId === activeSessionId) ids.add(request.requestId)
-    }
-
-    for (const [key, runtime] of Object.entries(runtimeStatus?.sessions ?? {})) {
-      const runtimeSessionID = runtimeSessionId(key, runtime)
-      if (
-        runtimeSessionID === activeSessionId &&
-        runtime.request_id &&
-        ((runtime.state !== "idle" && runtime.state !== "error") || runtime.terminal_code)
-      ) {
-        ids.add(runtime.request_id)
-      }
-    }
-
-    // Keep the persisted route as a fallback during the short interval before
-    // the first runtime snapshot arrives after a renderer reload.
-    if (
-      liveRequestId &&
-      (activeAgentState === "processing" || streaming || delegating)
-    ) {
-      ids.add(liveRequestId)
-    }
-
-    // Streams are request-keyed too. Include a processing stream even if the
-    // session runtime entry has not reached the browser yet.
-    for (const streamState of Object.values(runtimeStatus?.agent_streams ?? {})) {
-      if (
-        (streamState.processing || !!streamState.error) &&
-        streamState.request_id &&
-        !!activeAgentInstanceId &&
-        streamState.agent_id === activeAgentInstanceId
-      ) {
-        ids.add(streamState.request_id)
-      }
-    }
-
-    return [...ids]
-  }, [
-    activeAgentInstanceId,
-    activeAgentState,
-    activeRequests,
-    activeSessionId,
-    delegating,
-    liveRequestId,
-    runtimeStatus,
-    streaming,
-  ])
-
-  const prevAgentState = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (activeSessionId && activeAgentState) {
-      const wasProcessing = prevAgentState.current === "processing";
-      const isDoneProcessing = activeAgentState !== "processing";
-      if (wasProcessing && isDoneProcessing) {
-        loadHistory(activeSessionId);
-      } else if (!prevAgentState.current) {
-        loadHistory(activeSessionId);
-      }
-    }
-    prevAgentState.current = activeAgentState;
-  }, [activeSessionId, activeAgentState, loadHistory]);
-
-  const hydratedTerminalRequests = useRef(new Set<string>());
-  useEffect(() => {
-    if (!activeSessionId) return;
-    for (const [key, runtime] of Object.entries(runtimeStatus?.sessions ?? {})) {
-      if (runtimeSessionId(key, runtime) !== activeSessionId || !runtime.request_id || !runtime.terminal_code) continue;
-      const terminalKey = `${activeSessionId}:${runtime.request_id}:${runtime.terminal_code}`;
-      if (hydratedTerminalRequests.current.has(terminalKey)) continue;
-      hydratedTerminalRequests.current.add(terminalKey);
-      loadHistory(activeSessionId);
-    }
-  }, [activeSessionId, loadHistory, runtimeStatus]);
-
-  const streamChatSegments = useMemo(() => {
-    if (!stream?.segments) return [];
-    return stream.segments.map((seg) => {
-      if (seg.type === "tool_call") {
-        return {
-          type: "tool_call" as const,
-          callId: seg.call_id,
-          name: seg.name,
-          args: seg.args,
-          agentInstanceId: seg.agent_instance_id || undefined,
-          dispatchId: seg.dispatch_id || undefined,
-          result: seg.result || undefined,
-          error: seg.error || undefined,
-          durationMs: seg.duration_ms || undefined,
-          done: seg.done,
-        };
-      }
-      return seg;
-    });
-  }, [stream]);
-
-  const recoveryStreams = useMemo<RequestStreamRecovery[]>(() => {
-    const runtimeStreams = Object.values(runtimeStatus?.agent_streams ?? {})
-    return recoveryRequestIDs.flatMap((requestId) => {
-      const runtimeRequest = Object.entries(runtimeStatus?.sessions ?? {})
-        .find(([key, runtime]) => runtime.request_id === requestId && runtimeSessionId(key, runtime) === activeSessionId)?.[1]
-      const runtimeStream = findRequestStream(runtimeStreams, activeAgentInstanceId, requestId)
-      if (runtimeStream?.segments.length) {
-        return [{
-          requestId,
-          startedAt: runtimeStream.started_at || runtimeRequest?.started_at,
-          segments: runtimeStream.segments.map((seg): ChatSegment => {
-            if (seg.type === "tool_call") {
-              return {
-                type: "tool_call" as const,
-                callId: seg.call_id,
-                name: seg.name,
-                args: seg.args,
-                agentInstanceId: seg.agent_instance_id || undefined,
-          dispatchId: seg.dispatch_id || undefined,
-                result: seg.result || undefined,
-                error: seg.error || undefined,
-                durationMs: seg.duration_ms || undefined,
-                done: seg.done,
-              }
-            }
-            return seg
-          }),
-        }]
-      }
-      if (runtimeStream?.error || runtimeRequest?.terminal_code) {
-        const message = runtimeStream?.error || runtimeRequest?.error ||
-          (runtimeRequest?.terminal_code === "completed" ? "Response completed; loading history…" : `Request ${runtimeRequest?.terminal_code || "ended"}.`)
-        const terminalSegment = runtimeStream?.error || runtimeRequest?.error
-          ? { type: "error" as const, text: message }
-          : { type: "content" as const, text: message }
-        return [{
-          requestId,
-          startedAt: runtimeStream?.started_at || runtimeRequest?.started_at,
-          terminal: true,
-          segments: [terminalSegment],
-        }]
-      }
-      if (requestId === liveRequestId && stream?.segments?.length) {
-        return [{ requestId, segments: streamChatSegments, startedAt: stream?.started_at || runtimeRequest?.started_at }]
-      }
-      return []
-    })
-  }, [
-    activeSessionId,
-    activeAgentInstanceId,
-    liveRequestId,
-    recoveryRequestIDs,
-    runtimeStatus,
-    stream,
-    streamChatSegments,
-  ])
-
-  const recoveredMessages = useMemo(() => {
-    return recoverInFlightMessageStreams(
-      currentMessages,
-      recoveryStreams,
-      (requestId) => !wsManager.hasChatHandler(requestId),
-    )
-  }, [currentMessages, recoveryStreams]);
-
-  const finalMessages = useWorkedStateKeys(activeSessionId, recoveredMessages);
+  const finalMessages = currentMessages;
 
   const activeRoute = activeSessionId ? routeSessions[activeSessionId] : undefined;
   const selectedRequestId = activeRoute?.requestId || Object.values(activeRequests ?? {}).find((request) => request.sessionId === activeSessionId)?.requestId;
@@ -726,10 +539,8 @@ export function ChatPage() {
     const handleScroll = () => {
       const { scrollTop, scrollHeight } = el;
 
-      const hasMore = activeSessionId ? historyHasMore[activeSessionId] : false;
-      const isLoading = activeSessionId
-        ? historyLoading[activeSessionId]
-        : false;
+      const hasMore = transcript.hasMore;
+      const isLoading = transcript.loadingOlder;
 
       if (
         scrollTop < 50 &&
@@ -740,7 +551,7 @@ export function ChatPage() {
       ) {
         loadingMore.current = true;
         const prevHeight = scrollHeight;
-        loadMoreHistory(activeSessionId || "").then(() => {
+        transcript.loadOlder().then(() => {
           if (scrollRef.current) {
             const diff = scrollRef.current.scrollHeight - prevHeight;
             scrollRef.current.scrollTop = diff;
@@ -757,12 +568,7 @@ export function ChatPage() {
       el.removeEventListener("scroll", handleScroll);
       if (cooldownTimer !== null) clearTimeout(cooldownTimer);
     };
-  }, [
-    activeSessionId,
-    historyHasMore,
-    historyLoading,
-    loadMoreHistory,
-  ]);
+  }, [transcript]);
 
   useLayoutEffect(() => {
     if (finalMessages.length === 0) return;
@@ -1071,7 +877,7 @@ export function ChatPage() {
                     className={`mx-auto w-full space-y-6 ${designModeActive ? 'px-2' : 'px-4'}`}
                     style={{ maxWidth: messageMaxWidth }}
                   >
-                    {activeSessionId && historyLoading[activeSessionId] && (
+                    {activeSessionId && (transcript.loadingOlder || transcript.status === "loading") && (
                       <div className="flex items-center justify-center py-4">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         <span className="text-xs text-muted-foreground font-mono ml-2">

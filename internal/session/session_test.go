@@ -27,6 +27,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
 type sessionFakeClock struct {
@@ -1154,9 +1155,10 @@ func TestReleasedDelegationCannotClearLaterRequestOwnership(t *testing.T) {
 	}
 }
 
-func TestRequestRouteCaptureStaysExactAcrossAsyncYield(t *testing.T) {
+func TestRequestRouteFramesStayExactAcrossAsyncYield(t *testing.T) {
 	a := agent.NewAgent(agent.Definition{ID: "leader", ModelID: "default", ProviderID: "default-provider"}, &agenttest.FakeLLM{}, nil)
 	s := NewSession("route-yield", "team", a, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetTranscriptRegistry(transcript.NewRegistry(transcript.Config{Grace: time.Hour}))
 	s.Router = func(_ context.Context, prompt, _ string, _ []ctxwin.PayloadMessage) (RouteResult, error) {
 		return RouteResult{Level: "engineering", ModelID: "model-" + prompt, ProviderID: "provider-" + prompt}, nil
 	}
@@ -1169,13 +1171,24 @@ func TestRequestRouteCaptureStaysExactAcrossAsyncYield(t *testing.T) {
 		sourcesMu.Unlock()
 		return ch, nil
 	}
+	routeOf := func(requestID string) (transcript.Frame, bool) {
+		j := s.Transcript()
+		frames, err := j.ReadAfter(j.Epoch(), 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range frames {
+			if f.Kind == transcript.KindRequestRoute && f.RequestID == requestID {
+				return f, true
+			}
+		}
+		return transcript.Frame{}, false
+	}
 
-	firstCtx, firstRouteCh := WithRequestRouteCapture(context.Background())
-	first, err := s.AskStream(firstCtx, "first")
+	first, err := s.AskStream(telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "first-req"}), "first")
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstRoute := <-firstRouteCh
 	sourcesMu.Lock()
 	firstSource := sources[0]
 	sourcesMu.Unlock()
@@ -1188,14 +1201,20 @@ func TestRequestRouteCaptureStaysExactAcrossAsyncYield(t *testing.T) {
 		t.Fatal("async yield did not release Session flight")
 	}
 
-	secondCtx, secondRouteCh := WithRequestRouteCapture(context.Background())
-	second, err := s.AskStream(secondCtx, "second")
+	second, err := s.AskStream(telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "second-req"}), "second")
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondRoute := <-secondRouteCh
+	firstRoute, ok1 := routeOf("first-req")
+	secondRoute, ok2 := routeOf("second-req")
+	if !ok1 || !ok2 {
+		t.Fatalf("missing route frames: first=%v second=%v", ok1, ok2)
+	}
 	if firstRoute.ModelID != "model-first" || secondRoute.ModelID != "model-second" {
 		t.Fatalf("routes crossed async yield: first=%+v second=%+v", firstRoute, secondRoute)
+	}
+	if secondRoute.Seq <= firstRoute.Seq {
+		t.Fatalf("route frames out of production order: first=%d second=%d", firstRoute.Seq, secondRoute.Seq)
 	}
 	sourcesMu.Lock()
 	secondSource := sources[1]

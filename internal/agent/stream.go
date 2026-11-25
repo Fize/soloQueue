@@ -688,6 +688,7 @@ func (s *historyStrategy) postIteration(a *Agent, ctx context.Context, iter int,
 	assistantOpts = append(assistantOpts,
 		ctxwin.WithReasoningContent(acc.reasoning.String()),
 		ctxwin.WithToolCalls(calls),
+		ctxwin.WithIter(iter),
 	)
 	s.cw.Push(ctxwin.RoleAssistant, acc.content.String(), assistantOpts...)
 
@@ -856,6 +857,11 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 //   - Returning false means ctx is cancelled; the caller should return immediately (usually paired with defer close(out))
 func (a *Agent) emit(ctx context.Context, out chan<- AgentEvent, ev AgentEvent) bool {
 	ev = attachRequestID(ctx, ev)
+	// Publish at the moment of production: the transcript order of a session
+	// is the order in which its leader agent emits.
+	if sink := iface.TranscriptSinkFromContext(ctx); sink != nil {
+		sink.PublishAgentEvent(a.InstanceID, ev)
+	}
 	a.observeTool(ctx, ev)
 	// Fan-out to watchers (non-blocking, drop if slow).
 	a.emitToWatchers(ev)

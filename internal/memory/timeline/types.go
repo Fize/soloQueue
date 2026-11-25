@@ -50,6 +50,7 @@ type TemporalPartPayload struct {
 	Content         string `json:"content"`
 	Timestamp       string `json:"ts,omitempty"`
 	ExposeTimestamp bool   `json:"expose_timestamp,omitempty"`
+	RequestID       string `json:"request_id,omitempty"` // request that queued this component
 }
 
 // MessagePayload represents the payload for a message event.
@@ -70,6 +71,11 @@ type MessagePayload struct {
 	ExposeTimestamp  bool                  `json:"expose_timestamp,omitempty"` // Allows replay to restore LLM-visible temporal context.
 	TemporalParts    []TemporalPartPayload `json:"temporal_parts,omitempty"`
 	RequestID        string                `json:"request_id,omitempty"`
+	// ItemID and Seq bind the row to the live transcript item it persists.
+	// Seq is the session sequence at which the item opened; legacy rows have
+	// neither field.
+	ItemID string `json:"item_id,omitempty"`
+	Seq    uint64 `json:"seq,omitempty"`
 }
 
 // ─── ControlPayload ─────────────────────────────────────────────────────────
@@ -81,6 +87,11 @@ type ControlPayload struct {
 	Content    string                   `json:"content,omitempty"`   // Summary text (when action="summary")
 	TargetTs   []string                 `json:"target_ts,omitempty"` // Target message timestamps for rewind/delete
 	Compaction *CompactionStatusPayload `json:"compaction,omitempty"`
+	// RequestID, ItemID and Seq bind visible control rows (explicit summaries,
+	// request failures) to their live transcript item.
+	RequestID string `json:"request_id,omitempty"`
+	ItemID    string `json:"item_id,omitempty"`
+	Seq       uint64 `json:"seq,omitempty"`
 }
 
 type CompactionStatusPayload struct {

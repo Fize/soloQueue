@@ -4,9 +4,9 @@ import type {
   SetDependenciesRequest,
   SessionListResponse,
   CreateL2SessionResponse,
-  SessionHistoryResponse,
   ChangesResponse,
   FileChange,
+  TranscriptSnapshot,
 } from '@/types'
 import {
   request,
@@ -131,16 +131,14 @@ export async function listL2Groups(): Promise<string[]> {
   return data.groups ?? []
 }
 
-export async function fetchSessionHistory(
+export async function fetchTranscript(
   sessionId: string,
-  before?: string,
-  limit?: number
-): Promise<SessionHistoryResponse> {
-  const cleanId = sessionId.replace(/^l2:/, '')
-  const params = new URLSearchParams({ session_id: cleanId })
-  if (before) params.set('before', before)
-  if (limit) params.set('limit', String(limit))
-  return request<SessionHistoryResponse>(`/session/history?${params.toString()}`)
+  options: { before?: string; limit?: number } = {}
+): Promise<TranscriptSnapshot> {
+  const params = new URLSearchParams({ session_id: sessionId })
+  if (options.before) params.set('before', options.before)
+  if (options.limit) params.set('limit', String(options.limit))
+  return request<TranscriptSnapshot>(`/session/transcript?${params.toString()}`)
 }
 
 export async function uploadFile(

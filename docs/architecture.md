@@ -53,6 +53,7 @@ sequenceDiagram
   participant LLM as LLM provider
   participant Tool as Tool subsystem
   Browser->>API: chat_send over /ws
+  API-->>Browser: chat_ack (accepted / queued / rejected)
   API->>Session: resolve session and submit prompt
   Session->>Router: classify task and select route
   Session->>Agent: AskStream
@@ -63,12 +64,23 @@ sequenceDiagram
     Tool-->>Agent: tool result
     Agent->>LLM: continue with tool result
   end
-  Agent-->>Session: stream events and final response
-  Session-->>API: persist conversation events
-  API-->>Browser: stream updates over /ws
+  Agent-->>Session: publish each event to the session transcript
+  Session-->>API: ordered transcript frames (seq)
+  API-->>Browser: frames to every subscriber over /ws
 ```
 
 Other Web Console pages use REST endpoints for configuration, sessions, teams, scheduled jobs, and status data. QQ, WeChat, Telegram, and WeCom adapters normalize inbound messages; scheduled jobs start work through the same session and agent runtime. They differ at the entry and delivery edges, while sharing the Core's execution path.
+
+## Live transcript
+
+Every logical session (`l1` or `l2:<uuid>`) has one append-only transcript journal (`internal/transcript`). Whatever changes the visible conversation is published to it at the moment it is produced: committed and queued inputs, content and reasoning deltas, tool and delegation progress, request start/route/end, compaction status, title and plan updates, and resets after `/clear` or a rewind. Each frame receives a session-monotonic `seq`, and every item keeps the `seq` at which it opened, so the Web Console renders items in production order rather than arrival order. Timeline rows persist the same item ID and `seq`.
+
+- **Snapshot:** `GET /api/session/transcript?session_id=…` returns persisted and in-flight items together with a watermark (`epoch`, `seq`). Applying the frames after the watermark to a snapshot yields any later snapshot. Older items are paged with `before` and `limit`.
+- **Subscription:** the client sends `subscribe {session_id, epoch, after_seq}` over `/ws`. The server replays the frames it missed from a bounded ring and then streams new ones in `frames` batches. A cursor outside the ring or from another epoch receives `resync_required`; the client reloads the snapshot instead of silently missing frames.
+- **Replies to one client:** `chat_ack` answers a `chat_send`; `command_result` carries the output of informational commands; `chat_cancel_confirmed` answers `chat_cancel`. They are not part of the conversation.
+- **Runtime state:** `state` is coalesced per client (latest value wins, at most four per second) and never carries conversation content.
+
+Inputs that are still being sent or are queued appear in a pending tray until the transcript commits them. Output that a request resumes after other items is shown as a new bubble marked as a continued reply.
 
 ## Components and responsibilities
 
@@ -77,6 +89,7 @@ Other Web Console pages use REST endpoints for configuration, sessions, teams, s
 | [`cmd/soloqueue/cli`](../cmd/soloqueue/cli) | Process entry points and startup wiring. |
 | [`internal/runtime`](../internal/runtime) | Builds the shared dependency container (`Stack`), including clients, registries, databases, and reload watchers. |
 | [`internal/server`](../internal/server) | REST API, WebSocket hub, static frontend serving, and HTTP boundary. |
+| [`internal/transcript`](../internal/transcript) | Session-scoped ordered transcript journals, snapshots, and replay of persisted timelines. |
 | [`internal/session`](../internal/session) | Creates and manages sessions, context windows, timeline writers, and agent instances. |
 | [`internal/agent`](../internal/agent) | Runs the agent loop, handles tool calls, and coordinates delegated agents. |
 | [`internal/router`](../internal/router) and [`internal/llm`](../internal/llm) | Classifies task type, selects configured routes, and communicates with model providers. |
@@ -121,7 +134,7 @@ These stores have distinct roles: the context window is the active model input; 
 
 ## Integrations
 
-- **Web:** REST for resources and settings; WebSocket for live chat and runtime events.
+- **Web:** REST for resources, settings, and transcript snapshots; WebSocket for transcript subscriptions and runtime events.
 - **Channels:** QQ, WeChat, Telegram, and WeCom adapters translate platform messages to Core sessions and deliver responses through platform-specific APIs.
 - **Tools:** built-in tools run in the Core process; Skills provide packaged instructions and workflows; MCP connects configured external tool servers; LSP support is configured as an MCP integration.
 - **Providers:** model routing and provider communication are handled by the router and LLM client layers.

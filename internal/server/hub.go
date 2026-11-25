@@ -12,11 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/channel"
-	"github.com/xiaobaitu/soloqueue/internal/dispatch"
 	"github.com/xiaobaitu/soloqueue/internal/infra/telemetry"
-	"github.com/xiaobaitu/soloqueue/internal/llm"
-	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
-	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/session"
 )
 
@@ -48,47 +44,23 @@ type NotificationPayload struct {
 
 // WSMessage is the envelope for all WebSocket messages sent to clients.
 type WSMessage struct {
-	DispatchID string `json:"dispatch_id,omitempty"`
-	Revision   uint64 `json:"revision,omitempty"`
-	Type       string `json:"type"`
-	// Origin identifies messages mirrored from a non-browser transport. Empty
-	// means the message belongs to the browser request that opened the stream.
-	Origin string `json:"origin,omitempty"`
+	Type string `json:"type"`
 
 	// State broadcast fields.
-	Runtime *RuntimeStatusResponse `json:"runtime,omitempty"`
-	Agents  *AgentListResponse     `json:"agents,omitempty"`
+	Runtime   *RuntimeStatusResponse `json:"runtime,omitempty"`
+	Agents    *AgentListResponse     `json:"agents,omitempty"`
+	CronTasks []CronTaskStatus       `json:"cron_tasks,omitempty"`
 
-	// Chat streaming fields.
-	RequestID        string                            `json:"request_id,omitempty"`
-	RequestIDs       []string                          `json:"request_ids,omitempty"`
-	CancelRequestID  string                            `json:"cancel_request_id,omitempty"`
-	SessionID        string                            `json:"session_id,omitempty"`
-	Timestamp        string                            `json:"timestamp,omitempty"`
-	TaskType         string                            `json:"task_type,omitempty"`
-	ModelID          string                            `json:"model_id,omitempty"`
-	ProviderID       string                            `json:"provider_id,omitempty"`
-	AgentInstanceID  string                            `json:"agent_instance_id,omitempty"`
-	Delta            string                            `json:"delta,omitempty"`
-	CallID           string                            `json:"call_id,omitempty"`
-	Name             string                            `json:"name,omitempty"`
-	Args             string                            `json:"args,omitempty"`
-	Result           string                            `json:"result,omitempty"`
-	Error            string                            `json:"error,omitempty"`
-	DurationMS       int64                             `json:"duration_ms,omitempty"`
-	Content          string                            `json:"content,omitempty"`
-	ReasoningContent string                            `json:"reasoning_content,omitempty"`
-	Prompt           string                            `json:"prompt,omitempty"`
-	Files            []ClientFile                      `json:"files,omitempty"`
-	ImageCount       int                               `json:"image_count,omitempty"`
-	TargetAgentID    string                            `json:"target_agent_id,omitempty"`
-	AgentName        string                            `json:"agent_name,omitempty"`
-	ResultContent    string                            `json:"result_content,omitempty"`
-	NumTasks         int                               `json:"num_tasks,omitempty"`
-	Plans            []string                          `json:"plans,omitempty"`
-	CronTasks        []CronTaskStatus                  `json:"cron_tasks,omitempty"`
-	Notification     *NotificationPayload              `json:"notification,omitempty"`
-	Compaction       *timeline.CompactionStatusPayload `json:"compaction,omitempty"`
+	// Point-to-point replies to one client: chat_ack (Status is accepted,
+	// queued or rejected), command_result and chat_cancel_confirmed. The
+	// conversation itself travels as transcript frames.
+	RequestID string `json:"request_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Content   string `json:"content,omitempty"`
+
+	Notification *NotificationPayload `json:"notification,omitempty"`
 }
 
 type ClientMessage struct {
@@ -101,6 +73,10 @@ type ClientMessage struct {
 	SelectedElement  *SelectedElement `json:"selected_element,omitempty"`
 	ActiveDesignFile string           `json:"active_design_file,omitempty"`
 	HasDrawings      bool             `json:"has_drawings,omitempty"`
+	// Transcript subscription cursor: an empty epoch subscribes from the
+	// current head; otherwise frames after AfterSeq of Epoch are replayed.
+	Epoch    string `json:"epoch,omitempty"`
+	AfterSeq uint64 `json:"after_seq,omitempty"`
 }
 
 // SelectedElement represents a selected DOM element in Design Mode
@@ -119,15 +95,17 @@ type ClientFile struct {
 
 // activeRequest tracks a single chat request within the client's lifecycle.
 type activeRequest struct {
-	RequestID  string
-	Cancel     context.CancelFunc
-	Delegating bool // true while async delegation is in progress
+	RequestID string
+	Cancel    context.CancelFunc
 }
 
 // wsNotify is an internal signal that state has changed and needs broadcasting.
 type wsNotify struct{}
 
 // ─── Hub ────────────────────────────────────────────────────────────────────
+
+// stateBroadcastInterval is the minimum spacing of runtime state broadcasts.
+const stateBroadcastInterval = 250 * time.Millisecond
 
 // Hub manages WebSocket client connections and broadcasts state updates.
 type Hub struct {
@@ -142,6 +120,7 @@ type Hub struct {
 	requests         *ActiveRequestRegistry
 	sessionRevisions map[string]uint64
 	revMu            sync.Mutex
+	prompts          sync.Map // request ID → first prompt, for L2 session titles
 }
 
 // NewHub creates a new Hub. The Hub is not started until Run is called.
@@ -231,40 +210,8 @@ func (h *Hub) configureRequestLifecycle() {
 		OnStart: func(ctx context.Context, sessionID, requestID string) error {
 			return h.reserveLifecycleRequest(ctx, sessionID, requestID)
 		},
-		OnDispatchTerminal: func(sessionID string, record dispatch.Record) {
-			status := string(record.Status)
-			message := &WSMessage{Type: "dispatch_terminal", SessionID: logicalRuntimeSessionID(sessionID), RequestID: record.RequestID, DispatchID: record.ID, Revision: record.Revision, CallID: record.ToolCallID, Result: status}
-			if record.Status != dispatch.StatusCompleted {
-				message.Error = status
-			}
-			h.BroadcastMessage(message)
-		},
-		OnChannelQueueCancelled: func(ctx context.Context, sessionID, requestID string) {
-			h.BroadcastMessage(&WSMessage{Type: "channel_queue_cancelled", SessionID: logicalRuntimeSessionID(sessionID), RequestID: requestID})
-		},
-		OnChannelQueueFailed: func(ctx context.Context, sessionID, requestID string) {
-			h.BroadcastMessage(&WSMessage{Type: "channel_queue_failed", SessionID: logicalRuntimeSessionID(sessionID), RequestID: requestID, Error: "failed"})
-		},
-		OnChannelQueued: func(ctx context.Context, sessionID, requestID, prompt string, receivedAt time.Time, attachments []ctxwin.FileAttachment) {
-			images, _ := ctx.Value(ctxwin.ImageContextKey).([]llm.ImageContent)
-			files := make([]ClientFile, 0, len(attachments))
-			for _, file := range attachments {
-				files = append(files, ClientFile{Name: file.Name, Path: file.Path})
-			}
-			h.BroadcastMessage(&WSMessage{Type: "chat_queued", Origin: "channel", SessionID: logicalRuntimeSessionID(sessionID), RequestID: requestID, Prompt: prompt, Files: files, ImageCount: len(images), Timestamp: receivedAt.UTC().Format(time.RFC3339Nano)})
-		},
 		OnInput: func(ctx context.Context, sessionID, requestID, prompt string) {
-			logicalSessionID := logicalRuntimeSessionID(sessionID)
-			msg := &WSMessage{
-				Type:      "chat_accepted",
-				RequestID: requestID,
-				SessionID: logicalSessionID,
-				Prompt:    prompt,
-			}
-			if !h.prepareChannelMessage(logicalSessionID, requestID, msg) {
-				return
-			}
-			h.BroadcastMessage(msg)
+			h.rememberRequestPrompt(requestID, prompt)
 		},
 		OnBind: func(sessionID, requestID string, cancel func() error) error {
 			return h.requests.BindCanceller(requestID, cancel)
@@ -282,71 +229,34 @@ func (h *Hub) configureRequestLifecycle() {
 		OnRoute: func(sessionID, requestID string, route session.RequestRoute) {
 			_ = h.requests.SetRouteMetadata(requestID, route.ModelID, route.ProviderID, route.TaskType, route.AgentInstanceID)
 			logicalSessionID := logicalRuntimeSessionID(sessionID)
-			msg := &WSMessage{
-				Type:            "chat_route",
-				RequestID:       requestID,
-				SessionID:       logicalSessionID,
-				TaskType:        route.TaskType,
-				ModelID:         route.ModelID,
-				ProviderID:      route.ProviderID,
-				AgentInstanceID: route.AgentInstanceID,
-			}
-			if h.prepareChannelMessage(logicalSessionID, requestID, msg) {
-				h.BroadcastMessage(msg)
-			}
 			h.refreshRequestWatchdog(logicalSessionID, requestID, "")
 			h.NextSessionRevision(logicalSessionID)
 			h.Notify()
 		},
+		// Conversation content reaches clients through the session transcript.
+		// The Hub only maintains session metadata and the runtime projection.
 		OnEvent: func(ctx context.Context, sessionID, requestID string, ev agent.AgentEvent) {
 			logicalSessionID := logicalRuntimeSessionID(sessionID)
-			wsMsg := convertAgentEvent(ev, requestID, logicalSessionID)
-			if wsMsg == nil {
-				return
-			}
-			if !h.prepareChannelMessage(logicalSessionID, requestID, wsMsg) {
-				return
-			}
-			if boundary, ok := ev.(agent.PendingInputStartedEvent); ok {
-				if boundary.PreviousRequestID != "" {
-					wsMsg.RequestID = boundary.PreviousRequestID
-				}
-				h.BroadcastMessage(&WSMessage{Type: "channel_queue_started", Origin: "channel", SessionID: logicalSessionID, RequestIDs: boundary.RequestIDs})
-				// The root request still owns execution and cancellation. Publish
-				// the newly consumed input before moving the visible reply to it.
-				input := &WSMessage{
-					Type: "chat_accepted", Origin: "channel", SessionID: logicalSessionID,
-					RequestID: boundary.RequestID, Prompt: session.StripRecalledMemories(boundary.Prompt),
-					Timestamp: boundary.ReceivedAt.UTC().Format(time.RFC3339Nano),
-				}
-				if input.RequestID != "" && input.Prompt != "" {
-					h.BroadcastMessage(input)
-				}
-			} else if deliveryID := agent.RequestIDOfEvent(ev); deliveryID != "" {
-				wsMsg.RequestID = deliveryID
-			}
-			if wsMsg.Type == "delegation_start" {
+			h.observeSessionMeta(logicalSessionID, requestID, ev)
+			switch ev.(type) {
+			case agent.DelegationStartedEvent:
 				_ = h.requests.SetDelegating(requestID, true)
-				h.NextSessionRevision(logicalSessionID)
-				h.Notify()
-			}
-			if wsMsg.Type == "delegation_done" {
+			case agent.DelegationCompletedEvent:
 				_ = h.requests.SetDelegating(requestID, false)
-				h.NextSessionRevision(logicalSessionID)
-				h.Notify()
+			default:
+				return
 			}
-			h.BroadcastMessage(wsMsg)
+			h.NextSessionRevision(logicalSessionID)
+			h.Notify()
 		},
 		OnFinish: func(sessionID, requestID, terminal, message string) {
+			h.forgetRequestPrompt(requestID)
 			if terminal == "" {
 				terminal = "completed"
 			}
 			_ = h.requests.SetTerminalCode(requestID, terminal)
 			_ = h.requests.SetTerminalError(requestID, message)
 			h.finalizeRequest(logicalRuntimeSessionID(sessionID), requestID)
-		},
-		OnCompaction: func(sessionID string, status timeline.CompactionStatusPayload) {
-			h.BroadcastMessage(&WSMessage{Type: "compaction_status", SessionID: logicalRuntimeSessionID(sessionID), Timestamp: time.Now().Format(time.RFC3339Nano), Compaction: &status})
 		},
 	}
 	session.SetDefaultRequestLifecycleHooks(hooks)
@@ -360,31 +270,6 @@ func (h *Hub) configureRequestLifecycle() {
 			}
 		}
 	}
-}
-
-func (h *Hub) channelRequest(sessionID, requestID string) (ActiveRequest, bool) {
-	if h == nil || h.requests == nil || requestID == "" {
-		return ActiveRequest{}, false
-	}
-	req, err := h.requests.Validate(sessionID, requestID)
-	if err != nil {
-		return ActiveRequest{}, false
-	}
-	owner := req.OwnerClientID
-	return req, owner == "channel" || strings.HasPrefix(owner, "channel\x00")
-}
-
-func (h *Hub) prepareChannelMessage(sessionID, requestID string, msg *WSMessage) bool {
-	if msg == nil {
-		return false
-	}
-	req, ok := h.channelRequest(sessionID, requestID)
-	if !ok {
-		return false
-	}
-	msg.Origin = "channel"
-	msg.Timestamp = req.StartedAt.UTC().Format(time.RFC3339Nano)
-	return true
 }
 
 func logicalRuntimeSessionID(targetID string) string {
@@ -412,27 +297,24 @@ func (h *Hub) Run() {
 		if err != nil {
 			return
 		}
-		var slow []*Client
 		h.mu.RLock()
+		defer h.mu.RUnlock()
 		for client := range h.clients {
+			// Runtime state is a snapshot: each client writes only the newest
+			// one, so a slow client is never disconnected for state.
+			if msg.Type == "state" {
+				client.setLatestState(data)
+				continue
+			}
+			// Best-effort messages (notifications) are dropped for a
+			// saturated client, which remains connected.
 			select {
 			case client.send <- data:
 			default:
-				slow = append(slow, client)
 			}
 		}
-		h.mu.RUnlock()
-		// Preserve the historical best-effort behavior for event/notification
-		// messages: a saturated client drops that message but remains connected.
-		// State is different because replaying it globally duplicated updates for
-		// healthy clients; disconnect only the saturated state consumer instead.
-		if msg.Type != "state" {
-			return
-		}
-		for _, client := range slow {
-			h.removeClient(client)
-		}
 	}
+	lastState := time.Time{}
 
 	for {
 		select {
@@ -441,15 +323,8 @@ func (h *Hub) Run() {
 			h.clients[client] = true
 			h.mu.Unlock()
 			// Send initial state immediately upon connection.
-			msg := h.buildStateMessage()
-			data, err := json.Marshal(msg)
-			if err == nil {
-				select {
-				case client.send <- data:
-				default:
-					// Slow client; close connection.
-					h.removeClient(client)
-				}
+			if data, err := json.Marshal(h.buildStateMessage()); err == nil {
+				client.setLatestState(data)
 			}
 
 		case client := <-h.unregister:
@@ -461,13 +336,20 @@ func (h *Hub) Run() {
 		case <-debounceC:
 			debounce = nil
 			debounceC = make(<-chan time.Time)
+			lastState = time.Now()
 			deliver(h.buildStateMessage())
 
 		case <-h.notify:
-			// 50ms non-resetting coalescing window per §5.8 of repair plan.
-			// If a timer is already active, do NOT reset it — fires at most 50ms after first signal.
+			// Non-resetting coalescing window: at least 50ms after the first
+			// signal and at most stateBroadcastInterval⁻¹ broadcasts per second.
+			// Conversation content travels in transcript frames, so state
+			// only drives status indicators.
 			if debounce == nil {
-				debounce = time.NewTimer(50 * time.Millisecond)
+				wait := 50 * time.Millisecond
+				if next := time.Until(lastState.Add(stateBroadcastInterval)); next > wait {
+					wait = next
+				}
+				debounce = time.NewTimer(wait)
 				debounceC = debounce.C
 			}
 
@@ -608,6 +490,7 @@ func (h *Hub) buildStateMessage() *WSMessage {
 
 // removeClient removes a client from the Hub and cleans up its resources.
 func (h *Hub) removeClient(client *Client) {
+	client.closeSubscriptions()
 	client.cancelAllRequests()
 	h.mu.Lock()
 	if _, ok := h.clients[client]; ok {
@@ -629,6 +512,15 @@ type Client struct {
 	mu             sync.Mutex
 	activeRequests map[string]*activeRequest // request_id → request
 	ownerID        string
+
+	// Transcript subscriptions and the coalesced runtime state are written by
+	// the write goroutine when signal fires.
+	signal      chan struct{}
+	subsMu      sync.Mutex
+	subs        map[string]*subscription
+	stateMu     sync.Mutex
+	latestState []byte
+	stateDirty  bool
 }
 
 // newClient creates a new Client for the given WebSocket connection.
@@ -641,6 +533,8 @@ func newClient(hub *Hub, conn *websocket.Conn) *Client {
 		ctx:            ctx,
 		cancel:         cancel,
 		activeRequests: make(map[string]*activeRequest),
+		signal:         make(chan struct{}, 1),
+		subs:           make(map[string]*subscription),
 	}
 	c.ownerID = fmt.Sprintf("browser:%p", c)
 	return c
@@ -658,15 +552,6 @@ func (c *Client) removeActiveRequest(reqID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.activeRequests, reqID)
-}
-
-// setRequestDelegating marks a request as delegating or not.
-func (c *Client) setRequestDelegating(reqID string, v bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if r, ok := c.activeRequests[reqID]; ok {
-		r.Delegating = v
-	}
 }
 
 // cancelAllRequests detaches all active request forwarders from this client.

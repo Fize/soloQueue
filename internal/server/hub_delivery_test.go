@@ -6,13 +6,12 @@ import (
 	"time"
 )
 
-func TestHubStateDeliveryDisconnectsSlowClientWithoutReplayingHealthyClient(t *testing.T) {
+func TestHubStateDeliveryCoalescesWithoutDisconnectingSlowClients(t *testing.T) {
 	hub := NewHub(&Mux{})
 	slow := newClient(hub, nil)
 	slow.send = make(chan []byte, 1)
 	slow.send <- []byte(`{"type":"occupied"}`)
 	healthy := newClient(hub, nil)
-	healthy.send = make(chan []byte, 16)
 	hub.clients[slow] = true
 	hub.clients[healthy] = true
 	go hub.Run()
@@ -23,28 +22,27 @@ func TestHubStateDeliveryDisconnectsSlowClientWithoutReplayingHealthyClient(t *t
 	})
 
 	hub.BroadcastMessage(&WSMessage{Type: "state", RequestID: "state-v1"})
-	deadline := time.After(2 * time.Second)
-	stateMessages := 0
-	observe := time.NewTimer(700 * time.Millisecond)
-	defer observe.Stop()
+	hub.BroadcastMessage(&WSMessage{Type: "state", RequestID: "state-v2"})
+	deadline := time.Now().Add(2 * time.Second)
 	for {
-		select {
-		case data := <-healthy.send:
-			var msg WSMessage
-			if json.Unmarshal(data, &msg) == nil && msg.Type == "state" {
-				stateMessages++
-			}
-		case <-observe.C:
-			if stateMessages != 1 {
-				t.Fatalf("healthy client received %d state messages for one version, want exactly once", stateMessages)
-			}
-			if got := hub.ClientCount(); got != 1 {
-				t.Fatalf("connected clients = %d, want only the healthy client", got)
-			}
-			return
-		case <-deadline:
-			t.Fatal("healthy client did not receive state-v1")
+		data := readClient(healthy, time.Until(deadline))
+		if data == nil {
+			t.Fatal("healthy client did not receive the newest state")
 		}
+		var msg WSMessage
+		if json.Unmarshal(data, &msg) == nil && msg.Type == "state" && msg.RequestID == "state-v2" {
+			break
+		}
+	}
+	if state := healthy.takeLatestState(); state != nil {
+		t.Fatalf("state delivered twice: %s", state)
+	}
+	var latest WSMessage
+	if data := slow.takeLatestState(); data == nil || json.Unmarshal(data, &latest) != nil || latest.RequestID != "state-v2" {
+		t.Fatalf("slow client latest state = %s", data)
+	}
+	if got := hub.ClientCount(); got != 2 {
+		t.Fatalf("connected clients = %d, want both clients", got)
 	}
 }
 

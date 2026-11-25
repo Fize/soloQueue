@@ -560,6 +560,24 @@ func TestCompactFailurePreservesContextAndLifecycle(t *testing.T) {
 	}
 }
 
+func TestCompactionObserverRunsAfterStatusHook(t *testing.T) {
+	var order []string
+	mc := &mockCompactor{compactFn: func(context.Context, []Message) (string, error) { return "summary", nil }}
+	cw := NewContextWindow(10000, 100, 5000, NewTokenizer(), WithCompactor(mc), WithCompactionStatusHook(func(_ context.Context, s CompactionStatus) {
+		order = append(order, "hook:"+s.Status)
+	}))
+	cw.SetCompactionObserver(func(_ context.Context, s CompactionStatus) { order = append(order, "observer:"+s.Status) })
+	cw.Push(RoleSystem, "system")
+	cw.Push(RoleUser, "context to summarize")
+	if _, err := cw.CompactAndReplace(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"hook:running", "observer:running", "hook:completed", "observer:completed"}
+	if strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+}
+
 func TestCompactDoesNotApplySnapshotAfterClearAndRefill(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	mc := &mockCompactor{compactFn: func(context.Context, []Message) (string, error) {

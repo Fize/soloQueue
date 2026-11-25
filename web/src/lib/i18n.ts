@@ -1044,6 +1044,7 @@ export const translations = {
     },
     chat: {
       returnToLatest: "Return to latest",
+      continuedReply: "Continued reply",
       title: 'Chat',
       newChat: 'New Chat',
       thinking: 'Thinking...',
@@ -2265,6 +2266,7 @@ export const translations = {
     },
     chat: {
       returnToLatest: "返回最新",
+      continuedReply: "继续回复",
       title: '聊天',
       newChat: '新建会话',
       thinking: '思考中...',

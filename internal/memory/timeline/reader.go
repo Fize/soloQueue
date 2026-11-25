@@ -393,6 +393,7 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 				Content:         part.Content,
 				Timestamp:       ts,
 				ExposeTimestamp: part.ExposeTimestamp,
+				RequestID:       part.RequestID,
 			})
 		}
 		opts = append(opts, ctxwin.WithTemporalParts(parts))
@@ -400,8 +401,57 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 	if msg.RequestID != "" {
 		opts = append(opts, ctxwin.WithRequestID(msg.RequestID))
 	}
+	if msg.ItemID != "" || msg.Seq > 0 {
+		opts = append(opts, ctxwin.WithItem(msg.ItemID, msg.Seq))
+	}
 
 	cw.Push(ctxwin.MessageRole(msg.Role), msg.Content, opts...)
+}
+
+// ReadAllEvents reads every event from every timeline file in dir, oldest
+// file first. Unreadable files and malformed lines are skipped.
+func ReadAllEvents(dir string) ([]Event, error) {
+	files, err := ListTimelineFiles(dir, "timeline")
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("timeline: no files in %s", dir)
+	}
+	var all []Event
+	for _, file := range files {
+		events, err := readEventsLarge(file)
+		if err != nil {
+			continue
+		}
+		all = append(all, events...)
+	}
+	return all, nil
+}
+
+// readEventsLarge reads one JSONL file allowing lines up to 64 MiB, which
+// large prompts and tool results can reach.
+func readEventsLarge(path string) ([]Event, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var events []Event
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1<<20), 64<<20)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var evt Event
+		if err := json.Unmarshal(line, &evt); err != nil {
+			continue
+		}
+		events = append(events, evt)
+	}
+	return events, scanner.Err()
 }
 
 // ─── Internal Methods ────────────────────────────────────────────────────────────────

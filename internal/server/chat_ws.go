@@ -30,63 +30,33 @@ import (
 func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 	ref, parseErr := session.ParseSessionID(msg.SessionID)
 	if parseErr != nil {
-		client.sendJSON(WSMessage{
-			Type:      "chat_error",
-			RequestID: msg.RequestID,
-			SessionID: msg.SessionID,
-			Error:     "invalid session_id",
-		})
+		client.sendAck(msg.RequestID, msg.SessionID, "rejected", "invalid session_id")
 		return
 	}
 	sessionID := ref.String()
 
 	if msg.Prompt == "" {
-		client.sendJSON(WSMessage{
-			Type:      "chat_error",
-			RequestID: msg.RequestID,
-			SessionID: sessionID,
-			Error:     "prompt cannot be empty",
-		})
+		client.sendAck(msg.RequestID, sessionID, "rejected", "prompt cannot be empty")
 		return
 	}
 	if err := validateChatPrompt(msg.Prompt); err != nil {
-		client.sendJSON(WSMessage{
-			Type:      "chat_error",
-			RequestID: msg.RequestID,
-			SessionID: msg.SessionID,
-			Error:     err.Error(),
-		})
+		client.sendAck(msg.RequestID, msg.SessionID, "rejected", err.Error())
 		return
 	}
 
 	if h.mux == nil || h.mux.sessionMgr == nil {
-		client.sendJSON(WSMessage{
-			Type:      "chat_error",
-			RequestID: msg.RequestID,
-			SessionID: sessionID,
-			Error:     "session manager not configured",
-		})
+		client.sendAck(msg.RequestID, sessionID, "rejected", "session manager not configured")
 		return
 	}
 
 	// Resolve session.
 	sess, err := h.resolveSession(sessionID)
 	if err != nil {
-		client.sendJSON(WSMessage{
-			Type:      "chat_error",
-			RequestID: msg.RequestID,
-			SessionID: sessionID,
-			Error:     err.Error(),
-		})
+		client.sendAck(msg.RequestID, sessionID, "rejected", err.Error())
 		return
 	}
 	if sess == nil {
-		client.sendJSON(WSMessage{
-			Type:      "chat_error",
-			RequestID: msg.RequestID,
-			SessionID: sessionID,
-			Error:     "session not found",
-		})
+		client.sendAck(msg.RequestID, sessionID, "rejected", "session not found")
 		return
 	}
 
@@ -135,12 +105,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 				h.finalizeRequest(sessionID, active.RequestID)
 			}
 		}
-		client.sendJSON(WSMessage{
-			Type:             "chat_done",
-			RequestID:        msg.RequestID,
-			Content:          "Task cancelled.",
-			ReasoningContent: "",
-		})
+		client.sendCommandResult(msg.RequestID, sessionID, "Task cancelled.")
 		return
 
 	case lowerTrimmed == "/help" || lowerTrimmed == "/?":
@@ -155,17 +120,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			"- `/l1` — Lock routing level to L1 (single file modification)\n" +
 			"- `/l2` — Lock routing level to L2 (multi-file modification)\n" +
 			"- `/l3` — Lock routing level to L3 (complex architecture refactoring)"
-		client.sendJSON(WSMessage{
-			Type:      "chat_chunk",
-			RequestID: msg.RequestID,
-			Delta:     text,
-		})
-		client.sendJSON(WSMessage{
-			Type:             "chat_done",
-			RequestID:        msg.RequestID,
-			Content:          text,
-			ReasoningContent: "",
-		})
+		client.sendCommandResult(msg.RequestID, sessionID, text)
 		return
 
 	// Note: /clear and /compact are handled by session.AskStream's pre-inFlight
@@ -179,17 +134,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		} else {
 			v = "SoloQueue " + v
 		}
-		client.sendJSON(WSMessage{
-			Type:      "chat_chunk",
-			RequestID: msg.RequestID,
-			Delta:     v,
-		})
-		client.sendJSON(WSMessage{
-			Type:             "chat_done",
-			RequestID:        msg.RequestID,
-			Content:          v,
-			ReasoningContent: "",
-		})
+		client.sendCommandResult(msg.RequestID, sessionID, v)
 		return
 
 	case lowerTrimmed == "/init":
@@ -210,17 +155,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		}
 		if workDir == "" {
 			errMsg := "/init is only available in L2 sessions with a project directory. Create an L2 session first."
-			client.sendJSON(WSMessage{
-				Type:      "chat_chunk",
-				RequestID: msg.RequestID,
-				Delta:     errMsg,
-			})
-			client.sendJSON(WSMessage{
-				Type:             "chat_done",
-				RequestID:        msg.RequestID,
-				Content:          errMsg,
-				ReasoningContent: "",
-			})
+			client.sendCommandResult(msg.RequestID, sessionID, errMsg)
 			return
 		}
 		// Build the LLM prompt and let it fall through to AskStream.
@@ -269,11 +204,7 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		}
 	}
 
-	client.sendJSON(WSMessage{
-		Type:      "chat_accepted",
-		RequestID: msg.RequestID,
-		SessionID: sessionID,
-	})
+	client.sendAck(msg.RequestID, sessionID, "accepted", "")
 
 	// Request lifetime is owned by the session/global registry, not by the
 	// WebSocket connection. A disconnected client merely loses its forwarder.
@@ -286,7 +217,6 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		OwnerID:   client.ownerID,
 	})
 	reqCtx, generationCapture := withRequestGenerationCapture(reqCtx)
-	reqCtx, routeCapture := session.WithRequestRouteCapture(reqCtx)
 	if len(images) > 0 {
 		reqCtx = context.WithValue(reqCtx, ctxwin.ImageContextKey, images)
 	}
@@ -318,35 +248,21 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 			// the message into the pending queue instead of rejecting it.
 			root, rootOK := h.requests.GetBySession(sessionID)
 			if !rootOK {
-				client.sendJSON(WSMessage{Type: "chat_error", RequestID: msg.RequestID, SessionID: sessionID, Error: ErrRequestNotFound.Error()})
+				client.sendAck(msg.RequestID, sessionID, "rejected", ErrRequestNotFound.Error())
 				client.removeActiveRequest(msg.RequestID)
 				return
 			}
 			if reserveErr := h.requests.ReserveQueued(sessionID, msg.RequestID, root.Generation); reserveErr != nil {
-				client.sendJSON(WSMessage{
-					Type:      "chat_error",
-					RequestID: msg.RequestID,
-					SessionID: sessionID,
-					Error:     reserveErr.Error(),
-				})
+				client.sendAck(msg.RequestID, sessionID, "rejected", reserveErr.Error())
 				client.removeActiveRequest(msg.RequestID)
 				return
 			}
 			sess.QueueMessage(finalPrompt, msg.RequestID)
-			client.sendJSON(WSMessage{
-				Type:      "chat_queued",
-				RequestID: msg.RequestID,
-				SessionID: sessionID,
-				Error:     "session is busy; message queued and will be processed in the current turn",
-			})
+			client.sendAck(msg.RequestID, sessionID, "queued", "")
 			client.removeActiveRequest(msg.RequestID)
 			return
 		}
-		client.sendJSON(WSMessage{
-			Type:      "chat_error",
-			RequestID: msg.RequestID,
-			Error:     askErr.Error(),
-		})
+		client.sendAck(msg.RequestID, msg.SessionID, "rejected", askErr.Error())
 		if generationCaptured {
 			h.requests.ReleaseQueuedForGeneration(sessionID, requestGeneration)
 		}
@@ -357,23 +273,10 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 		h.handleMissingRequestGeneration(client, sess, msg.RequestID, sessionID, ch)
 		return
 	}
-	// Routing is complete before AskStream returns. Send its request-scoped
-	// result before any reasoning/content/tool event can be forwarded.
-	var route *session.RequestRoute
-	select {
-	case requestRoute, ok := <-routeCapture:
-		if ok {
-			route = &requestRoute
-		}
-	default:
-		// Slash-command and other non-actor paths have no routed model.
-	}
-	routeMessage := buildChatRouteMessage(sess, route, msg.RequestID, msg.SessionID)
-	client.sendJSON(routeMessage)
-
-	// Consume agent events and forward to client.
+	// The request's route, output and outcome reach every subscriber through
+	// the session transcript; this connection only drains the stream.
 	forwarderStarted = true
-	go h.forwardAgentEvents(client, msg.RequestID, requestGeneration, reqCancel, ch, msg.SessionID, msg.Prompt)
+	go h.forwardAgentEvents(client, msg.RequestID, requestGeneration, reqCancel, ch, msg.SessionID)
 }
 
 func (h *Hub) finalizeRequest(sessionID, requestID string) {
@@ -415,8 +318,8 @@ func (h *Hub) refreshRequestWatchdog(sessionID, requestID string, terminal runwa
 		state.TerminalCode = string(terminal)
 		state.WatchdogDueAt = time.Time{}
 	}
-	changed, setErr := h.requests.SetWatchdog(requestID, state)
-	if setErr != nil || !changed {
+	significant, setErr := h.requests.SetWatchdogState(requestID, state)
+	if setErr != nil || !significant {
 		return
 	}
 	h.NextSessionRevision(sessionID)
@@ -446,41 +349,6 @@ func (h *Hub) projectLiveWatchdog(req ActiveRequest) ActiveRequest {
 	return req
 }
 
-func buildChatRouteMessage(sess *session.Session, route *session.RequestRoute, requestID, sessionID string) WSMessage {
-	if route != nil {
-		return WSMessage{
-			Type:            "chat_route",
-			RequestID:       requestID,
-			SessionID:       sessionID,
-			TaskType:        route.TaskType,
-			ModelID:         route.ModelID,
-			ProviderID:      route.ProviderID,
-			AgentInstanceID: route.AgentInstanceID,
-		}
-	}
-	a := sess.CurrentAgent()
-	if a == nil {
-		return WSMessage{Type: "chat_route", RequestID: requestID, SessionID: sessionID}
-	}
-	modelID := a.EffectiveModelID()
-	if modelID == "" {
-		modelID = a.Def.ModelID
-	}
-	providerID := a.EffectiveProviderID()
-	if providerID == "" {
-		providerID = a.Def.ProviderID
-	}
-	return WSMessage{
-		Type:            "chat_route",
-		RequestID:       requestID,
-		SessionID:       sessionID,
-		TaskType:        a.EffectiveTaskType(),
-		ModelID:         modelID,
-		ProviderID:      providerID,
-		AgentInstanceID: a.InstanceID,
-	}
-}
-
 func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 	ref, err := session.ParseSessionID(msg.SessionID)
 	if err != nil {
@@ -508,15 +376,6 @@ func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 		SessionID: sessionID,
 	})
 
-	// Notify client that the task is done (cancelled).
-	client.sendJSON(WSMessage{
-		Type:             "chat_done",
-		RequestID:        req.RequestID,
-		SessionID:        sessionID,
-		Content:          "Task cancelled.",
-		ReasoningContent: "",
-	})
-
 	h.requests.Finalize(sessionID, req.RequestID)
 	h.NextSessionRevision(sessionID)
 	h.Notify()
@@ -540,7 +399,7 @@ func (h *Hub) handleMissingRequestGeneration(client *Client, sess *session.Sessi
 			"err", cleanupErr.Error(),
 		)
 	}
-	client.sendJSON(WSMessage{Type: "chat_error", RequestID: requestID, SessionID: sessionID, Error: errRequestGenerationCaptureMissing.Error()})
+	client.sendAck(requestID, sessionID, "rejected", errRequestGenerationCaptureMissing.Error())
 	client.removeActiveRequest(requestID)
 }
 
@@ -580,12 +439,14 @@ func cancelAndDrainUnownedRequestStream(sess *session.Session, requestID string,
 	}
 }
 
-// ─── Event Forwarding ───────────────────────────────────────────────────────
+// ─── Event Draining ─────────────────────────────────────────────────────────
 
-// forwardAgentEvents reads from the agent event channel and converts each event
-// to a WSMessage pushed directly to the client's send channel.
-// The goroutine exits when the channel closes or the request context is cancelled.
-func (h *Hub) forwardAgentEvents(client *Client, requestID string, requestGeneration uint64, cancel context.CancelFunc, ch <-chan iface.AgentEvent, sessionID string, prompt string) {
+// forwardAgentEvents consumes the event stream of a browser request. Output is
+// delivered to every subscriber by the session transcript at the moment the
+// agent produces it, so this goroutine only keeps the request's runtime
+// projection current and releases request-scoped resources when the stream
+// ends. The Session requires its stream to be drained.
+func (h *Hub) forwardAgentEvents(client *Client, requestID string, requestGeneration uint64, cancel context.CancelFunc, ch <-chan iface.AgentEvent, sessionID string) {
 	defer cancel()
 	defer client.removeActiveRequest(requestID)
 	defer func() {
@@ -599,297 +460,29 @@ func (h *Hub) forwardAgentEvents(client *Client, requestID string, requestGenera
 			h.mux.persistL2ContextUsage(sessionID, h.mux.l2Store.GetActivated(id))
 		}
 	}()
-
-	// streamBatchInterval is the maximum time a chat_chunk/reasoning_chunk
-	// delta is held before being flushed. This microbatch lets us collapse N
-	// per-token deltas that arrive within a single frame into one WebSocket
-	// frame, which dramatically reduces React commit frequency on the client
-	// (and the MarkdownPreview reparse cost that comes with each commit).
-	// Other event types (tool_*, chat_done, chat_error, ...) bypass the
-	// batcher and are flushed immediately.
-	const streamBatchInterval = 30 * time.Millisecond
-
-	// Batcher state. A batch contains only one delta type: keeping independent
-	// content/reasoning buffers and flushing them in a fixed order would reorder
-	// a reasoning→content transition that occurs within the same 30 ms window.
-	var (
-		pendingDelta      strings.Builder
-		pendingType       string
-		flushTimer        *time.Timer
-		flushC            <-chan time.Time
-		deliveryRequestID = requestID
-	)
-
-	deliveryAttached := true
-	flush := func() {
-		if pendingType != "" {
-			if deliveryAttached && !client.sendJSON(WSMessage{
-				Type:      pendingType,
-				RequestID: deliveryRequestID,
-				SessionID: sessionID,
-				Delta:     pendingDelta.String(),
-			}) {
-				deliveryAttached = false
-			}
-			pendingDelta.Reset()
-			pendingType = ""
+	for ev := range ch {
+		agEv, ok := ev.(agent.AgentEvent)
+		if !ok {
+			continue
 		}
-		if flushTimer != nil {
-			flushTimer.Stop()
-			flushTimer = nil
+		terminal := runwatch.Code("")
+		if errorEvent, ok := agEv.(agent.ErrorEvent); ok {
+			terminal = runwatch.CodeOf(errorEvent.Err)
 		}
-		flushC = nil
-	}
-
-	appendDelta := func(msgType, delta string) {
-		if pendingType != "" && pendingType != msgType {
-			flush()
-		}
-		pendingType = msgType
-		pendingDelta.WriteString(delta)
-		if flushTimer == nil {
-			flushTimer = time.NewTimer(streamBatchInterval)
-			flushC = flushTimer.C
-		}
-	}
-
-	for {
-		select {
-		case ev, ok := <-ch:
-			if !ok {
-				flush()
-				return
-			}
-			agEv, ok := ev.(agent.AgentEvent)
-			if !ok {
-				continue
-			}
-			terminal := runwatch.Code("")
-			if errorEvent, ok := agEv.(agent.ErrorEvent); ok {
-				terminal = runwatch.CodeOf(errorEvent.Err)
-			}
+		// Token deltas only advance progress timestamps, which the Hub's
+		// periodic refresh publishes; refresh on structural events.
+		if !isStreamDelta(agEv) || terminal != "" {
 			h.refreshRequestWatchdog(sessionID, requestID, terminal)
-
-			// Fast path: batchable high-frequency deltas.
-			if cd, ok := agEv.(agent.ContentDeltaEvent); ok {
-				appendDelta("chat_chunk", cd.Delta)
-				continue
-			}
-			if rd, ok := agEv.(agent.ReasoningDeltaEvent); ok {
-				appendDelta("reasoning_chunk", rd.Delta)
-				continue
-			}
-
-			// Structural event: flush pending text first so the client sees
-			// the new structural frame AFTER the full text preceding it.
-			flush()
-
-			// Auto-generate session name after first exchange for L2 sessions.
-			if doneEv, ok := agEv.(agent.DoneEvent); ok {
-				if strings.HasPrefix(sessionID, "l2:") && h.mux.l2Store != nil {
-					l2ID := strings.TrimPrefix(sessionID, "l2:")
-					if h.mux.l2Store.GetName(l2ID) == "" {
-						title := generateSessionTitle(prompt, doneEv.Content)
-						if title != "" {
-							h.mux.l2Store.SetName(l2ID, title)
-							client.sendJSON(WSMessage{
-								Type:      "session_name",
-								RequestID: deliveryRequestID,
-								SessionID: sessionID,
-								Name:      title,
-							})
-						}
-					}
-				}
-			}
-
-			if toolDoneEv, ok := agEv.(agent.ToolExecDoneEvent); ok && toolDoneEv.Err == nil {
-				if strings.HasPrefix(sessionID, "l2:") && h.mux.l2Store != nil {
-					l2ID := strings.TrimPrefix(sessionID, "l2:")
-					var paths []string
-					if toolDoneEv.Name == "Write" || toolDoneEv.Name == "Edit" || toolDoneEv.Name == "MultiEdit" {
-						var res struct {
-							Path string `json:"path"`
-						}
-						if json.Unmarshal([]byte(toolDoneEv.Result), &res) == nil && res.Path != "" {
-							paths = append(paths, res.Path)
-						}
-					} else if toolDoneEv.Name == "MultiWrite" {
-						var res struct {
-							Files []struct {
-								Path string `json:"path"`
-							} `json:"files"`
-						}
-						if json.Unmarshal([]byte(toolDoneEv.Result), &res) == nil {
-							for _, f := range res.Files {
-								if f.Path != "" {
-									paths = append(paths, f.Path)
-								}
-							}
-						}
-					}
-
-					if len(paths) > 0 {
-						entry := h.mux.l2Store.GetEntry(l2ID)
-						if entry != nil && entry.Group != "" {
-							planDir := filepath.Join(h.mux.workDir, "plan", entry.Group)
-							prefix := planDir + string(filepath.Separator)
-							updated := false
-							for _, p := range paths {
-								if strings.HasPrefix(p, prefix) {
-									h.mux.l2Store.UpdatePlanStatus(l2ID, p)
-									updated = true
-								}
-							}
-							if updated {
-								updatedEntry := h.mux.l2Store.GetEntry(l2ID)
-								if updatedEntry != nil {
-									client.sendJSON(WSMessage{
-										Type:      "session_plans",
-										RequestID: deliveryRequestID,
-										SessionID: sessionID,
-										Plans:     updatedEntry.Plans,
-									})
-								}
-							}
-						}
-					}
-				}
-			}
-
-			wsMsg := convertAgentEvent(agEv, deliveryRequestID, sessionID)
-			if wsMsg == nil {
-				continue
-			}
-			if _, ok := agEv.(agent.PendingInputStartedEvent); ok {
-				wsMsg.CancelRequestID = requestID
-			}
-
-			// Track delegation state for Stop button and global registry.
-			if wsMsg.Type == "delegation_start" {
-				client.setRequestDelegating(requestID, true)
-				_ = h.requests.SetDelegating(requestID, true)
-				h.NextSessionRevision(sessionID)
-				h.Notify()
-			}
-			if wsMsg.Type == "delegation_done" {
-				client.setRequestDelegating(requestID, false)
-				_ = h.requests.SetDelegating(requestID, false)
-				h.NextSessionRevision(sessionID)
-				h.Notify()
-			}
-
-			if deliveryAttached && !client.sendJSON(*wsMsg) {
-				deliveryAttached = false
-			}
-			if started, ok := agEv.(agent.PendingInputStartedEvent); ok && len(started.RequestIDs) > 0 {
-				deliveryRequestID = started.RequestIDs[len(started.RequestIDs)-1]
-			}
-
-		case <-flushC:
-			flush()
 		}
 	}
 }
 
-// convertAgentEvent maps an internal AgentEvent to a WSMessage.
-// Returns nil for events that should not be forwarded (e.g., IterationDoneEvent).
-func convertAgentEvent(ev agent.AgentEvent, requestID, sessionID string) *WSMessage {
-	switch e := ev.(type) {
-	case agent.ContentDeltaEvent:
-		return &WSMessage{
-			Type:      "chat_chunk",
-			RequestID: requestID,
-			SessionID: sessionID,
-			Delta:     e.Delta,
-		}
-
-	case agent.ReasoningDeltaEvent:
-		return &WSMessage{
-			Type:      "reasoning_chunk",
-			RequestID: requestID,
-			SessionID: sessionID,
-			Delta:     e.Delta,
-		}
-
-	case agent.PendingInputStartedEvent:
-		return &WSMessage{
-			Type:            "chat_queue_started",
-			RequestID:       requestID,
-			RequestIDs:      append([]string(nil), e.RequestIDs...),
-			CancelRequestID: requestID,
-			SessionID:       sessionID,
-		}
-
-	case agent.ToolExecStartEvent:
-		return &WSMessage{
-			DispatchID:    e.DispatchID,
-			Type:          "tool_start",
-			RequestID:     requestID,
-			SessionID:     sessionID,
-			CallID:        e.CallID,
-			Name:          e.Name,
-			Args:          e.Args,
-			TargetAgentID: e.TargetAgentID,
-		}
-
-	case agent.ToolExecDoneEvent:
-		errStr := ""
-		if e.Err != nil {
-			errStr = e.Err.Error()
-		}
-		return &WSMessage{
-			Type:       "tool_done",
-			RequestID:  requestID,
-			SessionID:  sessionID,
-			CallID:     e.CallID,
-			Name:       e.Name,
-			Result:     e.Result,
-			Error:      errStr,
-			DurationMS: e.Duration.Milliseconds(),
-		}
-
-	case agent.DoneEvent:
-		return &WSMessage{
-			Type:             "chat_done",
-			RequestID:        requestID,
-			SessionID:        sessionID,
-			Content:          e.Content,
-			ReasoningContent: e.ReasoningContent,
-		}
-
-	case agent.ErrorEvent:
-		if runwatch.CodeOf(e.Err) == runwatch.CodeCancelledByUser {
-			return nil
-		}
-		return &WSMessage{
-			Type:      "chat_error",
-			RequestID: requestID,
-			SessionID: sessionID,
-			Error:     e.Err.Error(),
-		}
-
-	case agent.DelegationStartedEvent:
-		return &WSMessage{
-			Type:      "delegation_start",
-			RequestID: requestID,
-			SessionID: sessionID,
-			NumTasks:  e.NumTasks,
-		}
-
-	case agent.DelegationCompletedEvent:
-		return &WSMessage{
-			Type:          "delegation_done",
-			RequestID:     requestID,
-			SessionID:     sessionID,
-			TargetAgentID: e.TargetAgentID,
-			AgentName:     e.TargetAgentName,
-			ResultContent: e.ResultContent,
-		}
-
-	default:
-		return nil
+func isStreamDelta(ev agent.AgentEvent) bool {
+	switch ev.(type) {
+	case agent.ContentDeltaEvent, agent.ReasoningDeltaEvent, agent.ToolCallDeltaEvent:
+		return true
 	}
+	return false
 }
 
 // ─── Session Resolution ─────────────────────────────────────────────────────
@@ -922,6 +515,20 @@ func (h *Hub) resolveSession(sessionID string) (*session.Session, error) {
 }
 
 // ─── Client Helpers ─────────────────────────────────────────────────────────
+
+// sendAck tells the sender how a chat_send was handled. It is point-to-point:
+// the shared outcome (queued input, committed input) travels in the session
+// transcript.
+func (c *Client) sendAck(requestID, sessionID, status, errText string) {
+	c.sendJSON(WSMessage{Type: "chat_ack", RequestID: requestID, SessionID: sessionID, Status: status, Error: errText})
+}
+
+// sendCommandResult returns the output of a command that is not part of the
+// conversation (help, version, cancel) to its sender only.
+func (c *Client) sendCommandResult(requestID, sessionID, text string) {
+	c.sendAck(requestID, sessionID, "accepted", "")
+	c.sendJSON(WSMessage{Type: "command_result", RequestID: requestID, SessionID: sessionID, Content: text})
+}
 
 // sendJSON marshals a WSMessage and sends it to the client's send channel.
 // Returns false if the client is disconnected (send channel closed or full).

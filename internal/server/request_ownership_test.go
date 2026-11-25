@@ -24,6 +24,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 	"github.com/xiaobaitu/soloqueue/internal/session"
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
 type cancelRunRecorder struct {
@@ -170,7 +171,9 @@ func TestRequestSessionMismatch_CancelValidation(t *testing.T) {
 
 	h.handleChatCancel(client, msgValid)
 
-	var confirmed, done bool
+	// The request's end reaches subscribers through the session transcript;
+	// the canceller only receives the point-to-point confirmation.
+	var confirmed bool
 	close(client.send)
 	for data := range client.send {
 		var wsMsg WSMessage
@@ -180,13 +183,10 @@ func TestRequestSessionMismatch_CancelValidation(t *testing.T) {
 		if wsMsg.Type == "chat_cancel_confirmed" && wsMsg.RequestID == "req-active" && wsMsg.SessionID == "l1" {
 			confirmed = true
 		}
-		if wsMsg.Type == "chat_done" && wsMsg.RequestID == "req-active" && wsMsg.SessionID == "l1" {
-			done = true
-		}
 	}
 
-	if !confirmed || !done {
-		t.Errorf("valid cancel failed to produce chat_cancel_confirmed and chat_done envelopes with SessionID")
+	if !confirmed {
+		t.Errorf("valid cancel failed to produce a chat_cancel_confirmed envelope with SessionID")
 	}
 	stream := runtimeMetrics.AgentStreams()["agent-1\x00req-active"]
 	if stream == nil || stream.Processing || stream.Error != "Task cancelled." {
@@ -235,7 +235,7 @@ func TestCancelWaitsForStartingRequestToBindAndStop(t *testing.T) {
 	}
 }
 
-func TestConcurrentChatCancelEmitsOneTerminalCompletion(t *testing.T) {
+func TestConcurrentChatCancelConfirmsOnce(t *testing.T) {
 	h := NewHub(nil)
 	client := &Client{send: make(chan []byte, 8)}
 	if _, err := h.requests.Reserve("l1", "req-double-cancel", "client"); err != nil {
@@ -286,9 +286,6 @@ func TestConcurrentChatCancelEmitsOneTerminalCompletion(t *testing.T) {
 	}
 	if got := counts["chat_cancel_confirmed"]; got != 1 {
 		t.Fatalf("chat_cancel_confirmed envelopes = %d, want 1", got)
-	}
-	if got := counts["chat_done"]; got != 1 {
-		t.Fatalf("chat_done envelopes = %d, want 1", got)
 	}
 }
 
@@ -344,7 +341,9 @@ func TestWatchdogTerminalStateIsPublishedBeforeRequestFinalization(t *testing.T)
 	client := newClient(hub, nil)
 	go hub.Run()
 	hub.register <- client
-	<-client.send // initial state
+	if readClient(client, 2*time.Second) == nil {
+		t.Fatal("initial state was not delivered")
+	}
 	reqCtx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "req-terminal"})
 	stream, err := sess.AskStream(reqCtx, "stall")
 	if err != nil {
@@ -354,42 +353,40 @@ func TestWatchdogTerminalStateIsPublishedBeforeRequestFinalization(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	go hub.forwardAgentEvents(client, "req-terminal", active.Generation, func() {}, stream, "l1", "stall")
+	go hub.forwardAgentEvents(client, "req-terminal", active.Generation, func() {}, stream, "l1")
 	hub.refreshRequestWatchdog("l1", "req-terminal", "")
-	liveDeadline := time.After(2 * time.Second)
+	liveDeadline := time.Now().Add(2 * time.Second)
 	liveObserved := false
 	for !liveObserved {
-		select {
-		case data := <-client.send:
-			var msg WSMessage
-			if err := json.Unmarshal(data, &msg); err != nil || msg.Type != "state" || msg.Runtime == nil {
-				continue
-			}
-			info, ok := msg.Runtime.Sessions["l1:req-terminal"]
-			liveObserved = ok && info.RequestID == "req-terminal" && info.TerminalCode == ""
-		case <-liveDeadline:
+		data := readClient(client, time.Until(liveDeadline))
+		if data == nil {
 			t.Fatal("observer did not receive live watchdog state update")
 		}
+		var msg WSMessage
+		if err := json.Unmarshal(data, &msg); err != nil || msg.Type != "state" || msg.Runtime == nil {
+			continue
+		}
+		info, ok := msg.Runtime.Sessions["l1:req-terminal"]
+		liveObserved = ok && info.RequestID == "req-terminal" && info.TerminalCode == ""
 	}
 	beforeTerminalRevision := hub.GetSessionRevision("l1")
 	clock.Advance(2 * time.Minute)
 	watchdog.Scan()
 
-	deadline := time.After(2 * time.Second)
+	deadline := time.Now().Add(2 * time.Second)
 	observed := false
 	for !observed {
-		select {
-		case data := <-client.send:
-			var msg WSMessage
-			if err := json.Unmarshal(data, &msg); err != nil || msg.Type != "state" || msg.Runtime == nil {
-				continue
-			}
-			info, ok := msg.Runtime.Sessions["l1:req-terminal"]
-			if ok && info.TerminalCode == string(runwatch.CodeModelTransportStalled) {
-				observed = true
-			}
-		case <-deadline:
+		data := readClient(client, time.Until(deadline))
+		if data == nil {
 			t.Fatal("observer did not receive terminal watchdog state before finalization")
+		}
+		var msg WSMessage
+		if err := json.Unmarshal(data, &msg); err != nil || msg.Type != "state" || msg.Runtime == nil {
+			continue
+		}
+		info, ok := msg.Runtime.Sessions["l1:req-terminal"]
+		if ok && info.TerminalCode == string(runwatch.CodeModelTransportStalled) {
+			observed = true
 		}
 	}
 	if got := hub.GetSessionRevision("l1"); got <= beforeTerminalRevision {
@@ -446,27 +443,32 @@ func TestTerminalStateSurvivesSaturatedHubAndClientQueues(t *testing.T) {
 	hub.Notify()
 	go hub.Run()
 
-	deadline := time.After(2 * time.Second)
+	deadline := time.Now().Add(2 * time.Second)
 	for {
-		select {
-		case data := <-healthy.send:
-			var msg WSMessage
-			if json.Unmarshal(data, &msg) != nil || msg.Type != "state" || msg.Runtime == nil {
-				continue
-			}
-			info, ok := msg.Runtime.Sessions["l1:req-saturated-terminal"]
-			if ok && info.TerminalCode == string(runwatch.CodeModelTransportStalled) {
-				if got := hub.ClientCount(); got != 1 {
-					t.Fatalf("connected clients = %d, want only healthy client", got)
-				}
-				hub.unregister <- healthy
-				for range healthy.send {
-				}
-				hub.Close()
-				return
-			}
-		case <-deadline:
+		data := readClient(healthy, time.Until(deadline))
+		if data == nil {
 			t.Fatal("terminal state was permanently lost after queue saturation")
+		}
+		var msg WSMessage
+		if json.Unmarshal(data, &msg) != nil || msg.Type != "state" || msg.Runtime == nil {
+			continue
+		}
+		info, ok := msg.Runtime.Sessions["l1:req-saturated-terminal"]
+		if ok && info.TerminalCode == string(runwatch.CodeModelTransportStalled) {
+			// State is coalesced per client, so a saturated queue neither
+			// loses the terminal state nor disconnects the slow client.
+			if got := hub.ClientCount(); got != 2 {
+				t.Fatalf("connected clients = %d, want both clients", got)
+			}
+			if state := slow.takeLatestState(); state == nil {
+				t.Fatal("slow client has no pending state")
+			}
+			hub.unregister <- healthy
+			hub.unregister <- slow
+			for range healthy.send {
+			}
+			hub.Close()
+			return
 		}
 	}
 }
@@ -501,6 +503,7 @@ func TestWebCompactRunCanBeCancelledByExactRequestID(t *testing.T) {
 	defer mux.Close()
 	hub := NewHub(mux)
 	client := newClient(hub, nil)
+	mark := transcriptMark(t, mgr.Session())
 	hub.handleChatSend(client, &ClientMessage{Type: "chat_send", RequestID: "compact-request", SessionID: "l1", Prompt: "/compact"})
 	select {
 	case <-compactor.started:
@@ -517,17 +520,18 @@ func TestWebCompactRunCanBeCancelledByExactRequestID(t *testing.T) {
 		}
 		counts[msg.Type]++
 	}
-	if counts["chat_cancel_confirmed"] != 1 || counts["chat_done"] == 0 {
+	if counts["chat_cancel_confirmed"] != 1 {
 		t.Fatalf("compact cancellation envelopes = %+v", counts)
 	}
+	waitSessionFrame(t, mgr.Session(), mark, transcript.KindRequestEnd, "compact-request", 2*time.Second)
 	if _, err := hub.requests.Validate("l1", "compact-request"); !errors.Is(err, ErrRequestNotFound) {
 		t.Fatalf("compact request remained active after cancellation: %v", err)
 	}
 }
 
 // TestBusySessionRejection verifies that a busy single-flight session QUEUES
-// a concurrent request instead of rejecting it: the client receives
-// chat_queued and the message enters the session's pending queue, where it is
+// a concurrent request instead of rejecting it: the client receives a queued
+// chat_ack and the message enters the session's pending queue, where it is
 // injected before the agent's next LLM call.
 func TestBusySessionRejection(t *testing.T) {
 	workDir := t.TempDir()
@@ -567,6 +571,11 @@ func TestBusySessionRejection(t *testing.T) {
 	}
 
 	const sessionID = "l1"
+	sess := mgr.Session()
+	if sess == nil {
+		t.Fatal("session is nil")
+	}
+	mark := transcriptMark(t, sess)
 
 	// First request — starts streaming immediately (AskStream is async).
 	h.handleChatSend(client, &ClientMessage{
@@ -581,11 +590,11 @@ func TestBusySessionRejection(t *testing.T) {
 		if err := json.Unmarshal(data, &wsMsg); err != nil {
 			t.Fatalf("unmarshal accepted message: %v", err)
 		}
-		if wsMsg.Type != "chat_accepted" || wsMsg.RequestID != "req-first" || wsMsg.SessionID != sessionID {
-			t.Fatalf("first response = %#v, want chat_accepted", wsMsg)
+		if wsMsg.Type != "chat_ack" || wsMsg.Status != "accepted" || wsMsg.RequestID != "req-first" || wsMsg.SessionID != sessionID {
+			t.Fatalf("first response = %#v, want accepted chat_ack", wsMsg)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for chat_accepted message")
+		t.Fatal("timeout waiting for accepted chat_ack")
 	}
 
 	select {
@@ -603,55 +612,31 @@ func TestBusySessionRejection(t *testing.T) {
 
 	// Check the pending queue before waiting on websocket delivery; under the
 	// race detector, the first request may otherwise finish and consume it.
-	sess := mgr.Session()
-	if sess == nil {
-		t.Fatal("session is nil")
-	}
 	if !sess.HasPending() {
 		t.Error("expected queued message in session pending queue")
 	}
 
-	// Client should receive chat_queued (message accepted, not rejected).
-	gotQueued := false
-	for i := 0; i < 4; i++ {
+	// The sender is acknowledged before routing and then told the input was
+	// queued (accepted, not rejected).
+	for _, want := range []string{"accepted", "queued"} {
 		select {
 		case data := <-client.send:
 			var wsMsg WSMessage
 			if err := json.Unmarshal(data, &wsMsg); err != nil {
 				t.Fatalf("unmarshal error: %v", err)
 			}
-			if wsMsg.Type == "chat_queued" {
-				if wsMsg.RequestID != "req-second" || wsMsg.SessionID != sessionID {
-					t.Errorf("unexpected queued envelope: %#v", wsMsg)
-				}
-				gotQueued = true
+			if wsMsg.Type != "chat_ack" || wsMsg.Status != want || wsMsg.RequestID != "req-second" || wsMsg.SessionID != sessionID {
+				t.Fatalf("second response = %#v, want %s chat_ack", wsMsg, want)
 			}
 		case <-time.After(2 * time.Second):
-			t.Fatal("timeout waiting for chat_queued message")
-		}
-		if gotQueued {
-			break
+			t.Fatalf("timeout waiting for %s chat_ack", want)
 		}
 	}
-	if !gotQueued {
-		t.Fatal("expected chat_queued message")
-	}
+	waitSessionFrame(t, sess, mark, transcript.KindInputQueued, "req-second", 2*time.Second)
 
 	// Release only after queue/envelope assertions, then wait for the actual terminal event.
 	releaseFirst()
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case data := <-client.send:
-			var message WSMessage
-			_ = json.Unmarshal(data, &message)
-			if message.Type == "chat_done" && message.RequestID == "req-first" {
-				return
-			}
-		case <-deadline:
-			t.Fatal("first request did not finish")
-		}
-	}
+	waitSessionFrame(t, sess, mark, transcript.KindRequestEnd, "req-first", 2*time.Second)
 }
 
 func TestMissingGenerationCaptureCancelsAndDrainsSuccessfulRun(t *testing.T) {
@@ -737,11 +722,11 @@ func TestMissingGenerationCaptureCancelsAndDrainsSuccessfulRun(t *testing.T) {
 		if err := json.Unmarshal(data, &msg); err != nil {
 			t.Fatal(err)
 		}
-		if msg.Type != "chat_error" || msg.RequestID != "req-missing-generation" || msg.Error != errRequestGenerationCaptureMissing.Error() {
+		if msg.Type != "chat_ack" || msg.Status != "rejected" || msg.RequestID != "req-missing-generation" || msg.Error != errRequestGenerationCaptureMissing.Error() {
 			t.Fatalf("missing-generation response = %#v", msg)
 		}
 	default:
-		t.Fatal("missing-generation cleanup did not send chat_error")
+		t.Fatal("missing-generation cleanup did not send a rejected chat_ack")
 	}
 
 	// A subsequent direct request must be accepted rather than observing the
@@ -757,81 +742,6 @@ func TestMissingGenerationCaptureCancelsAndDrainsSuccessfulRun(t *testing.T) {
 	close(naturallyClosed)
 	if err := cancelAndDrainUnownedRequestStream(sess, "already-finished", naturallyClosed); err != nil {
 		t.Fatalf("naturally closed stream with no active run: %v", err)
-	}
-}
-
-func TestConvertPendingInputStartedEventCarriesQueuedRequestIDs(t *testing.T) {
-	msg := convertAgentEvent(agent.PendingInputStartedEvent{
-		RequestIDs: []string{"req-second", "req-third"},
-	}, "req-first", "l2:session-A")
-	if msg == nil || msg.Type != "chat_queue_started" || msg.RequestID != "req-first" || msg.SessionID != "l2:session-A" {
-		t.Fatalf("message = %#v, want queue-started envelope owned by active request", msg)
-	}
-	if len(msg.RequestIDs) != 2 || msg.RequestIDs[0] != "req-second" || msg.RequestIDs[1] != "req-third" {
-		t.Fatalf("request IDs = %#v, want consumed queued identities", msg.RequestIDs)
-	}
-	if msg.CancelRequestID != "req-first" {
-		t.Fatalf("cancel request ID = %q, want req-first", msg.CancelRequestID)
-	}
-}
-
-func TestForwardAgentEventsMovesSubsequentOutputToLastQueuedRequest(t *testing.T) {
-	client := &Client{
-		send:           make(chan []byte, 8),
-		activeRequests: make(map[string]*activeRequest),
-	}
-	events := make(chan iface.AgentEvent, 4)
-	events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-second"}}
-	events <- agent.ContentDeltaEvent{Delta: "first follow-up"}
-	events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-third"}}
-	events <- agent.DoneEvent{Content: "second follow-up"}
-	close(events)
-
-	registry := NewActiveRequestRegistry()
-	root, err := registry.Reserve("l1", "req-first", "client")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.ReserveQueued("l1", "req-second", root.Generation); err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.ReserveQueued("l1", "req-third", root.Generation); err != nil {
-		t.Fatal(err)
-	}
-	(&Hub{requests: registry}).forwardAgentEvents(client, "req-first", root.Generation, func() {}, events, "l1", "first")
-
-	want := []struct {
-		typeName        string
-		requestID       string
-		cancelRequestID string
-	}{
-		{typeName: "chat_queue_started", requestID: "req-first", cancelRequestID: "req-first"},
-		{typeName: "chat_chunk", requestID: "req-second"},
-		{typeName: "chat_queue_started", requestID: "req-second", cancelRequestID: "req-first"},
-		{typeName: "chat_done", requestID: "req-third"},
-	}
-	for i, expected := range want {
-		select {
-		case data := <-client.send:
-			var msg WSMessage
-			if err := json.Unmarshal(data, &msg); err != nil {
-				t.Fatal(err)
-			}
-			if msg.Type != expected.typeName || msg.RequestID != expected.requestID {
-				t.Fatalf("message %d = %#v, want type=%s request=%s", i, msg, expected.typeName, expected.requestID)
-			}
-			if msg.CancelRequestID != expected.cancelRequestID {
-				t.Fatalf("message %d cancel request = %q, want %q", i, msg.CancelRequestID, expected.cancelRequestID)
-			}
-		default:
-			t.Fatalf("missing message %d (%s)", i, expected.typeName)
-		}
-	}
-	if err := registry.ReserveQueued("l1", "req-second", root.Generation); err != nil {
-		t.Fatalf("second queued reservation was not released at root completion: %v", err)
-	}
-	if err := registry.ReserveQueued("l1", "req-third", root.Generation); err != nil {
-		t.Fatalf("third queued reservation was not released at root completion: %v", err)
 	}
 }
 
@@ -858,17 +768,15 @@ func TestForwardAgentEventsRetainsQueuedReservationUntilRootEnds(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				(&Hub{requests: registry}).forwardAgentEvents(client, "req-root", root.Generation, func() {}, events, "l1", "first")
+				(&Hub{requests: registry}).forwardAgentEvents(client, "req-root", root.Generation, func() {}, events, "l1")
 			}()
 
 			events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-queued"}}
-			<-client.send
 			if err := registry.ReserveQueued("l1", "req-queued", root.Generation); !errors.Is(err, ErrDuplicateRequestID) {
 				t.Fatalf("reservation was reusable after boundary: %v", err)
 			}
 			if tc.terminal != nil {
 				events <- tc.terminal
-				<-client.send
 				if err := registry.ReserveQueued("l1", "req-queued", root.Generation); !errors.Is(err, ErrDuplicateRequestID) {
 					t.Fatalf("reservation was reusable before forwarder exit: %v", err)
 				}
@@ -905,7 +813,7 @@ func TestStaleForwarderReleasesOnlyItsGenerationAfterRequestIDReuse(t *testing.T
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		hub.forwardAgentEvents(client, "req-root", oldGeneration, func() {}, events, "l1", "first")
+		hub.forwardAgentEvents(client, "req-root", oldGeneration, func() {}, events, "l1")
 	}()
 
 	registry.Finalize("l1", "req-root")
@@ -963,37 +871,6 @@ func TestSetupFailureCleanupUsesCapturedGenerationOnly(t *testing.T) {
 	}
 }
 
-func TestForwardAgentEventsRoutesBuildFailureAfterBoundaryToLastQueuedRequest(t *testing.T) {
-	client := &Client{
-		send:           make(chan []byte, 4),
-		activeRequests: make(map[string]*activeRequest),
-	}
-	events := make(chan iface.AgentEvent, 2)
-	events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-queued"}}
-	events <- agent.ErrorEvent{Err: errors.New("context overflow")}
-	close(events)
-
-	(&Hub{requests: NewActiveRequestRegistry()}).forwardAgentEvents(client, "req-root", 0, func() {}, events, "l2:session-A", "first")
-
-	want := []struct {
-		typeName  string
-		requestID string
-	}{
-		{typeName: "chat_queue_started", requestID: "req-root"},
-		{typeName: "chat_error", requestID: "req-queued"},
-	}
-	for i, expected := range want {
-		data := <-client.send
-		var msg WSMessage
-		if err := json.Unmarshal(data, &msg); err != nil {
-			t.Fatal(err)
-		}
-		if msg.Type != expected.typeName || msg.RequestID != expected.requestID {
-			t.Fatalf("message %d = %#v, want type=%s request=%s", i, msg, expected.typeName, expected.requestID)
-		}
-	}
-}
-
 func TestQueuedDeliveryBoundaryKeepsRootRequestCancellable(t *testing.T) {
 	registry := NewActiveRequestRegistry()
 	root, err := registry.Reserve("l2:session-A", "req-root", "client")
@@ -1019,15 +896,10 @@ func TestQueuedDeliveryBoundaryKeepsRootRequestCancellable(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		hub.forwardAgentEvents(client, "req-root", root.Generation, func() {}, events, "l2:session-A", "first")
+		hub.forwardAgentEvents(client, "req-root", root.Generation, func() {}, events, "l2:session-A")
 	}()
 
 	events <- agent.PendingInputStartedEvent{RequestIDs: []string{"req-queued"}}
-	select {
-	case <-client.send:
-	case <-time.After(time.Second):
-		t.Fatal("queue boundary was not forwarded")
-	}
 	req, owner, err := registry.CancelAndWaitOwned(context.Background(), "l2:session-A", "req-root", "client")
 	if err != nil || !owner || req.RequestID != "req-root" {
 		t.Fatalf("root cancellation = (%#v, %v, %v), want owned req-root", req, owner, err)
@@ -1139,28 +1011,14 @@ func TestL1DesktopStartsSecondRequestBeforeDelegationCompletes(t *testing.T) {
 	t.Cleanup(func() { _ = mux.Close() })
 
 	h := NewHub(mux)
+	sess := mgr.Session()
+	mark := transcriptMark(t, sess)
 	client := &Client{send: make(chan []byte, 32), activeRequests: make(map[string]*activeRequest)}
 	h.handleChatSend(client, &ClientMessage{
 		Type: "chat_send", RequestID: "req-delegating", SessionID: "l1", Prompt: "delegate this",
 	})
+	waitSessionFrame(t, sess, mark, transcript.KindDelegationStarted, "req-delegating", 2*time.Second)
 
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case data := <-client.send:
-			var msg WSMessage
-			if err := json.Unmarshal(data, &msg); err != nil {
-				t.Fatalf("unmarshal websocket message: %v", err)
-			}
-			if msg.Type == "delegation_start" && msg.RequestID == "req-delegating" {
-				goto delegationStarted
-			}
-		case <-deadline:
-			t.Fatal("timeout waiting for delegation_start")
-		}
-	}
-
-delegationStarted:
 	idleDeadline := time.Now().Add(time.Second)
 	for !mgr.Session().Idle() && time.Now().Before(idleDeadline) {
 		time.Sleep(time.Millisecond)
@@ -1183,28 +1041,30 @@ delegationStarted:
 
 	// The follow-up deliberately uses a synchronous tool at its own iter=0.
 	// Before the fix, the old request's asyncTurns[0] was mistaken for the
-	// follow-up's state, so the stream yielded without ever emitting chat_done.
-	followupDone := false
-	deadline = time.After(2 * time.Second)
-	for !followupDone {
-		select {
-		case data := <-client.send:
-			var msg WSMessage
-			if err := json.Unmarshal(data, &msg); err != nil {
-				t.Fatalf("unmarshal follow-up websocket message: %v", err)
-			}
-			if msg.Type == "delegation_start" && msg.RequestID == "req-follow-up" {
-				t.Fatal("follow-up sync tool was misclassified as async delegation")
-			}
-			if msg.Type == "chat_done" && msg.RequestID == "req-follow-up" {
-				if msg.Content != "second request response" {
-					t.Fatalf("follow-up content = %q, want %q", msg.Content, "second request response")
-				}
-				followupDone = true
-			}
-		case <-deadline:
-			t.Fatal("follow-up did not emit chat_done while delegation was still pending")
+	// follow-up's state, so the stream yielded without ever ending.
+	end := waitSessionFrame(t, sess, mark, transcript.KindRequestEnd, "req-follow-up", 2*time.Second)
+	if end.TerminalCode != "completed" {
+		t.Fatalf("follow-up terminal code = %q, want completed", end.TerminalCode)
+	}
+	j := sess.Transcript()
+	frames, err := j.ReadAfter(j.Epoch(), mark, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var content strings.Builder
+	for _, f := range frames {
+		if f.RequestID != "req-follow-up" {
+			continue
 		}
+		if f.Kind == transcript.KindDelegationStarted {
+			t.Fatal("follow-up sync tool was misclassified as async delegation")
+		}
+		if f.Kind == transcript.KindItemDelta && f.Channel == transcript.ChannelContent {
+			content.WriteString(f.Text)
+		}
+	}
+	if content.String() != "second request response" {
+		t.Fatalf("follow-up content = %q, want %q", content.String(), "second request response")
 	}
 }
 
@@ -1270,6 +1130,12 @@ func TestWebSocketReloadAllowsFollowupAndCancelDuringDelegation(t *testing.T) {
 	}
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	// Every subscriber receives the conversation through the transcript, so
+	// this connection observes its own requests exactly as any other would.
+	j := mgr.Session().Transcript()
+	if err := conn.WriteJSON(ClientMessage{Type: "subscribe", SessionID: "l1", Epoch: j.Epoch(), AfterSeq: j.Head()}); err != nil {
+		t.Fatal(err)
+	}
 	seen := make(map[string]bool)
 	readUntil := func(kind, request string) {
 		if seen[kind+":"+request] {
@@ -1277,12 +1143,28 @@ func TestWebSocketReloadAllowsFollowupAndCancelDuringDelegation(t *testing.T) {
 		}
 		t.Helper()
 		for {
-			var msg WSMessage
+			var msg struct {
+				Type      string             `json:"type"`
+				RequestID string             `json:"request_id"`
+				Frames    []transcript.Frame `json:"frames"`
+			}
 			if err := conn.ReadJSON(&msg); err != nil {
 				t.Fatal(err)
 			}
-			seen[msg.Type+":"+msg.RequestID] = true
-			if msg.Type == kind && (request == "" || msg.RequestID == request) {
+			if msg.Type == "resync_required" {
+				t.Fatal("subscription lost its cursor")
+			}
+			found := false
+			if msg.Type == "frames" {
+				for _, f := range msg.Frames {
+					seen[f.Kind+":"+f.RequestID] = true
+					found = found || (f.Kind == kind && (request == "" || f.RequestID == request))
+				}
+			} else {
+				seen[msg.Type+":"+msg.RequestID] = true
+				found = msg.Type == kind && (request == "" || msg.RequestID == request)
+			}
+			if found {
 				return
 			}
 		}
@@ -1290,7 +1172,7 @@ func TestWebSocketReloadAllowsFollowupAndCancelDuringDelegation(t *testing.T) {
 	if err := conn.WriteJSON(ClientMessage{Type: "chat_send", RequestID: "req-delegating", SessionID: "l1", Prompt: "delegate this"}); err != nil {
 		t.Fatal(err)
 	}
-	readUntil("delegation_start", "req-delegating")
+	readUntil(transcript.KindDelegationStarted, "req-delegating")
 	deadline := time.Now().Add(time.Second)
 	for !mgr.Session().Idle() && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
@@ -1305,7 +1187,7 @@ func TestWebSocketReloadAllowsFollowupAndCancelDuringDelegation(t *testing.T) {
 		t.Fatal(err)
 	}
 	readUntil("chat_cancel_confirmed", "req-delegating")
-	readUntil("chat_done", "req-follow-up")
+	readUntil(transcript.KindRequestEnd, "req-follow-up")
 	if primary, _ := cw.MessageAt(0); primary.Content != "new soul" {
 		t.Fatal("follow-up missed reload")
 	}
@@ -1354,7 +1236,7 @@ func TestForwardAgentEventsDoesNotOwnRequestFinalization(t *testing.T) {
 		activeRequests: make(map[string]*activeRequest),
 	}
 	events := make(chan iface.AgentEvent)
-	go h.forwardAgentEvents(client, requestID, root.Generation, func() {}, events, sessionID, "prompt")
+	go h.forwardAgentEvents(client, requestID, root.Generation, func() {}, events, sessionID)
 
 	if _, active := h.requests.GetBySession(sessionID); !active {
 		t.Fatal("reservation disappeared before stream completion")

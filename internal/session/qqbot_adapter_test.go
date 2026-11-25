@@ -24,6 +24,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
 func TestChannelRunIDUsesRequestIdentityAndPreservesOrigin(t *testing.T) {
@@ -994,36 +995,44 @@ func TestWecomL2BindingGuardPreservesOtherChannels(t *testing.T) {
 	}
 }
 
+// waitTranscriptFrame polls the session journal until a frame of kind for
+// requestID appears.
+func waitTranscriptFrame(t *testing.T, sess *Session, kind, requestID string) transcript.Frame {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		j := sess.Transcript()
+		frames, err := j.ReadAfter(j.Epoch(), 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range frames {
+			if f.Kind == kind && f.RequestID == requestID {
+				return f
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("missing %s frame for %s", kind, requestID)
+	return transcript.Frame{}
+}
+
 func TestWaitingChannelInputPublishesQueueAndCancellation(t *testing.T) {
 	log := newTestLog(t)
 	sess := &Session{logger: log, pending: &PendingQueue{}, channelRouteKey: "different", channelRouteOwners: 1}
+	sess.SetTranscriptRegistry(transcript.NewRegistry(transcript.Config{Grace: time.Hour}))
 	sess.inFlight.Store(1)
-	received := make(chan string, 1)
-	failed := make(chan string, 1)
-	sess.requestHooks.OnChannelQueued = func(_ context.Context, _, id, prompt string, _ time.Time, _ []ctxwin.FileAttachment) {
-		received <- id + ":" + prompt
-	}
-	sess.requestHooks.OnChannelQueueFailed = func(_ context.Context, _, id string) { failed <- id }
 	ctx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{RequestID: "queued-input"})
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { _, _, err := (&channelAdapterBase{log: log}).askChannelStream(ctx, sess, "hello"); done <- err }()
-	select {
-	case got := <-received:
-		if got != "queued-input:hello" {
-			t.Fatalf("queued: %s", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("missing queued notification")
+	if queued := waitTranscriptFrame(t, sess, transcript.KindInputQueued, "queued-input"); queued.Text != "hello" {
+		t.Fatalf("queued frame = %+v", queued)
 	}
 	cancel()
-	select {
-	case got := <-failed:
-		if got != "queued-input" {
-			t.Fatalf("failed: %s", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("missing failure notification")
+	dropped := waitTranscriptFrame(t, sess, transcript.KindInputDropped, "queued-input")
+	if dropped.Reason != "failed" || len(dropped.RequestIDs) != 1 || dropped.RequestIDs[0] != "queued-input" {
+		t.Fatalf("dropped frame = %+v", dropped)
 	}
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("error: %v", err)
@@ -1032,19 +1041,14 @@ func TestWaitingChannelInputPublishesQueueAndCancellation(t *testing.T) {
 
 func TestCancelCurrentByUserClearsQueuedChannelInput(t *testing.T) {
 	sess := &Session{logger: newTestLog(t), pending: &PendingQueue{}}
+	sess.SetTranscriptRegistry(transcript.NewRegistry(transcript.Config{Grace: time.Hour}))
 	sess.pending.EnqueueMessage(PendingMessage{Prompt: "waiting", RequestID: "queued-id"})
-	failed := make(chan string, 1)
-	sess.requestHooks.OnChannelQueueCancelled = func(_ context.Context, _, id string) { failed <- id }
 	if err := sess.CancelCurrentByUser("stop"); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case id := <-failed:
-		if id != "queued-id" {
-			t.Fatalf("id: %s", id)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("missing queue cancellation")
+	dropped := waitTranscriptFrame(t, sess, transcript.KindInputDropped, "queued-id")
+	if dropped.Reason != "cancelled" || len(dropped.RequestIDs) != 1 {
+		t.Fatalf("dropped frame = %+v", dropped)
 	}
 	if sess.pending.Len() != 0 {
 		t.Fatal("pending input was retained")

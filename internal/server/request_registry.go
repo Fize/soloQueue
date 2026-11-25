@@ -314,6 +314,26 @@ func (r *ActiveRequestRegistry) SetWatchdog(requestID string, state WatchdogStat
 	return changed, nil
 }
 
+// SetWatchdogState updates the watchdog projection and reports whether a
+// field rendered by clients (run, phase, terminal code) changed. Progress
+// timestamps advance with every token; the Hub's periodic refresh publishes
+// them, so they do not trigger a broadcast on their own.
+func (r *ActiveRequestRegistry) SetWatchdogState(requestID string, state WatchdogState) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	req, ok := r.byRequest[requestID]
+	if !ok {
+		return false, ErrRequestNotFound
+	}
+	significant := req.RunID != state.RunID || req.Phase != state.Phase || req.TerminalCode != state.TerminalCode
+	req.RunID = state.RunID
+	req.Phase = state.Phase
+	req.LastProgressAt = state.LastProgressAt
+	req.WatchdogDueAt = state.WatchdogDueAt
+	req.TerminalCode = state.TerminalCode
+	return significant, nil
+}
+
 // GetBySession returns an active request, or the latest observable terminal
 // snapshot when no request remains active.
 func (r *ActiveRequestRegistry) GetBySession(sessionID string) (ActiveRequest, bool) {

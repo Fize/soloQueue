@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useChatStore } from './chatStore'
 import {
   deleteL2Session as apiDeleteL2Session,
-  fetchSessionHistory,
+  deleteSessionMessages as apiDeleteSessionMessages,
   listSessions,
+  rewindSession as apiRewindSession,
 } from '@/lib/api'
 import { useInspectorStateStore } from './inspectorStateStore'
 
@@ -11,7 +12,6 @@ vi.mock('@/lib/api', () => ({
   listSessions: vi.fn(),
   createL2Session: vi.fn(),
   deleteL2Session: vi.fn(),
-  fetchSessionHistory: vi.fn(),
   rewindSession: vi.fn(),
   deleteSessionMessages: vi.fn(),
 }))
@@ -23,18 +23,14 @@ beforeEach(() => {
   useChatStore.setState({
     sessions: [],
     activeSessionId: null,
-    messages: {},
     compactions: {},
     compactionClearWatermarks: {},
     activeRequests: {},
     streamingSessions: {},
+    systemCommandSessions: {},
     delegatingSessions: {},
     routeSessions: {},
     titleGenerated: {},
-    historyLoading: {},
-    historyHasMore: {},
-    historyCursor: {},
-    historyPreservedMessageIds: {},
     sessionsLoading: false,
     sessionsLoaded: false,
   })
@@ -42,523 +38,38 @@ beforeEach(() => {
   vi.mocked(apiDeleteL2Session).mockResolvedValue(undefined)
 })
 
-describe('chatStore', () => {
-  it('preserves only cancelled channel inputs across repeated history loads', async () => {
-    const sid = 'l1'
-    useChatStore.setState({ messages: { [sid]: [
-      { id: 'cancelled', requestId: 'cancelled', role: 'user', queueCancelled: true, timestamp: '2026-01-01T00:00:01Z', segments: [{ type: 'content', text: 'cancelled input' }] },
-      { id: 'failed', requestId: 'failed', role: 'user', queueError: true, timestamp: '2026-01-01T00:00:02Z', segments: [{ type: 'content', text: 'failed input' }] },
-    ] } })
-    vi.mocked(fetchSessionHistory).mockResolvedValue({ messages: [], has_more: false })
-    await useChatStore.getState().loadHistory(sid)
-    await useChatStore.getState().loadHistory(sid)
-    expect(useChatStore.getState().messages[sid].map((message) => message.id)).toEqual(['cancelled'])
-  })
-
+describe('chatStore compaction notices', () => {
   it.each(['failed', 'interrupted'] as const)(
     'does not turn historical %s statuses into live notices',
-    async (status) => {
+    (status) => {
       const sid = 'l2:history'
       const row = { id: 'old', status, started_at: new Date().toISOString(), error: 'Old timeout' }
-      vi.mocked(fetchSessionHistory).mockResolvedValue({
-        messages: [],
-        has_more: true,
-        cursor: 'older',
-        compactions: [row],
-      })
-      await useChatStore.getState().loadHistory(sid)
-      await useChatStore.getState().loadMoreHistory(sid)
+      useChatStore.getState().applyCompactionSnapshot(sid, [row])
       useChatStore.getState().setCompactionStatus(sid, row)
       expect(useChatStore.getState().compactions[sid]).toEqual([row])
     }
   )
 
-  it.each(['failed', 'interrupted'] as const)(
-    'suppresses only the matching manual compact %s error',
-    (status) => {
-      const sid = 'l2:manual'
-      useChatStore.setState({
-        messages: {
-          [sid]: [
-            {
-              id: 'user',
-              requestId: 'manual',
-              role: 'user',
-              timestamp: '',
-              segments: [{ type: 'content', text: '/compact' }],
-            },
-            {
-              id: 'assistant',
-              requestId: 'manual',
-              role: 'assistant',
-              timestamp: '',
-              segments: [],
-            },
-            {
-              id: 'other',
-              requestId: 'other-request',
-              role: 'assistant',
-              timestamp: '',
-              segments: [],
-            },
-          ],
-        },
-        compactions: {
-          [sid]: [
-            {
-              id: 'one',
-              requestId: 'manual',
-              status,
-              reason: 'user_command',
-              started_at: '',
-              error: 'Timeout',
-            },
-          ],
-        },
-      })
-      useChatStore.getState().failAssistantMessage(sid, 'assistant', 'session: compact: Timeout')
-      expect(useChatStore.getState().messages[sid].map((message) => message.id)).toEqual([
-        'user',
-        'other',
-      ])
-      expect(useChatStore.getState().historyPreservedMessageIds[sid]).toBeUndefined()
-      useChatStore.getState().failAssistantMessage(sid, 'other', 'Unrelated failure')
-      expect(useChatStore.getState().messages[sid][1].segments).toEqual([
-        { type: 'error', text: 'Unrelated failure' },
-      ])
-    }
-  )
-
-  it('gives live failures one fixed thirty-second deadline and scopes manual ownership', async () => {
+  it('gives live failures one fixed thirty-second deadline and keeps manual ownership', () => {
     const sid = 'l2:manual'
     const now = Date.now()
     vi.spyOn(Date, 'now').mockReturnValue(now)
-    useChatStore.setState({
-      messages: {
-        [sid]: [
-          {
-            id: 'user',
-            requestId: 'manual',
-            role: 'user',
-            timestamp: '',
-            segments: [{ type: 'content', text: ' /COMPACT ' }],
-          },
-        ],
-      },
-      activeRequests: {
-        manual: { requestId: 'manual', sessionId: sid, status: 'streaming' },
-      },
-    })
-    const running = {
-      id: 'one',
-      status: 'running' as const,
-      reason: 'user_command',
-      started_at: new Date(now).toISOString(),
-    }
-    useChatStore.getState().setCompactionStatus(sid, running)
+    const running = { id: 'one', status: 'running' as const, reason: 'user_command', started_at: new Date(now).toISOString() }
+    useChatStore.getState().setCompactionStatus(sid, running, 'manual')
     const failed = { ...running, status: 'failed' as const, error: 'Timeout' }
     useChatStore.getState().setCompactionStatus(sid, failed)
-    expect(useChatStore.getState().compactions[sid][0]).toMatchObject({
-      requestId: 'manual',
-      noticeExpiresAt: now + 30_000,
-    })
+    expect(useChatStore.getState().compactions[sid][0]).toMatchObject({ requestId: 'manual', noticeExpiresAt: now + 30_000 })
     vi.mocked(Date.now).mockReturnValue(now + 10_000)
     useChatStore.getState().setCompactionStatus(sid, failed)
-    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
-      messages: [],
-      has_more: false,
-      compactions: [failed],
-    })
-    await useChatStore.getState().loadHistory(sid)
-    expect(useChatStore.getState().compactions[sid][0]).toMatchObject({
-      requestId: 'manual',
-      noticeExpiresAt: now + 30_000,
-    })
+    useChatStore.getState().applyCompactionSnapshot(sid, [failed])
+    expect(useChatStore.getState().compactions[sid][0]).toMatchObject({ requestId: 'manual', noticeExpiresAt: now + 30_000 })
   })
 
-  it('stores route metadata atomically and clears only the matching request', () => {
-    useChatStore.setState({
-      sessions: [{ id: 'l2:s1', type: 'l2', name: '', createdAt: '' }],
-    })
-    const route = {
-      requestId: 'req-new',
-      sessionId: 'l2:s1',
-      taskLevel: 'L2-MediumMultiFile',
-      modelId: 'routed-model',
-      agentInstanceId: 'agent-instance',
-    }
-
-    useChatStore.getState().setRoute({
-      requestId: 'req-old',
-      sessionId: 'l2:s1',
-      taskLevel: 'general',
-      modelId: 'old-model',
-    })
-    useChatStore.getState().setRoute(route)
-    expect(useChatStore.getState().routeSessions['l2:s1']).toEqual(route)
-    expect(useChatStore.getState().sessions[0].agent_instance_id).toBe('agent-instance')
-    expect(JSON.parse(localStorage.getItem('soloqueue_active_chat_routes') || '{}')).toEqual({
-      'l2:s1': route,
-    })
-
-    useChatStore.getState().clearRoute('l2:s1', 'req-old')
-    expect(useChatStore.getState().routeSessions['l2:s1']).toEqual(route)
-
-    useChatStore.getState().clearRoute('l2:s1', 'req-new')
-    expect(useChatStore.getState().routeSessions['l2:s1']).toBeUndefined()
-    expect(localStorage.getItem('soloqueue_active_chat_routes')).toBeNull()
-  })
-
-  it('restores the active route after the store is reinitialized', async () => {
-    const route = {
-      requestId: 'req-refresh',
-      sessionId: 'l1',
-      taskLevel: 'engineering',
-      modelId: 'deepseek-v4-flash-202605',
-    }
-
-    useChatStore.getState().setRoute(route)
-
-    vi.resetModules()
-    const { useChatStore: reloadedStore } = await import('./chatStore')
-
-    expect(reloadedStore.getState().routeSessions.l1).toEqual(route)
-  })
-
-  it('updateToolCallResult updates tool call segment done state in any assistant message', () => {
-    const sid = 'session-1'
-    useChatStore.setState({
-      activeSessionId: sid,
-      messages: {
-        [sid]: [
-          {
-            id: 'msg-1',
-            role: 'assistant',
-            timestamp: '',
-            segments: [
-              {
-                type: 'tool_call',
-                callId: 'call-1',
-                name: 'test_tool',
-                args: '{}',
-                done: false,
-              },
-            ],
-          },
-          {
-            id: 'msg-2',
-            role: 'user',
-            timestamp: '',
-            segments: [{ type: 'content', text: 'user msg' }],
-          },
-          {
-            id: 'msg-3',
-            role: 'assistant',
-            timestamp: '',
-            segments: [
-              {
-                type: 'tool_call',
-                callId: 'call-2',
-                name: 'test_tool_2',
-                args: '{}',
-                done: false,
-              },
-            ],
-          },
-        ],
-      },
-    })
-
-    // Update first tool call (which is not in the last message)
-    useChatStore.getState().updateToolCallResult(sid, 'call-1', 'result-1', undefined, 100)
-
-    const msgs = useChatStore.getState().messages[sid]
-    expect(msgs).toBeDefined()
-    expect(msgs[0].segments[0]).toEqual({
-      type: 'tool_call',
-      callId: 'call-1',
-      name: 'test_tool',
-      args: '{}',
-      result: 'result-1',
-      error: undefined,
-      durationMs: 100,
-      done: true,
-    })
-
-    // Update second tool call (which is in the last message)
-    useChatStore.getState().updateToolCallResult(sid, 'call-2', 'result-2', 'error-2', 200)
-    const updatedMsgs = useChatStore.getState().messages[sid]
-    expect(updatedMsgs[2].segments[0]).toEqual({
-      type: 'tool_call',
-      callId: 'call-2',
-      name: 'test_tool_2',
-      args: '{}',
-      result: 'result-2',
-      error: 'error-2',
-      durationMs: 200,
-      done: true,
-    })
-  })
-
-  it('setDelegating scopes delegation status per session', () => {
-    useChatStore.setState({
-      activeSessionId: 'session-1',
-      delegatingSessions: {},
-    })
-
-    // Set delegation for session-1
-    useChatStore.getState().setDelegating(true, 'session-1')
-    expect(useChatStore.getState().delegatingSessions['session-1']).toBe(true)
-    expect(useChatStore.getState().delegatingSessions['session-2']).toBeUndefined()
-
-    // Set delegation for session-2
-    useChatStore.getState().setDelegating(true, 'session-2')
-    expect(useChatStore.getState().delegatingSessions['session-1']).toBe(true)
-    expect(useChatStore.getState().delegatingSessions['session-2']).toBe(true)
-
-    // Reset delegation for session-1
-    useChatStore.getState().setDelegating(false, 'session-1')
-    expect(useChatStore.getState().delegatingSessions['session-1']).toBe(false)
-    expect(useChatStore.getState().delegatingSessions['session-2']).toBe(true)
-
-    // Test default activeSessionId fallback when sessionId is omitted
-    useChatStore.getState().setDelegating(true)
-    expect(useChatStore.getState().delegatingSessions['session-1']).toBe(true)
-  })
-
-  it('marks running delegation cards cancelled when a request is stopped', () => {
-    const sid = 'session-1'
-    useChatStore.setState({
-      messages: {
-        [sid]: [
-          {
-            id: 'assistant-1',
-            role: 'assistant',
-            timestamp: '',
-            segments: [
-              {
-                type: 'tool_call',
-                callId: 'delegate-call',
-                name: 'delegate_editor',
-                args: '{}',
-                done: false,
-              },
-              {
-                type: 'tool_call',
-                callId: 'unified-delegate-call',
-                name: 'delegate',
-                args: '{"target":"dev"}',
-                done: false,
-              },
-              {
-                type: 'tool_call',
-                callId: 'regular-call',
-                name: 'Read',
-                args: '{}',
-                done: false,
-              },
-              {
-                type: 'delegation',
-                agentName: 'editor',
-                task: 'edit file',
-                status: 'running',
-              },
-            ],
-          },
-        ],
-      },
-    })
-
-    useChatStore.getState().cancelRunningDelegations(sid)
-
-    const segments = useChatStore.getState().messages[sid][0].segments
-    expect(segments[0]).toMatchObject({ done: true, error: 'Cancelled by user' })
-    expect(segments[1]).toMatchObject({ done: true, error: 'Cancelled by user' })
-    expect(segments[2]).toMatchObject({ done: false })
-    expect(segments[3]).toMatchObject({ status: 'cancelled' })
-  })
-
-  it('fails unfinished segments only in the assistant message owned by the request', () => {
+  it('preserves a live terminal compaction over a stale running snapshot', () => {
     const sid = 'l1'
-    const timeoutError = 'Session request timed out after 20 minutes'
-    const ownedMessage = {
-      id: 'assistant-owned',
-      role: 'assistant' as const,
-      timestamp: '',
-      segments: [
-        { type: 'tool_call' as const, callId: 'write-1', name: 'Write', args: '{}', done: false },
-        {
-          type: 'delegation' as const,
-          agentName: 'QuantAnalyst',
-          task: 'write report',
-          status: 'running' as const,
-        },
-      ],
-    }
-    const parallelMessage = {
-      id: 'assistant-parallel',
-      role: 'assistant' as const,
-      timestamp: '',
-      segments: [
-        { type: 'tool_call' as const, callId: 'read-2', name: 'Read', args: '{}', done: false },
-      ],
-    }
-    useChatStore.setState({ messages: { [sid]: [ownedMessage, parallelMessage] } })
-
-    useChatStore.getState().failAssistantMessage(sid, ownedMessage.id, timeoutError)
-
-    const messages = useChatStore.getState().messages[sid]
-    expect(messages[0].segments).toEqual([
-      { ...ownedMessage.segments[0], done: true, error: timeoutError },
-      { ...ownedMessage.segments[1], status: 'failed', resultContent: timeoutError },
-      { type: 'error', text: timeoutError },
-    ])
-    expect(messages[1]).toEqual(parallelMessage)
-  })
-
-  it('sessionsLoading toggles true→false around loadSessions (drives the tree loading UI)', async () => {
-    // Resolve after a tick so we can observe the in-flight state.
-    let resolveList!: (v: { sessions: any[] }) => void
-    vi.mocked(listSessions).mockImplementationOnce(
-      () =>
-        new Promise((res) => {
-          resolveList = res
-        }) as any
-    )
-
-    const promise = useChatStore.getState().loadSessions()
-    expect(useChatStore.getState().sessionsLoading).toBe(true)
-
-    resolveList({ sessions: [] })
-    await promise
-
-    expect(useChatStore.getState().sessionsLoading).toBe(false)
-  })
-
-  it('coalesces concurrent loadSessions() calls (mount + auto-retry dedup)', async () => {
-    let resolveList!: (v: { sessions: any[] }) => void
-    // Use a single shared implementation that increments a counter. We
-    // inspect `mock.calls.length` (vitest's own bookkeeping) to assert
-    // dedup, since `mockResolvedValueOnce` does NOT trigger our side effect.
-    vi.mocked(listSessions).mockImplementation(
-      () =>
-        new Promise((res) => {
-          resolveList = res
-        }) as any
-    )
-
-    // Fire three calls back-to-back — only the first should hit the network.
-    const p1 = useChatStore.getState().loadSessions()
-    const p2 = useChatStore.getState().loadSessions()
-    const p3 = useChatStore.getState().loadSessions()
-
-    expect(vi.mocked(listSessions).mock.calls.length).toBe(1)
-
-    resolveList({ sessions: [] })
-    await Promise.all([p1, p2, p3])
-
-    // After the in-flight resolves, a fresh call should be allowed again.
-    vi.mocked(listSessions).mockResolvedValueOnce({ sessions: [] } as any)
-    await useChatStore.getState().loadSessions()
-    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
-  })
-
-  it('loadSessions retries once on failure (covers startup race with backend)', async () => {
-    // First call rejects, second succeeds. The store should end up with
-    // the data from the retry.
-    vi.mocked(listSessions)
-      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
-      .mockResolvedValueOnce({ sessions: [{ id: 's1', name: 'after-retry' }] } as any)
-
-    await useChatStore.getState().loadSessions()
-
-    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
-    expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual(['s1'])
-  })
-
-  it('loadSessions gives up cleanly when both attempts fail', async () => {
-    vi.mocked(listSessions)
-      .mockRejectedValueOnce(new Error('first'))
-      .mockRejectedValueOnce(new Error('second'))
-
-    await useChatStore.getState().loadSessions()
-
-    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
-    expect(useChatStore.getState().sessions).toEqual([])
-    expect(useChatStore.getState().sessionsLoading).toBe(false)
-  })
-
-  it('sessionsLoaded is false initially and becomes true after a successful loadSessions', async () => {
-    expect(useChatStore.getState().sessionsLoaded).toBe(false)
-
-    vi.mocked(listSessions).mockResolvedValueOnce({
-      sessions: [{ id: 'l2:abc', type: 'l2', name: 'x', createdAt: '' }],
-    } as any)
-
-    await useChatStore.getState().loadSessions()
-
-    expect(useChatStore.getState().sessionsLoaded).toBe(true)
-    expect(useChatStore.getState().sessionsLoading).toBe(false)
-    expect(useChatStore.getState().sessions[0].id).toBe('l2:abc')
-  })
-
-  it('sessionsLoaded stays false when both listSessions attempts fail', async () => {
-    vi.mocked(listSessions)
-      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
-      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
-
-    await useChatStore.getState().loadSessions()
-
-    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
-    expect(useChatStore.getState().sessionsLoaded).toBe(false)
-    expect(useChatStore.getState().sessionsLoading).toBe(false)
-    expect(useChatStore.getState().sessions).toEqual([])
-  })
-
-  it('hydrates empty history while runtime reports the session is streaming', async () => {
-    const sid = 'l1'
-    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
-      messages: [
-        {
-          id: 'history-user',
-          request_id: 'channel-request',
-          role: 'user',
-          timestamp: '',
-          segments: [{ type: 'content', text: 'persisted prompt' }],
-        },
-      ],
-      has_more: false,
-    } as any)
-    useChatStore.setState({
-      activeSessionId: sid,
-      messages: { [sid]: [] },
-      streamingSessions: { [sid]: true },
-    })
-
-    await useChatStore.getState().loadHistory(sid)
-
-    expect(fetchSessionHistory).toHaveBeenCalledWith(sid, undefined, 30)
-    expect(useChatStore.getState().messages[sid][0].id).toBe('history-user')
-    expect(useChatStore.getState().messages[sid][0].requestId).toBe('channel-request')
-  })
-
-  it('preserves a live terminal compaction over a stale running history snapshot', async () => {
-    const sid = 'l1'
-    const completed = {
-      id: 'compact-1',
-      status: 'completed' as const,
-      started_at: '2026-10-16T10:00:00Z',
-      finished_at: '2026-10-16T10:01:00Z',
-    }
-    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
-      messages: [],
-      has_more: false,
-      compactions: [{ ...completed, status: 'running', finished_at: undefined }],
-    } as any)
-    useChatStore.setState({ compactions: { [sid]: [completed] }, messages: { [sid]: [] } })
-
-    await useChatStore.getState().loadHistory(sid)
-
+    const completed = { id: 'compact-1', status: 'completed' as const, started_at: '2026-10-16T10:00:00Z', finished_at: '2026-10-16T10:01:00Z' }
+    useChatStore.setState({ compactions: { [sid]: [completed] } })
+    useChatStore.getState().applyCompactionSnapshot(sid, [{ ...completed, status: 'running', finished_at: undefined }])
     expect(useChatStore.getState().compactions[sid]).toEqual([completed])
   })
 
@@ -567,237 +78,137 @@ describe('chatStore', () => {
     const staleStartedAt = new Date(Date.now() - 60_000).toISOString()
     useChatStore.getState().clearCompactions(sid)
     const watermark = useChatStore.getState().compactionClearWatermarks[sid]
-
     useChatStore.getState().setCompactionStatus(sid, {
-      id: 'compact-before-clear',
-      status: 'completed',
-      started_at: staleStartedAt,
+      id: 'compact-before-clear', status: 'completed', started_at: staleStartedAt,
       finished_at: new Date(Date.now() + 1_000).toISOString(),
     })
     expect(useChatStore.getState().compactions[sid]).toEqual([])
-
     useChatStore.getState().setCompactionStatus(sid, {
-      id: 'compact-after-clear',
-      status: 'running',
-      started_at: new Date(Date.parse(watermark) + 1_000).toISOString(),
+      id: 'compact-after-clear', status: 'running', started_at: new Date(Date.parse(watermark) + 1_000).toISOString(),
     })
-    expect(useChatStore.getState().compactions[sid]).toMatchObject([
-      { id: 'compact-after-clear', status: 'running' },
-    ])
-  })
-
-  it('preserves request ownership when loading an older history page', async () => {
-    const sid = 'l1'
-    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
-      messages: [{
-        id: 'older-assistant',
-        request_id: 'older-channel-request',
-        role: 'assistant',
-        timestamp: '2026-09-21T10:00:00Z',
-        segments: [{ type: 'content', text: 'older reply' }],
-      }],
-      has_more: false,
-      cursor: null,
-    } as any)
-    useChatStore.setState({
-      messages: { [sid]: [{
-        id: 'current-user',
-        role: 'user',
-        timestamp: '2026-09-21T10:01:00Z',
-        segments: [{ type: 'content', text: 'current prompt' }],
-      }] },
-      historyCursor: { [sid]: 'older-cursor' },
-    })
-
-    await useChatStore.getState().loadMoreHistory(sid)
-
-    expect(fetchSessionHistory).toHaveBeenCalledWith(sid, 'older-cursor', 30)
-    expect(useChatStore.getState().messages[sid][0]).toMatchObject({
-      id: 'older-assistant',
-      requestId: 'older-channel-request',
-    })
-  })
-
-  it('preserves a live terminal compaction when loading an older history page', async () => {
-    const sid = 'l1'
-    const failed = {
-      id: 'compact-2',
-      status: 'failed' as const,
-      started_at: '2026-10-16T11:00:00Z',
-      finished_at: '2026-10-16T11:01:00Z',
-      error: 'provider timeout',
-    }
-    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
-      messages: [],
-      has_more: false,
-      compactions: [{ ...failed, status: 'running', finished_at: undefined, error: undefined }],
-    } as any)
-    useChatStore.setState({
-      compactions: { [sid]: [failed] },
-      messages: { [sid]: [] },
-      historyCursor: { [sid]: 'older-cursor' },
-    })
-
-    await useChatStore.getState().loadMoreHistory(sid)
-
-    expect(useChatStore.getState().compactions[sid]).toEqual([failed])
-  })
-
-  it('does not overwrite handler-owned messages while streaming', async () => {
-    const sid = 'l1'
-    useChatStore.setState({
-      activeSessionId: sid,
-      messages: {
-        [sid]: [
-          {
-            id: 'live-user',
-            role: 'user',
-            timestamp: '',
-            segments: [{ type: 'content', text: 'live prompt' }],
-          },
-        ],
-      },
-      streamingSessions: { [sid]: true },
-    })
-
-    await useChatStore.getState().loadHistory(sid)
-
-    expect(fetchSessionHistory).not.toHaveBeenCalled()
-    expect(useChatStore.getState().messages[sid][0].id).toBe('live-user')
-  })
-
-  // ── Phase 0.3 Characterization Tests ──────────────────────────────────────────
-
-  it('appendAssistantContent targets the assigned assistant message ID', () => {
-    const sid = 'session-target-test'
-    useChatStore.setState({
-      activeSessionId: sid,
-      messages: {
-        [sid]: [
-          {
-            id: 'asst-1',
-            role: 'assistant',
-            timestamp: '',
-            segments: [{ type: 'content', text: 'hello' }],
-          },
-          {
-            id: 'user-2',
-            role: 'user',
-            timestamp: '',
-            segments: [{ type: 'content', text: 'later prompt' }],
-          },
-          {
-            id: 'asst-2',
-            role: 'assistant',
-            timestamp: '',
-            segments: [{ type: 'content', text: 'newer response' }],
-          },
-        ],
-      },
-    })
-
-    useChatStore.getState().appendAssistantContent(sid, 'asst-1', ' delta')
-
-    const msgs = useChatStore.getState().messages[sid]
-    expect(msgs[0].segments[0]).toEqual({ type: 'content', text: 'hello delta' })
-    expect(msgs[2].segments[0]).toEqual({ type: 'content', text: 'newer response' })
-  })
-
-  it('deleteL2Session cleanup is complete for streaming and helper session maps', async () => {
-    const sid = 'l2:delete-test-123'
-    const route = {
-      requestId: 'r1',
-      sessionId: sid,
-      taskLevel: 'engineering',
-      modelId: 'routed-model',
-    }
-    localStorage.setItem('soloqueue_active_chat_routes', JSON.stringify({ [sid]: route }))
-    useInspectorStateStore.getState().updateSession(sid, { open: true })
-    useChatStore.setState({
-      sessions: [{ id: sid, type: 'l2', name: 'Delete test', createdAt: '' }],
-      activeSessionId: sid,
-      messages: { [sid]: [] },
-      streamingSessions: { [sid]: true },
-      systemCommandSessions: { [sid]: true },
-      delegatingSessions: { [sid]: true },
-      routeSessions: { [sid]: route },
-    })
-
-    await useChatStore.getState().deleteL2Session(sid)
-
-    const state = useChatStore.getState()
-    expect(state.sessions.find((s) => s.id === sid)).toBeUndefined()
-    expect(state.messages[sid]).toBeUndefined()
-    expect(state.streamingSessions[sid]).toBeUndefined()
-    expect(state.systemCommandSessions[sid]).toBeUndefined()
-    expect(state.delegatingSessions[sid]).toBeUndefined()
-    expect(localStorage.getItem('soloqueue_active_chat_routes')).toBeNull()
-    expect(useInspectorStateStore.getState().sessions[sid]).toBeUndefined()
-  })
-
-  it('completes chat and Inspector cleanup when route storage removal throws', async () => {
-    const sid = 'l2:delete-storage-failure'
-    const route = {
-      requestId: 'r-storage',
-      sessionId: sid,
-      taskLevel: 'engineering',
-      modelId: 'routed-model',
-    }
-    useInspectorStateStore.getState().updateSession(sid, { open: true })
-    useChatStore.setState({
-      sessions: [{ id: sid, type: 'l2', name: 'Delete test', createdAt: '' }],
-      activeSessionId: sid,
-      messages: { [sid]: [] },
-      routeSessions: { [sid]: route },
-    })
-    const nativeRemoveItem = localStorage.removeItem.bind(localStorage)
-    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation((key: string) => {
-      if (key === 'soloqueue_active_chat_routes') throw new DOMException('blocked', 'SecurityError')
-      nativeRemoveItem(key)
-    })
-
-    await useChatStore.getState().deleteL2Session(sid)
-
-    expect(useChatStore.getState().sessions).toEqual([])
-    expect(useChatStore.getState().messages[sid]).toBeUndefined()
-    expect(useInspectorStateStore.getState().sessions[sid]).toBeUndefined()
-  })
-
-  it('retains chat and Inspector state when backend deletion fails', async () => {
-    const sid = 'l2:delete-backend-failure'
-    vi.mocked(apiDeleteL2Session).mockRejectedValueOnce(new Error('backend unavailable'))
-    useInspectorStateStore.getState().updateSession(sid, { open: true })
-    useChatStore.setState({
-      sessions: [{ id: sid, type: 'l2', name: 'Keep test', createdAt: '' }],
-      activeSessionId: sid,
-      messages: { [sid]: [] },
-    })
-
-    await useChatStore.getState().deleteL2Session(sid)
-
-    expect(useChatStore.getState().sessions).toHaveLength(1)
-    expect(useChatStore.getState().messages[sid]).toEqual([])
-    expect(useInspectorStateStore.getState().sessions[sid]).toBeDefined()
+    expect(useChatStore.getState().compactions[sid]).toMatchObject([{ id: 'compact-after-clear', status: 'running' }])
   })
 })
 
-it('carries worked presentation identity from only the hydrated session, without replacing history IDs', async () => {
-  const segment = { type: 'thinking', text: 'A uniquely identifiable thought' } as const
-  useChatStore.setState({
-    messages: {
-      l1: [{ id: 'msg-live', role: 'assistant', timestamp: 'client-time', segments: [segment] }],
-      other: [{ id: 'other-live', role: 'assistant', timestamp: 'client-time', segments: [segment] }],
-    },
+describe('chatStore session activity', () => {
+  it('replaces every activity flag of one session without touching others', () => {
+    useChatStore.setState({
+      activeRequests: {
+        other: { requestId: 'other', sessionId: 'l2:b', status: 'streaming' },
+        stale: { requestId: 'stale', sessionId: 'l2:a', status: 'streaming' },
+      },
+      streamingSessions: { 'l2:b': true },
+    })
+    const route = { requestId: 'r', sessionId: 'l2:a', taskLevel: 'engineering', modelId: 'm' }
+    useChatStore.getState().setSessionActivity('l2:a', {
+      streaming: true,
+      delegating: true,
+      systemCommand: false,
+      route,
+      requests: [{ requestId: 'r', sessionId: 'l2:a', status: 'streaming', route }],
+    })
+    let state = useChatStore.getState()
+    expect(Object.keys(state.activeRequests).sort()).toEqual(['other', 'r'])
+    expect(state.routeSessions['l2:a']).toEqual(route)
+    expect(state.streamingSessions).toEqual({ 'l2:b': true, 'l2:a': true })
+    expect(state.delegatingSessions['l2:a']).toBe(true)
+
+    useChatStore.getState().setSessionActivity('l2:a', { streaming: false, delegating: false, systemCommand: false, requests: [] })
+    state = useChatStore.getState()
+    expect(Object.keys(state.activeRequests)).toEqual(['other'])
+    expect(state.routeSessions['l2:a']).toBeUndefined()
+    expect(state.streamingSessions['l2:a']).toBe(false)
   })
-  vi.mocked(fetchSessionHistory).mockResolvedValue({
-    messages: [{ id: 'hist-0', role: 'assistant', timestamp: 'server-time', segments: [segment] }],
-    has_more: false,
-  } as Awaited<ReturnType<typeof fetchSessionHistory>>)
-  await useChatStore.getState().loadHistory('l1')
-  const hydrated = useChatStore.getState().messages.l1[0]
-  expect(hydrated.id).toBe('hist-0')
-  expect(hydrated.timestamp).toBe('server-time')
-  expect(hydrated.workedStateKeys).toEqual({ 'worked-0': JSON.stringify(['msg-live', 'worked-0']) })
-  expect(useChatStore.getState().messages.other[0].workedStateKeys).toBeUndefined()
-  expect(localStorage.getItem('workedStateKeys')).toBeNull()
+
+  it('applies runtime activity only when it changes', () => {
+    useChatStore.getState().setRuntimeActivity('l2:a', true, false)
+    const before = useChatStore.getState().streamingSessions
+    useChatStore.getState().setRuntimeActivity('l2:a', true, false)
+    expect(useChatStore.getState().streamingSessions).toBe(before)
+    useChatStore.getState().setRuntimeActivity('l2:a', false, false)
+    expect(useChatStore.getState().streamingSessions['l2:a']).toBe(false)
+  })
+
+  it('setDelegating scopes delegation status per session', () => {
+    useChatStore.getState().setDelegating(true, 'l2:a')
+    expect(useChatStore.getState().delegatingSessions).toEqual({ 'l2:a': true })
+    useChatStore.setState({ activeSessionId: 'l2:b' })
+    useChatStore.getState().setDelegating(true)
+    expect(useChatStore.getState().delegatingSessions).toEqual({ 'l2:a': true, 'l2:b': true })
+  })
+})
+
+describe('chatStore sessions', () => {
+  it('deleteL2Session removes every per-session map entry', async () => {
+    const sid = 'l2:gone'
+    useChatStore.setState({
+      sessions: [{ id: sid, type: 'l2', name: '', createdAt: '' }],
+      activeSessionId: sid,
+      activeRequests: { r: { requestId: 'r', sessionId: sid, status: 'streaming' } },
+      streamingSessions: { [sid]: true },
+      delegatingSessions: { [sid]: true },
+      systemCommandSessions: { [sid]: true },
+      routeSessions: { [sid]: { requestId: 'r', sessionId: sid, taskLevel: '', modelId: '' } },
+      compactions: { [sid]: [] },
+    })
+    useInspectorStateStore.getState().updateSession(sid, { open: true })
+    await useChatStore.getState().deleteL2Session(sid)
+    const state = useChatStore.getState()
+    expect(apiDeleteL2Session).toHaveBeenCalledWith('gone')
+    expect(state.sessions).toEqual([])
+    expect(state.activeSessionId).toBeNull()
+    expect(state.activeRequests).toEqual({})
+    expect(state.streamingSessions[sid]).toBeUndefined()
+    expect(state.routeSessions[sid]).toBeUndefined()
+    expect(useInspectorStateStore.getState().sessions[sid]).toBeUndefined()
+  })
+
+  it('rewind and delete only call the API; the transcript reset reloads the view', async () => {
+    vi.mocked(apiRewindSession).mockResolvedValue(undefined)
+    vi.mocked(apiDeleteSessionMessages).mockResolvedValue(undefined)
+    await useChatStore.getState().rewindSession('l1', 't1')
+    await useChatStore.getState().deleteSessionMessages('l1', ['t1', 't2'])
+    expect(apiRewindSession).toHaveBeenCalledWith('l1', 't1')
+    expect(apiDeleteSessionMessages).toHaveBeenCalledWith('l1', ['t1', 't2'])
+  })
+
+  it('sessionsLoading toggles true→false around loadSessions', async () => {
+    let resolveList!: (v: { sessions: any[] }) => void
+    vi.mocked(listSessions).mockImplementationOnce(() => new Promise((res) => (resolveList = res)) as any)
+    const promise = useChatStore.getState().loadSessions()
+    expect(useChatStore.getState().sessionsLoading).toBe(true)
+    resolveList({ sessions: [] })
+    await promise
+    expect(useChatStore.getState().sessionsLoading).toBe(false)
+  })
+
+  it('coalesces concurrent loadSessions() calls', async () => {
+    let resolveList!: (v: { sessions: any[] }) => void
+    vi.mocked(listSessions).mockImplementation(() => new Promise((res) => (resolveList = res)) as any)
+    const calls = [useChatStore.getState().loadSessions(), useChatStore.getState().loadSessions()]
+    expect(vi.mocked(listSessions).mock.calls.length).toBe(1)
+    resolveList({ sessions: [] })
+    await Promise.all(calls)
+    vi.mocked(listSessions).mockResolvedValueOnce({ sessions: [] } as any)
+    await useChatStore.getState().loadSessions()
+    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
+  })
+
+  it('loadSessions retries once and marks the list loaded', async () => {
+    vi.mocked(listSessions)
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+      .mockResolvedValueOnce({ sessions: [{ id: 's1', name: 'after-retry' }] } as any)
+    await useChatStore.getState().loadSessions()
+    expect(vi.mocked(listSessions).mock.calls.length).toBe(2)
+    expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual(['s1'])
+    expect(useChatStore.getState().sessionsLoaded).toBe(true)
+  })
+
+  it('loadSessions gives up cleanly when both attempts fail', async () => {
+    vi.mocked(listSessions).mockRejectedValueOnce(new Error('first')).mockRejectedValueOnce(new Error('second'))
+    await useChatStore.getState().loadSessions()
+    expect(useChatStore.getState().sessions).toEqual([])
+    expect(useChatStore.getState().sessionsLoading).toBe(false)
+    expect(useChatStore.getState().sessionsLoaded).toBe(false)
+  })
 })

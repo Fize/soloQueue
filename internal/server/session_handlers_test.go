@@ -94,7 +94,7 @@ func TestHTTP_UploadFile(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_HidesAutomaticCompactionSummary(t *testing.T) {
+func TestHTTP_SessionTranscript_HidesAutomaticCompactionSummary(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -113,7 +113,7 @@ func TestHTTP_SessionHistory_HidesAutomaticCompactionSummary(t *testing.T) {
 
 	mux := NewMux(workDir, log)
 	defer mux.Close()
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -146,7 +146,7 @@ func TestHTTP_SessionHistory_HidesAutomaticCompactionSummary(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistoryCompactionsIgnorePaginationAndClearBoundary(t *testing.T) {
+func TestHTTP_SessionTranscriptCompactionsIgnorePaginationAndClearBoundary(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 	dir := filepath.Join(workDir, "logs", "timelines", "default")
@@ -169,20 +169,20 @@ func TestHTTP_SessionHistoryCompactionsIgnorePaginationAndClearBoundary(t *testi
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, newLocalhostRequest("GET", "/api/session/history?session_id=l1&limit=1", nil))
+	mux.ServeHTTP(rec, newLocalhostRequest("GET", "/api/session/transcript?session_id=l1&limit=1", nil))
 	var got struct {
-		Messages    []any                              `json:"messages"`
+		Items       []any                              `json:"items"`
 		Compactions []timeline.CompactionStatusPayload `json:"compactions"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Messages) != 1 || len(got.Compactions) != 1 || got.Compactions[0].ID != "new" || got.Compactions[0].Status != "completed" {
+	if len(got.Items) != 1 || len(got.Compactions) != 1 || got.Compactions[0].ID != "new" || got.Compactions[0].Status != "completed" {
 		t.Fatalf("pagination/clear status mismatch: %+v", got)
 	}
 }
 
-func TestHTTP_SessionHistory_ShowsUserCommandCompactionSummary(t *testing.T) {
+func TestHTTP_SessionTranscript_ShowsUserCommandCompactionSummary(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -198,7 +198,7 @@ func TestHTTP_SessionHistory_ShowsUserCommandCompactionSummary(t *testing.T) {
 
 	mux := NewMux(workDir, log)
 	defer mux.Close()
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -210,7 +210,7 @@ func TestHTTP_SessionHistory_ShowsUserCommandCompactionSummary(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_Delegation(t *testing.T) {
+func TestHTTP_SessionTranscript_Delegation(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -241,7 +241,7 @@ func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -251,15 +251,15 @@ func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 	}
 
 	var resp struct {
-		Messages []struct {
-			Role     string `json:"role"`
+		Items []struct {
+			Kind     string `json:"kind"`
 			Segments []struct {
 				Type   string `json:"type"`
 				Name   string `json:"name"`
 				Done   bool   `json:"done"`
 				Result string `json:"result"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -267,8 +267,8 @@ func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 	}
 
 	foundToolCall := false
-	for _, msg := range resp.Messages {
-		if msg.Role == "assistant" {
+	for _, msg := range resp.Items {
+		if msg.Kind == "assistant" {
 			for _, seg := range msg.Segments {
 				if seg.Type == "tool_call" && seg.Name == "delegate_ray-dalio" {
 					foundToolCall = true
@@ -285,7 +285,7 @@ func TestHTTP_SessionHistory_Delegation(t *testing.T) {
 	}
 }
 
-func TestReconstructHistory_UnifiedDelegateToolCallStaysPending(t *testing.T) {
+func TestTranscript_UnifiedDelegateToolCallStaysPending(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -314,7 +314,7 @@ func TestReconstructHistory_UnifiedDelegateToolCallStaysPending(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -324,15 +324,15 @@ func TestReconstructHistory_UnifiedDelegateToolCallStaysPending(t *testing.T) {
 	}
 
 	var resp struct {
-		Messages []struct {
-			Role     string `json:"role"`
+		Items []struct {
+			Kind     string `json:"kind"`
 			Segments []struct {
 				Type   string `json:"type"`
 				Name   string `json:"name"`
 				Done   bool   `json:"done"`
 				Result string `json:"result"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -340,8 +340,8 @@ func TestReconstructHistory_UnifiedDelegateToolCallStaysPending(t *testing.T) {
 	}
 
 	foundToolCall := false
-	for _, msg := range resp.Messages {
-		if msg.Role == "assistant" {
+	for _, msg := range resp.Items {
+		if msg.Kind == "assistant" {
 			for _, seg := range msg.Segments {
 				if seg.Type == "tool_call" && seg.Name == "delegate" {
 					foundToolCall = true
@@ -358,7 +358,7 @@ func TestReconstructHistory_UnifiedDelegateToolCallStaysPending(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_DedupPartialFlush(t *testing.T) {
+func TestHTTP_SessionTranscript_DedupPartialFlush(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -390,7 +390,7 @@ func TestHTTP_SessionHistory_DedupPartialFlush(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -399,18 +399,18 @@ func TestHTTP_SessionHistory_DedupPartialFlush(t *testing.T) {
 	}
 
 	var resp struct {
-		Messages []struct {
+		Items []struct {
 			Segments []struct {
 				Text string `json:"text"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
 	var contents []string
-	for _, msg := range resp.Messages {
+	for _, msg := range resp.Items {
 		for _, seg := range msg.Segments {
 			if seg.Text != "" {
 				contents = append(contents, seg.Text)
@@ -429,7 +429,7 @@ func TestHTTP_SessionHistory_DedupPartialFlush(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_PreservesLiveAssistantSegmentOrder(t *testing.T) {
+func TestHTTP_SessionTranscript_PreservesLiveAssistantSegmentOrder(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
@@ -444,27 +444,27 @@ func TestHTTP_SessionHistory_PreservesLiveAssistantSegmentOrder(t *testing.T) {
 
 	mux := NewMux(workDir, log)
 	defer mux.Close()
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Messages []struct {
+		Items []struct {
 			Segments []struct {
 				Type string `json:"type"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if len(resp.Messages) != 1 {
-		t.Fatalf("messages = %#v, want one", resp.Messages)
+	if len(resp.Items) != 1 {
+		t.Fatalf("messages = %#v, want one", resp.Items)
 	}
-	got := make([]string, 0, len(resp.Messages[0].Segments))
-	for _, segment := range resp.Messages[0].Segments {
+	got := make([]string, 0, len(resp.Items[0].Segments))
+	for _, segment := range resp.Items[0].Segments {
 		got = append(got, segment.Type)
 	}
 	want := []string{"thinking", "content", "tool_call"}
@@ -473,7 +473,7 @@ func TestHTTP_SessionHistory_PreservesLiveAssistantSegmentOrder(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_UsesRecordedAssistantSegmentOrder(t *testing.T) {
+func TestHTTP_SessionTranscript_UsesRecordedAssistantSegmentOrder(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
@@ -488,27 +488,27 @@ func TestHTTP_SessionHistory_UsesRecordedAssistantSegmentOrder(t *testing.T) {
 
 	mux := NewMux(workDir, log)
 	defer mux.Close()
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Messages []struct {
+		Items []struct {
 			Segments []struct {
 				Type string `json:"type"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if len(resp.Messages) != 1 {
-		t.Fatalf("messages = %#v, want one", resp.Messages)
+	if len(resp.Items) != 1 {
+		t.Fatalf("messages = %#v, want one", resp.Items)
 	}
-	got := make([]string, 0, len(resp.Messages[0].Segments))
-	for _, segment := range resp.Messages[0].Segments {
+	got := make([]string, 0, len(resp.Items[0].Segments))
+	for _, segment := range resp.Items[0].Segments {
 		got = append(got, segment.Type)
 	}
 	want := []string{"thinking", "tool_call", "content"}
@@ -517,7 +517,7 @@ func TestHTTP_SessionHistory_UsesRecordedAssistantSegmentOrder(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_GroupsInterleavedEventsByRequestID(t *testing.T) {
+func TestHTTP_SessionTranscript_GroupsInterleavedEventsByRequestID(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
@@ -538,35 +538,35 @@ func TestHTTP_SessionHistory_GroupsInterleavedEventsByRequestID(t *testing.T) {
 
 	mux := NewMux(workDir, log)
 	defer mux.Close()
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Messages []struct {
+		Items []struct {
 			RequestID string `json:"request_id"`
-			Role      string `json:"role"`
+			Kind      string `json:"kind"`
 			Segments  []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if len(resp.Messages) != 4 {
-		t.Fatalf("messages = %#v, want four request-owned rows", resp.Messages)
+	if len(resp.Items) != 4 {
+		t.Fatalf("messages = %#v, want four request-owned rows", resp.Items)
 	}
-	if resp.Messages[0].RequestID != "req-a" || resp.Messages[1].RequestID != "req-a" ||
-		resp.Messages[2].RequestID != "req-b" || resp.Messages[3].RequestID != "req-b" {
-		t.Fatalf("request IDs = %#v", resp.Messages)
+	if resp.Items[0].RequestID != "req-a" || resp.Items[1].RequestID != "req-a" ||
+		resp.Items[2].RequestID != "req-b" || resp.Items[3].RequestID != "req-b" {
+		t.Fatalf("request IDs = %#v", resp.Items)
 	}
 	wantA := []struct{ Type, Text string }{{"content", "A first"}, {"thinking", "A later work"}, {"content", "A final"}}
-	gotA := make([]struct{ Type, Text string }, 0, len(resp.Messages[1].Segments))
-	for _, segment := range resp.Messages[1].Segments {
+	gotA := make([]struct{ Type, Text string }, 0, len(resp.Items[1].Segments))
+	for _, segment := range resp.Items[1].Segments {
 		gotA = append(gotA, struct{ Type, Text string }{segment.Type, segment.Text})
 	}
 	if !reflect.DeepEqual(gotA, wantA) {
@@ -574,7 +574,7 @@ func TestHTTP_SessionHistory_GroupsInterleavedEventsByRequestID(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_DeduplicatesInterleavedPartialFlushByRequestID(t *testing.T) {
+func TestHTTP_SessionTranscript_DeduplicatesInterleavedPartialFlushByRequestID(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
@@ -595,26 +595,26 @@ func TestHTTP_SessionHistory_DeduplicatesInterleavedPartialFlushByRequestID(t *t
 
 	mux := NewMux(workDir, log)
 	defer mux.Close()
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Messages []struct {
+		Items []struct {
 			RequestID string `json:"request_id"`
 			Segments  []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	var contentCount int
-	for _, message := range resp.Messages {
+	for _, message := range resp.Items {
 		if message.RequestID != "req-a" {
 			continue
 		}
@@ -629,7 +629,7 @@ func TestHTTP_SessionHistory_DeduplicatesInterleavedPartialFlushByRequestID(t *t
 	}
 }
 
-func TestHTTP_SessionHistory_ToolResultsStayWithinRequest(t *testing.T) {
+func TestHTTP_SessionTranscript_ToolResultsStayWithinRequest(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
@@ -650,21 +650,21 @@ func TestHTTP_SessionHistory_ToolResultsStayWithinRequest(t *testing.T) {
 
 	mux := NewMux(workDir, log)
 	defer mux.Close()
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Messages []struct {
+		Items []struct {
 			RequestID string `json:"request_id"`
 			Segments  []struct {
 				Type   string `json:"type"`
 				Done   bool   `json:"done"`
 				Result string `json:"result"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
@@ -673,7 +673,7 @@ func TestHTTP_SessionHistory_ToolResultsStayWithinRequest(t *testing.T) {
 		done   bool
 		result string
 	}{}
-	for _, message := range resp.Messages {
+	for _, message := range resp.Items {
 		for _, segment := range message.Segments {
 			if segment.Type == "tool_call" {
 				got[message.RequestID] = struct {
@@ -691,7 +691,7 @@ func TestHTTP_SessionHistory_ToolResultsStayWithinRequest(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_DoesNotDedupLegitRepeats(t *testing.T) {
+func TestHTTP_SessionTranscript_DoesNotDedupLegitRepeats(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -723,7 +723,7 @@ func TestHTTP_SessionHistory_DoesNotDedupLegitRepeats(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -732,18 +732,18 @@ func TestHTTP_SessionHistory_DoesNotDedupLegitRepeats(t *testing.T) {
 	}
 
 	var resp struct {
-		Messages []struct {
+		Items []struct {
 			Segments []struct {
 				Text string `json:"text"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
 	var contents []string
-	for _, msg := range resp.Messages {
+	for _, msg := range resp.Items {
 		for _, seg := range msg.Segments {
 			if seg.Text != "" {
 				contents = append(contents, seg.Text)
@@ -762,7 +762,7 @@ func TestHTTP_SessionHistory_DoesNotDedupLegitRepeats(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_RewindKeepsLaterMessages(t *testing.T) {
+func TestHTTP_SessionTranscript_RewindKeepsLaterMessages(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -794,7 +794,7 @@ func TestHTTP_SessionHistory_RewindKeepsLaterMessages(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -803,18 +803,18 @@ func TestHTTP_SessionHistory_RewindKeepsLaterMessages(t *testing.T) {
 	}
 
 	var resp struct {
-		Messages []struct {
+		Items []struct {
 			Segments []struct {
 				Text string `json:"text"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
 	var contents []string
-	for _, msg := range resp.Messages {
+	for _, msg := range resp.Items {
 		for _, seg := range msg.Segments {
 			if seg.Text != "" {
 				contents = append(contents, seg.Text)
@@ -832,7 +832,7 @@ func TestHTTP_SessionHistory_RewindKeepsLaterMessages(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_Delegation_Completed(t *testing.T) {
+func TestHTTP_SessionTranscript_Delegation_Completed(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -864,7 +864,7 @@ func TestHTTP_SessionHistory_Delegation_Completed(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -874,15 +874,15 @@ func TestHTTP_SessionHistory_Delegation_Completed(t *testing.T) {
 	}
 
 	var resp struct {
-		Messages []struct {
-			Role     string `json:"role"`
+		Items []struct {
+			Kind     string `json:"kind"`
 			Segments []struct {
 				Type   string `json:"type"`
 				Name   string `json:"name"`
 				Done   bool   `json:"done"`
 				Result string `json:"result"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -890,8 +890,8 @@ func TestHTTP_SessionHistory_Delegation_Completed(t *testing.T) {
 	}
 
 	foundToolCall := false
-	for _, msg := range resp.Messages {
-		if msg.Role == "assistant" {
+	for _, msg := range resp.Items {
+		if msg.Kind == "assistant" {
 			for _, seg := range msg.Segments {
 				if seg.Type == "tool_call" && seg.Name == "delegate_ray-dalio" {
 					foundToolCall = true
@@ -912,7 +912,7 @@ func TestHTTP_SessionHistory_Delegation_Completed(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_Delegation_MultilineTask(t *testing.T) {
+func TestHTTP_SessionTranscript_Delegation_MultilineTask(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -942,7 +942,7 @@ func TestHTTP_SessionHistory_Delegation_MultilineTask(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -952,15 +952,15 @@ func TestHTTP_SessionHistory_Delegation_MultilineTask(t *testing.T) {
 	}
 
 	var resp struct {
-		Messages []struct {
-			Role     string `json:"role"`
+		Items []struct {
+			Kind     string `json:"kind"`
 			Segments []struct {
 				Type   string `json:"type"`
 				Name   string `json:"name"`
 				Done   bool   `json:"done"`
 				Result string `json:"result"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -968,8 +968,8 @@ func TestHTTP_SessionHistory_Delegation_MultilineTask(t *testing.T) {
 	}
 
 	foundToolCall := false
-	for _, msg := range resp.Messages {
-		if msg.Role == "assistant" {
+	for _, msg := range resp.Items {
+		if msg.Kind == "assistant" {
 			for _, seg := range msg.Segments {
 				if seg.Type == "tool_call" && seg.Name == "delegate_fixer" {
 					foundToolCall = true
@@ -990,7 +990,7 @@ func TestHTTP_SessionHistory_Delegation_MultilineTask(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_Delegation_Synchronous(t *testing.T) {
+func TestHTTP_SessionTranscript_Delegation_Synchronous(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -1019,7 +1019,7 @@ func TestHTTP_SessionHistory_Delegation_Synchronous(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -1029,15 +1029,15 @@ func TestHTTP_SessionHistory_Delegation_Synchronous(t *testing.T) {
 	}
 
 	var resp struct {
-		Messages []struct {
-			Role     string `json:"role"`
+		Items []struct {
+			Kind     string `json:"kind"`
 			Segments []struct {
 				Type   string `json:"type"`
 				Name   string `json:"name"`
 				Done   bool   `json:"done"`
 				Result string `json:"result"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -1045,8 +1045,8 @@ func TestHTTP_SessionHistory_Delegation_Synchronous(t *testing.T) {
 	}
 
 	foundToolCall := false
-	for _, msg := range resp.Messages {
-		if msg.Role == "assistant" {
+	for _, msg := range resp.Items {
+		if msg.Kind == "assistant" {
 			for _, seg := range msg.Segments {
 				if seg.Type == "tool_call" && seg.Name == "delegate_agent" {
 					foundToolCall = true
@@ -1067,7 +1067,7 @@ func TestHTTP_SessionHistory_Delegation_Synchronous(t *testing.T) {
 	}
 }
 
-func TestHTTP_SessionHistory_DeduplicateUserInputs(t *testing.T) {
+func TestHTTP_SessionTranscript_DeduplicateUserInputs(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 
@@ -1098,7 +1098,7 @@ func TestHTTP_SessionHistory_DeduplicateUserInputs(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 
-	req := newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil)
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -1108,13 +1108,13 @@ func TestHTTP_SessionHistory_DeduplicateUserInputs(t *testing.T) {
 	}
 
 	var resp struct {
-		Messages []struct {
-			Role     string `json:"role"`
+		Items []struct {
+			Kind     string `json:"kind"`
 			Segments []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -1123,8 +1123,8 @@ func TestHTTP_SessionHistory_DeduplicateUserInputs(t *testing.T) {
 
 	// We expect 2 user messages (the first duplicate is deduplicated, the third is kept because the content is different)
 	userMsgCount := 0
-	for _, msg := range resp.Messages {
-		if msg.Role == "user" {
+	for _, msg := range resp.Items {
+		if msg.Kind == "user" {
 			userMsgCount++
 		}
 	}
@@ -1134,44 +1134,7 @@ func TestHTTP_SessionHistory_DeduplicateUserInputs(t *testing.T) {
 	}
 }
 
-func TestExtractFilesFromPrompt(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected []map[string]interface{}
-	}{
-		{
-			name:  "http format",
-			input: "- File Name: a.png\n  Save Path: /p/a.png (Size: 123 bytes)",
-			expected: []map[string]interface{}{
-				{"name": "a.png", "path": "/p/a.png"},
-			},
-		},
-		{
-			name:  "legacy ws image format",
-			input: "- a.png: /p/a.png (image, recognized by visual model)",
-			expected: []map[string]interface{}{
-				{"name": "a.png", "path": "/p/a.png"},
-			},
-		},
-		{
-			name:     "plain text without blocks",
-			input:    "just a normal message with no file blocks",
-			expected: nil,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := extractFilesFromPrompt(tc.input)
-			if !reflect.DeepEqual(got, tc.expected) {
-				t.Errorf("extractFilesFromPrompt(%q) = %#v; want %#v", tc.input, got, tc.expected)
-			}
-		})
-	}
-}
-
-func TestHTTP_SessionHistory_SplitsReplyAtLegacyQueuedInput(t *testing.T) {
+func TestHTTP_SessionTranscript_SplitsReplyAtLegacyQueuedInput(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
 	dir := filepath.Join(workDir, "logs", "timelines", "default")
@@ -1195,32 +1158,32 @@ func TestHTTP_SessionHistory_SplitsReplyAtLegacyQueuedInput(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil))
+	mux.ServeHTTP(rec, newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Messages []struct {
-			Role     string `json:"role"`
+		Items []struct {
+			Kind     string `json:"kind"`
 			Segments []struct {
 				Type   string `json:"type"`
 				Text   string `json:"text"`
 				Result string `json:"result"`
 			} `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Messages) != 4 {
+	if len(resp.Items) != 4 {
 		t.Fatalf("want user / assistant / user / assistant, got %s", rec.Body.String())
 	}
-	for i, role := range []string{"user", "assistant", "user", "assistant"} {
-		if resp.Messages[i].Role != role {
-			t.Fatalf("message %d role=%q want %q", i, resp.Messages[i].Role, role)
+	for i, kind := range []string{"user", "assistant", "user", "assistant"} {
+		if resp.Items[i].Kind != kind {
+			t.Fatalf("item %d kind=%q want %q", i, resp.Items[i].Kind, kind)
 		}
 	}
-	first, second := resp.Messages[1].Segments, resp.Messages[3].Segments
+	first, second := resp.Items[1].Segments, resp.Items[3].Segments
 	if len(first) != 2 || first[0].Text != "checking T" || first[1].Result != "skill loaded" {
 		t.Fatalf("first reply=%#v", first)
 	}
@@ -1314,7 +1277,7 @@ func TestHTTP_PageStopReportsCancellationFailure(t *testing.T) {
 	}
 }
 
-func TestHistoryRestoresFailedDelegationBeyondObservationLimit(t *testing.T) {
+func TestTranscriptRestoresFailedDelegationBeyondObservationLimit(t *testing.T) {
 	workDir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -1348,19 +1311,19 @@ func TestHistoryRestoresFailedDelegationBeyondObservationLimit(t *testing.T) {
 	mux := NewMux(workDir, log)
 	defer mux.Close()
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, newLocalhostRequest("GET", "/api/session/history?session_id=l1", nil))
+	mux.ServeHTTP(rec, newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d", rec.Code)
 	}
 	var body struct {
-		Messages []struct {
+		Items []struct {
 			Segments []map[string]any `json:"segments"`
-		} `json:"messages"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	for _, msg := range body.Messages {
+	for _, msg := range body.Items {
 		for _, seg := range msg.Segments {
 			if seg["call_id"] == "call" {
 				if seg["done"] != true || seg["error"] != "failed" {

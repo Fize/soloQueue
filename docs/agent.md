@@ -89,6 +89,6 @@ The Agent package exposes a small set of event and location interfaces through `
 
 ## Event and persistence boundary
 
-Agent events represent stream data and control transitions, including content deltas, reasoning deltas, tool start/completion, iteration completion, final response, error, and delegation lifecycle. The server maps these events to the WebSocket protocol. Session hooks append conversation messages and tool metadata to the timeline; system prompts are loaded into the context window but intentionally are not persisted as conversation events.
+Agent events represent stream data and control transitions, including content deltas, reasoning deltas, tool start/completion, iteration completion, final response, error, and delegation lifecycle. The Session publishes these events to its ordered transcript as they are produced; the server delivers that transcript to WebSocket subscribers. Session hooks append conversation messages and tool metadata to the timeline; system prompts are loaded into the context window but intentionally are not persisted as conversation events.
 
 Useful code and tests: [`internal/agent`](../internal/agent), [`internal/session`](../internal/session), [`internal/agenttools`](../internal/agenttools), [`internal/iface`](../internal/iface), and [`internal/agent/stream_test.go`](../internal/agent/stream_test.go).

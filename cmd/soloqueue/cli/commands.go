@@ -30,6 +30,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/session"
 	"github.com/xiaobaitu/soloqueue/internal/storage"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
 func mcpLoaderFromRT(rt *runtime.Stack) *mcp.Loader {
@@ -114,7 +115,11 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			defer rt.Shutdown()
 
 			factory := session.BuildFactory(rt, workDir, cfg, settings.Log.Console)
+			// Every resident session publishes its live transcript here from the
+			// first request; WebSocket subscriptions and snapshots read it.
+			transcripts := transcript.NewRegistry(transcript.DefaultConfig())
 			mgr := session.NewSessionManager(factory, log)
+			mgr.SetTranscriptRegistry(transcripts)
 			mgr.SetRunWatch(rt.RunWatch)
 			mgr.SetAgentRegistry(rt.AgentRegistry)
 			session.Version = version
@@ -132,6 +137,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			builder := session.NewBuilder(rt, workDir, cfg, settings.Log.Console)
 			// ── L2 Session Store ──
 			l2Store := session.NewL2SessionStore(builder, workDir, log)
+			l2Store.SetTranscriptRegistry(transcripts)
 			l2Store.SetChannelMetadataStore(rt.SharedDB)
 			cronScheduler := cron.NewScheduler(cronStore, cronSessionManagerWrapper{
 				mgr:     mgr,
@@ -258,6 +264,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				server.WithRegistry(rt.AgentRegistry),
 				server.WithSessionManager(mgr),
 				server.WithL2SessionStore(l2Store),
+				server.WithTranscriptRegistry(transcripts),
 				server.WithSupervisors(rt.SupervisorsSnapshot),
 				server.WithConfigService(cfg),
 				server.WithWechatLoginManager(wechatLoginManager),

@@ -1,26 +1,27 @@
-import { removeAllCancelledInputs, removeCancelledInputs } from '@/lib/channelQueueRemoval'
 import chineseSamples from '@/testdata/chinese_samples.json'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { wsManager } from './websocket'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { useChatStore } from '@/stores/chatStore'
-
-// Track the last mock WebSocket instance so tests can simulate events
-let mockWSServer: WSInstance | null = null
-
-function rememberWebSocket(instance: WSInstance) {
-  mockWSServer = instance
-}
+import { useTranscriptStore } from '@/stores/transcriptStore'
+import { emptyTranscript, type TranscriptState } from '@/lib/transcript/reducer'
+import type { TranscriptFrame } from '@/types'
 
 interface WSInstance {
   url: string
+  readyState: number
+  sent: string[]
   onopen: ((ev?: any) => void) | null
   onmessage: ((ev: MessageEvent) => void) | null
   onclose: ((ev?: any) => void) | null
   onerror: ((ev?: any) => void) | null
+  send: (data: string) => void
   close: ReturnType<typeof vi.fn>
 }
+
+let socket: WSInstance | null = null
+const sockets: WSInstance[] = []
 
 beforeEach(() => {
   localStorage.clear()
@@ -31,1282 +32,188 @@ beforeEach(() => {
     backendReady: true,
     backendStatus: { running: true, pid: null, uptime: 0 },
   })
-  useChatStore.setState({ activeRequests: {}, routeSessions: {}, streamingSessions: {} })
+  useChatStore.setState({
+    sessions: [{ id: 'l2:live', type: 'l2', name: '', createdAt: '' }],
+    activeRequests: {},
+    routeSessions: {},
+    streamingSessions: {},
+    delegatingSessions: {},
+    systemCommandSessions: {},
+  })
+  useTranscriptStore.setState({ sessions: {}, local: {}, commands: {} })
   wsManager.disconnect()
-  mockWSServer = null
-
+  socket = null
+  sockets.length = 0
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }))
-
-  // Mock WebSocket: capture the instance so we can manually fire onopen/onmessage
-  vi.stubGlobal(
-    'WebSocket',
-    vi.fn(function (this: WSInstance, url: string) {
-      this.url = url
-      this.onopen = null
-      this.onmessage = null
-      this.onclose = null
-      this.onerror = null
-      this.close = vi.fn(() => {
-        if (this.onclose) this.onclose()
-      })
-      rememberWebSocket(this)
-      // Use a microtask delay so the caller has time to assign onopen
-      Promise.resolve().then(() => {
-        // Only fire if the handler was assigned
-        // (intentional close resets the instance before onopen fires)
-      })
+  const WebSocketStub = vi.fn(function (this: WSInstance, url: string) {
+    this.url = url
+    this.readyState = 0
+    this.sent = []
+    this.onopen = null
+    this.onmessage = null
+    this.onclose = null
+    this.onerror = null
+    this.send = (data: string) => {
+      this.sent.push(data)
+    }
+    this.close = vi.fn(() => {
+      this.readyState = 3
+      this.onclose?.()
     })
-  )
+    sockets.push(this)
+  })
+  vi.stubGlobal('WebSocket', Object.assign(WebSocketStub, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 }))
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
-function simulateOpen() {
-  if (mockWSServer?.onopen) mockWSServer.onopen({ type: 'open' } as any)
+function current(): WSInstance {
+  socket = sockets[sockets.length - 1] ?? null
+  return socket!
 }
 
-function simulateMessage(data: unknown) {
-  if (mockWSServer?.onmessage) {
-    mockWSServer.onmessage({ data: JSON.stringify(data) } as unknown as MessageEvent)
-  }
+function open() {
+  current().readyState = 1
+  current().onopen?.({ type: 'open' })
 }
 
-describe('websocket', () => {
-  it('notifies the active and queued handlers when queued input starts processing', async () => {
-    const first = { onQueueStarted: vi.fn() }
-    const second = { onQueueStarted: vi.fn() }
-    const third = { onQueueStarted: vi.fn() }
-    wsManager.registerChat('req-first', first)
-    wsManager.registerChat('req-second', second)
-    wsManager.registerChat('req-third', third)
-    await wsManager.connect()
-    simulateOpen()
+function receive(data: unknown) {
+  current().onmessage?.({ data: JSON.stringify(data) } as unknown as MessageEvent)
+}
 
-    simulateMessage({
-      type: 'chat_queue_started',
-      request_id: 'req-first',
-      cancel_request_id: 'req-first',
-      request_ids: ['req-second', 'req-third'],
-      session_id: 'l2:session-A',
-    })
+function sentMessages() {
+  return current().sent.filter((data) => data !== 'ping').map((data) => JSON.parse(data))
+}
 
-    expect(first.onQueueStarted).toHaveBeenCalledWith(
-      expect.objectContaining({ owns_stream: false })
-    )
-    expect(second.onQueueStarted).toHaveBeenCalledWith(
-      expect.objectContaining({ owns_stream: false })
-    )
-    expect(third.onQueueStarted).toHaveBeenCalledWith(
-      expect.objectContaining({
-        active_request_id: 'req-third',
-        cancel_request_id: 'req-first',
-        owns_stream: true,
-      })
-    )
-  })
-
-  it('keeps the root cancellation identity across consecutive queue boundaries', async () => {
-    const second = { onQueueStarted: vi.fn() }
-    const third = { onQueueStarted: vi.fn() }
-    wsManager.registerChat('req-second', second)
-    wsManager.registerChat('req-third', third)
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'chat_queue_started',
-      request_id: 'req-first',
-      cancel_request_id: 'req-first',
-      request_ids: ['req-second'],
-      session_id: 'l2:session-A',
-    })
-    simulateMessage({
-      type: 'chat_queue_started',
-      request_id: 'req-second',
-      cancel_request_id: 'req-first',
-      request_ids: ['req-third'],
-      session_id: 'l2:session-A',
-    })
-
-    expect(third.onQueueStarted).toHaveBeenCalledWith(
-      expect.objectContaining({
-        active_request_id: 'req-third',
-        cancel_request_id: 'req-first',
-        owns_stream: true,
-      })
-    )
-  })
-
-  it('retains a queued handler across a request-less idle snapshot until processing starts', async () => {
-    const onQueueStarted = vi.fn()
-    const onAccepted = vi.fn(() => {
-      useChatStore.getState().updateRequestStatus('req-queued', 'streaming')
-    })
-    const onQueued = vi.fn(() => {
-      useChatStore.getState().updateRequestStatus('req-queued', 'queued')
-    })
-    const onChunk = vi.fn()
-    const onError = vi.fn()
-    const onDone = vi.fn()
-    const onRuntimeTerminal = vi.fn()
-    useChatStore.setState({
-      activeRequests: {
-        'req-queued': {
-          requestId: 'req-queued',
-          sessionId: 'l2:session-A',
-          status: 'starting',
-        },
+function liveSession(sessionId: string, state: Partial<TranscriptState> = {}) {
+  useTranscriptStore.setState((store) => ({
+    sessions: {
+      ...store.sessions,
+      [sessionId]: {
+        state: { ...emptyTranscript(), epoch: 'e1', ...state },
+        status: 'live',
+        hasMore: false,
+        loadingOlder: false,
       },
-      streamingSessions: { 'l2:session-A': true },
-    })
-    wsManager.registerChat('req-queued', {
-      onAccepted,
-      onQueued,
-      onQueueStarted,
-      onChunk,
-      onError,
-      onDone,
-      onRuntimeTerminal,
-    })
-    await wsManager.connect()
-    simulateOpen()
+    },
+  }))
+}
 
-    simulateMessage({
-      type: 'chat_accepted',
-      request_id: 'req-queued',
-      session_id: 'l2:session-A',
-    })
-    simulateMessage({
-      type: 'chat_queued',
-      request_id: 'req-queued',
-      session_id: 'l2:session-A',
-      error: 'queued',
-    })
-    expect(onAccepted).toHaveBeenCalledTimes(1)
-    expect(onQueued).toHaveBeenCalledTimes(1)
-    expect(useChatStore.getState().activeRequests['req-queued']?.status).toBe('queued')
+function frame(seq: number, kind: TranscriptFrame['kind'], fields: Partial<TranscriptFrame> = {}): TranscriptFrame {
+  return { seq, ts: 't', kind, ...fields }
+}
 
-    simulateMessage({
-      type: 'state',
-      runtime: {
-        phase: 'idle',
-        prompt_tokens: 0,
-        output_tokens: 0,
-        cache_hit_tokens: 0,
-        cache_miss_tokens: 0,
-        context_pct: 0,
-        current_tokens: 0,
-        max_tokens: 0,
-        current_iter: 0,
-        content_deltas: 0,
-        active_delegations: 0,
-        total_agents: 1,
-        running_agents: 0,
-        idle_agents: 1,
-        total_errors: 0,
-        http_addr: ':8765',
-        agent_streams: {},
-        sessions: {
-          'l2:session-A': {
-            session_id: 'l2:session-A',
-            request_id: '',
-            state: 'idle',
-            terminal_code: 'completed',
-            revision: 1,
-            ctxwin_used: 0,
-            ctxwin_limit: 0,
-            delegating: false,
-          },
-        },
-      },
-    })
-
-    expect(onRuntimeTerminal).not.toHaveBeenCalled()
-    expect(useChatStore.getState().activeRequests['req-queued']?.status).toBe('queued')
-    expect(wsManager.hasChatHandler('req-queued')).toBe(true)
-
-    simulateMessage({
-      type: 'chat_queue_started',
-      request_id: 'req-new-model',
-      cancel_request_id: 'req-new-model',
-      request_ids: ['req-queued'],
-      session_id: 'l2:session-A',
-    })
-    simulateMessage({ type: 'chat_chunk', request_id: 'req-queued', delta: 'follow-up' })
-    simulateMessage({
-      type: 'chat_done',
-      request_id: 'req-queued',
-      content: 'follow-up',
-      reasoning_content: '',
-    })
-
-    expect(onQueueStarted).toHaveBeenCalledTimes(1)
-    expect(onQueueStarted).toHaveBeenCalledWith(expect.objectContaining({ owns_stream: true }))
-    expect(onChunk).toHaveBeenCalledWith('follow-up')
-    expect(onDone).toHaveBeenCalledTimes(1)
-    expect(onError).not.toHaveBeenCalled()
-  })
-
-  it('normalizes legacy request-keyed runtime entries to their logical session', async () => {
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'state',
-      runtime: {
-        phase: 'processing',
-        prompt_tokens: 0,
-        output_tokens: 0,
-        cache_hit_tokens: 0,
-        cache_miss_tokens: 0,
-        context_pct: 0,
-        current_tokens: 0,
-        max_tokens: 0,
-        current_iter: 0,
-        content_deltas: 0,
-        active_delegations: 0,
-        total_agents: 1,
-        running_agents: 1,
-        idle_agents: 0,
-        total_errors: 0,
-        http_addr: ':8765',
-        agent_streams: {},
-        sessions: {
-          'l1:req-legacy': {
-            session_id: '',
-            request_id: 'req-legacy',
-            state: 'streaming',
-            revision: 1,
-            ctxwin_used: 0,
-            ctxwin_limit: 0,
-            delegating: false,
-          },
-        },
-      },
-    })
-
-    expect(useChatStore.getState().streamingSessions.l1).toBe(true)
-  })
-
-  it('reconciles a silent terminal runtime snapshot once', async () => {
-    const onRuntimeTerminal = vi.fn(() => {
-      useChatStore.getState().reconcileRuntimeTerminal('req-silent', 'l1')
-    })
-    useChatStore.setState({
-      activeRequests: {
-        'req-silent': {
-          requestId: 'req-silent',
-          sessionId: 'l1',
-          status: 'streaming',
-        },
-      },
-      streamingSessions: { l1: true },
-      routeSessions: {
-        l1: { requestId: 'req-silent', sessionId: 'l1', taskLevel: 'research', modelId: 'model' },
-      },
-    })
-    wsManager.registerChat('req-silent', { onRuntimeTerminal })
-    await wsManager.connect()
-    simulateOpen()
-
-    const runtime = {
-      phase: 'idle',
-      prompt_tokens: 0,
-      output_tokens: 0,
-      cache_hit_tokens: 0,
-      cache_miss_tokens: 0,
-      context_pct: 0,
-      current_tokens: 0,
-      max_tokens: 0,
-      current_iter: 0,
-      content_deltas: 0,
-      active_delegations: 0,
-      total_agents: 1,
-      running_agents: 0,
-      idle_agents: 1,
-      total_errors: 0,
-      http_addr: ':8765',
-      agent_streams: {},
-      sessions: {
-        'l1:req-silent': {
-          session_id: 'l1',
-          request_id: 'req-silent',
-          state: 'idle',
-          terminal_code: 'completed',
-          revision: 1,
-          ctxwin_used: 0,
-          ctxwin_limit: 0,
-          delegating: false,
-        },
-      },
-    }
-    simulateMessage({ type: 'state', runtime })
-    simulateMessage({ type: 'state', runtime })
-
-    expect(onRuntimeTerminal).toHaveBeenCalledTimes(1)
-    expect(useChatStore.getState().activeRequests['req-silent']).toBeUndefined()
-    expect(useChatStore.getState().streamingSessions.l1).toBe(false)
-    expect(useChatStore.getState().routeSessions.l1).toBeUndefined()
-  })
-
-  it('cleans up a terminal external handler before the same request id starts again', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'chat_accepted',
-      origin: 'channel',
-      request_id: 'req-reused-external',
-      session_id: 'l1',
-      prompt: chineseSamples.websocket_test_001,
-      timestamp: '2026-09-21T10:24:00.000Z',
-    })
-    expect(wsManager.hasChatHandler('req-reused-external')).toBe(true)
-
-    const terminalRuntime = (revision: number, sessionId = 'l1') => ({
-      phase: 'idle',
-      prompt_tokens: 0,
-      output_tokens: 0,
-      cache_hit_tokens: 0,
-      cache_miss_tokens: 0,
-      context_pct: 0,
-      current_tokens: 0,
-      max_tokens: 0,
-      current_iter: 0,
-      content_deltas: 0,
-      active_delegations: 0,
-      total_agents: 1,
-      running_agents: 0,
-      idle_agents: 1,
-      total_errors: 0,
-      http_addr: ':8765',
-      agent_streams: {},
-      sessions: {
-        [`${sessionId}:req-reused-external`]: {
-          session_id: sessionId,
-          request_id: 'req-reused-external',
-          state: 'idle',
-          terminal_code: 'completed',
-          revision,
-          ctxwin_used: 0,
-          ctxwin_limit: 0,
-          delegating: false,
-        },
-      },
-    })
-
-    simulateMessage({ type: 'state', runtime: terminalRuntime(1, 'l2:wrong') })
-    expect(wsManager.hasChatHandler('req-reused-external')).toBe(true)
-
-    simulateMessage({ type: 'state', runtime: terminalRuntime(1) })
-    expect(wsManager.hasChatHandler('req-reused-external')).toBe(false)
-
-    useChatStore.setState({ messages: { l1: [] } })
-    simulateMessage({
-      type: 'chat_accepted',
-      origin: 'channel',
-      request_id: 'req-reused-external',
-      session_id: 'l1',
-      prompt: chineseSamples.websocket_test_002,
-      timestamp: '2026-09-21T10:25:00.000Z',
-    })
-    expect(wsManager.hasChatHandler('req-reused-external')).toBe(true)
-    expect(useChatStore.getState().messages.l1?.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-    ])
-    expect(useChatStore.getState().messages.l1?.[0].segments[0]).toMatchObject({
-      type: 'content',
-      text: chineseSamples.websocket_test_002,
-    })
-
-    simulateMessage({ type: 'state', runtime: terminalRuntime(2) })
-    expect(wsManager.hasChatHandler('req-reused-external')).toBe(false)
-  })
-
-  it('does not reuse route metadata from a different runtime request', async () => {
-    useChatStore.setState({
-      routeSessions: {
-        l1: {
-          requestId: 'req-old',
-          sessionId: 'l1',
-          taskLevel: 'research',
-          modelId: 'old-model',
-        },
-      },
-    })
-
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'state',
-      runtime: {
-        phase: 'processing',
-        prompt_tokens: 0,
-        output_tokens: 0,
-        cache_hit_tokens: 0,
-        cache_miss_tokens: 0,
-        context_pct: 0,
-        current_tokens: 0,
-        max_tokens: 0,
-        current_iter: 0,
-        content_deltas: 0,
-        active_delegations: 0,
-        total_agents: 1,
-        running_agents: 1,
-        idle_agents: 0,
-        total_errors: 0,
-        http_addr: ':8765',
-        agent_streams: {},
-        sessions: {
-          l1: {
-            session_id: 'l1',
-            request_id: 'req-new',
-            state: 'streaming',
-            revision: 1,
-            ctxwin_used: 0,
-            ctxwin_limit: 0,
-            delegating: false,
-          },
-        },
-      },
-    })
-
-    expect(useChatStore.getState().routeSessions.l1).toMatchObject({
-      requestId: 'req-new',
-      sessionId: 'l1',
-      taskLevel: '',
-      modelId: '',
-    })
-  })
-
-  it('keeps the local L1 route when runtime reports concurrent requests', async () => {
-    const currentRoute = {
-      requestId: 'req-current',
-      sessionId: 'l1',
-      taskLevel: 'research',
-      modelId: 'current-model',
-    }
-    useChatStore.setState({
-      routeSessions: { l1: currentRoute },
-      activeRequests: {
-        'req-current': {
-          requestId: 'req-current',
-          sessionId: 'l1',
-          status: 'streaming',
-          route: currentRoute,
-        },
-      },
-    })
-
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'state',
-      runtime: {
-        phase: 'processing',
-        prompt_tokens: 0,
-        output_tokens: 0,
-        cache_hit_tokens: 0,
-        cache_miss_tokens: 0,
-        context_pct: 0,
-        current_tokens: 0,
-        max_tokens: 0,
-        current_iter: 0,
-        content_deltas: 0,
-        active_delegations: 1,
-        total_agents: 1,
-        running_agents: 1,
-        idle_agents: 0,
-        total_errors: 0,
-        http_addr: ':8765',
-        agent_streams: {},
-        sessions: {
-          'l1:req-old': {
-            session_id: 'l1',
-            request_id: 'req-old',
-            state: 'streaming',
-            revision: 2,
-            ctxwin_used: 0,
-            ctxwin_limit: 0,
-            delegating: false,
-          },
-          'l1:req-current': {
-            session_id: 'l1',
-            request_id: 'req-current',
-            state: 'delegating',
-            revision: 2,
-            ctxwin_used: 0,
-            ctxwin_limit: 0,
-            delegating: true,
-          },
-        },
-      },
-    })
-
-    expect(useChatStore.getState().routeSessions.l1).toEqual(currentRoute)
-    expect(useChatStore.getState().delegatingSessions.l1).toBe(true)
-    expect(useChatStore.getState().streamingSessions.l1).toBe(true)
-  })
-
-  it('clears a persisted route when a refreshed session is already idle', async () => {
-    const route = {
-      requestId: 'req-completed',
-      sessionId: 'l1',
-      taskLevel: 'engineering',
-      modelId: 'completed-model',
-    }
-    localStorage.setItem('soloqueue_active_chat_routes', JSON.stringify({ l1: route }))
-    useChatStore.setState({ routeSessions: { l1: route }, streamingSessions: {} })
-
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'state',
-      runtime: {
-        phase: 'idle',
-        prompt_tokens: 0,
-        output_tokens: 0,
-        cache_hit_tokens: 0,
-        cache_miss_tokens: 0,
-        context_pct: 0,
-        current_tokens: 0,
-        max_tokens: 0,
-        current_iter: 0,
-        content_deltas: 0,
-        active_delegations: 0,
-        total_agents: 1,
-        running_agents: 0,
-        idle_agents: 1,
-        total_errors: 0,
-        http_addr: ':8765',
-        agent_streams: {},
-        sessions: {
-          l1: {
-            session_id: 'l1',
-            state: 'idle',
-            revision: 1,
-            ctxwin_used: 0,
-            ctxwin_limit: 0,
-            delegating: false,
-          },
-        },
-      },
-    })
-
-    expect(useChatStore.getState().routeSessions.l1).toBeUndefined()
-    expect(localStorage.getItem('soloqueue_active_chat_routes')).toBeNull()
-  })
-
+describe('websocket connection', () => {
   it('connect opens WebSocket and sets connected status', async () => {
-    // connect() is async — fire onopen after it returns
-    const connectPromise = wsManager.connect()
-    await connectPromise
-    simulateOpen()
-
-    await vi.waitFor(() => {
-      expect(useRuntimeStore.getState().connectionStatus).toBe('connected')
-    })
+    await wsManager.connect()
+    open()
+    expect(useRuntimeStore.getState().connectionStatus).toBe('connected')
     expect(vi.mocked(fetch)).not.toHaveBeenCalled()
   })
 
   it('opens a remote WebSocket without an application token', async () => {
     useConnectionStore.setState({ mode: 'remote', remoteUrl: 'https://remote.example' })
-
     await wsManager.connect()
-
-    expect(mockWSServer?.url).toBe('wss://remote.example/ws')
-    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+    expect(current().url).toBe('wss://remote.example/ws')
   })
 
-  it('subscribe to runtime handler and receive updates via store', async () => {
-    const handler = vi.fn()
-    wsManager.subscribe('runtime', handler)
+  it('notifies status and runtime subscribers', async () => {
+    const onStatus = vi.fn()
+    const onRuntime = vi.fn()
+    const unsubscribe = wsManager.subscribe('status', onStatus)
+    wsManager.subscribe('runtime', onRuntime)
     await wsManager.connect()
-    simulateOpen()
-
-    await vi.waitFor(() => {
-      expect(useRuntimeStore.getState().connectionStatus).toBe('connected')
-    })
-
-    const runtime = {
-      phase: 'processing',
-      prompt_tokens: 100,
-      output_tokens: 50,
-      cache_hit_tokens: 0,
-      cache_miss_tokens: 0,
-      context_pct: 0,
-      current_iter: 1,
-      content_deltas: 0,
-      active_delegations: 0,
-      total_agents: 2,
-      running_agents: 1,
-      idle_agents: 1,
-      total_errors: 0,
-      http_addr: ':8765',
-      agent_streams: {},
-    }
-
-    simulateMessage({ type: 'state', runtime, agents: { agents: [], supervisors: [] } })
-
-    await vi.waitFor(() => {
-      expect(handler).toHaveBeenCalledWith(runtime)
-    })
-  })
-
-  it('unsubscribe removes handler', () => {
-    const handler = vi.fn()
-    const unsub = wsManager.subscribe('runtime', handler)
-    unsub()
-    // No easy way to verify directly, but no crash is good
-  })
-
-  it('disconnect sets disconnected status', async () => {
-    await wsManager.connect()
-    simulateOpen()
-
-    await vi.waitFor(() => {
-      expect(useRuntimeStore.getState().connectionStatus).toBe('connected')
-    })
+    open()
+    expect(onStatus).toHaveBeenCalledWith('connected')
+    const runtime = { phase: 'idle', agent_streams: {} }
+    receive({ type: 'state', runtime, agents: { agents: [], supervisors: [] } })
+    expect(onRuntime).toHaveBeenCalledWith(expect.objectContaining({ phase: 'idle' }))
+    unsubscribe()
     wsManager.disconnect()
+    expect(onStatus).not.toHaveBeenCalledWith('disconnected')
     expect(useRuntimeStore.getState().connectionStatus).toBe('disconnected')
   })
 
-  it('subscribe to status handler', async () => {
-    const handler = vi.fn()
-    wsManager.subscribe('status', handler)
+  it('never queues chat_send while disconnected but queues other messages', async () => {
+    expect(wsManager.send({ type: 'chat_send', request_id: 'r', session_id: 'l1', prompt: 'hi' })).toBe(false)
+    expect(wsManager.send({ type: 'chat_cancel', request_id: 'r', session_id: 'l1' })).toBe(true)
     await wsManager.connect()
-    simulateOpen()
-
-    await vi.waitFor(() => {
-      expect(handler).toHaveBeenCalledWith('connected')
-    })
-  })
-
-  it('routes chat_route metadata to the matching request handler', async () => {
-    const onRoute = vi.fn()
-    wsManager.registerChat('req-route', { onRoute })
-    await wsManager.connect()
-    simulateOpen()
-
-    const route = {
-      type: 'chat_route',
-      request_id: 'req-route',
-      session_id: 'l2:s1',
-      task_type: 'L2-MediumMultiFile',
-      model_id: 'routed-model',
-      provider_id: 'provider',
-      agent_instance_id: 'agent-instance',
-    }
-    expect(wsManager.hasChatHandler('req-route')).toBe(true)
-    simulateMessage(route)
-
-    expect(onRoute).toHaveBeenCalledWith(route)
-    wsManager.unregisterChat('req-route')
-    expect(wsManager.hasChatHandler('req-route')).toBe(false)
-  })
-
-  it('routes chat_accepted to the matching request handler', async () => {
-    const onAccepted = vi.fn()
-    wsManager.registerChat('req-accepted', { onAccepted })
-    await wsManager.connect()
-    simulateOpen()
-
-    const accepted = {
-      type: 'chat_accepted',
-      request_id: 'req-accepted',
-      session_id: 'l2:s1',
-    }
-    simulateMessage(accepted)
-
-    expect(onAccepted).toHaveBeenCalledWith(accepted)
-  })
-
-  it('shows a queued channel input once before execution starts', async () => {
-    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
-    await wsManager.connect()
-    simulateOpen()
-    const queued = { type: 'chat_queued', origin: 'channel', request_id: 'req-external-queued', session_id: 'l1', prompt: 'waiting' }
-    simulateMessage(queued)
-    simulateMessage(queued)
-    expect(useChatStore.getState().messages.l1).toMatchObject([{ role: 'user', queued: true }])
-    expect(useChatStore.getState().streamingSessions.l1).toBeFalsy()
-    simulateMessage({ ...queued, type: 'chat_accepted' })
-    expect(useChatStore.getState().messages.l1.filter((m) => m.role === 'user')).toHaveLength(1)
-    expect(useChatStore.getState().messages.l1[0].queued).toBe(false)
-  })
-
-  it('updates a delegated tool when its parent stream has ended', async () => {
-    useChatStore.setState({ messages: { l1: [{ id: 'a', requestId: 'root', role: 'assistant', timestamp: '', segments: [{ type: 'tool_call', callId: 'call', name: 'delegate', args: '', done: false, dispatchId: 'd' }] }] } })
-    await wsManager.connect()
-    simulateOpen()
-    simulateMessage({ type: 'dispatch_terminal', session_id: 'l1', request_id: 'root', dispatch_id: 'd', call_id: 'call', result: 'failed', error: 'failed' })
-    expect(useChatStore.getState().messages.l1[0].segments[0]).toMatchObject({ done: true, error: 'failed' })
-  })
-
-  it('clears all merged channel inputs and reports failed waiting', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect(); simulateOpen()
-    for (const id of ['one', 'two', 'three']) simulateMessage({ type: 'chat_queued', origin: 'channel', request_id: id, session_id: 'l1', prompt: id })
-    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['one', 'two'] })
-    simulateMessage({ type: 'channel_queue_failed', session_id: 'l1', request_id: 'three' })
-    expect(useChatStore.getState().messages.l1.map((m) => [m.queued, !!m.queueError])).toEqual([[false, false], [false, false], [false, true]])
-  })
-
-  it('marks a failed delegation immediately when tool completion precedes its terminal notification', async () => {
-    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'chat_accepted', origin: 'channel', request_id: 'immediate-429', session_id: 'l1', prompt: 'start' })
-    simulateMessage({ type: 'tool_start', origin: 'channel', session_id: 'l1', request_id: 'immediate-429', dispatch_id: 'd-429', call_id: 'c-429', name: 'delegate', args: '{}' })
-    simulateMessage({ type: 'tool_done', origin: 'channel', session_id: 'l1', request_id: 'immediate-429', call_id: 'c-429', name: 'delegate', result: 'error: HTTP 429', error: 'HTTP 429' })
-    let segment = useChatStore.getState().messages.l1.flatMap((m) => m.segments).find((s) => s.type === 'tool_call')
-    expect(segment).toMatchObject({ done: true, error: 'HTTP 429' })
-    simulateMessage({ type: 'dispatch_terminal', session_id: 'l1', request_id: 'immediate-429', dispatch_id: 'd-429', call_id: 'c-429', result: 'failed', error: 'failed', revision: 1 })
-    segment = useChatStore.getState().messages.l1.flatMap((m) => m.segments).find((s) => s.type === 'tool_call')
-    expect(segment).toMatchObject({ done: true, error: 'failed' })
-  })
-
-  it('applies a delegation terminal arriving before its tool starts', async () => {
-    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'chat_accepted', origin: 'channel', request_id: 'race', session_id: 'l1', prompt: 'start' })
-    simulateMessage({ type: 'dispatch_terminal', session_id: 'l1', request_id: 'race', dispatch_id: 'd-race', call_id: 'call-race', result: 'failed', error: 'failed', revision: 3 })
-    simulateMessage({ type: 'tool_start', origin: 'channel', session_id: 'l1', request_id: 'race', dispatch_id: 'd-race', call_id: 'call-race', name: 'delegate', args: '{}' })
-    const segments = useChatStore.getState().messages.l1.flatMap((m) => m.segments)
-    expect(segments.find((s) => s.type === 'tool_call')).toMatchObject({ done: true, error: 'failed' })
-  })
-
-  it('preserves queue completion that arrives before the queued input', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'channel_queue_failed', session_id: 'l1', request_id: 'early-failed' })
-    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['early-started'] })
-    for (const id of ['early-failed', 'early-started']) simulateMessage({ type: 'chat_queued', origin: 'channel', request_id: id, session_id: 'l1', prompt: id })
-    expect(useChatStore.getState().messages.l1.map((m) => [m.queued, !!m.queueError])).toEqual([[false, true], [false, false]])
-  })
-
-  it('replaces an early aggregate accepted prompt with the original queued input', async () => {
-    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['late'] })
-    simulateMessage({ type: 'chat_accepted', origin: 'channel', session_id: 'l1', request_id: 'late', prompt: 'first\n\nsecond' })
-    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'late', prompt: 'second', timestamp: '2026-01-01T00:00:00Z', files: [{ name: 'a.txt', path: '/tmp/a.txt' }] })
-    const message = useChatStore.getState().messages.l1.find((m) => m.role === 'user')!
-    expect(message).toMatchObject({ queued: false, timestamp: '2026-01-01T00:00:00Z', segments: [{ type: 'content', text: 'second' }], files: [{ name: 'a.txt', path: '/tmp/a.txt' }] })
-  })
-
-  it('keeps earlier queued messages before a reply when accepted arrives first', async () => {
-    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['earlier', 'later'] })
-    simulateMessage({ type: 'chat_accepted', origin: 'channel', session_id: 'l1', request_id: 'later', prompt: 'earlier\n\nlater', timestamp: '2026-01-01T00:00:00Z' })
-    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'earlier', prompt: 'earlier', timestamp: '2026-01-01T00:00:00Z' })
-    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'later', prompt: 'later', timestamp: '2026-01-01T00:00:01Z' })
-    expect(useChatStore.getState().messages.l1.map((m) => [m.role, m.requestId])).toEqual([['user','earlier'], ['user','later'], ['assistant','later']])
-  })
-
-  it('orders three late queued messages before their aggregate response', async () => {
-    useChatStore.setState({ messages: {}, activeRequests: {}, streamingSessions: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'channel_queue_started', session_id: 'l1', request_ids: ['a', 'b', 'c'] })
-    simulateMessage({ type: 'chat_accepted', origin: 'channel', session_id: 'l1', request_id: 'c', prompt: 'a\n\nb\n\nc', timestamp: '2026-01-01T00:00:00Z' })
-    for (const [id, time] of [['b','01'], ['a','00'], ['c','02']]) simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: id, prompt: id, timestamp: `2026-01-01T00:00:${time}Z` })
-    expect(useChatStore.getState().messages.l1.map((m) => [m.role, m.requestId])).toEqual([['user','a'],['user','b'],['user','c'],['assistant','c']])
-  })
-
-  it('marks a stopped channel input as cancelled, including when notification arrives first', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'channel_queue_cancelled', session_id: 'l1', request_id: 'cancel-early' })
-    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'cancel-early', prompt: 'pending' })
-    expect(useChatStore.getState().messages.l1[0]).toMatchObject({ queued: false, queueCancelled: true, queueError: false })
-  })
-
-  it('does not restore a deleted cancelled input when the queued event arrives late', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'removed-cancelled', prompt: 'pending' })
-    simulateMessage({ type: 'channel_queue_cancelled', session_id: 'l1', request_id: 'removed-cancelled' })
-    removeAllCancelledInputs('l1')
-    useChatStore.setState({ messages: { l1: [] } })
-    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'removed-cancelled', prompt: 'pending' })
-    expect(useChatStore.getState().messages.l1).toEqual([])
-  })
-
-  it('does not restore an input cancelled before clear and received after clear', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'channel_queue_cancelled', session_id: 'l1', request_id: 'cancelled-before-clear' })
-    removeAllCancelledInputs('l1')
-    useChatStore.setState({ messages: { l1: [] } })
-    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'cancelled-before-clear', prompt: 'pending' })
-    expect(useChatStore.getState().messages.l1).toEqual([])
-  })
-
-  it('does not restore a deleted queued input when cancellation arrives later', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect(); simulateOpen()
-    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'removed-before-cancel', prompt: 'pending' })
-    removeCancelledInputs('l1', useChatStore.getState().messages.l1)
-    useChatStore.setState({ messages: { l1: [] } })
-    simulateMessage({ type: 'channel_queue_cancelled', session_id: 'l1', request_id: 'removed-before-cancel' })
-    simulateMessage({ type: 'chat_queued', origin: 'channel', session_id: 'l1', request_id: 'removed-before-cancel', prompt: 'pending' })
-    expect(useChatStore.getState().messages.l1).toEqual([])
-  })
-
-  it('hydrates an unowned channel stream into the active chat store', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'chat_accepted',
-      origin: 'channel',
-      request_id: 'req-channel',
-      session_id: 'l1',
-      prompt: chineseSamples.websocket_test_003,
-    })
-    simulateMessage({
-      type: 'chat_route',
-      origin: 'channel',
-      request_id: 'req-channel',
-      session_id: 'l1',
-      task_type: 'general',
-      model_id: 'channel-model',
-    })
-    simulateMessage({
-      type: 'chat_chunk',
-      origin: 'channel',
-      request_id: 'req-channel',
-      session_id: 'l1',
-      delta: chineseSamples.websocket_test_004,
-    })
-
-    const beforeDone = useChatStore.getState().messages.l1 || []
-    expect(beforeDone.map((message) => message.role)).toEqual(['user', 'assistant'])
-    expect(beforeDone[0].segments[0]).toMatchObject({ type: 'content', text: chineseSamples.websocket_test_003 })
-    expect(beforeDone[1].segments[0]).toMatchObject({ type: 'content', text: chineseSamples.websocket_test_004 })
-    expect(useChatStore.getState().routeSessions.l1).toMatchObject({
-      requestId: 'req-channel',
-      modelId: 'channel-model',
-    })
-
-    simulateMessage({
-      type: 'chat_done',
-      origin: 'channel',
-      request_id: 'req-channel',
-      session_id: 'l1',
-    })
-    expect(useChatStore.getState().activeRequests['req-channel']).toBeUndefined()
-    expect(useChatStore.getState().streamingSessions.l1).toBe(false)
-
-    simulateMessage({
-      type: 'chat_accepted',
-      origin: 'channel',
-      request_id: 'req-channel-final',
-      session_id: 'l1',
-      prompt: chineseSamples.websocket_test_005,
-    })
-    simulateMessage({
-      type: 'chat_done',
-      origin: 'channel',
-      request_id: 'req-channel-final',
-      session_id: 'l1',
-      content: chineseSamples.websocket_test_006,
-    })
-    const finalMessages = useChatStore.getState().messages.l1 || []
-    expect(finalMessages.at(-1)?.segments[0]).toMatchObject({
-      type: 'content',
-      text: chineseSamples.websocket_test_006,
-    })
-  })
-
-  it('does not invent a user message when a channel chunk arrives without an accepted prompt', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'chat_chunk',
-      origin: 'channel',
-      request_id: 'req-channel-recovery',
-      session_id: 'l1',
-      delta: chineseSamples.websocket_test_007,
-    })
-
-    const messages = useChatStore.getState().messages.l1 || []
-    expect(messages.map((message) => message.role)).toEqual(['assistant'])
-    expect(messages[0].segments[0]).toMatchObject({
-      type: 'content',
-      text: chineseSamples.websocket_test_007,
-    })
-  })
-
-  it('continues a hydrated channel turn in its existing assistant message', async () => {
-    useChatStore.setState({
-      messages: {
-        l1: [
-          {
-            id: 'hist-user',
-            requestId: 'req-hydrated-channel',
-            role: 'user',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_008 }],
-            timestamp: '2026-09-21T04:00:39.487Z',
-          },
-          {
-            id: 'hist-assistant',
-            requestId: 'req-hydrated-channel',
-            role: 'assistant',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_009 }],
-            timestamp: '2026-09-21T04:00:46.719Z',
-          },
-        ],
-      },
-    })
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'tool_start',
-      origin: 'channel',
-      request_id: 'req-hydrated-channel',
-      session_id: 'l1',
-      timestamp: '2026-09-21T04:00:39.500Z',
-      call_id: 'delegate-call',
-      name: 'delegate',
-      args: '{"target":"ray dalio"}',
-    })
-
-    const messages = useChatStore.getState().messages.l1 || []
-    expect(messages).toHaveLength(2)
-    expect(messages[0]).toMatchObject({ id: 'channel-user-req-hydrated-channel', role: 'user' })
-    expect(messages[1]).toMatchObject({
-      id: 'msg-req-hydrated-channel',
-      role: 'assistant',
-      segments: [
-        { type: 'content', text: chineseSamples.websocket_test_009 },
-        { type: 'tool_call', callId: 'delegate-call', name: 'delegate', done: false },
-      ],
-    })
-  })
-
-  it('resumes a delayed channel turn at its original position without duplicating messages', async () => {
-    useChatStore.setState({
-      messages: {
-        l1: [
-          {
-            id: 'hist-old-user',
-            role: 'user',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_010 }],
-            timestamp: '2026-09-21T10:24:00.000Z',
-          },
-          {
-            id: 'msg-req-delayed-channel',
-            role: 'assistant',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_011 }],
-            timestamp: '2026-09-21T10:24:00.000Z',
-          },
-          {
-            id: 'hist-new-user',
-            role: 'user',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_012 }],
-            timestamp: '2026-09-21T10:32:00.000Z',
-          },
-          {
-            id: 'hist-new-assistant',
-            role: 'assistant',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_013 }],
-            timestamp: '2026-09-21T10:32:00.000Z',
-          },
-        ],
-      },
-    })
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'chat_chunk',
-      origin: 'channel',
-      request_id: 'req-delayed-channel',
-      session_id: 'l1',
-      timestamp: '2026-09-21T10:24:00.000Z',
-      delta: chineseSamples.websocket_test_014,
-    })
-    simulateMessage({
-      type: 'chat_done',
-      origin: 'channel',
-      request_id: 'req-delayed-channel',
-      session_id: 'l1',
-      timestamp: '2026-09-21T10:24:00.000Z',
-      content: chineseSamples.websocket_test_015,
-    })
-
-    const messages = useChatStore.getState().messages.l1 || []
-    expect(messages.map((message) => message.id)).toEqual([
-      'hist-old-user',
-      'msg-req-delayed-channel',
-      'hist-new-user',
-      'hist-new-assistant',
-    ])
-    expect(messages[1].segments).toEqual([{ type: 'content', text: chineseSamples.websocket_test_015 }])
-    expect(messages[0].timestamp).toBe('2026-09-21T10:24:00.000Z')
-    expect(messages[1].timestamp).toBe('2026-09-21T10:24:00.000Z')
-  })
-
-  it('does not merge a delayed channel request into a nearby unrelated turn', async () => {
-    useChatStore.setState({
-      messages: {
-        l1: [
-          {
-            id: 'new-user',
-            role: 'user',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_016 }],
-            timestamp: '2026-09-21T10:24:00.500Z',
-          },
-          {
-            id: 'new-assistant',
-            role: 'assistant',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_017 }],
-            timestamp: '2026-09-21T10:24:00.500Z',
-          },
-        ],
-      },
-    })
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'chat_chunk',
-      origin: 'channel',
-      request_id: 'old',
-      session_id: 'l1',
-      timestamp: '2026-09-21T10:24:00.000Z',
-      delta: chineseSamples.websocket_test_018,
-    })
-
-    const messages = useChatStore.getState().messages.l1 || []
-    expect(messages.map((message) => message.id)).toEqual(['msg-old', 'new-user', 'new-assistant'])
-    expect(messages[0].segments).toEqual([{ type: 'content', text: chineseSamples.websocket_test_018 }])
-    expect(messages[2].segments).toEqual([{ type: 'content', text: chineseSamples.websocket_test_017 }])
-  })
-
-  it('inserts a delayed channel assistant before later user turns', async () => {
-    useChatStore.setState({
-      messages: {
-        l1: [
-          {
-            id: 'hist-new-user',
-            role: 'user',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_012 }],
-            timestamp: '2026-09-21T10:32:00.000Z',
-          },
-          {
-            id: 'hist-new-assistant',
-            role: 'assistant',
-            segments: [{ type: 'content', text: chineseSamples.websocket_test_013 }],
-            timestamp: '2026-09-21T10:32:00.000Z',
-          },
-        ],
-      },
-    })
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'chat_chunk',
-      origin: 'channel',
-      request_id: 'req-delayed-insert',
-      session_id: 'l1',
-      timestamp: '2026-09-21T10:24:00.000Z',
-      delta: chineseSamples.websocket_test_019,
-    })
-
-    const messages = useChatStore.getState().messages.l1 || []
-    expect(messages.map((message) => message.id)).toEqual([
-      'msg-req-delayed-insert',
-      'hist-new-user',
-      'hist-new-assistant',
-    ])
-    expect(messages[0]).toMatchObject({
-      role: 'assistant',
-      timestamp: '2026-09-21T10:24:00.000Z',
-      segments: [{ type: 'content', text: chineseSamples.websocket_test_019 }],
-    })
-  })
-
-  it('rejects frames that do not match an external channel handler owner', async () => {
-    useChatStore.setState({ messages: {} })
-    await wsManager.connect()
-    simulateOpen()
-
-    simulateMessage({
-      type: 'chat_accepted',
-      origin: 'channel',
-      request_id: 'req-owned-channel',
-      session_id: 'l1',
-      prompt: chineseSamples.websocket_test_020,
-      timestamp: '2026-09-21T10:24:00.000Z',
-    })
-    simulateMessage({
-      type: 'chat_chunk',
-      origin: 'channel',
-      request_id: 'req-owned-channel',
-      session_id: 'l2:wrong',
-      delta: chineseSamples.websocket_test_021,
-    })
-    simulateMessage({
-      type: 'chat_chunk',
-      request_id: 'req-owned-channel',
-      session_id: 'l1',
-      delta: chineseSamples.websocket_test_022,
-    })
-    simulateMessage({
-      type: 'chat_chunk',
-      origin: 'browser',
-      request_id: 'req-owned-channel',
-      session_id: 'l1',
-      delta: chineseSamples.websocket_test_023,
-    })
-    simulateMessage({
-      type: 'chat_chunk',
-      origin: 'channel',
-      request_id: 'req-owned-channel',
-      session_id: 'l1',
-      delta: chineseSamples.websocket_test_024,
-    })
-
-    const messages = useChatStore.getState().messages.l1 || []
-    expect(messages).toHaveLength(2)
-    expect(messages[1].segments).toEqual([{ type: 'content', text: chineseSamples.websocket_test_024 }])
-  })
-
-  it('reports chat_send as unsent when the socket is not open', () => {
-    const sent = wsManager.send({
-      type: 'chat_send',
-      request_id: 'req-disconnected',
-      session_id: 'l2:s1',
-      prompt: 'hello',
-    })
-
-    expect(sent).toBe(false)
-  })
-
-  it('marks transiently disconnected chat handlers for runtime recovery', async () => {
-    const onChunk = vi.fn()
-    wsManager.registerChat('req-recover', { onChunk })
-    await wsManager.connect()
-    simulateOpen()
-    expect(wsManager.hasChatHandler('req-recover')).toBe(true)
-
-    mockWSServer?.onclose?.({ code: 1006, reason: 'network reset' })
-    expect(wsManager.hasChatHandler('req-recover')).toBe(false)
-
-    // A fresh event proves the request stream has resumed; normal handler
-    // ownership can then suppress redundant runtime snapshot hydration.
-    await wsManager.connect()
-    simulateOpen()
-    simulateMessage({ type: 'chat_chunk', request_id: 'req-recover', delta: 'resumed' })
-    expect(onChunk).toHaveBeenCalledWith('resumed')
-    expect(wsManager.hasChatHandler('req-recover')).toBe(true)
-    wsManager.disconnect()
-  })
-
-  it('reports a message-too-large close immediately to chat handlers', async () => {
-    const onClose = vi.fn()
-    wsManager.registerChat('req-too-large', { onClose })
-    await wsManager.connect()
-    simulateOpen()
-
-    mockWSServer?.onclose?.({ code: 1009, reason: 'Message Too Large' })
-
-    expect(onClose).toHaveBeenCalledWith(1009, false)
+    open()
+    expect(sentMessages()).toEqual([{ type: 'chat_cancel', request_id: 'r', session_id: 'l1' }])
   })
 })
 
-it('splits consecutive QQ inputs into independent live replies at injection', async () => {
-  useChatStore.setState({ messages: {} })
-  await wsManager.connect()
-  simulateOpen()
-  const channel = { origin: 'channel', session_id: 'l1' }
-  simulateMessage({
-    ...channel,
-    type: 'chat_accepted',
-    request_id: 'req-first',
-    prompt: 'first question',
-    timestamp: '2026-10-20T15:20:54+08:00',
-  })
-  simulateMessage({
-    ...channel,
-    type: 'reasoning_chunk',
-    request_id: 'req-first',
-    delta: 'first reasoning',
-  })
-  simulateMessage({
-    ...channel,
-    type: 'chat_chunk',
-    request_id: 'req-first',
-    delta: 'first output',
-  })
-  simulateMessage({
-    ...channel,
-    type: 'chat_accepted',
-    request_id: 'req-second',
-    prompt: 'second question',
-    timestamp: '2026-10-20T15:21:00+08:00',
-  })
-  simulateMessage({
-    ...channel,
-    type: 'chat_queue_started',
-    request_id: 'req-first',
-    request_ids: ['req-second'],
-    cancel_request_id: 'req-first',
+describe('websocket transcript transport', () => {
+  it('resubscribes every live transcript from its cursor after reconnecting', async () => {
+    liveSession('l2:live', { headSeq: 42 })
+    useTranscriptStore.setState((store) => ({
+      sessions: { ...store.sessions, 'l2:closed': { ...store.sessions['l2:live'], status: 'idle' } },
+    }))
+    await wsManager.connect()
+    open()
+    expect(sentMessages()).toEqual([{ type: 'subscribe', session_id: 'l2:live', epoch: 'e1', after_seq: 42 }])
   })
 
-  expect(wsManager.hasChatHandler('req-first')).toBe(false)
-  expect(useChatStore.getState().activeRequests['req-first']).toBeUndefined()
-  expect(useChatStore.getState().activeRequests['req-second']).toMatchObject({
-    status: 'streaming',
-    cancelRequestId: 'req-first',
+  it('applies frames and reassembles split CJK deltas in order', async () => {
+    liveSession('l2:live')
+    await wsManager.connect()
+    open()
+    const text: string = chineseSamples.websocket_test_001
+    const half = Math.floor(text.length / 2)
+    receive({
+      type: 'frames',
+      session_id: 'l2:live',
+      epoch: 'e1',
+      frames: [
+        frame(1, 'input_committed', { request_id: 'r', item_id: 'in:r', text: 'q' }),
+        frame(2, 'item_delta', { request_id: 'r', item_id: 'out:r:0', text: text.slice(0, half) }),
+      ],
+    })
+    receive({ type: 'frames', session_id: 'l2:live', epoch: 'e1', frames: [frame(3, 'item_delta', { request_id: 'r', item_id: 'out:r:0', text: text.slice(half) })] })
+    const state = useTranscriptStore.getState().sessions['l2:live'].state
+    expect(state.order).toEqual(['in:r', 'out:r:0'])
+    expect(state.items['out:r:0'].segments[0].text).toBe(text)
   })
-  simulateMessage({
-    ...channel,
-    type: 'reasoning_chunk',
-    request_id: 'req-second',
-    delta: 'second reasoning',
+
+  it('routes resync, acknowledgements and command results to the transcript store', async () => {
+    liveSession('l2:live')
+    const resync = vi.spyOn(useTranscriptStore.getState(), 'resync').mockResolvedValue()
+    const ack = vi.spyOn(useTranscriptStore.getState(), 'ackLocalInput')
+    const command = vi.spyOn(useTranscriptStore.getState(), 'addCommandResult')
+    await wsManager.connect()
+    open()
+    receive({ type: 'resync_required', session_id: 'l2:live', epoch: 'e2', head_seq: 9, reason: 'epoch' })
+    receive({ type: 'resync_required', session_id: 'l2:unknown', epoch: 'e2', head_seq: 9, reason: 'epoch' })
+    receive({ type: 'chat_ack', request_id: 'r', session_id: 'l2:live', status: 'queued' })
+    receive({ type: 'command_result', request_id: 'h', session_id: 'l2:live', content: 'help text' })
+    expect(resync).toHaveBeenCalledTimes(1)
+    expect(resync).toHaveBeenCalledWith('l2:live')
+    expect(ack).toHaveBeenCalledWith('r', 'queued', undefined)
+    expect(command).toHaveBeenCalledWith('h', 'l2:live', 'help text')
   })
-  simulateMessage({
-    ...channel,
-    type: 'chat_chunk',
-    request_id: 'req-second',
-    delta: 'second output',
+
+  it('lets runtime snapshots drive only sessions without a live transcript', async () => {
+    liveSession('l2:live')
+    await wsManager.connect()
+    open()
+    receive({
+      type: 'state',
+      runtime: {
+        sessions: {
+          'l2:live': { session_id: 'l2:live', state: 'processing', revision: 1 },
+          'l2:other': { session_id: 'l2:other', state: 'processing', revision: 1, delegating: true },
+        },
+      },
+    })
+    let chat = useChatStore.getState()
+    expect(chat.streamingSessions['l2:live']).toBeUndefined()
+    expect(chat.streamingSessions['l2:other']).toBe(true)
+    expect(chat.delegatingSessions['l2:other']).toBe(true)
+    receive({ type: 'state', runtime: { sessions: { 'l2:other': { session_id: 'l2:other', state: 'idle', revision: 2 } } } })
+    chat = useChatStore.getState()
+    expect(chat.streamingSessions['l2:other']).toBe(false)
   })
-  const messages = useChatStore.getState().messages.l1
-  expect(messages.map(({ role, requestId }) => [role, requestId])).toEqual([
-    ['user', 'req-first'],
-    ['assistant', 'req-first'],
-    ['user', 'req-second'],
-    ['assistant', 'req-second'],
-  ])
-  expect(messages[1].segments).toEqual([
-    { type: 'thinking', text: 'first reasoning' },
-    { type: 'content', text: 'first output' },
-  ])
-  expect(messages[3].segments).toEqual([
-    { type: 'thinking', text: 'second reasoning' },
-    { type: 'content', text: 'second output' },
-  ])
-  simulateMessage({
-    ...channel,
-    type: 'chat_done',
-    request_id: 'req-second',
-    content: 'second output',
-  })
-  expect(useChatStore.getState().activeRequests).toEqual({})
-  expect(useChatStore.getState().streamingSessions.l1).toBe(false)
 })

@@ -98,6 +98,35 @@ type ModelOverridable interface {
 	SetModelOverride(params *ModelOverrideParams)
 }
 
+// ─── Transcript Sink ─────────────────────────────────────────────────────────
+
+// TranscriptSink receives agent events at the moment they are produced, before
+// any consumer sees them. The Session installs one per request; the sink
+// ignores events whose owner is not the session's leader agent, so delegated
+// child agents never write into the parent conversation.
+type TranscriptSink interface {
+	PublishAgentEvent(owner string, ev AgentEvent)
+}
+
+type transcriptSinkCtxKey struct{}
+
+// ContextWithTranscriptSink installs the transcript sink for a request.
+func ContextWithTranscriptSink(ctx context.Context, sink TranscriptSink) context.Context {
+	if sink == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, transcriptSinkCtxKey{}, sink)
+}
+
+// TranscriptSinkFromContext returns the request's transcript sink, or nil.
+func TranscriptSinkFromContext(ctx context.Context) TranscriptSink {
+	if ctx == nil {
+		return nil
+	}
+	v, _ := ctx.Value(transcriptSinkCtxKey{}).(TranscriptSink)
+	return v
+}
+
 // ─── WorkDir Context Propagation ──────────────────────────────────────────────
 
 type workDirCtxKey struct{}

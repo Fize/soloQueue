@@ -38,8 +38,12 @@ func (cw *ContextWindow) beginCompaction(ctx context.Context) (string, bool) {
 	reason := compactionReasonFromContext(ctx)
 	run := &compactionRun{done: make(chan struct{}), id: id, reason: reason, startedAt: startedAt}
 	cw.activeCompaction = run
+	status := CompactionStatus{ID: id, Status: "running", Reason: reason, StartedAt: startedAt}
 	if cw.compactionStatusHook != nil {
-		cw.compactionStatusHook(ctx, CompactionStatus{ID: id, Status: "running", Reason: reason, StartedAt: startedAt})
+		cw.compactionStatusHook(ctx, status)
+	}
+	if cw.compactionObserver != nil {
+		cw.compactionObserver(ctx, status)
 	}
 	return id, true
 }
@@ -66,8 +70,9 @@ func (cw *ContextWindow) finishCompaction(ctx context.Context, id string, summar
 	if run != nil {
 		run.summary, run.err = summary, err
 	}
+	observer := cw.compactionObserver
 	cw.compactStateMu.Unlock()
-	if cw.compactionStatusHook != nil {
+	if cw.compactionStatusHook != nil || observer != nil {
 		st := CompactionStatus{ID: id, Status: status, FinishedAt: time.Now()}
 		if run != nil {
 			st.Reason, st.StartedAt = run.reason, run.startedAt
@@ -75,7 +80,12 @@ func (cw *ContextWindow) finishCompaction(ctx context.Context, id string, summar
 		if err != nil {
 			st.Error = err.Error()
 		}
-		cw.compactionStatusHook(ctx, st)
+		if cw.compactionStatusHook != nil {
+			cw.compactionStatusHook(ctx, st)
+		}
+		if observer != nil {
+			observer(ctx, st)
+		}
 	}
 	cw.compactStateMu.Lock()
 	if run != nil {
@@ -114,6 +124,7 @@ type TemporalPart struct {
 	Content         string
 	Timestamp       time.Time
 	ExposeTimestamp bool
+	RequestID       string // request that queued this component; never sent to the LLM
 }
 
 // PendingInput is one aggregate queued user turn with per-message temporal metadata.
@@ -189,6 +200,10 @@ type Message struct {
 	TemporalParts       []TemporalPart     // Components of one aggregated pending user turn.
 	RequestFailed       bool               // Internal outcome, attached to this user input.
 	RequestID           string             // Stable request identity for timeline/UI ownership; never sent to the LLM.
+	ItemID              string             // Live transcript item persisted by this message; never sent to the LLM.
+	Seq                 uint64             // Session sequence at which ItemID opened; never sent to the LLM.
+	Iter                int                // Agent iteration that produced an assistant message (valid when IterSet).
+	IterSet             bool
 	suppressAutoCompact bool
 }
 
@@ -263,6 +278,36 @@ func WithRequestID(requestID string) PushOption {
 
 // WithRequestFailed restores a recorded unsuccessful request outcome.
 func WithRequestFailed() PushOption { return func(m *Message) { m.RequestFailed = true } }
+
+// WithItem restores the transcript identity persisted with a message.
+func WithItem(itemID string, seq uint64) PushOption {
+	return func(m *Message) {
+		m.ItemID = itemID
+		m.Seq = seq
+	}
+}
+
+// WithIter records the agent iteration that produced an assistant message so
+// the transcript stamper can bind it to its live item.
+func WithIter(iter int) PushOption {
+	return func(m *Message) {
+		m.Iter = iter
+		m.IterSet = true
+	}
+}
+
+// PushStamper runs inside Push, before the message is stored or persisted,
+// outside replay. It binds the message to its live transcript item and may
+// adjust transcript fields (ItemID, Seq, Timestamp).
+type PushStamper func(msg *Message)
+
+// SetPushStamper installs the transcript stamper. It is called with the
+// ContextWindow lock held; it must not call back into the ContextWindow.
+func (cw *ContextWindow) SetPushStamper(stamper PushStamper) {
+	cw.Lock()
+	cw.pushStamper = stamper
+	cw.Unlock()
+}
 
 // MarkRequestFailed binds an outcome to the original input instead of appending
 // a synthetic message which could be interleaved with another request.
@@ -343,6 +388,15 @@ func WithCompactionStatusHook(hook CompactionStatusHook) Option {
 	return func(cw *ContextWindow) { cw.compactionStatusHook = hook }
 }
 
+// SetCompactionObserver installs the observer that receives each compaction
+// status after the configured CompactionStatusHook has recorded it. Setting it
+// again replaces the previous observer.
+func (cw *ContextWindow) SetCompactionObserver(observer CompactionStatusHook) {
+	cw.compactStateMu.Lock()
+	cw.compactionObserver = observer
+	cw.compactStateMu.Unlock()
+}
+
 // AddSummaryHook chains a callback after the configured summary hook. Call it
 // during session setup, before any messages can trigger compaction.
 func (cw *ContextWindow) AddSummaryHook(hook SummaryHook) {
@@ -393,11 +447,13 @@ type ContextWindow struct {
 	tokenizer            *Tokenizer  // shared, immutable after init
 	compactor            Compactor   // context compressor (may be nil)
 	pushHook             PushHook    // callback after Push (may be nil)
+	pushStamper          PushStamper // binds pushes to transcript items (may be nil)
 	summaryHook          SummaryHook // callback after compaction (may be nil)
 	compactionStatusHook CompactionStatusHook
-	replayMode           bool           // disable pushHook during replay
-	log                  *logger.Logger // optional logger for message tracking
-	summarizing          atomic.Bool    // true while async compression is in progress
+	compactionObserver   CompactionStatusHook // guarded by compactStateMu
+	replayMode           bool                 // disable pushHook during replay
+	log                  *logger.Logger       // optional logger for message tracking
+	summarizing          atomic.Bool          // true while async compression is in progress
 	compactStateMu       sync.Mutex
 	activeCompaction     *compactionRun
 	historyEpoch         uint64 // invalidates in-flight snapshots after destructive history edits
@@ -456,6 +512,9 @@ func (cw *ContextWindow) Push(role MessageRole, content string, opts ...PushOpti
 	msg := Message{Role: role, Content: content, Timestamp: time.Now()}
 	for _, opt := range opts {
 		opt(&msg)
+	}
+	if cw.pushStamper != nil && !cw.replayMode {
+		cw.pushStamper(&msg)
 	}
 	// Token count includes Content + ReasoningContent + ToolCalls
 	msg.Tokens = cw.tokenizer.Count(content) + cw.tokenizer.Count(msg.ReasoningContent)

@@ -243,7 +243,7 @@ func (m *Mux) handleGetCronHistory(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(timelineDir, "/") {
 			timelineDir = m.workDir + "/" + timelineDir
 		}
-		if loaded, err := readAllTimelineEvents(timelineDir); err == nil {
+		if loaded, err := timeline.ReadAllEvents(timelineDir); err == nil {
 			events = loaded
 		}
 	}

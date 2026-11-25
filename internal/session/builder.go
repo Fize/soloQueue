@@ -26,7 +26,26 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team"
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
+
+// summaryRequestID returns the request that explicitly asked for a compaction.
+// Automatic compactions belong to no request and stay hidden from the chat.
+func summaryRequestID(ctx context.Context) string {
+	if compactionReason(ctx) != compactionReasonUserCommand {
+		return ""
+	}
+	return telemetry.MetadataFromContext(ctx).RequestID
+}
+
+// summaryItemID binds an explicit compaction summary to the live item that
+// the /compact request published for it.
+func summaryItemID(ctx context.Context) string {
+	if requestID := summaryRequestID(ctx); requestID != "" {
+		return transcript.OutputItemID(requestID, 0)
+	}
+	return ""
+}
 
 func timelineTemporalParts(parts []ctxwin.TemporalPart) []timeline.TemporalPartPayload {
 	if len(parts) == 0 {
@@ -42,9 +61,50 @@ func timelineTemporalParts(parts []ctxwin.TemporalPart) []timeline.TemporalPartP
 			Content:         part.Content,
 			Timestamp:       timestamp,
 			ExposeTimestamp: part.ExposeTimestamp,
+			RequestID:       part.RequestID,
 		}
 	}
 	return out
+}
+
+// timelinePushHook persists every visible ContextWindow push to the session
+// timeline, including the transcript identity stamped by the Session.
+func timelinePushHook(tl *timeline.Writer, agentID string, sessLog *logger.Logger) ctxwin.PushHook {
+	return func(msg ctxwin.Message) {
+		var toolCalls []timeline.ToolCallRec
+		for _, tc := range msg.ToolCalls {
+			toolCalls = append(toolCalls, timeline.ToolCallRec{
+				ID:        tc.ID,
+				Type:      tc.Type,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+		}
+		var files []timeline.FileAttachment
+		for _, f := range msg.Files {
+			files = append(files, timeline.FileAttachment{Name: f.Name, Path: f.Path})
+		}
+		if err := tl.AppendMessage(&timeline.MessagePayload{
+			Role:             string(msg.Role),
+			Content:          msg.Content,
+			Timestamp:        msg.Timestamp.Format(time.RFC3339Nano),
+			ReasoningContent: msg.ReasoningContent,
+			Name:             msg.Name,
+			ToolCallID:       msg.ToolCallID,
+			ToolCalls:        toolCalls,
+			Files:            files,
+			IsEphemeral:      msg.IsEphemeral,
+			AgentID:          agentID,
+			ExposeTimestamp:  msg.ExposeTimestamp,
+			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
+			RequestID:        msg.RequestID,
+			ItemID:           msg.ItemID,
+			Seq:              msg.Seq,
+		}); err != nil && sessLog != nil {
+			sessLog.Error(logger.CatActor, "timeline append failed",
+				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
+		}
+	}
 }
 
 // Builder encapsulates session creation logic. Each Build() call produces
@@ -568,9 +628,11 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		// memory below, but the chat UI now sees one consolidated segment.
 		if finalClean != "" {
 			if err := tl.AppendControl(&timeline.ControlPayload{
-				Action:  "summary",
-				Reason:  compactionReason(ctx),
-				Content: finalClean,
+				Action:    "summary",
+				Reason:    compactionReason(ctx),
+				Content:   finalClean,
+				RequestID: summaryRequestID(ctx),
+				ItemID:    summaryItemID(ctx),
 			}); err != nil {
 				sessLog.Error(logger.CatActor, "timeline summary append failed",
 					"err", err.Error(), "agent_id", agentID)
@@ -642,42 +704,7 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		}
 	}
 
-	pushHook := func(msg ctxwin.Message) {
-		var toolCalls []timeline.ToolCallRec
-		for _, tc := range msg.ToolCalls {
-			toolCalls = append(toolCalls, timeline.ToolCallRec{
-				ID:        tc.ID,
-				Type:      tc.Type,
-				Name:      tc.Function.Name,
-				Arguments: tc.Function.Arguments,
-			})
-		}
-		var files []timeline.FileAttachment
-		for _, f := range msg.Files {
-			files = append(files, timeline.FileAttachment{
-				Name: f.Name,
-				Path: f.Path,
-			})
-		}
-		if err := tl.AppendMessage(&timeline.MessagePayload{
-			Role:             string(msg.Role),
-			Content:          msg.Content,
-			Timestamp:        msg.Timestamp.Format(time.RFC3339Nano),
-			ReasoningContent: msg.ReasoningContent,
-			Name:             msg.Name,
-			ToolCallID:       msg.ToolCallID,
-			ToolCalls:        toolCalls,
-			Files:            files,
-			IsEphemeral:      msg.IsEphemeral,
-			AgentID:          agentID,
-			ExposeTimestamp:  msg.ExposeTimestamp,
-			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
-			RequestID:        msg.RequestID,
-		}); err != nil {
-			sessLog.Error(logger.CatActor, "timeline append failed",
-				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
-		}
-	}
+	pushHook := timelinePushHook(tl, agentID, sessLog)
 
 	// ContextWindow + system prompt
 	cw := ctxwin.NewContextWindow(
@@ -687,7 +714,7 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		b.RT.Tokenizer,
 		ctxwin.WithPushHook(pushHook),
 		ctxwin.WithSummaryHook(summaryHook),
-		ctxwin.WithCompactionStatusHook(compactionStatusHook(tl, "l1-session", sessLog)),
+		ctxwin.WithCompactionStatusHook(compactionStatusHook(tl, sessLog)),
 		ctxwin.WithCompactor(b.RT.Compactor),
 	)
 	// Push system prompt without writing to timeline. The timeline is a
@@ -1015,9 +1042,11 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 			return
 		}
 		if err := tl.AppendControl(&timeline.ControlPayload{
-			Action:  "summary",
-			Reason:  compactionReason(ctx),
-			Content: finalSummary,
+			Action:    "summary",
+			Reason:    compactionReason(ctx),
+			Content:   finalSummary,
+			RequestID: summaryRequestID(ctx),
+			ItemID:    summaryItemID(ctx),
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline summary append failed",
 				"err", err.Error(), "agent_id", agentID)
@@ -1028,42 +1057,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	}
 
 	// Push hook: writes every message to timeline.
-	pushHook := func(msg ctxwin.Message) {
-		var toolCalls []timeline.ToolCallRec
-		for _, tc := range msg.ToolCalls {
-			toolCalls = append(toolCalls, timeline.ToolCallRec{
-				ID:        tc.ID,
-				Type:      tc.Type,
-				Name:      tc.Function.Name,
-				Arguments: tc.Function.Arguments,
-			})
-		}
-		var files []timeline.FileAttachment
-		for _, f := range msg.Files {
-			files = append(files, timeline.FileAttachment{
-				Name: f.Name,
-				Path: f.Path,
-			})
-		}
-		if err := tl.AppendMessage(&timeline.MessagePayload{
-			Role:             string(msg.Role),
-			Content:          msg.Content,
-			Timestamp:        msg.Timestamp.Format(time.RFC3339Nano),
-			ReasoningContent: msg.ReasoningContent,
-			Name:             msg.Name,
-			ToolCallID:       msg.ToolCallID,
-			ToolCalls:        toolCalls,
-			Files:            files,
-			IsEphemeral:      msg.IsEphemeral,
-			AgentID:          agentID,
-			ExposeTimestamp:  msg.ExposeTimestamp,
-			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
-			RequestID:        msg.RequestID,
-		}); err != nil {
-			sessLog.Error(logger.CatActor, "timeline append failed",
-				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
-		}
-	}
+	pushHook := timelinePushHook(tl, agentID, sessLog)
 
 	cw := ctxwin.NewContextWindow(
 		effectiveCW,
@@ -1072,7 +1066,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		b.RT.Tokenizer,
 		ctxwin.WithPushHook(pushHook),
 		ctxwin.WithSummaryHook(summaryHook),
-		ctxwin.WithCompactionStatusHook(compactionStatusHook(tl, sessionID, sessLog)),
+		ctxwin.WithCompactionStatusHook(compactionStatusHook(tl, sessLog)),
 		ctxwin.WithCompactor(b.RT.Compactor),
 	)
 
@@ -1243,9 +1237,11 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 			return
 		}
 		if err := tl.AppendControl(&timeline.ControlPayload{
-			Action:  "summary",
-			Reason:  compactionReason(ctx),
-			Content: finalSummary,
+			Action:    "summary",
+			Reason:    compactionReason(ctx),
+			Content:   finalSummary,
+			RequestID: summaryRequestID(ctx),
+			ItemID:    summaryItemID(ctx),
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline summary append failed",
 				"err", err.Error(), "agent_id", agentID)
@@ -1328,17 +1324,16 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	return s, nil
 }
 
-func compactionStatusHook(tl *timeline.Writer, sessionID string, log *logger.Logger) ctxwin.CompactionStatusHook {
-	return func(ctx context.Context, status ctxwin.CompactionStatus) {
-		payload := timeline.CompactionStatusPayload{ID: status.ID, Status: status.Status, Reason: status.Reason, StartedAt: status.StartedAt.Format(time.RFC3339Nano), Error: status.Error}
-		if !status.FinishedAt.IsZero() {
-			payload.FinishedAt = status.FinishedAt.Format(time.RFC3339Nano)
+// compactionStatusHook persists compaction lifecycle rows. The Session that
+// owns the context window publishes the matching transcript frame.
+func compactionStatusHook(tl *timeline.Writer, log *logger.Logger) ctxwin.CompactionStatusHook {
+	return func(_ context.Context, status ctxwin.CompactionStatus) {
+		if tl == nil {
+			return
 		}
-		if tl != nil {
-			if err := tl.AppendControl(&timeline.ControlPayload{Action: "compaction_status", Reason: status.Reason, Compaction: &payload}); err != nil && log != nil {
-				log.Error(logger.CatActor, "compaction status timeline append failed", "err", err.Error(), "compaction_id", status.ID)
-			}
+		payload := compactionPayload(status)
+		if err := tl.AppendControl(&timeline.ControlPayload{Action: "compaction_status", Reason: status.Reason, Compaction: &payload}); err != nil && log != nil {
+			log.Error(logger.CatActor, "compaction status timeline append failed", "err", err.Error(), "compaction_id", status.ID)
 		}
-		PublishCompactionStatus(sessionID, payload)
 	}
 }

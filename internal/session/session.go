@@ -37,6 +37,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 	"github.com/xiaobaitu/soloqueue/internal/observability"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 	"gopkg.in/yaml.v3"
 )
 
@@ -118,13 +119,17 @@ func inputPushOptions(ctx context.Context) []ctxwin.PushOption {
 }
 
 func (s *Session) enqueuePending(ctx context.Context, prompt string) {
-	message := PendingMessage{Prompt: prompt, RequestID: telemetry.MetadataFromContext(ctx).RequestID}
-	metadata, ok := temporalExposureFromContext(ctx)
+	metadata := telemetry.MetadataFromContext(ctx)
+	message := PendingMessage{Prompt: prompt, RequestID: metadata.RequestID}
+	receivedAt := time.Now()
+	exposure, ok := temporalExposureFromContext(ctx)
 	if ok {
-		message.ReceivedAt = metadata.receivedAt
+		message.ReceivedAt = exposure.receivedAt
 		message.ExposeTimestamp = true
+		receivedAt = exposure.receivedAt
 	}
 	s.pending.EnqueueMessage(message)
+	s.publishInputQueued(message.RequestID, prompt, receivedAt, filesFromContext(ctx), imageCount(ctx), metadata.Origin)
 }
 
 // Version is the current version of soloqueue. It is set at startup by the main command.
@@ -187,20 +192,15 @@ type RequestLifecycleHooks struct {
 	// OnInput observes the accepted user prompt before routing begins. It is
 	// used by transports that do not own a browser WebSocket request to publish
 	// the user message into the shared live stream.
-	OnInput                 func(context.Context, string, string, string)
-	OnChannelQueued         func(context.Context, string, string, string, time.Time, []ctxwin.FileAttachment)
-	OnChannelQueueFailed    func(context.Context, string, string)
-	OnChannelQueueCancelled func(context.Context, string, string)
-	OnDispatchTerminal      func(string, dispatch.Record)
-	OnBind                  func(string, string, func() error) error
-	OnRoute                 func(string, string, RequestRoute)
+	OnInput func(context.Context, string, string, string)
+	OnBind  func(string, string, func() error) error
+	OnRoute func(string, string, RequestRoute)
 	// OnEvent observes normalized AgentEvents before they are delivered to the
 	// request consumer. The consumer remains responsible for draining the
 	// stream; this hook only mirrors the event to shared observers.
-	OnEvent      func(context.Context, string, string, agent.AgentEvent)
-	OnCancel     func(string, string, string) error
-	OnFinish     func(string, string, string, string)
-	OnCompaction func(string, timeline.CompactionStatusPayload)
+	OnEvent  func(context.Context, string, string, agent.AgentEvent)
+	OnCancel func(string, string, string) error
+	OnFinish func(string, string, string, string)
 }
 
 var requestLifecycleDefaults struct {
@@ -214,15 +214,6 @@ func SetDefaultRequestLifecycleHooks(hooks RequestLifecycleHooks) {
 	requestLifecycleDefaults.Lock()
 	requestLifecycleDefaults.hooks = hooks
 	requestLifecycleDefaults.Unlock()
-}
-
-func PublishCompactionStatus(sessionID string, status timeline.CompactionStatusPayload) {
-	requestLifecycleDefaults.RLock()
-	hook := requestLifecycleDefaults.hooks.OnCompaction
-	requestLifecycleDefaults.RUnlock()
-	if hook != nil {
-		hook(sessionID, status)
-	}
 }
 
 func defaultRequestLifecycleHooks() RequestLifecycleHooks {
@@ -346,6 +337,10 @@ type Session struct {
 	agentRegistry     *agent.Registry
 	lastJob           *agent.JobHandle
 	isQBot            atomic.Bool
+
+	// Ordered live transcript of this session (see internal/transcript).
+	transcriptReg atomic.Pointer[transcript.Registry]
+	journal       atomic.Pointer[transcript.Journal]
 }
 
 // SetL1NotifyChannelPath configures the file read immediately before an L1
@@ -406,30 +401,15 @@ type agentGeneration struct {
 	supervisor *agent.Supervisor
 }
 
-// RequestRoute is the immutable routing decision captured synchronously for a
-// specific desktop request before AskStream returns. It does not depend on the
-// actor having started and therefore survives queueing, yield, and generation
-// replacement timing.
+// RequestRoute is the immutable routing decision of one request. It is
+// published as the request's request_route transcript frame and reported to
+// OnRoute before AskStream returns, so it does not depend on the actor having
+// started and survives queueing, yield, and generation replacement.
 type RequestRoute struct {
 	TaskType        string
 	ModelID         string
 	ProviderID      string
 	AgentInstanceID string
-}
-
-type requestRouteCapture struct {
-	once sync.Once
-	ch   chan RequestRoute
-}
-
-type requestRouteCaptureKey struct{}
-
-// WithRequestRouteCapture installs a request-owned one-shot route sink. The
-// buffered channel is owned by the caller context: no Session map or cleanup
-// path can leak if setup fails, a socket disconnects, or no consumer reads it.
-func WithRequestRouteCapture(ctx context.Context) (context.Context, <-chan RequestRoute) {
-	capture := &requestRouteCapture{ch: make(chan RequestRoute, 1)}
-	return context.WithValue(ctx, requestRouteCaptureKey{}, capture), capture.ch
 }
 
 var (
@@ -484,6 +464,8 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 	}
 	if cw != nil {
 		cw.SetLifecycleContext(reflectionCtx)
+		cw.SetPushStamper(s.stampPush)
+		cw.SetCompactionObserver(s.publishCompactionStatus)
 	}
 	s.lastActive.Store(time.Now().UnixNano())
 	if tl != nil {
@@ -521,6 +503,7 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 					"target_id", s.TargetID,
 					"command", lower,
 				)
+				s.publishInputDropped("stale_command", pending.RequestIDs...)
 				return ctxwin.PendingInput{}
 			}
 			parts := make([]ctxwin.TemporalPart, len(pending.Parts))
@@ -529,6 +512,7 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 					Content:         part.Prompt,
 					Timestamp:       part.ReceivedAt,
 					ExposeTimestamp: part.ExposeTimestamp,
+					RequestID:       part.RequestID,
 				}
 			}
 			s.logger.InfoContext(context.Background(), logger.CatApp, "pending messages injected into context window",
@@ -552,7 +536,6 @@ func NewSession(id, teamID string, a *agent.Agent, cw *ctxwin.ContextWindow, tl 
 }
 
 func (s *Session) publishRequestRoute(ctx context.Context, a *agent.Agent, result RouteResult) {
-	capture, _ := ctx.Value(requestRouteCaptureKey{}).(*requestRouteCapture)
 	if a == nil {
 		return
 	}
@@ -583,14 +566,9 @@ func (s *Session) publishRequestRoute(ctx context.Context, a *agent.Agent, resul
 	hooks := s.requestHooks
 	s.agentMu.RUnlock()
 	metadata := telemetry.MetadataFromContext(ctx)
+	s.publishRequestRouteFrame(metadata.RequestID, route)
 	if hooks.OnRoute != nil && metadata.RequestID != "" {
 		hooks.OnRoute(s.TargetID, metadata.RequestID, route)
-	}
-	if capture != nil {
-		capture.once.Do(func() {
-			capture.ch <- route
-			close(capture.ch)
-		})
 	}
 }
 
@@ -613,24 +591,16 @@ func filesFromContext(ctx context.Context) []ctxwin.FileAttachment {
 	return files
 }
 
+// notifyChannelQueued shows a channel input that waits for another route to
+// finish as queued in the session transcript.
 func (s *Session) notifyChannelQueued(ctx context.Context, prompt string, receivedAt time.Time) {
-	s.agentMu.RLock()
-	hook := s.requestHooks.OnChannelQueued
-	s.agentMu.RUnlock()
-	id := telemetry.MetadataFromContext(ctx).RequestID
-	if hook != nil && id != "" {
-		hook(ctx, s.TargetID, id, prompt, receivedAt, filesFromContext(ctx))
-	}
+	metadata := telemetry.MetadataFromContext(ctx)
+	s.publishInputQueued(metadata.RequestID, prompt, receivedAt, filesFromContext(ctx), imageCount(ctx), metadata.Origin)
 }
 
+// notifyChannelQueueFailed removes a waiting channel input that could not run.
 func (s *Session) notifyChannelQueueFailed(ctx context.Context) {
-	s.agentMu.RLock()
-	hook := s.requestHooks.OnChannelQueueFailed
-	s.agentMu.RUnlock()
-	id := telemetry.MetadataFromContext(ctx).RequestID
-	if hook != nil && id != "" {
-		hook(ctx, s.TargetID, id)
-	}
+	s.publishInputDropped("failed", telemetry.MetadataFromContext(ctx).RequestID)
 }
 
 // CancelRunOwned cancels one request after the runtime owner has verified that
@@ -1416,14 +1386,7 @@ func (s *Session) withDispatchScope(ctx context.Context) context.Context {
 	if s.dispatchManager == nil {
 		return ctx
 	}
-	return dispatch.WithScope(ctx, dispatch.Scope{Manager: s.dispatchManager, OnTerminal: func(record dispatch.Record) {
-		s.agentMu.RLock()
-		hook := s.requestHooks.OnDispatchTerminal
-		s.agentMu.RUnlock()
-		if hook != nil {
-			hook(s.TargetID, record)
-		}
-	}})
+	return dispatch.WithScope(ctx, dispatch.Scope{Manager: s.dispatchManager, OnTerminal: s.publishDispatchTerminal})
 }
 
 // beginRunLifecycle attaches one Runtime-owned watchdog root to a public
@@ -1612,6 +1575,7 @@ func (s *Session) QueueMessage(prompt string, requestIDs ...string) {
 		requestID = requestIDs[0]
 	}
 	s.pending.EnqueueMessage(PendingMessage{Prompt: prompt, RequestID: requestID})
+	s.publishInputQueued(requestID, prompt, time.Now(), nil, 0, telemetryctx.OriginDesktop)
 	s.logger.InfoContext(context.Background(), logger.CatApp, "message queued via QueueMessage",
 		"target_id", s.TargetID,
 		"prompt_len", len(prompt),
@@ -1765,6 +1729,7 @@ func (s *Session) Clear() error {
 		s.cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions)
 	}
 	s.mu.Unlock()
+	s.PublishTranscriptReset("clear")
 
 	// Trigger persona reflection on the cleared conversation (L1-only).
 	if len(dateGroups) > 0 {
@@ -1897,6 +1862,7 @@ func (s *Session) Rewind(targetTs time.Time) error {
 
 	// Truncate in-memory ContextWindow
 	s.cw.Rewind(resolvedTs)
+	s.PublishTranscriptReset("rewind")
 	return nil
 }
 
@@ -1954,6 +1920,7 @@ func (s *Session) DeleteMessages(targetTsList []time.Time) error {
 
 	// Remove from in-memory ContextWindow
 	s.cw.DeleteMessages(resolvedTsList)
+	s.PublishTranscriptReset("delete")
 	return nil
 }
 
@@ -2140,17 +2107,30 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 	hooks := s.requestHooks
 	s.agentMu.RUnlock()
 	lifecycleStarted := false
+	// transcriptStarted tracks the request_started frame independently of the
+	// runtime hooks, so every started request is closed in the transcript.
+	transcriptStarted := false
+	startTranscript := func() {
+		if requestID != "" && !transcriptStarted {
+			transcriptStarted = true
+			s.publishRequestStarted(ctx, requestID)
+		}
+	}
 	terminalMessage := ""
 	if store := observability.FromContext(ctx); store != nil {
 		if err := store.Begin(metadata.SessionID, requestID); err != nil {
 			s.logger.Warn(logger.CatApp, "execution detail start failed", "err", err.Error())
 		}
 	}
-	finishLifecycle := func(code string) {
+	finishLifecycle := func(code string, drained ...string) {
 		if store := observability.FromContext(ctx); store != nil {
 			if err := store.Finish(metadata.SessionID, requestID, code); err != nil {
 				s.logger.Warn(logger.CatApp, "execution detail finish failed", "err", err.Error())
 			}
+		}
+		if transcriptStarted {
+			transcriptStarted = false
+			s.publishRequestEnd(requestID, code, terminalMessage, drained)
 		}
 
 		if lifecycleStarted && hooks.OnFinish != nil {
@@ -2183,6 +2163,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 			}
 			lifecycleStarted = true
 		}
+		startTranscript()
 		if requestID != "" && hooks.OnInput != nil {
 			hooks.OnInput(ctx, s.TargetID, requestID, prompt)
 		}
@@ -2244,6 +2225,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 					summary = "Context window compacted (no content to summarize)"
 				}
 				terminalCode = "completed"
+				s.publishSyntheticOutput(requestID, []transcript.Segment{{Type: transcript.SegmentCompact, Text: summary}}, false)
 				out <- agent.ContentDeltaEvent{Delta: summary}
 				out <- agent.DoneEvent{Content: summary}
 			}
@@ -2290,6 +2272,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 			}
 			lifecycleStarted = true
 		}
+		startTranscript()
 		if requestID != "" && hooks.OnInput != nil {
 			hooks.OnInput(ctx, s.TargetID, requestID, prompt)
 		}
@@ -2372,6 +2355,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 		}
 		lifecycleStarted = true
 	}
+	startTranscript()
 	if requestID != "" && hooks.OnInput != nil {
 		hooks.OnInput(ctx, s.TargetID, requestID, prompt)
 	}
@@ -2441,6 +2425,11 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 		finishLifecycle("error")
 		return nil, errors.New("session: no active agent")
 	}
+	// Publish the leader agent's events at the moment they are produced. The
+	// sink travels with the request context into resumed and continued jobs.
+	sink := s.newTranscriptSink(askAgent.InstanceID, requestID)
+	askCtx = iface.ContextWithTranscriptSink(askCtx, sink)
+	ctx = askCtx
 	effectiveCW := askAgent.Def.ContextWindow
 	if effectiveCW <= 0 {
 		effectiveCW = agent.DefaultContextWindow
@@ -2572,6 +2561,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 		if errors.Is(err, agent.ErrQuarantined) && s.rebuildGeneration != nil {
 			if rebuildErr := s.rebuildQuarantinedAgent(context.Background(), askAgent); rebuildErr == nil {
 				askAgent = s.CurrentAgent()
+				if askAgent != nil {
+					sink.allow(askAgent.InstanceID)
+				}
 				srcCh, jobHandle, err = s.askStream(askCtx, s.cw, prompt)
 				if err == nil {
 					goto enqueued
@@ -2628,9 +2620,9 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 	}
 
 enqueued:
-	// Capture the request route before returning to the WebSocket layer. Actor
-	// execution is asynchronous, so Agent.activeModelOverride is not an
-	// authoritative source for the just-accepted request.
+	// Publish the request route before returning. Actor execution is
+	// asynchronous, so Agent.activeModelOverride is not an authoritative source
+	// for the just-accepted request.
 	s.publishRequestRoute(clientCtx, askAgent, activeRouteResult)
 
 	out := make(chan iface.AgentEvent, 64)
@@ -2653,7 +2645,7 @@ enqueued:
 				}
 			}
 		}()
-		defer func() { finishLifecycle(terminalCode) }()
+		defer func() { finishLifecycle(terminalCode, queuedObservationIDs...) }()
 		flightLocked := false
 		defer func() {
 			if flightLocked {
@@ -2680,6 +2672,10 @@ enqueued:
 		var gotDone bool
 		var eventCount int
 		deliveryRequestID := requestID
+		// lastIter is the agent iteration of the latest output event; the
+		// final and partial assistant rows persist that iteration's item.
+		var lastIter int
+		var lastIterSet bool
 		var accContent strings.Builder // accumulates streamed content for partial flush on non-normal exit
 		var accReasoning strings.Builder
 		var lastPushedContent string // tracks last content pushed to cw (avoids duplicate partial flush)
@@ -2704,10 +2700,23 @@ enqueued:
 			}
 			return b.String()
 		}
+		// Reasoning accumulates across iterations like content; the partial
+		// flush strips the reasoning that per-iteration rows already persisted.
+		var persistedReasoningDump string
+		reasoningDump := func() string {
+			var b strings.Builder
+			for i := cwLenBeforeTurn; i < s.cw.Len(); i++ {
+				if m, ok := s.cw.MessageAt(i); ok && m.Role == ctxwin.RoleAssistant && m.RequestID == deliveryRequestID {
+					b.WriteString(m.ReasoningContent)
+				}
+			}
+			return b.String()
+		}
 		var rollbackOnce sync.Once
 		rollbackTurn := func() {
 			rollbackOnce.Do(func() {
 				persistedAssistantDump = assistantDump()
+				persistedReasoningDump = reasoningDump()
 				s.mu.Lock()
 				s.cw.Truncate(cwLenBeforeTurn)
 				s.mu.Unlock()
@@ -2743,9 +2752,17 @@ enqueued:
 					// scan the CW directly — it still holds the persisted content.
 					dump = assistantDump()
 				}
+				reasoning := accReasoning.String()
+				reasoningPersisted := persistedReasoningDump
+				if reasoningPersisted == "" {
+					reasoningPersisted = reasoningDump()
+				}
+				if reasoningPersisted != "" {
+					reasoning = partialFlushRemainder(reasoning, reasoningPersisted)
+				}
 				if dump != "" {
 					pending = partialFlushRemainder(pending, dump)
-					if pending == "" && accReasoning.Len() == 0 {
+					if pending == "" && reasoning == "" {
 						s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial flush skipped (content already persisted by push hook)",
 							"target_id", s.TargetID,
 							"content_len", accContent.Len(),
@@ -2754,14 +2771,16 @@ enqueued:
 						return
 					}
 				}
-				_ = s.tl.AppendMessage(&timeline.MessagePayload{
+				payload := &timeline.MessagePayload{
 					Role:             "assistant",
 					Content:          pending,
-					ReasoningContent: accReasoning.String(),
+					ReasoningContent: reasoning,
 					AgentID:          askAgent.InstanceID,
 					RequestID:        deliveryRequestID,
 					Timestamp:        firstAssistantOutputAt.UTC().Format(time.RFC3339Nano),
-				})
+				}
+				s.stampPartialFlush(payload, lastIter, lastIterSet)
+				_ = s.tl.AppendMessage(payload)
 				s.logger.DebugContext(ctx, logger.CatApp, "askstream: partial assistant content flushed to timeline",
 					"target_id", s.TargetID,
 					"content_len", accContent.Len(),
@@ -2984,11 +3003,17 @@ enqueued:
 					firstAssistantOutputAt = time.Now()
 				}
 				accContent.WriteString(e.Delta)
+				lastIter, lastIterSet = e.Iter, true
 			case agent.ReasoningDeltaEvent:
 				if firstAssistantOutputAt.IsZero() {
 					firstAssistantOutputAt = time.Now()
 				}
 				accReasoning.WriteString(e.Delta)
+				lastIter, lastIterSet = e.Iter, true
+			case agent.ToolExecStartEvent:
+				lastIter, lastIterSet = e.Iter, true
+			case agent.IterationDoneEvent:
+				lastIter, lastIterSet = e.Iter, true
 			case agent.DoneEvent:
 				finalContent = e.Content
 				finalReasoning = e.ReasoningContent
@@ -3012,6 +3037,9 @@ enqueued:
 				}
 				if deliveryRequestID != "" {
 					opts = append(opts, ctxwin.WithRequestID(deliveryRequestID))
+				}
+				if lastIterSet {
+					opts = append(opts, ctxwin.WithIter(lastIter))
 				}
 				s.cw.Push(ctxwin.RoleAssistant, finalContent, opts...)
 				// Track what we just pushed so the partial-flush defer can skip duplicates.
@@ -3314,17 +3342,7 @@ func (s *Session) cancelCurrent(reason string, byUser bool) error {
 		cancelledPending = s.pending.Drain()
 	}
 	s.cancelMu.Unlock()
-	for _, part := range cancelledPending.Parts {
-		if part.RequestID == "" {
-			continue
-		}
-		s.agentMu.RLock()
-		hook := s.requestHooks.OnChannelQueueCancelled
-		s.agentMu.RUnlock()
-		if hook != nil {
-			hook(context.Background(), s.TargetID, part.RequestID)
-		}
-	}
+	s.publishInputDropped("cancelled", cancelledPending.RequestIDs...)
 	pendingCount := len(cancelledPending.Parts)
 
 	if len(turns) == 0 {
@@ -3411,10 +3429,23 @@ type SessionManager struct {
 	compactThreshold int           // 0 = disabled; minimum tokens to trigger compact
 	runWatch         *runwatch.Manager
 	requestHooks     RequestLifecycleHooks
+	transcripts      *transcript.Registry
 
 	mu      sync.Mutex
 	session *Session
 	closed  atomic.Bool
+}
+
+// SetTranscriptRegistry selects the registry that carries the live transcript
+// of the managed session. It applies to the current session and to every
+// session initialized later.
+func (m *SessionManager) SetTranscriptRegistry(r *transcript.Registry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.transcripts = r
+	if m.session != nil {
+		m.session.SetTranscriptRegistry(r)
+	}
 }
 
 // NewSessionManager constructs the manager
@@ -3614,6 +3645,7 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	// racing with initialization cannot publish a session with a stale callback
 	// set. SetRequestLifecycleHooks also updates an already-published session.
 	s.SetRequestLifecycleHooks(m.requestHooks)
+	s.SetTranscriptRegistry(m.transcripts)
 	s.PublishInitialGeneration()
 	m.session = s
 

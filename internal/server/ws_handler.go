@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
 const (
@@ -141,6 +142,10 @@ func (c *Client) readPump() {
 				c.hub.handleChatSend(c, &msg)
 			case "chat_cancel":
 				c.hub.handleChatCancel(c, &msg)
+			case "subscribe":
+				c.hub.handleSubscribe(c, &msg)
+			case "unsubscribe":
+				c.unsubscribe(transcript.SessionKey(msg.SessionID))
 			}
 		}
 	}
@@ -167,6 +172,24 @@ func (c *Client) writePump() {
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
+			}
+
+		case <-c.signal:
+			if state := c.takeLatestState(); state != nil {
+				c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := c.conn.WriteMessage(websocket.TextMessage, state); err != nil {
+					return
+				}
+			}
+			messages, more := c.pendingTranscriptMessages()
+			for _, message := range messages {
+				c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+					return
+				}
+			}
+			if more {
+				c.poke()
 			}
 
 		case <-ticker.C:

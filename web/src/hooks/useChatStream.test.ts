@@ -1,785 +1,193 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { toast } from 'sonner'
 import { useChatStream } from './useChatStream'
 import { useChatStore } from '@/stores/chatStore'
+import { useTranscriptStore } from '@/stores/transcriptStore'
 import { wsManager } from '@/lib/websocket'
-import { cancelSession, fetchSessionHistory } from '@/lib/api'
+import { cancelSession, fetchTranscript } from '@/lib/api'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
 vi.mock('@/lib/websocket', () => ({
-  wsManager: {
-    send: vi.fn(),
-    registerChat: vi.fn(),
-    unregisterChat: vi.fn(),
-  },
+  wsManager: { send: vi.fn() },
 }))
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, fetchSessionHistory: vi.fn(), cancelSession: vi.fn() }
+  return { ...actual, fetchTranscript: vi.fn(), cancelSession: vi.fn() }
 })
+
+const SID = 'l2:session-A'
 
 beforeEach(() => {
   useChatStore.setState({
     sessions: [
-      { id: 'l2:session-A', type: 'l2', name: 'Session A', createdAt: '' },
+      { id: SID, type: 'l2', name: 'Session A', createdAt: '' },
       { id: 'l2:session-B', type: 'l2', name: 'Session B', createdAt: '' },
     ],
-    activeSessionId: 'l2:session-A',
-    messages: {},
+    activeSessionId: SID,
     compactions: {},
     compactionClearWatermarks: {},
     activeRequests: {},
     streamingSessions: {},
+    systemCommandSessions: {},
     delegatingSessions: {},
     routeSessions: {},
-    historyPreservedMessageIds: {},
     titleGenerated: {},
   })
+  useTranscriptStore.setState({ sessions: {}, local: {}, commands: {} })
   vi.clearAllMocks()
   vi.mocked(wsManager.send).mockReturnValue(true)
   vi.mocked(cancelSession).mockResolvedValue(undefined)
-  vi.mocked(fetchSessionHistory).mockResolvedValue({
-    messages: [],
-    has_more: false,
+  vi.mocked(fetchTranscript).mockResolvedValue({
+    session_id: SID, epoch: 'e1', seq: 0, items: [], pending: [], requests: [],
+    has_more: false, compactions: [], ctxwin_used: 0, ctxwin_limit: 0,
   })
 })
 
-describe('useChatStream', () => {
-  it.each([
-    { status: 'failed', runtime: false },
-    { status: 'interrupted', runtime: false },
-    { status: 'failed', runtime: true },
-    { status: 'interrupted', runtime: true },
-  ] as const)(
-    'keeps manual compact $status out of permanent messages (runtime=$runtime)',
-    async ({ status, runtime }) => {
-      const sid = 'l2:session-A'
-      const { result } = renderHook(() => useChatStream())
-      await act(async () => {
-        await result.current.send('/compact', undefined, sid)
-      })
-      const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
-      const row = { id: 'manual', reason: 'user_command', started_at: new Date().toISOString() }
-      act(() => {
-        useChatStore.getState().setCompactionStatus(sid, { ...row, status: 'running' })
-        useChatStore.getState().setCompactionStatus(sid, { ...row, status, error: 'Timeout' })
-        if (runtime)
-          handler.onRuntimeTerminal?.({
-            terminal_code: 'error',
-            error: 'session: compact: Timeout',
-          })
-        else handler.onError?.('session: compact: Timeout')
-      })
-      expect(useChatStore.getState().messages[sid].map((message) => message.role)).toEqual(['user'])
-      expect(useChatStore.getState().compactions[sid][0]).toMatchObject({
-        status,
-        noticeExpiresAt: expect.any(Number),
-      })
-      expect(useChatStore.getState().streamingSessions[sid]).toBe(false)
-      expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(0)
-      await act(async () => {
-        await useChatStore.getState().loadHistory(sid)
-      })
-      expect(useChatStore.getState().messages[sid]).toEqual([])
-    }
-  )
+afterEach(() => {
+  vi.useRealTimers()
+})
 
-  it('still reports manual compact errors that happen before a compaction lifecycle starts', async () => {
-    const sid = 'l2:session-A'
+function onlyLocalInput() {
+  const inputs = Object.values(useTranscriptStore.getState().local)
+  expect(inputs).toHaveLength(1)
+  return inputs[0]
+}
+
+describe('useChatStream send', () => {
+  it('records the input locally and sends it with a client request ID', async () => {
     const { result } = renderHook(() => useChatStream())
+    let accepted = false
     await act(async () => {
-      await result.current.send('/compact', undefined, sid)
+      accepted = await result.current.send('hello', [{ name: 'a.txt', path: '/tmp/a.txt' }])
     })
-    const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
-    act(() => handler.onError?.('Session unavailable'))
-    expect(useChatStore.getState().messages[sid][1].segments).toEqual([
-      { type: 'error', text: 'Session unavailable' },
-    ])
-  })
-
-  it('stops every source in session A without stopping session B', async () => {
-    const { result } = renderHook(() => useChatStream())
-
-    // 1. Send message in session A
-    await act(async () => {
-      await result.current.send('Prompt for A', undefined, 'l2:session-A')
-    })
-
-    const sendCall1 = vi.mocked(wsManager.send).mock.calls[0][0] as any
-    expect(sendCall1.type).toBe('chat_send')
-    expect(sendCall1.session_id).toBe('l2:session-A')
-    const reqA = sendCall1.request_id
-
-    // 2. Switch active session to B
-    act(() => {
-      useChatStore.setState({ activeSessionId: 'l2:session-B' })
-    })
-
-    // 3. Send message in session B using the same hook instance
-    await act(async () => {
-      await result.current.send('Prompt for B', undefined, 'l2:session-B')
-    })
-
-    const sendCall2 = vi.mocked(wsManager.send).mock.calls[1][0] as any
-    expect(sendCall2.type).toBe('chat_send')
-    expect(sendCall2.session_id).toBe('l2:session-B')
-    // 4. Switch back to session A and trigger cancel()
-    act(() => {
-      useChatStore.setState({ activeSessionId: 'l2:session-A' })
-    })
-
-    act(() => {
-      useChatStore.getState().registerRequest('qq-A', 'l2:session-A')
-      useChatStore.getState().registerRequest('wechat-A', 'l2:session-A')
-    })
-    await act(async () => {
-      await result.current.cancel()
-    })
-    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
-    expect(useChatStore.getState().activeRequests[reqA]).toBeUndefined()
-    expect(useChatStore.getState().activeRequests['qq-A']).toBeUndefined()
-    expect(useChatStore.getState().activeRequests['wechat-A']).toBeUndefined()
-    expect(useChatStore.getState().activeRequests[sendCall2.request_id]).toBeDefined()
-    expect(wsManager.unregisterChat).toHaveBeenCalledWith('qq-A')
-    expect(wsManager.unregisterChat).toHaveBeenCalledWith('wechat-A')
-    expect(vi.mocked(wsManager.send).mock.calls.some(([message]) => message.type === 'chat_cancel')).toBe(false)
-  })
-
-  it('queues a second prompt while the session is busy', async () => {
-    useChatStore.setState({
-      activeSessionId: 'l2:session-A',
-      streamingSessions: { 'l2:session-A': true },
-      messages: { 'l2:session-A': [] },
-    })
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('keep this draft', undefined, 'l2:session-A')
-    })
-
-    // The message is still sent so the server can queue it (not dropped).
-    expect(wsManager.send).toHaveBeenCalled()
-    const sendMsg = vi.mocked(wsManager.send).mock.calls[0][0] as any
-    expect(sendMsg.type).toBe('chat_send')
-    expect(sendMsg.prompt).toBe('keep this draft')
-
-    // Only the user message is appended. The bot does not create an assistant
-    // reply for a queued prompt, so Desktop should not invent one either.
-    const msgs = useChatStore.getState().messages['l2:session-A']
-    expect(msgs.length).toBe(1)
-    expect(msgs[0].role).toBe('user')
-
-    // Simulate the server replying chat_queued.
-    const registerCall = vi.mocked(wsManager.registerChat).mock.calls[0]
-    const handler = registerCall[1]
-    act(() => {
-      handler.onQueued?.({ error: 'session is busy; message queued' })
-    })
-
-    // The queued acknowledgement is transport state only; it does not become
-    // an assistant message in the conversation.
-    const after = useChatStore.getState().messages['l2:session-A']
-    expect(after).toHaveLength(1)
-    expect(after[0].role).toBe('user')
-
-    // The in-flight request's streaming state must NOT be cleared.
-    expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(true)
-  })
-
-  it('stops both the running request and its queued follow-up', async () => {
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('running request', undefined, 'l2:session-A')
-      await result.current.send('queued follow-up', undefined, 'l2:session-A')
-    })
-
-    const sent = vi.mocked(wsManager.send).mock.calls.map((call) => call[0] as any)
-    const runningRequestId = sent[0].request_id
-    const queuedRequestId = sent[1].request_id
-    const handlers = vi.mocked(wsManager.registerChat).mock.calls.map((call) => call[1])
-
-    act(() => {
-      handlers[0].onAccepted?.()
-      handlers[1].onAccepted?.()
-      handlers[1].onQueued?.({ error: 'session is busy; message queued' })
-      expect(useChatStore.getState().activeRequests[queuedRequestId]?.status).toBe('queued')
-    })
-    await act(async () => { await result.current.cancel() })
-    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
-    expect(useChatStore.getState().activeRequests[runningRequestId]).toBeUndefined()
-    expect(useChatStore.getState().activeRequests[queuedRequestId]).toBeUndefined()
-  })
-
-  it('stops the session after queued input owns the stream', async () => {
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('running request', undefined, 'l2:session-A')
-      await result.current.send('queued follow-up', undefined, 'l2:session-A')
-    })
-
-    const sent = vi.mocked(wsManager.send).mock.calls.map((call) => call[0] as any)
-    const rootRequestId = sent[0].request_id
-    const queuedRequestId = sent[1].request_id
-    const [rootHandler, queuedHandler] = vi
-      .mocked(wsManager.registerChat)
-      .mock.calls.map((call) => call[1])
-
-    act(() => {
-      queuedHandler.onQueued?.({ error: 'queued' })
-      const boundary = {
-        request_ids: [queuedRequestId],
-        active_request_id: queuedRequestId,
-        cancel_request_id: rootRequestId,
-        owns_stream: false,
-      }
-      rootHandler.onQueueStarted?.(boundary)
-      queuedHandler.onQueueStarted?.({ ...boundary, owns_stream: true })
-      queuedHandler.onChunk?.('queued response')
-    })
-
-    expect(useChatStore.getState().messages['l2:session-A'].at(-1)?.segments).toEqual([
-      { type: 'content', text: 'queued response' },
-    ])
-
-    await act(async () => { await result.current.cancel() })
-
-    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
-    expect(useChatStore.getState().activeRequests[queuedRequestId]).toBeUndefined()
-    expect(wsManager.unregisterChat).toHaveBeenCalledWith(queuedRequestId)
-  })
-
-  it('does not downgrade a started queued request when its queued ack arrives late', async () => {
-    useChatStore.setState({ streamingSessions: { 'l2:session-A': true } })
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('queued follow-up', undefined, 'l2:session-A')
-    })
-    const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
-    const requestId = (vi.mocked(wsManager.send).mock.calls[0][0] as any).request_id
-
-    act(() => {
-      handler.onQueueStarted?.({
-        request_ids: [requestId],
-        active_request_id: requestId,
-        cancel_request_id: 'req-root',
-        owns_stream: true,
-      })
-      handler.onQueued?.({ error: 'late queued acknowledgement' })
-    })
-
-    expect(useChatStore.getState().activeRequests[requestId]?.status).toBe('streaming')
-    expect(useChatStore.getState().messages['l2:session-A']).toHaveLength(2)
-
-    await act(async () => { await result.current.cancel() })
-    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
-  })
-
-  it('stops the session after consecutive queue ownership handoffs', async () => {
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('root', undefined, 'l2:session-A')
-      await result.current.send('first queued', undefined, 'l2:session-A')
-      await result.current.send('second queued', undefined, 'l2:session-A')
-    })
-
-    const sent = vi.mocked(wsManager.send).mock.calls.map((call) => call[0] as any)
-    const [rootRequestId, firstQueuedId, secondQueuedId] = sent.map((message) => message.request_id)
-    const [rootHandler, firstQueuedHandler, secondQueuedHandler] = vi
-      .mocked(wsManager.registerChat)
-      .mock.calls.map((call) => call[1])
-
-    act(() => {
-      firstQueuedHandler.onQueued?.({ error: 'queued' })
-      secondQueuedHandler.onQueued?.({ error: 'queued' })
-      rootHandler.onQueueStarted?.({
-        request_ids: [firstQueuedId],
-        active_request_id: firstQueuedId,
-        cancel_request_id: rootRequestId,
-        owns_stream: false,
-      })
-      firstQueuedHandler.onQueueStarted?.({
-        request_ids: [firstQueuedId],
-        active_request_id: firstQueuedId,
-        cancel_request_id: rootRequestId,
-        owns_stream: true,
-      })
-      firstQueuedHandler.onQueueStarted?.({
-        request_ids: [secondQueuedId],
-        active_request_id: secondQueuedId,
-        cancel_request_id: rootRequestId,
-        owns_stream: false,
-      })
-      secondQueuedHandler.onQueueStarted?.({
-        request_ids: [secondQueuedId],
-        active_request_id: secondQueuedId,
-        cancel_request_id: rootRequestId,
-        owns_stream: true,
-      })
-    })
-
-    await act(async () => { await result.current.cancel() })
-    expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
-  })
-
-  it('opens one new assistant bubble after an aggregate of queued messages starts', async () => {
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('first', undefined, 'l2:session-A')
-    })
-    const firstHandler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
-    act(() => firstHandler.onChunk?.('old response'))
-
-    await act(async () => {
-      await result.current.send('second', undefined, 'l2:session-A')
-      await result.current.send('third', undefined, 'l2:session-A')
-    })
-    const secondHandler = vi.mocked(wsManager.registerChat).mock.calls[1][1]
-    const thirdHandler = vi.mocked(wsManager.registerChat).mock.calls[2][1]
-    const sent = vi.mocked(wsManager.send).mock.calls.map((call) => call[0] as any)
-    const queuedRequestIds = [sent[1].request_id, sent[2].request_id]
-    act(() => {
-      secondHandler.onQueued?.({ error: 'queued' })
-      thirdHandler.onQueued?.({ error: 'queued' })
-    })
-
-    expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(3)
-
-    act(() => {
-      const data = {
-        request_ids: queuedRequestIds,
-        active_request_id: queuedRequestIds[1],
-        owns_stream: false,
-      }
-      firstHandler.onQueueStarted?.(data)
-      secondHandler.onQueueStarted?.(data)
-      thirdHandler.onQueueStarted?.({ ...data, owns_stream: true })
-    })
-
-    let messages = useChatStore.getState().messages['l2:session-A']
-    expect(messages.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'user',
-      'user',
-      'assistant',
-    ])
-    const assistantsBefore = messages.filter((message) => message.role === 'assistant')
-    expect(assistantsBefore).toHaveLength(2)
-    expect(assistantsBefore[0].segments).toEqual([{ type: 'content', text: 'old response' }])
-    expect(Object.keys(useChatStore.getState().activeRequests)).toEqual([queuedRequestIds[1]])
-
-    act(() => {
-      thirdHandler.onReasoning?.('new reasoning')
-      thirdHandler.onChunk?.('new response')
-      thirdHandler.onToolStart?.({ call_id: 'call-new', name: 'Read', args: '{}' })
-    })
-
-    messages = useChatStore.getState().messages['l2:session-A']
-    const assistantsAfter = messages.filter((message) => message.role === 'assistant')
-    expect(assistantsAfter[0].segments).toEqual([{ type: 'content', text: 'old response' }])
-    expect(assistantsAfter[1].segments).toEqual([
-      { type: 'thinking', text: 'new reasoning' },
-      { type: 'content', text: 'new response' },
-      expect.objectContaining({ type: 'tool_call', callId: 'call-new' }),
-    ])
-
-    act(() => thirdHandler.onDone?.({ content: 'new response', reasoning_content: '' }))
-    expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(0)
-    expect(
-      useChatStore
-        .getState()
-        .messages['l2:session-A'].filter((message) => message.role === 'assistant')
-    ).toHaveLength(2)
-  })
-
-  it('inserts the aggregate assistant before a later queued user message', async () => {
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('first', undefined, 'l2:session-A')
-    })
-    const firstHandler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
-    act(() => firstHandler.onChunk?.('old response'))
-
-    await act(async () => {
-      await result.current.send('consumed second', undefined, 'l2:session-A')
-      await result.current.send('still queued third', undefined, 'l2:session-A')
-    })
-    const secondHandler = vi.mocked(wsManager.registerChat).mock.calls[1][1]
-    const sent = vi.mocked(wsManager.send).mock.calls.map((call) => call[0] as any)
-    const secondRequestId = sent[1].request_id
-    const thirdRequestId = sent[2].request_id
-
-    act(() => {
-      firstHandler.onQueueStarted?.({
-        request_ids: [secondRequestId],
-        active_request_id: secondRequestId,
-        owns_stream: false,
-      })
-      secondHandler.onQueueStarted?.({
-        request_ids: [secondRequestId],
-        active_request_id: secondRequestId,
-        owns_stream: true,
-      })
-    })
-
-    const messages = useChatStore.getState().messages['l2:session-A']
-    expect(messages.map((message) => [message.role, message.requestId])).toEqual([
-      ['user', sent[0].request_id],
-      ['assistant', sent[0].request_id],
-      ['user', secondRequestId],
-      ['assistant', secondRequestId],
-      ['user', thirdRequestId],
-    ])
-  })
-
-  it('delivers a queued processing failure to its anchored assistant bubble', async () => {
-    useChatStore.setState({ streamingSessions: { 'l2:session-A': true } })
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('queued failure', undefined, 'l2:session-A')
-    })
-    const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
-    const requestId = (vi.mocked(wsManager.send).mock.calls[0][0] as any).request_id
-    act(() => {
-      handler.onQueued?.({ error: 'queued' })
-      handler.onQueueStarted?.({
-        request_ids: [requestId],
-        active_request_id: requestId,
-        owns_stream: true,
-      })
-      handler.onError?.('follow-up failed')
-    })
-
-    const messages = useChatStore.getState().messages['l2:session-A']
-    expect(messages.map((message) => [message.role, message.requestId])).toEqual([
-      ['user', requestId],
-      ['assistant', requestId],
-    ])
-    expect(messages[1].segments).toEqual([{ type: 'error', text: 'follow-up failed' }])
-  })
-
-  it('creates the assistant message when that request first streams output', async () => {
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('Prompt for A', undefined, 'l2:session-A')
-    })
-
-    const registerCall = vi.mocked(wsManager.registerChat).mock.calls[0]
-    const handler = registerCall[1]
-    const messagesBefore = useChatStore.getState().messages['l2:session-A']
-    expect(messagesBefore.filter((message) => message.role === 'assistant')).toHaveLength(0)
-
-    act(() => {
-      handler.onChunk?.('owned response')
-    })
-
-    const messagesAfter = useChatStore.getState().messages['l2:session-A']
-    const assistant = messagesAfter.find((message) => message.role === 'assistant')
-    expect(assistant?.segments).toEqual([{ type: 'content', text: 'owned response' }])
-  })
-
-  it('keeps a completed silent terminal visible while history reloads', async () => {
-    const originalLoadHistory = useChatStore.getState().loadHistory
-    const loadHistory = vi.fn().mockResolvedValue(undefined)
-    useChatStore.setState({ activeSessionId: 'l2:session-A', messages: {}, loadHistory })
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('silent completion', undefined, 'l2:session-A')
-    })
-    const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
-
-    act(() => {
-      handler.onRuntimeTerminal?.({ terminal_code: 'completed' })
-    })
-
-    const assistant = useChatStore
-      .getState()
-      .messages['l2:session-A'].find((message) => message.role === 'assistant')
-    expect(assistant?.segments).toEqual([
-      { type: 'content', text: 'Response completed; loading history…' },
-    ])
-    expect(loadHistory).toHaveBeenCalledWith('l2:session-A')
-    useChatStore.setState({ loadHistory: originalLoadHistory })
-  })
-
-  it('keeps L1 requests independent when one completes or is cancelled', async () => {
-    useChatStore.setState({ activeSessionId: 'l1', messages: {}, streamingSessions: {} })
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('first L1 request', undefined, 'l1')
-      await result.current.send('second L1 request', undefined, 'l1')
-    })
-
-    const handlers = vi.mocked(wsManager.registerChat).mock.calls.map((call) => call[1])
-    expect(handlers).toHaveLength(2)
-    expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(2)
-    expect(useChatStore.getState().streamingSessions.l1).toBe(true)
-
-    act(() => {
-      handlers[0].onDone?.({ content: '', reasoning_content: '' })
-    })
-
-    expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(1)
-    expect(useChatStore.getState().streamingSessions.l1).toBe(true)
-
-    await act(async () => {
-      await result.current.cancel()
-    })
-
-    expect(useChatStore.getState().activeRequests).toEqual({})
-    expect(useChatStore.getState().streamingSessions.l1).toBe(false)
-  })
-
-  it('reconciles only the failing L1 request message when the server reports a timeout', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000)
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValueOnce(0.1).mockReturnValueOnce(0.2)
-    const originalLoadHistory = useChatStore.getState().loadHistory
-    const loadHistory = vi.fn()
-    useChatStore.setState({
-      activeSessionId: 'l1',
-      messages: {},
-      streamingSessions: {},
-      loadHistory,
-    })
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('timing out', undefined, 'l1')
-      await result.current.send('still running', undefined, 'l1')
-    })
-
-    const handlers = vi.mocked(wsManager.registerChat).mock.calls.map((call) => call[1])
-    act(() => {
-      handlers[0].onToolStart?.({ call_id: 'write-1', name: 'Write', args: '{}' })
-      handlers[1].onToolStart?.({ call_id: 'read-2', name: 'Read', args: '{}' })
-    })
-
-    const timeoutError = 'Session request timed out after 20 minutes'
-    act(() => {
-      handlers[0].onError?.(timeoutError)
-    })
-
-    const assistants = useChatStore
-      .getState()
-      .messages.l1.filter((message) => message.role === 'assistant')
-    expect(assistants[0].id).not.toBe(assistants[1].id)
-    expect(assistants[0].segments).toEqual([
+    expect(accepted).toBe(true)
+    const input = onlyLocalInput()
+    expect(input).toMatchObject({ sessionId: SID, text: 'hello', status: 'sending', systemCommand: false })
+    expect(wsManager.send).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'tool_call',
-        callId: 'write-1',
-        done: true,
-        error: timeoutError,
-      }),
-      { type: 'error', text: timeoutError },
-    ])
-    expect(assistants[1].segments).toEqual([
-      expect.objectContaining({ type: 'tool_call', callId: 'read-2', done: false }),
-    ])
-    expect(Object.values(useChatStore.getState().activeRequests)).toHaveLength(1)
-    expect(useChatStore.getState().streamingSessions.l1).toBe(true)
-    expect(loadHistory).not.toHaveBeenCalled()
-    useChatStore.setState({ loadHistory: originalLoadHistory })
-    randomSpy.mockRestore()
-    nowSpy.mockRestore()
-  })
-
-  it('preserves the timed-out request through runtime history hydration without changing a parallel L1 request', async () => {
-    let now = 2_000
-    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now++)
-    useChatStore.setState({ activeSessionId: 'l1', messages: {}, streamingSessions: {} })
-    const { result } = renderHook(() => useChatStream())
-
-    await act(async () => {
-      await result.current.send('request that times out', undefined, 'l1')
-      await result.current.send('parallel request', undefined, 'l1')
-    })
-
-    const handlers = vi.mocked(wsManager.registerChat).mock.calls.map((call) => call[1])
-    act(() => {
-      handlers[0].onToolStart?.({ call_id: 'write-timeout', name: 'Write', args: '{}' })
-      handlers[1].onToolStart?.({ call_id: 'read-parallel', name: 'Read', args: '{}' })
-    })
-
-    const timeoutError = 'Session request timed out after 20 minutes'
-    act(() => handlers[0].onError?.(timeoutError))
-
-    const beforeHydration = useChatStore.getState().messages.l1
-    const parallelBefore = beforeHydration.find((message) =>
-      message.segments.some(
-        (segment) => segment.type === 'tool_call' && segment.callId === 'read-parallel'
-      )
-    )
-
-    act(() => {
-      useChatStore.setState({
-        activeRequests: {},
-        streamingSessions: { l1: false },
+        type: 'chat_send',
+        request_id: input.requestId,
+        session_id: SID,
+        prompt: 'hello',
+        files: [{ name: 'a.txt', path: '/tmp/a.txt' }],
       })
-    })
-    await act(async () => {
-      await useChatStore.getState().loadHistory('l1')
-    })
-
-    const afterHydration = useChatStore.getState().messages.l1
-    const timedOut = afterHydration.find((message) =>
-      message.segments.some(
-        (segment) => segment.type === 'tool_call' && segment.callId === 'write-timeout'
-      )
     )
-    const parallelAfter = afterHydration.find((message) =>
-      message.segments.some(
-        (segment) => segment.type === 'tool_call' && segment.callId === 'read-parallel'
-      )
-    )
-    expect(timedOut?.segments).toContainEqual({ type: 'error', text: timeoutError })
-    expect(parallelAfter).toEqual(parallelBefore)
-
-    vi.mocked(fetchSessionHistory).mockResolvedValueOnce({
-      messages: [
-        {
-          id: 'server-history',
-          role: 'assistant',
-          segments: [{ type: 'content', text: 'fresh server history' }],
-          timestamp: '2026-08-19T15:00:00Z',
-        },
-      ],
-      has_more: false,
-    })
-    await act(async () => {
-      await useChatStore.getState().loadHistory('l1')
-    })
-    expect(useChatStore.getState().messages.l1).toEqual([
-      {
-        id: 'server-history',
-        role: 'assistant',
-        segments: [{ type: 'content', text: 'fresh server history' }],
-        timestamp: '2026-08-19T15:00:00Z',
-        files: undefined,
-      },
-    ])
-    nowSpy.mockRestore()
+    expect(useChatStore.getState().streamingSessions[SID]).toBe(true)
   })
 
-  it('cleans up the optimistic request when the chat message is not sent', async () => {
+  it('marks the input failed when the socket is unavailable', async () => {
     vi.mocked(wsManager.send).mockReturnValue(false)
     const { result } = renderHook(() => useChatStream())
-
+    let accepted = true
     await act(async () => {
-      await result.current.send('message while disconnected', undefined, 'l2:session-A')
+      accepted = await result.current.send('hello')
     })
-
-    expect(useChatStore.getState().activeRequests).toEqual({})
-    expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(false)
-    const messages = useChatStore.getState().messages['l2:session-A']
-    expect(messages.at(-1)?.segments).toEqual([
-      { type: 'error', text: 'Message was not sent because the connection is unavailable.' },
-    ])
+    expect(accepted).toBe(false)
+    expect(onlyLocalInput()).toMatchObject({
+      status: 'failed',
+      error: 'Message was not sent because the connection is unavailable.',
+    })
+    expect(useChatStore.getState().streamingSessions[SID]).toBe(false)
   })
 
-  it('keeps an acknowledged request alive across a message-too-large reconnect', async () => {
-    vi.mocked(wsManager.send).mockReturnValue(true)
-  vi.mocked(cancelSession).mockResolvedValue(undefined)
+  it('fails an input the server never acknowledges', async () => {
+    vi.useFakeTimers()
     const { result } = renderHook(() => useChatStream())
-
     await act(async () => {
-      await result.current.send('request already accepted', undefined, 'l2:session-A')
+      await result.current.send('hello')
     })
-
-    const handler = vi.mocked(wsManager.registerChat).mock.calls[0][1]
     act(() => {
-      handler.onAccepted?.({ request_id: 'req-accepted', session_id: 'l2:session-A' })
-      handler.onClose?.(1009)
+      vi.advanceTimersByTime(10_000)
     })
+    expect(onlyLocalInput()).toMatchObject({ status: 'failed', error: 'Message was not acknowledged by the server.' })
+  })
 
-    expect(Object.keys(useChatStore.getState().activeRequests)).toHaveLength(1)
-    expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(true)
+  it('keeps an acknowledged input until its transcript commit', async () => {
+    vi.useFakeTimers()
+    const { result } = renderHook(() => useChatStream())
+    await act(async () => {
+      await result.current.send('hello')
+    })
+    const { requestId } = onlyLocalInput()
+    act(() => {
+      useTranscriptStore.getState().ackLocalInput(requestId, 'queued')
+      vi.advanceTimersByTime(10_000)
+    })
+    expect(onlyLocalInput()).toMatchObject({ status: 'queued' })
   })
 
   it('rejects an oversized prompt before sending it to the socket', async () => {
-    vi.mocked(wsManager.send).mockReturnValue(true)
-  vi.mocked(cancelSession).mockResolvedValue(undefined)
     const { result } = renderHook(() => useChatStream())
-
     await act(async () => {
-      await result.current.send('a'.repeat(4 * 1024 * 1024 + 1), undefined, 'l2:session-A')
+      await result.current.send('a'.repeat(4 * 1024 * 1024 + 1), undefined, SID)
     })
-
     expect(wsManager.send).not.toHaveBeenCalled()
-    const messages = useChatStore.getState().messages['l2:session-A']
-    expect(messages.at(-1)?.segments).toEqual([
-      { type: 'error', text: 'Message is too large. Maximum prompt size is 4 MiB.' },
-    ])
+    expect(onlyLocalInput()).toMatchObject({
+      status: 'failed',
+      error: 'Message is too large. Maximum prompt size is 4 MiB.',
+    })
   })
 
   it('rejects an oversized chat envelope before sending it to the socket', async () => {
-    vi.mocked(wsManager.send).mockReturnValue(true)
-  vi.mocked(cancelSession).mockResolvedValue(undefined)
     const { result } = renderHook(() => useChatStream())
-
     await act(async () => {
-      await result.current.send('short prompt', undefined, 'l2:session-A', {
-        text: 'b'.repeat(8 * 1024 * 1024),
-      })
+      await result.current.send('short prompt', undefined, SID, { text: 'b'.repeat(8 * 1024 * 1024) })
     })
-
     expect(wsManager.send).not.toHaveBeenCalled()
-    const messages = useChatStore.getState().messages['l2:session-A']
-    expect(messages.at(-1)?.segments).toEqual([
-      { type: 'error', text: 'Message is too large. Maximum WebSocket message size is 8 MiB.' },
-    ])
+    expect(onlyLocalInput()).toMatchObject({
+      status: 'failed',
+      error: 'Message is too large. Maximum WebSocket message size is 8 MiB.',
+    })
+  })
+
+  it('flags built-in slash commands and clears compactions on /clear', async () => {
+    useChatStore.setState({ compactions: { [SID]: [{ id: 'c', status: 'completed', started_at: '' }] } })
+    const { result } = renderHook(() => useChatStream())
+    await act(async () => {
+      await result.current.send('/clear')
+    })
+    expect(onlyLocalInput().systemCommand).toBe(true)
+    expect(useChatStore.getState().systemCommandSessions[SID]).toBe(true)
+    expect(useChatStore.getState().compactions[SID]).toEqual([])
+  })
+
+  it('sends to an explicit session instead of the active one', async () => {
+    const { result } = renderHook(() => useChatStream())
+    await act(async () => {
+      await result.current.send('to B', undefined, 'l2:session-B')
+    })
+    expect(onlyLocalInput().sessionId).toBe('l2:session-B')
+    expect(wsManager.send).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'l2:session-B' }))
   })
 })
 
-it('keeps task controls available when session Stop fails', async () => {
-  const store = useChatStore.getState()
-  store.registerRequest('qq-running', 'l2:session-A')
-  store.updateRequestStatus('qq-running', 'streaming')
-  store.setStreaming(true, 'l2:session-A')
-  vi.mocked(cancelSession).mockRejectedValueOnce(new Error('Stop connection failed'))
-  const { result } = renderHook(() => useChatStream())
-  await act(async () => { await result.current.cancel() })
-  expect(useChatStore.getState().activeRequests['qq-running']?.status).toBe('streaming')
-  expect(useChatStore.getState().streamingSessions['l2:session-A']).toBe(true)
-  expect(wsManager.unregisterChat).not.toHaveBeenCalled()
-  expect(toast.error).toHaveBeenCalledWith('Stop connection failed')
-})
+describe('useChatStream cancel', () => {
+  it('stops the whole active session through the session endpoint', async () => {
+    const { result } = renderHook(() => useChatStream())
+    await act(async () => {
+      await result.current.cancel()
+    })
+    expect(cancelSession).toHaveBeenCalledWith(SID)
+    expect(toast.error).not.toHaveBeenCalled()
+  })
 
-it('keeps the live request until the server acknowledges Stop', async () => {
-  const store = useChatStore.getState()
-  store.registerRequest('qq-running', 'l2:session-A')
-  store.updateRequestStatus('qq-running', 'streaming')
-  store.setStreaming(true, 'l2:session-A')
-  let acknowledge!: () => void
-  vi.mocked(cancelSession).mockReturnValueOnce(new Promise<void>((resolve) => { acknowledge = resolve }))
-  const { result } = renderHook(() => useChatStream())
-  let stopping!: Promise<void>
-  act(() => { stopping = result.current.cancel() })
-  expect(useChatStore.getState().activeRequests['qq-running']?.status).toBe('streaming')
-  expect(wsManager.unregisterChat).not.toHaveBeenCalled()
-  await act(async () => { acknowledge(); await stopping })
-  expect(useChatStore.getState().activeRequests['qq-running']).toBeUndefined()
-  expect(fetchSessionHistory).toHaveBeenCalled()
-})
-
-it('stops a runtime-only channel request after page reload', async () => {
-  const { useRuntimeStore } = await import('@/stores/runtimeStore')
-  useRuntimeStore.setState({ status: { sessions: { channel: { session_id: 'l2:session-A', request_id: 'runtime-qq' } } } as never })
-  const { result } = renderHook(() => useChatStream())
-  await act(async () => { await result.current.cancel() })
-  expect(cancelSession).toHaveBeenCalledWith('l2:session-A')
-  expect(wsManager.unregisterChat).toHaveBeenCalledWith('runtime-qq')
-  useRuntimeStore.setState({ status: null })
+  it('reports a failed Stop and leaves the request state to the server', async () => {
+    useChatStore.getState().setSessionActivity(SID, {
+      streaming: true,
+      delegating: false,
+      systemCommand: false,
+      requests: [{ requestId: 'qq-running', sessionId: SID, status: 'streaming' }],
+    })
+    vi.mocked(cancelSession).mockRejectedValueOnce(new Error('Stop connection failed'))
+    const { result } = renderHook(() => useChatStream())
+    await act(async () => {
+      await result.current.cancel()
+    })
+    expect(toast.error).toHaveBeenCalledWith('Stop connection failed')
+    expect(useChatStore.getState().activeRequests['qq-running']?.status).toBe('streaming')
+    expect(useChatStore.getState().streamingSessions[SID]).toBe(true)
+  })
 })

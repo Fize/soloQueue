@@ -89,6 +89,6 @@ Agent 包通过 `internal/iface` 暴露少量事件和可定位对象接口，�
 
 ## 事件与持久化边界
 
-Agent 事件用于表示流式数据和控制状态，包括文本增量、推理增量、工具开始/完成、迭代完成、最终答复、错误和委派生命周期。服务器将这些事件映射为 WebSocket 协议。Session Hook 会将对话消息和工具元数据追加到时间线；系统 Prompt 会载入上下文窗口，但不会作为对话事件持久化。
+Agent 事件用于表示流式数据和控制状态，包括文本增量、推理增量、工具开始/完成、迭代完成、最终答复、错误和委派生命周期。Session 在事件产生时将其发布到有序 Transcript，服务器再通过 WebSocket 推送给订阅者。Session Hook 会将对话消息和工具元数据追加到时间线；系统 Prompt 会载入上下文窗口，但不会作为对话事件持久化。
 
 实现与测试位置：[`internal/agent`](../../internal/agent)、[`internal/session`](../../internal/session)、[`internal/agenttools`](../../internal/agenttools)、[`internal/iface`](../../internal/iface)、[`internal/agent/stream_test.go`](../../internal/agent/stream_test.go)。
