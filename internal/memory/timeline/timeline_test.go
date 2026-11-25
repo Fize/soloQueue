@@ -1569,11 +1569,12 @@ func TestTimelineReplaysFailureOutcomeOnMatchingUserMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	// Use distinct fixture timestamps; consecutive clock reads can coincide on Windows.
+	ts := "2026-01-01T00:00:00Z"
 	if err := w.AppendMessage(&MessagePayload{Role: "user", Content: "first", Timestamp: ts, RequestID: "one"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.AppendMessage(&MessagePayload{Role: "user", Content: "second", RequestID: "two"}); err != nil {
+	if err := w.AppendMessage(&MessagePayload{Role: "user", Content: "second", Timestamp: "2026-01-01T00:00:01Z", RequestID: "two"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.AppendControl(&ControlPayload{Action: "request_failed", TargetTs: []string{ts}}); err != nil {
