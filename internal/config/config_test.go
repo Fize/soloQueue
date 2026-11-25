@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 
 	"gopkg.in/yaml.v3"
 )
@@ -267,51 +266,45 @@ func TestLoader_Save_WritesCurrent(t *testing.T) {
 	}
 }
 
-func TestResolveScheduledTaskModelUsesConfiguredFallback(t *testing.T) {
+func TestDefaultModelUsesConfiguredDefault(t *testing.T) {
 	svc, err := New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = svc.Set(func(s *Settings) {
 		s.Providers = []LLMProvider{{ID: "p", Enabled: true}}
-		s.Models = []LLMModel{{ID: "fallback-model", ProviderID: "p", Enabled: true}}
-		s.ModelRoutes = ModelRoutesConfig{Fallback: "p:fallback-model"}
+		s.Models = []LLMModel{{ID: "chosen-model", ProviderID: "p", Enabled: true}}
+		s.ModelRoutes = ModelRoutesConfig{Default: "p:chosen-model"}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, usedFallback, err := svc.ResolveScheduledTaskModel(tasktype.Engineering)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if model.ID != "fallback-model" || !usedFallback {
-		t.Fatalf("unexpected resolution: model=%+v fallback=%v", model, usedFallback)
+	model := svc.DefaultModel()
+	if model == nil || model.ID != "chosen-model" {
+		t.Fatalf("unexpected resolution: %+v", model)
 	}
 }
 
-func TestResolveScheduledTaskModelUsesTaskModel(t *testing.T) {
+func TestDefaultModelReadsLegacyFallbackKey(t *testing.T) {
 	svc, err := New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = svc.Set(func(s *Settings) {
 		s.Providers = []LLMProvider{{ID: "p", Enabled: true}}
-		s.Models = []LLMModel{{ID: "engineering-model", ProviderID: "p", Enabled: true}}
-		s.ModelRoutes = ModelRoutesConfig{Engineering: "p:engineering-model"}
+		s.Models = []LLMModel{{ID: "legacy-model", ProviderID: "p", Enabled: true}}
+		s.ModelRoutes = ModelRoutesConfig{Fallback: "p:legacy-model"}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, usedFallback, err := svc.ResolveScheduledTaskModel(tasktype.Engineering)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if model.ID != "engineering-model" || usedFallback {
-		t.Fatalf("unexpected resolution: model=%+v fallback=%v", model, usedFallback)
+	model := svc.DefaultModel()
+	if model == nil || model.ID != "legacy-model" {
+		t.Fatalf("unexpected resolution: %+v", model)
 	}
 }
 
-func TestResolveScheduledTaskModelFailsWithoutConfiguredFallback(t *testing.T) {
+func TestDefaultModelFailsWithoutEnabledModel(t *testing.T) {
 	svc, err := New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -324,8 +317,8 @@ func TestResolveScheduledTaskModelFailsWithoutConfiguredFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := svc.ResolveScheduledTaskModel(tasktype.Engineering); err == nil {
-		t.Fatal("expected resolution error without engineering or fallback model")
+	if model := svc.DefaultModel(); model != nil {
+		t.Fatalf("expected nil model, got %+v", model)
 	}
 }
 
@@ -353,6 +346,32 @@ func TestLoader_Save_WritesWechatBots(t *testing.T) {
 	}
 	if len(saved.WechatBots) != 1 || saved.WechatBots[0].BotToken != "token" {
 		t.Fatalf("saved WeChat config = %#v", saved.WechatBots)
+	}
+}
+
+func TestLoaderReadsLegacyFallbackModelRoute(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	if err := os.WriteFile(path, []byte("model_routes:\n  fallback: p:legacy-model\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loader, err := NewLoader(DefaultSettings(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := loader.Load(); err != nil {
+		t.Fatal(err)
+	}
+	svc := &GlobalService{Loader: loader}
+	_, err = svc.Set(func(s *Settings) {
+		s.Providers = []LLMProvider{{ID: "p", Enabled: true}}
+		s.Models = []LLMModel{{ID: "legacy-model", ProviderID: "p", Enabled: true}}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model := svc.DefaultModel(); model == nil || model.ID != "legacy-model" {
+		t.Fatalf("legacy fallback not used: %+v", model)
 	}
 }
 

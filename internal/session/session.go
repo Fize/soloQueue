@@ -155,22 +155,16 @@ func (s *Session) SetLastLevel(level string) {
 
 // ─── TaskRouter Interface ─────────────────────────────────────────────────────
 
-// RouteResult is a minimal routing decision passed to the session layer.
+// RouteResult carries the task-type label for the current turn. It is
+// observability only: the label never selects a model.
 type RouteResult struct {
-	ProviderID      string // LLM provider to use (e.g., "deepseek"); empty = default
-	ModelID         string // API model to use (e.g., "deepseek-v4-pro")
-	ThinkingEnabled bool   // whether to enable thinking mode
-	ReasoningEffort string // "high" | "max" | ""
-	ThinkingType    string // thinking.type value: "enabled" (default) or "adaptive"
-	Level           string // classification level label (e.g., "L1-SimpleSingleFile")
-	ContextWindow   int    // model context window capacity (tokens); 0 = unchanged
-	Vision          bool   // model supports multimodal image_url content
+	Level string // task type label: general | engineering | research
 }
 
-// TaskRouterFunc classifies a user prompt and returns model routing parameters.
+// TaskRouterFunc classifies a user prompt and returns its task-type label.
 // priorLevel is the session's current task level string ("" if none).
 // Used to inject the router without creating import cycles.
-// Returns error if classification fails; caller proceeds with defaults.
+// Returns error if classification fails; caller proceeds without a label.
 type TaskRouterFunc func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error)
 
 // MemoryHook is called when conversation context is being discarded (compaction or /clear).
@@ -294,8 +288,10 @@ type Session struct {
 	channelSendersMu    sync.RWMutex
 
 	lastLevel          string       // last classified task type
-	lastLevelMu        sync.RWMutex // protects lastLevel and lastRouteResult
-	lastRouteResult    RouteResult  // cached route result (model params preserved)
+	lastLevelMu        sync.RWMutex // protects lastLevel
+	modelSelection     ModelSelection
+	modelLookup        ModelLookup
+	modelSelMu         sync.RWMutex // protects modelSelection and modelLookup
 	channelRouteMu     sync.Mutex
 	channelRouteKey    string
 	channelRouteOwners int
@@ -541,8 +537,6 @@ func (s *Session) publishRequestRoute(ctx context.Context, a *agent.Agent, resul
 	}
 	route := RequestRoute{
 		TaskType:        result.Level,
-		ModelID:         result.ModelID,
-		ProviderID:      result.ProviderID,
 		AgentInstanceID: a.InstanceID,
 	}
 	if override := iface.ModelOverrideFromContext(ctx); override != nil {
@@ -2434,7 +2428,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 	if effectiveCW <= 0 {
 		effectiveCW = agent.DefaultContextWindow
 	}
-	var activeRouteResult RouteResult
+	var turnLevel string
 	if s.Router != nil {
 		s.lastLevelMu.RLock()
 		priorLevel := s.lastLevel
@@ -2444,37 +2438,22 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 		history := filterPayloadSince(s.cw.BuildPayload(), time.Time{})
 		result, err := s.Router(routerCtx, prompt, priorLevel, history)
 		if err != nil {
-			s.logger.WarnContext(ctx, logger.CatApp, "task router failed, using default model",
+			s.logger.WarnContext(ctx, logger.CatApp, "task router failed, continuing without a task label",
 				"target_id", s.TargetID,
 				"err", err.Error(),
 			)
-			// Don't return — proceed with defaults (no model override)
+			// Don't return — proceed with the default model and no label.
 			result = RouteResult{}
 		}
 
 		if result.Level != "" {
-			activeRouteResult = result
-			s.logger.DebugContext(ctx, logger.CatApp, "task router applied model override",
+			turnLevel = result.Level
+			s.logger.DebugContext(ctx, logger.CatApp, "task classified",
 				"target_id", s.TargetID,
-				"provider_id", result.ProviderID,
-				"model_id", result.ModelID,
-				"thinking_enabled", result.ThinkingEnabled,
-				"reasoning_effort", result.ReasoningEffort,
 				"level", result.Level,
 			)
-			askCtx = iface.ContextWithModelOverride(askCtx, &iface.ModelOverrideParams{
-				ProviderID:      result.ProviderID,
-				ModelID:         result.ModelID,
-				ThinkingEnabled: result.ThinkingEnabled,
-				ReasoningEffort: result.ReasoningEffort,
-				ThinkingType:    result.ThinkingType,
-				TaskType:        result.Level,
-				ContextWindow:   result.ContextWindow,
-				Vision:          result.Vision,
-			})
 			s.lastLevelMu.Lock()
 			s.lastLevel = result.Level
-			s.lastRouteResult = result
 			s.lastLevelMu.Unlock()
 
 			// Persist lastLevel to meta.json so it survives restarts.
@@ -2492,16 +2471,26 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 				}
 			}
 
-			if result.ContextWindow > 0 {
-				effectiveCW = result.ContextWindow
-			}
 			askCtx = telemetry.WithTelemetryMetadata(askCtx, telemetry.Metadata{TaskType: result.Level})
 			ctx = askCtx
 		}
 	}
 
-	// ── Resize context window to match effective model ──
+	// ── Apply the session model choice ──
+	// A user-selected model overrides the configured default for this turn.
+	var modelOverride iface.ModelOverrideParams
+	hasModelOverride := false
+	if override, ok := s.modelOverrideParams(); ok {
+		modelOverride, hasModelOverride = override, true
+		askCtx = iface.ContextWithModelOverride(askCtx, &modelOverride)
+		clientCtx = iface.ContextWithModelOverride(clientCtx, &modelOverride)
+		ctx = askCtx
+		if modelOverride.ContextWindow > 0 {
+			effectiveCW = modelOverride.ContextWindow
+		}
+	}
 
+	// ── Resize context window to match effective model ──
 	// Resize and push user prompt atomically (both hold cw.Lock)
 	s.mu.Lock()
 	s.cw.Resize(effectiveCW, 0, 0)
@@ -2516,8 +2505,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 		pushOpts = append(pushOpts, ctxwin.WithImages(images))
 
 		effectiveVision := askAgent.Def.Vision
-		if activeRouteResult.ModelID != "" {
-			effectiveVision = activeRouteResult.Vision
+		if hasModelOverride {
+			effectiveVision = modelOverride.Vision
 		}
 
 		if !effectiveVision && s.VisionDescriber != nil {
@@ -2623,7 +2612,7 @@ enqueued:
 	// Publish the request route before returning. Actor execution is
 	// asynchronous, so Agent.activeModelOverride is not an authoritative source
 	// for the just-accepted request.
-	s.publishRequestRoute(clientCtx, askAgent, activeRouteResult)
+	s.publishRequestRoute(clientCtx, askAgent, RouteResult{Level: turnLevel})
 
 	out := make(chan iface.AgentEvent, 64)
 	go func() {
@@ -3411,6 +3400,7 @@ type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwi
 type SessionManager struct {
 	factory          AgentFactory
 	routerFunc       TaskRouterFunc
+	modelLookup      ModelLookup
 	memoryHook       MemoryHook
 	memoryManager    *conversation.Manager
 	metaStore        ChannelMetadataStore
@@ -3467,6 +3457,12 @@ func NewSessionManager(factory AgentFactory, l *logger.Logger) *SessionManager {
 // Must be called before Init(). Not thread-safe for setup.
 func (m *SessionManager) SetRouter(fn TaskRouterFunc) {
 	m.routerFunc = fn
+}
+
+// SetModelLookup sets the enabled-model resolver used for session model
+// selection. Must be called before Init(). Not thread-safe for setup.
+func (m *SessionManager) SetModelLookup(fn ModelLookup) {
+	m.modelLookup = fn
 }
 
 // SetMemoryHook sets the callback for short-term memory recording.
@@ -3587,10 +3583,14 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 		sessionLogger = a.Log.Child()
 	}
 	s := NewSession(id, teamID, a, cw, tl, sessionLogger)
+	if m.modelLookup != nil {
+		s.modelLookup = m.modelLookup
+	}
 	if tl != nil {
 		s.usageMetaPath = filepath.Join(tl.Dir(), MetaFileName)
 		if meta, err := LoadMetaPath(s.usageMetaPath); err == nil {
 			s.usageIndex = meta.Usage.CurrentSegment
+			s.hydrateModelSelection(meta)
 		}
 		if cw != nil {
 			cw.AddSummaryHook(func(context.Context, []ctxwin.SummarySegment, string) {

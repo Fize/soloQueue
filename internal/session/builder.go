@@ -793,20 +793,21 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 	rtr := rt.TaskRouter
 	return func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error) {
 		prior, _ := tasktype.Parse(priorLevel)
-		decision, err := rtr.Route(ctx, router.ClassifyInput{Text: prompt, PreviousTaskType: prior}, history)
+		classification, err := rtr.Route(ctx, router.ClassifyInput{Text: prompt, PreviousTaskType: prior}, history)
 
 		// Always record classification in usage_metrics for observability.
-		// On error the level is "Unknown" and source is "error" — still
-		// valuable for diagnosing classifier failures.
+		// On error the level is empty and source is "error" — still valuable
+		// for diagnosing classifier failures.
 		if rt.SharedDB != nil {
 			metadata := telemetry.MetadataFromContext(ctx)
 			bgCtx := context.Background()
 
-			level := decision.TaskType.String()
-			source := string(decision.Classification.Source)
+			level := classification.TaskType.String()
+			source := string(classification.Source)
 			if err != nil {
 				source = "error"
 			}
+			providerID, modelID := effectiveModelIdentity(rt)
 
 			go func() {
 				_ = rt.SharedDB.InsertRouterClassification(
@@ -827,8 +828,8 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 					RunID:                metadata.RunID,
 					TeamID:               metadata.TeamID,
 					TaskType:             level,
-					ProviderID:           decision.ProviderID,
-					ModelID:              decision.ModelID,
+					ProviderID:           providerID,
+					ModelID:              modelID,
 					ClassificationSource: source,
 					Status:               status,
 					DecidedAt:            time.Now().UTC(),
@@ -840,17 +841,22 @@ func BuildRouterFunc(rt *runtime.Stack) TaskRouterFunc {
 			return RouteResult{}, err
 		}
 
-		return RouteResult{
-			ProviderID:      decision.ProviderID,
-			ModelID:         decision.ModelID,
-			ThinkingEnabled: decision.ThinkingEnabled,
-			ReasoningEffort: decision.ReasoningEffort,
-			ThinkingType:    decision.ThinkingType,
-			Level:           decision.TaskType.String(),
-			ContextWindow:   decision.ContextWindow,
-			Vision:          decision.Vision,
-		}, nil
+		return RouteResult{Level: classification.TaskType.String()}, nil
 	}
+}
+
+// effectiveModelIdentity reports the model the session will actually use. Task
+// routing no longer picks models, so this is the configured default.
+func effectiveModelIdentity(rt *runtime.Stack) (providerID, modelID string) {
+	model := rt.ReadDefaultModel()
+	if model == nil {
+		return "", ""
+	}
+	modelID = model.APIModel
+	if modelID == "" {
+		modelID = model.ID
+	}
+	return model.ProviderID, modelID
 }
 
 // BuildMemoryHook creates a MemoryHook that records conversation segments
@@ -1110,6 +1116,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	if b.RT.TaskRouter != nil {
 		s.Router = BuildRouterFunc(b.RT)
 	}
+	s.modelLookup = ModelLookupForStack(b.RT)
 
 	// Wire L2 meta.json coordinates so router-driven level writes (and any
 	// other session code path) can persist without re-deriving paths.
@@ -1118,6 +1125,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	s.usageMetaPath = MetaFilePath(b.WorkDir, id)
 	if meta, err := LoadMeta(b.WorkDir, id); err == nil {
 		s.usageIndex = meta.Usage.CurrentSegment
+		s.hydrateModelSelection(meta)
 	}
 	s.refreshLifecycleTelemetry()
 	s.gitBaseRef = baseline.GitBaseRef

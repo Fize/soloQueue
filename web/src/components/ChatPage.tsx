@@ -922,6 +922,7 @@ export function ChatPage() {
                         modelName={inputModelName}
                         taskLevel={inputTaskLevel}
                         delegating={delegating || runtimeDelegating}
+                        hideRouteInfo
                         compact={designModeActive}
                       />
                     )}

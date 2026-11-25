@@ -116,9 +116,7 @@ models:
     enabled: true
 
 model_routes:
-  general: my-provider:my-model
-  engineering: my-provider:my-model
-  research: my-provider:my-model
+  default: my-provider:my-model
 ```
 
 启动 SoloQueue 前，请在环境变量中设置 `MY_PROVIDER_API_KEY`。建议使用环境变量保存 API Key，避免将密钥直接写入 YAML。所有配置字段见[配置参考](reference.md)。

@@ -35,11 +35,7 @@ models:
       reasoning_effort: high
 
 model_routes:
-  general: deepseek:deepseek-v4-flash-thinking
-  engineering: deepseek:deepseek-v4-flash-thinking
-  research: deepseek:deepseek-v4-flash-thinking
-  classifier: deepseek:deepseek-v4-flash-thinking
-  fallback: deepseek:deepseek-v4-flash-thinking
+  default: deepseek:deepseek-v4-flash-thinking
 ```
 
 ### Configuration Sections
@@ -48,7 +44,7 @@ model_routes:
 | --- | --- |
 | `providers` | OpenAI-compatible API endpoint definitions and retries |
 | `models` | Model definitions, context windows, generation, thinking parameters, and vision support |
-| `model_routes` | Task routes (`general`, `engineering`, `research`) and auxiliary `classifier`, `vision`, and `fallback` routes |
+| `model_routes` | The single default model used by every conversation turn |
 | `tools` | File paths, shell filters, HTTP host allowlists, output limits, and image-generation models (`image_models`) |
 | `agent` | Internal agent tool and MCP server settings |
 | `qqbots` / `wechat_bots` / `telegram_bots` / `wecom_bots` | Credentials and session bindings for QQ, WeChat, Telegram, and WeCom channels |
@@ -89,12 +85,7 @@ Route values use `provider-id:model-id` and must refer to enabled entries above.
 
 | YAML key | Purpose |
 | --- | --- |
-| `model_routes.general` | Model for conversation, writing, translation, and other general tasks. |
-| `model_routes.engineering` | Model for coding, debugging, and other engineering tasks. |
-| `model_routes.research` | Model for research and information lookup. |
-| `model_routes.classifier` | Optional model for task classification. |
-| `model_routes.vision` | Optional image-capable model; its model entry must set `vision: true`. |
-| `model_routes.fallback` | Fallback model used when a task route cannot be resolved. |
+| `model_routes.default` | The single model used for conversations, scheduled tasks, and the auxiliary classifier. The legacy key `fallback` is still read and is dropped on the next save. |
 
 #### Execution details and storage retention
 

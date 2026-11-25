@@ -117,9 +117,7 @@ models:
     enabled: true
 
 model_routes:
-  general: my-provider:my-model
-  engineering: my-provider:my-model
-  research: my-provider:my-model
+  default: my-provider:my-model
 ```
 
 Set `MY_PROVIDER_API_KEY` in the environment before starting SoloQueue. Prefer environment variables to storing API keys directly in YAML. See the [Configuration Reference](reference.md) for all supported fields.

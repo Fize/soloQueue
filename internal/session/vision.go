@@ -67,7 +67,7 @@ func BuildVisionDescriber(cfg *config.GlobalService, log *logger.Logger, manager
 		if cfg == nil || len(images) == 0 {
 			return "", nil
 		}
-		model := cfg.DefaultVisionModel()
+		model := cfg.VisionModel()
 		if model == nil {
 			return "", nil
 		}

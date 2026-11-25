@@ -311,7 +311,7 @@ export function CronPage() {
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
 
   const [teamOptions, setTeamOptions] = useState<{ value: string; label: string }[]>([assistantOption])
-  const [taskTypeModels, setTaskTypeModels] = useState<Record<string, { name: string; fallback: boolean } | null>>({})
+  const [defaultModelName, setDefaultModelName] = useState('')
 
   // Dialog first-field ref for auto-focus
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -319,7 +319,7 @@ export function CronPage() {
   useEffect(() => {
     fetchTasks()
     fetchTeams()
-    fetchTaskTypeModels()
+    fetchDefaultModel()
   }, [])
 
   // Keyboard shortcuts: N = new task, ⌘R = refresh
@@ -359,42 +359,22 @@ export function CronPage() {
     }
   }
 
-  async function fetchTaskTypeModels() {
+  async function fetchDefaultModel() {
     try {
 		const [defaults, models, providers] = await Promise.all([getModelRoutes(), listModels(), listProviders()])
 		const enabledProviders = new Set(providers.filter((provider: LLMProvider) => provider.enabled).map((provider: LLMProvider) => provider.id))
-		const byRef = new Map<string, LLMModel>(
-			models
-				.filter((model: LLMModel) => model.enabled && enabledProviders.has(model.providerId))
-				.map((model: LLMModel): [string, LLMModel] => [`${model.providerId}:${model.id}`, model]),
+		const chosen = models.find(
+			(model: LLMModel) => model.enabled && enabledProviders.has(model.providerId) && `${model.providerId}:${model.id}` === defaults.default
 		)
-		const refs: Record<string, string> = {
-			general: defaults.general,
-			engineering: defaults.engineering,
-			research: defaults.research,
-		}
-      const resolved: Record<string, { name: string; fallback: boolean } | null> = {}
-		for (const level of ['general', 'engineering', 'research']) {
-        const primary = byRef.get(refs[level])
-        const fallback = byRef.get(defaults.fallback)
-        resolved[level] = primary
-          ? { name: primary.name || primary.id, fallback: false }
-          : fallback
-            ? { name: fallback.name || fallback.id, fallback: true }
-            : null
-      }
-      setTaskTypeModels(resolved)
+		setDefaultModelName(chosen ? chosen.name || chosen.id : '')
     } catch {
       // Model labels are supporting context; task management remains available.
     }
   }
 
-	function taskTypeLabel(taskType: 'general' | 'engineering' | 'research', key: string) {
-    const resolved = taskTypeModels[taskType]
-    if (resolved === undefined) return t(key)
-    if (resolved === null) return `${t(key)} · ${t('cron.modelUnavailable')}`
-    return `${t(key)} · ${resolved.name}${resolved.fallback ? ` (${t('cron.fallback')})` : ''}`
-  }
+	function taskTypeLabel(key: string) {
+		return defaultModelName ? `${t(key)} · ${defaultModelName}` : t(key)
+	}
 
   async function fetchTasks() {
     setLoading(true)
@@ -864,9 +844,9 @@ export function CronPage() {
               label={t('cron.taskType')}
               options={[
                 { value: '', label: t('cron.selectTaskType') },
-				{ value: 'general', label: taskTypeLabel('general', 'cron.typeGeneral') },
-				{ value: 'engineering', label: taskTypeLabel('engineering', 'cron.typeEngineering') },
-				{ value: 'research', label: taskTypeLabel('research', 'cron.typeResearch') },
+				{ value: 'general', label: taskTypeLabel('cron.typeGeneral') },
+				{ value: 'engineering', label: taskTypeLabel('cron.typeEngineering') },
+				{ value: 'research', label: taskTypeLabel('cron.typeResearch') },
               ]}
               value={taskType}
               onChange={setTaskType}

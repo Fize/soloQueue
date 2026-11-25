@@ -1,4 +1,4 @@
-import { act, createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatInput } from './ChatInput'
@@ -7,6 +7,14 @@ import { getProjectBranches, uploadFile } from '@/lib/api'
 vi.mock('@/lib/api', () => ({
   getProjectBranches: vi.fn().mockResolvedValue(['main']),
   uploadFile: vi.fn(),
+  getSessionModel: vi.fn().mockResolvedValue({
+    selection: null,
+    effective: { provider_id: 'deepseek', model_id: 'flash', name: 'Flash' },
+    source: 'default',
+  }),
+  setSessionModel: vi.fn(),
+  listModels: vi.fn().mockResolvedValue([]),
+  listProviders: vi.fn().mockResolvedValue([]),
 }))
 
 const mockedUploadFile = vi.mocked(uploadFile)
@@ -114,14 +122,18 @@ describe('ChatInput workspace selector', () => {
     await act(async () => finish(true))
     expect(input).toHaveValue('Draft B')
   })
-  it('does not render route badges when task and model props are supplied', () => {
+  it('renders the task type badge and the session model pill', async () => {
     renderInput({
       taskLevel: 'route-task-sentinel',
       modelName: 'route-model-sentinel',
     })
 
-    expect(screen.queryByText('route-task-sentinel')).not.toBeInTheDocument()
+    // The composer owns the route badge; the raw model prop is not echoed.
+    expect(screen.getByText('route-task-sentinel')).toBeInTheDocument()
     expect(screen.queryByText('route-model-sentinel')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('Flash'),
+    )
   })
 
   it('keeps local selected by default even when projects are available', async () => {

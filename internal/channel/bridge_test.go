@@ -358,3 +358,53 @@ func TestTextBridgeFinishesResponsesForEveryTerminalPath(t *testing.T) {
 		})
 	}
 }
+
+type modelCommandSession struct {
+	fakeSession
+	arg  string
+	call int
+}
+
+func (s *modelCommandSession) ModelCommand(arg string) string {
+	s.arg, s.call = arg, s.call+1
+	return "Model: p:big (max)"
+}
+
+func TestTextBridgeRoutesModelCommand(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sess := &modelCommandSession{}
+	sender := &fakeSender{}
+	bridge := NewTextBridge(sess, sender, log, "1.0.0", false, nil)
+
+	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "/model p:big max"})
+	if sess.call != 1 || sess.arg != "p:big max" {
+		t.Fatalf("model command calls=%d arg=%q", sess.call, sess.arg)
+	}
+	if sender.text != "Model: p:big (max)" {
+		t.Fatalf("reply = %q", sender.text)
+	}
+	if sess.prompt != "" {
+		t.Fatalf("command reached the LLM prompt: %q", sess.prompt)
+	}
+
+	// Bare /model is also a command and must not be sent to the model.
+	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "/model"})
+	if sess.call != 2 || sess.arg != "" {
+		t.Fatalf("bare command calls=%d arg=%q", sess.call, sess.arg)
+	}
+}
+
+func TestTextBridgeModelCommandWithoutSupport(t *testing.T) {
+	log, _ := logger.New(t.TempDir(), logger.WithConsole(false), logger.WithFile(false))
+	sess := &fakeSession{}
+	sender := &fakeSender{}
+	bridge := NewTextBridge(sess, sender, log, "1.0.0", false, nil)
+
+	bridge.OnMessage(context.Background(), Message{Channel: "test", UserID: "u1", Text: "/model auto"})
+	if sender.text != "Model switching is not available on this channel." {
+		t.Fatalf("reply = %q", sender.text)
+	}
+	if sess.prompt != "" {
+		t.Fatalf("command reached the LLM prompt: %q", sess.prompt)
+	}
+}

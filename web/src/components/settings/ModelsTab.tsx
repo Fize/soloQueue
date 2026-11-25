@@ -29,12 +29,7 @@ export function ModelsTab() {
   const [deleteProviderTarget, setDeleteProviderTarget] = useState<LLMProvider | null>(null)
   const [deleteModelTarget, setDeleteModelTarget] = useState<LLMModel | null>(null)
 	const [modelRoutes, setModelRoutes] = useState<ModelRoutesConfig>({
-		general: '',
-		engineering: '',
-		research: '',
-		classifier: '',
-		vision: '',
-		fallback: '',
+		default: '',
 	})
 	const [providerFilter, setProviderFilter] = useState('all')
 	const [classifier, setClassifier] = useState<ClassifierConfig>({ engine: 'llm' })
@@ -52,9 +47,7 @@ export function ModelsTab() {
 			if (dbClassifier) setClassifier(dbClassifier)
 			setProviders(dbProviders || [])
 			setModels(dbModels || [])
-			setModelRoutes(
-				dbDefaults || { general: '', engineering: '', research: '', classifier: '', vision: '', fallback: '' }
-			)
+			setModelRoutes(dbDefaults || { default: '' })
 		} catch (err) {
       toast.error((err as Error).message)
       setLoadError((err as Error).message)

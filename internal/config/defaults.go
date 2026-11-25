@@ -154,15 +154,10 @@ func DefaultSettings() Settings {
 				},
 			},
 		},
-		ModelRoutes: ModelRoutesConfig{
-			General:     "deepseek:deepseek-v4-flash-thinking",
-			Engineering: "deepseek:deepseek-v4-flash-thinking-max",
-			Research:    "deepseek:deepseek-v4-flash-thinking-max",
-			Classifier:  "deepseek:deepseek-v4-flash",
-			Vision:      "",
-			Fallback:    "deepseek:deepseek-v4-flash",
-		},
-		Agent: AgentConfig{},
+		// Empty by design: the compiled default resolves when unset, and an
+		// empty value lets a legacy model_routes.fallback key still apply.
+		ModelRoutes: ModelRoutesConfig{},
+		Agent:       AgentConfig{},
 		Speech: SpeechConfig{
 			Enabled: false,
 			Model:   "small",

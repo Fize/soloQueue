@@ -34,6 +34,7 @@ type SessionMeta struct {
 	GitBaseRef    string            `json:"git_base_ref,omitempty"`
 	Plans         []string          `json:"plans,omitempty"`
 	Level         string            `json:"level,omitempty"`
+	Model         ModelSelection    `json:"model,omitempty"`
 	Baseline      map[string]string `json:"baseline,omitempty"` // path→sha256, non-git projects only
 	CtxwinUsed    int               `json:"ctxwin_used,omitempty"`
 	CtxwinLimit   int               `json:"ctxwin_limit,omitempty"`

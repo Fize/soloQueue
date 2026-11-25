@@ -7,6 +7,8 @@ import type {
   ChangesResponse,
   FileChange,
   TranscriptSnapshot,
+  SessionModelState,
+  SessionModelSelection,
 } from '@/types'
 import {
   request,
@@ -123,6 +125,28 @@ export async function deleteSessionMessages(
   await request('/session/delete', {
     method: 'POST',
     body: JSON.stringify({ session_id: sessionId, target_ts_list: targetTsList }),
+  })
+}
+
+// sessionModelPath maps a session id to its model endpoint. "l1" keeps the
+// single-session endpoint; L2 sessions carry their own metadata file.
+function sessionModelPath(sessionId?: string): string {
+  if (!sessionId || sessionId === 'l1') return '/session/model'
+  const id = sessionId.startsWith('l2:') ? sessionId.slice(3) : sessionId
+  return `/session/l2/${encodeURIComponent(id)}/model`
+}
+
+export async function getSessionModel(sessionId?: string): Promise<SessionModelState> {
+  return request<SessionModelState>(sessionModelPath(sessionId))
+}
+
+export async function setSessionModel(
+  sessionId: string | undefined,
+  selection: SessionModelSelection,
+): Promise<SessionModelState> {
+  return request<SessionModelState>(sessionModelPath(sessionId), {
+    method: 'PUT',
+    body: JSON.stringify(selection),
   })
 }
 

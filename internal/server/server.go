@@ -365,6 +365,10 @@ func NewMux(workDir string, log *logger.Logger, opts ...MuxOption) *Mux {
 	r.Route("/api/session", func(r chi.Router) {
 		r.Get("/", m.handleGetSessionStatus)
 		r.Post("/ask", m.handleAskSession)
+		r.Get("/model", m.handleGetSessionModel)
+		r.Put("/model", m.handleSetSessionModel)
+		r.Get("/l2/{id}/model", m.handleGetL2SessionModel)
+		r.Put("/l2/{id}/model", m.handleSetL2SessionModel)
 		r.Post("/upload", m.handleUploadFile)
 		r.Get("/transcript", m.handleSessionTranscript)
 		r.Post("/cancel", m.handleCancelSession)

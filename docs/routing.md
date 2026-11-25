@@ -60,19 +60,18 @@ Only a valid JSON response containing a supported task type is accepted. Provide
 
 ## Resolving a model
 
-After classification, `internal/router/router.go` asks the configuration service to resolve the corresponding enabled model. For interactive requests, the current precedence is:
+Classification and model selection are independent. `internal/router/router.go` returns the task type only; the configuration service resolves the one configured default model:
 
-1. The model configured for the classified task type.
-2. The configured fallback model.
-3. The compiled task default, when enabled and available.
+1. `model_routes.default` in `settings.yaml`.
+2. The compiled default (`deepseek:deepseek-v4-flash-thinking`), when its provider and model are enabled.
 
-The classifier model has its own route, then uses the configured fallback and compiled classifier default. A reference resolves only when both its provider and model are enabled.
+A reference resolves only when both its provider and model are enabled. Conversations, scheduled tasks, and the auxiliary classifier all use that single model; the classifier call forces non-thinking mode. Image transcription uses the active model when it declares `vision: true`, otherwise the first enabled vision-capable model.
 
-In `settings.yaml`, `model_routes.general`, `engineering`, and `research` map the task types to `provider:model` references. `model_routes.classifier` configures the auxiliary classifier, `fallback` is the shared configured fallback, and `vision` is a separate route for vision-model use; neither `classifier` nor `vision` is a task type.
+A session may override the default. The choice lives in the session's `meta.json` (`model`), so it survives restarts and applies to every entry point sharing that session: Web Console, QQ, WeChat, WeCom, and Telegram. Precedence is session selection → `model_routes.default` → compiled default. A selection whose provider or model was later disabled degrades to the default and logs a warning instead of failing the turn. Channel bridges expose `/model` to show or change it (`/model <provider:model> [low|high|max]`, `/model auto`); the Web Console writes the same state through `PUT /api/session/model` for L1 and `PUT /api/session/l2/{id}/model` for L2. Auxiliary work (compaction, summaries, persona reflection, memory extraction) and scheduled tasks always use the configured default.
 
-The resulting `RouteDecision` contains the provider, API model ID, display name, thinking settings, reasoning effort/type, context-window size, and vision capability. Vision is copied as a model capability; it is not a classification criterion. The session stores the selected task type for follow-up continuity, resizes the active context window to the selected model's capacity, and publishes the chosen route with the request events.
+The task type travels as a label: it is stored for follow-up continuity, written to usage metrics, and published with the request events, but it never selects a model. `RouteDecision` no longer exists.
 
-If interactive classification or route resolution fails, the session logs the error and continues without applying an override, using the Agent's configured model. This differs from scheduled work: scheduled model resolution requires an explicitly configured task model or fallback and reports an error rather than silently using a compiled default.
+If classification fails, the session logs the error and continues without a task label; the turn still runs on the default model. If no enabled model resolves at startup, the runtime build fails instead of starting without a model.
 
 ## Runtime wiring and state
 

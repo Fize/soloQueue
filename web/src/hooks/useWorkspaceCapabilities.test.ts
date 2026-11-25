@@ -7,6 +7,10 @@ import { ChatInput } from '@/components/ChatInput'
 vi.mock('@/lib/api', () => ({
   getProjectBranches: vi.fn().mockResolvedValue(['main']),
   uploadFile: vi.fn(),
+  getSessionModel: vi.fn().mockResolvedValue({ selection: null, effective: null, source: 'default' }),
+  setSessionModel: vi.fn(),
+  listModels: vi.fn().mockResolvedValue([]),
+  listProviders: vi.fn().mockResolvedValue([]),
 }))
 
 describe('classifyWorkspace', () => {

@@ -9,7 +9,6 @@ import (
 	qqbot "github.com/xiaobaitu/soloqueue/internal/channel/qq"
 	telegram "github.com/xiaobaitu/soloqueue/internal/channel/telegram"
 	"github.com/xiaobaitu/soloqueue/internal/channel/wechat"
-	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"gopkg.in/yaml.v3"
 )
 
@@ -309,30 +308,20 @@ type EmbeddingConfig struct {
 
 // ─── Model Routes ─────────────────────────────────────────────────────────────
 
-// ModelRoutesConfig maps the three user-visible task types to configured models.
-// Classifier is an auxiliary non-thinking model, not a task type. Values use the
-// existing "provider:id" reference format.
+// ModelRoutesConfig holds the single model used for every conversation turn.
+// Task routing classifies work but never resolves a model.
 type ModelRoutesConfig struct {
-	General     string `json:"general"     yaml:"general,omitempty"`
-	Engineering string `json:"engineering" yaml:"engineering,omitempty"`
-	Research    string `json:"research"    yaml:"research,omitempty"`
-	Classifier  string `json:"classifier"  yaml:"classifier,omitempty"`
-	Vision      string `json:"vision"      yaml:"vision,omitempty"`
-	Fallback    string `json:"fallback"    yaml:"fallback,omitempty"`
+	Default string `json:"default" yaml:"default,omitempty"`
+	// Fallback is the pre-rename key: read for compatibility, cleared on save.
+	Fallback string `json:"-" yaml:"fallback,omitempty"`
 }
 
-// TaskRef returns the configured reference for a task type.
-func (c ModelRoutesConfig) TaskRef(t tasktype.TaskType) string {
-	switch t {
-	case tasktype.General:
-		return c.General
-	case tasktype.Engineering:
-		return c.Engineering
-	case tasktype.Research:
-		return c.Research
-	default:
-		return ""
+// Ref returns the configured model reference, preferring the current key.
+func (c ModelRoutesConfig) Ref() string {
+	if c.Default != "" {
+		return c.Default
 	}
+	return c.Fallback
 }
 
 // parseProviderModelID parses config value in "provider:id" format
@@ -415,7 +404,7 @@ func (s Settings) MarshalYAMLWithComments() ([]byte, error) {
 		{"log", "Logging settings", s.Log},
 		{"providers", "LLM providers", s.Providers},
 		{"models", "LLM models", s.Models},
-		{"model_routes", "Task model routing", s.ModelRoutes},
+		{"model_routes", "Default LLM model", s.ModelRoutes},
 		{"classifier", "Task classifier engine", s.Classifier},
 		{"embedding", "Embedding settings", s.Embedding},
 		{"qqbots", "QQ bot integrations", s.QQBots},

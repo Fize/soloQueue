@@ -156,12 +156,7 @@ export interface ClassifierStatus {
 export type ClassifierAction = 'retry' | 'cancel';
 
 export interface ModelRoutesConfig {
-	general: string;
-	engineering: string;
-	research: string;
-	classifier: string;
-	vision?: string;
-	fallback: string;
+	default: string;
 }
 
 export interface QQBotConfig {

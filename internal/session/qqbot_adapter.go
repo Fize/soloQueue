@@ -460,6 +460,15 @@ func (a *SessionAskAdapter) SetChannelSender(channelType string, fn func(context
 	}
 }
 
+// ModelCommand implements /model for channel bridges.
+func (a *SessionAskAdapter) ModelCommand(arg string) string {
+	sess := a.mgr.Session()
+	if sess == nil {
+		return "No active session."
+	}
+	return sess.ModelCommand(arg)
+}
+
 // SetChannelSenderData saves the sender closure and persists its metadata.
 func (a *SessionAskAdapter) SetChannelSenderData(channelType string, metadata []byte, fn func(context.Context, string) error) {
 	if sess := a.mgr.Session(); sess != nil {
@@ -609,6 +618,15 @@ func (a *L2ChannelAdapter) Clear(ctx context.Context) error {
 		return err
 	}
 	return sess.Clear()
+}
+
+// ModelCommand implements /model for channel bridges.
+func (a *L2ChannelAdapter) ModelCommand(arg string) string {
+	sess, err := a.getSession(context.Background())
+	if err != nil {
+		return "Session unavailable: " + err.Error()
+	}
+	return sess.ModelCommand(arg)
 }
 
 // Compact implements channel.SessionProvider.Compact.

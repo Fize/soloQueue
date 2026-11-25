@@ -92,7 +92,7 @@ Web Console 的其他页面通过 REST 接口读写配置、会话、团队、�
 | [`internal/transcript`](../../internal/transcript) | 会话级有序 Transcript 日志、快照，以及持久化时间线的重建。 |
 | [`internal/session`](../../internal/session) | 创建和管理会话、上下文窗口、时间线写入器及 Agent 实例。 |
 | [`internal/agent`](../../internal/agent) | 执行 Agent 循环、处理工具调用并协调委派 Agent。 |
-| [`internal/router`](../../internal/router)、[`internal/llm`](../../internal/llm) | 分类任务、选择已配置路由并与模型 Provider 通信。 |
+| [`internal/router`](../../internal/router)、[`internal/llm`](../../internal/llm) | 分类任务并与模型 Provider 通信。 |
 | [`internal/agenttools`](../../internal/agenttools) | 原生工具、Skills、MCP 集成和语言服务支持。 |
 | [`internal/prompt`](../../internal/prompt)、[`internal/team/store`](../../internal/team/store) | 组装 Prompt，加载和持久化 Agent 与群组定义。 |
 | [`internal/cron`](../../internal/cron)、[`internal/channel`](../../internal/channel) | 发起定时任务并连接外部消息平台。 |
@@ -104,7 +104,7 @@ Web Console 的其他页面通过 REST 接口读写配置、会话、团队、�
 
 ### 路由与 Agent 执行
 
-路由器将任务分为 `general`、`engineering` 和 `research`，再映射到已配置的模型路由。明确的结构特征优先由本地规则处理；无法确定时再调用 LLM 分类器。后续对话可以沿用上一轮任务级别。
+路由器将任务分为 `general`、`engineering` 和 `research`。该标签只用于可观测性，所有轮次都使用配置的唯一默认模型。明确的结构特征优先由本地规则处理；无法确定时再调用 LLM 分类器。后续对话可以沿用上一轮任务级别。
 
 Agent 负责模型与工具之间的执行循环。模型可以直接返回答复，也可以请求调用工具；Core 执行工具后将结果交回模型，并通过所属会话向界面推送进度。原生工具、Skills 和 MCP 工具共用工具执行边界。项目目录或 Agent 工作目录决定执行上下文，但本身不是安全沙箱。
 

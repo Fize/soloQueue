@@ -111,7 +111,7 @@ Returns verbatim source of relevant symbols plus call paths in one call. Covers 
 
 ### Task routing (`internal/router/` & `internal/tasktype/`)
 
-The router classifies each user prompt by work nature (not difficulty) to select the appropriate model configuration:
+The router classifies each user prompt by work nature (not difficulty) purely as a label — the task type is shown in the UI, written to usage metrics, and kept for follow-up continuity, but it never selects a model. One configured model (`model_routes.default`) serves every turn:
 
 | TaskType | Use case |
 | -------- | -------- |

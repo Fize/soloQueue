@@ -92,7 +92,7 @@ Inputs that are still being sent or are queued appear in a pending tray until th
 | [`internal/transcript`](../internal/transcript) | Session-scoped ordered transcript journals, snapshots, and replay of persisted timelines. |
 | [`internal/session`](../internal/session) | Creates and manages sessions, context windows, timeline writers, and agent instances. |
 | [`internal/agent`](../internal/agent) | Runs the agent loop, handles tool calls, and coordinates delegated agents. |
-| [`internal/router`](../internal/router) and [`internal/llm`](../internal/llm) | Classifies task type, selects configured routes, and communicates with model providers. |
+| [`internal/router`](../internal/router) and [`internal/llm`](../internal/llm) | Classifies task type and communicates with model providers. |
 | [`internal/agenttools`](../internal/agenttools) | Native tools, Skills, MCP integrations, and language-server support. |
 | [`internal/prompt`](../internal/prompt), [`internal/team/store`](../internal/team/store) | Builds prompts and loads/persists agent and group definitions. |
 | [`internal/cron`](../internal/cron), [`internal/channel`](../internal/channel) | Starts scheduled work and connects external messaging platforms. |
@@ -104,7 +104,7 @@ Detailed implementation notes: [Task routing](routing.md), [Agent execution](age
 
 ### Routing and agent execution
 
-The router classifies work as `general`, `engineering`, or `research` and maps the result to configured model routes. Local pattern rules handle clear signals first; an LLM classifier is used when the result is ambiguous. Follow-up turns can retain the previous task level.
+The router classifies work as `general`, `engineering`, or `research`. The label drives observability only; every turn runs on the single configured default model. Local pattern rules handle clear signals first; an LLM classifier is used when the result is ambiguous. Follow-up turns can retain the previous task level.
 
 An Agent maintains the model/tool interaction loop. The model may return a response or request a tool; Core executes the tool, returns its result to the model, and streams progress back through the owning session. Native tools, Skills, and MCP-backed tools are exposed through the same tool execution boundary. The project or agent working directory provides execution context, but is not itself a security sandbox.
 

@@ -13,6 +13,8 @@ import { cn, pathsMatch } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useWorkspaceCapabilities } from '@/hooks/useWorkspaceCapabilities'
 import { ChatInputAutocomplete, BUILTIN_SLASH_COMMANDS, type ChatInputAutocompleteHandle } from './ChatInputAutocomplete'
+import { ModelMenu } from './chat/ModelMenu'
+import { useSessionModel } from '@/hooks/useSessionModel'
 import { ChatInputAttachments, type Attachment } from './ChatInputAttachments'
 import { clearChatDraft, getChatDraft, setChatDraft } from './chat/chatDrafts'
 
@@ -92,8 +94,10 @@ export function ChatInput({
   atRootDir = '',
   selectedTarget,
   onClearSelectedTarget,
+  taskLevel,
 }: ChatInputProps) {
   const { t } = useTranslation()
+  const sessionModel = useSessionModel(activeSessionId)
   const draftKey = activeSessionId || '__new_chat__'
   const currentDraftKey = useRef(draftKey)
   currentDraftKey.current = draftKey
@@ -760,7 +764,10 @@ export function ChatInput({
                 </button>
                 )}
                 {showL2Selectors && (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground select-none overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5 flex-1 min-w-0">
+                  <div
+                    title={readOnlySelectors ? t('chat.contextLocked') : undefined}
+                    className="flex items-center gap-1.5 rounded-md border border-border/60 px-1.5 py-0.5 text-xs text-muted-foreground select-none overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1 min-w-0"
+                  >
                     {groupsLoading && (
                       <span className="shrink-0 text-[11px] text-muted-foreground/70">{t('chat.teamLoading')}</span>
                     )}
@@ -827,7 +834,7 @@ export function ChatInput({
                     {/* Workspace Select */}
                     {selectedGroup && (
                       <>
-                        <span className="text-muted-foreground/20 font-mono select-none">/</span>
+                        <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
                         <div className="relative shrink-0" ref={projectRef}>
                           <button
                             type="button"
@@ -892,7 +899,7 @@ export function ChatInput({
                     {/* Branch Select - Only show if projects are present and one is selected */}
                     {filteredProjects.length > 0 && selectedProjectPath && (
                       <>
-                        <span className="text-muted-foreground/20 font-mono select-none">/</span>
+                        <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
                         <div className="relative shrink-0" ref={branchRef}>
                           <button
                             type="button"
@@ -946,6 +953,20 @@ export function ChatInput({
 
               {/* Right actions wrap within the pane, including beside an expanded sidebar. */}
               <div className="ml-auto flex flex-wrap items-center justify-end gap-2 min-w-0 max-w-full">
+                {taskLevel ? (
+                  <span className="hidden shrink-0 items-center rounded-md bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:flex">
+                    {taskLevel}
+                  </span>
+                ) : null}
+                <ModelMenu
+                  state={sessionModel.state}
+                  saving={sessionModel.saving}
+                  disabled={disabled || (showL2Selectors && !activeSessionId)}
+                  onSelect={async (selection) => {
+                    const next = await sessionModel.select(selection)
+                    if (!next) toast.error(t('chat.modelSelectorSaveFailed'))
+                  }}
+                />
                 {ctxwinLimit > 0 && (
                   <div className="relative group/cw flex items-center">
                     <svg

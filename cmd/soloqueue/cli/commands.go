@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -124,6 +125,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			mgr.SetAgentRegistry(rt.AgentRegistry)
 			session.Version = version
 			mgr.SetRouter(session.BuildRouterFunc(rt))
+			mgr.SetModelLookup(session.ModelLookupForStack(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
 			mgr.SetMemoryManager(rt.MemoryManager)
 			mgr.SetVisionDescriber(session.BuildVisionDescriber(cfg, log, rt.RunWatch))
@@ -146,19 +148,18 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 				workDir: workDir,
 			}, log)
 			cronScheduler.SetModelResolver(func(taskType string) (cron.ResolvedModel, error) {
-				typeValue, err := tasktype.Parse(taskType)
-				if err != nil {
+				if _, err := tasktype.Parse(taskType); err != nil {
 					return cron.ResolvedModel{}, err
 				}
-				model, usedFallback, err := cfg.ResolveScheduledTaskModel(typeValue)
-				if err != nil {
-					return cron.ResolvedModel{}, err
+				model := cfg.DefaultModel()
+				if model == nil {
+					return cron.ResolvedModel{}, errors.New("no enabled default model configured")
 				}
 				modelID := model.APIModel
 				if modelID == "" {
 					modelID = model.ID
 				}
-				resolved := cron.ResolvedModel{
+				return cron.ResolvedModel{
 					Params: iface.ModelOverrideParams{
 						ProviderID:      model.ProviderID,
 						ModelID:         modelID,
@@ -170,12 +171,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 						Vision:          model.Vision,
 					},
 					RequestedTaskType: taskType,
-					UsedFallback:      usedFallback,
-				}
-				if usedFallback {
-					resolved.FallbackReason = taskType + " model is not configured or enabled"
-				}
-				return resolved, nil
+				}, nil
 			})
 
 			if err := cronScheduler.Start(context.Background()); err != nil {

@@ -1,5 +1,5 @@
-// Package router classifies work by task type and resolves the configured
-// execution model. It intentionally does not rank task difficulty.
+// Package router classifies work by task type. It intentionally does not rank
+// task difficulty and does not resolve models.
 package router
 
 import (

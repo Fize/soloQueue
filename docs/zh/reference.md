@@ -35,11 +35,7 @@ models:
       reasoning_effort: high
 
 model_routes:
-  general: deepseek:deepseek-v4-flash-thinking
-  engineering: deepseek:deepseek-v4-flash-thinking
-  research: deepseek:deepseek-v4-flash-thinking
-  classifier: deepseek:deepseek-v4-flash-thinking
-  fallback: deepseek:deepseek-v4-flash-thinking
+  default: deepseek:deepseek-v4-flash-thinking
 ```
 
 ### 配置区段
@@ -48,7 +44,7 @@ model_routes:
 | --- | --- |
 | `providers` | OpenAI 兼容 API Endpoint 定义与重试参数 |
 | `models` | 模型定义、上下文窗口、生成参数、思考参数及视觉能力 |
-| `model_routes` | 任务路由 (`general`, `engineering`, `research`) 及辅助路由 `classifier`、`vision`、`fallback` |
+| `model_routes` | 所有对话轮次共用的唯一默认模型 |
 | `tools` | 文件路径、Shell 过滤、HTTP Host 白名单、输出限制及图像生成模型 (`image_models`) |
 | `agent` | 内置工具与 MCP Server 授权许可 |
 | `qqbots` / `wechat_bots` / `telegram_bots` / `wecom_bots` | QQ、微信、Telegram 和企业微信渠道的凭据及 Session 绑定 |
@@ -89,12 +85,7 @@ model_routes:
 
 | YAML 字段 | 说明 |
 | --- | --- |
-| `model_routes.general` | 对话、写作、翻译等通用任务使用的模型。 |
-| `model_routes.engineering` | 编码、调试等工程任务使用的模型。 |
-| `model_routes.research` | 调研与信息查询任务使用的模型。 |
-| `model_routes.classifier` | 可选的任务分类模型。 |
-| `model_routes.vision` | 可选的图像模型；对应的 Model 需设置 `vision: true`。 |
-| `model_routes.fallback` | 任务路由无法解析时使用的回退模型。 |
+| `model_routes.default` | 对话、定时任务和辅助分类器共用的唯一模型。旧键 `fallback` 仍会被读取，并在下次保存时丢弃。 |
 
 #### 执行详情与存储保留
 

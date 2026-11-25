@@ -33,7 +33,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/router/laya"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
-	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
@@ -263,17 +262,14 @@ func (bc *buildContext) resolveConfig() error {
 	}
 	bc.provider = provider
 
-	defaultModel := bc.cfg.DefaultModelForTask(tasktype.General)
+	defaultModel := bc.cfg.DefaultModel()
 	if defaultModel == nil {
-		return errors.New("no default model configured for general tasks")
+		return errors.New("no enabled default model configured")
 	}
 	bc.defaultModel = defaultModel
 
-	fastModel := bc.cfg.DefaultClassifierModel()
-	if fastModel != nil {
-		bc.fastModelID = fastModel.ID
-		bc.fastModelProviderID = fastModel.ProviderID
-	}
+	bc.fastModelID = defaultModel.ID
+	bc.fastModelProviderID = defaultModel.ProviderID
 
 	bc.memoryDir = filepath.Join(bc.workDir, "memory")
 

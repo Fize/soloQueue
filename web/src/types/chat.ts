@@ -117,6 +117,25 @@ export interface ChatSession {
   plans?: string[];
 }
 
+export interface SessionModelSelection {
+  provider_id: string;
+  model_id: string;
+  reasoning_effort?: string;
+}
+
+export interface SessionModelView {
+  provider_id: string;
+  model_id: string;
+  reasoning_effort?: string;
+  name?: string;
+}
+
+export interface SessionModelState {
+  selection: SessionModelView | null;
+  effective: SessionModelView | null;
+  source: 'user' | 'default';
+}
+
 export interface SessionUsage {
   current_segment: number;
   lifetime: SessionUsageTotals;

@@ -29,7 +29,6 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/router/laya"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
-	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
@@ -256,6 +255,15 @@ func (s *Stack) ReadDefaultModel() *config.LLMModel {
 	return s.DefaultModel
 }
 
+// LookupModel returns an enabled model, or nil when its provider or the model
+// itself is missing or disabled.
+func (s *Stack) LookupModel(providerID, modelID string) *config.LLMModel {
+	if s.Settings == nil {
+		return nil
+	}
+	return s.Settings.EnabledModel(providerID, modelID)
+}
+
 // AddSupervisor appends a supervisor to the stack's list (concurrency-safe via CfgMu).
 func (s *Stack) AddSupervisor(sv *agent.Supervisor) {
 	s.CfgMu.Lock()
@@ -372,19 +380,19 @@ func (s *Stack) OnSettingsChange(settings config.Settings) error {
 		s.LLMClient = agent.NewRoutingClient(clients)
 	}
 
-	generalModel := modelForTaskSettings(settings, tasktype.General)
-	if generalModel != nil {
-		s.DefaultModel = generalModel
+	defaultModel := defaultModelSettings(settings)
+	if defaultModel != nil {
+		s.DefaultModel = defaultModel
 		if s.AgentFactory != nil {
-			s.AgentFactory.UpdateDefaultModelID(generalModel.ProviderID + ":" + generalModel.ID)
+			s.AgentFactory.UpdateDefaultModelID(defaultModel.ProviderID + ":" + defaultModel.ID)
 		}
-	}
-	if classifierModel := classifierModelSettings(settings); classifierModel != nil && s.TaskRouter != nil {
-		effectiveModel := classifierModel.APIModel
-		if effectiveModel == "" {
-			effectiveModel = classifierModel.ID
+		if s.TaskRouter != nil {
+			effectiveModel := defaultModel.APIModel
+			if effectiveModel == "" {
+				effectiveModel = defaultModel.ID
+			}
+			s.TaskRouter.UpdateClassifierModel(defaultModel.ProviderID, effectiveModel)
 		}
-		s.TaskRouter.UpdateClassifierModel(classifierModel.ProviderID, effectiveModel)
 	}
 
 	// Update tools config dynamically, preserving runtime dependencies and fields
@@ -516,24 +524,8 @@ func vectorConfiguration(cfg config.EmbeddingConfig) engine.VectorConfig {
 	return engine.VectorConfig{Provider: provider, Enabled: cfg.Enabled, Model: normalized.Local.Model, Device: normalized.Local.Device, RemoteKey: key}
 }
 
-func modelForTaskSettings(settings config.Settings, task tasktype.TaskType) *config.LLMModel {
-	var compiledDefault string
-	switch task {
-	case tasktype.General:
-		compiledDefault = "deepseek:deepseek-v4-flash-thinking"
-	case tasktype.Engineering, tasktype.Research:
-		compiledDefault = "deepseek:deepseek-v4-flash-thinking-max"
-	}
-	for _, ref := range []string{settings.ModelRoutes.TaskRef(task), settings.ModelRoutes.Fallback, compiledDefault} {
-		if model := enabledModelSettings(settings, ref); model != nil {
-			return model
-		}
-	}
-	return nil
-}
-
-func classifierModelSettings(settings config.Settings) *config.LLMModel {
-	for _, ref := range []string{settings.ModelRoutes.Classifier, settings.ModelRoutes.Fallback, "deepseek:deepseek-v4-flash"} {
+func defaultModelSettings(settings config.Settings) *config.LLMModel {
+	for _, ref := range []string{settings.ModelRoutes.Ref(), "deepseek:deepseek-v4-flash-thinking"} {
 		if model := enabledModelSettings(settings, ref); model != nil {
 			return model
 		}

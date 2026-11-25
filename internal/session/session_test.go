@@ -723,23 +723,17 @@ func TestSession_AskStream_ForegroundWatchdogAndDeadlinePreserveCompletedToolHis
 		})
 	}
 }
-func TestSession_AskStream_ResizesContextWindow_WithRouter(t *testing.T) {
+func TestSession_AskStream_IgnoresRouterContextWindow(t *testing.T) {
 	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
 	a := startAgent(t, fake)
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	s := NewSession("s1", "t1", a, cw, nil, nil)
 
-	// Set up router that routes to fast model with 128K context
+	// Task routing labels the turn; it must not change the context window.
 	s.Router = func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error) {
-		return RouteResult{
-			ProviderID:    "test",
-			ModelID:       "fast-model",
-			Level:         "L0-Conversation",
-			ContextWindow: 131072,
-		}, nil
+		return RouteResult{Level: "engineering"}, nil
 	}
 
-	// Verify initial CW state
 	_, max, _ := cw.TokenUsage()
 	if max != 1048576 {
 		t.Fatalf("initial maxTokens = %d, want %d", max, 1048576)
@@ -752,10 +746,9 @@ func TestSession_AskStream_ResizesContextWindow_WithRouter(t *testing.T) {
 	for range ch {
 	}
 
-	// Verify CW was resized by the router
 	_, max, _ = cw.TokenUsage()
-	if max != 131072 {
-		t.Errorf("after AskStream maxTokens = %d, want 131072", max)
+	if max != 1048576 {
+		t.Errorf("after AskStream maxTokens = %d, want 1048576 (router must not resize)", max)
 	}
 }
 
@@ -783,7 +776,11 @@ func TestSession_AskStream_ResizesContextWindow_DefaultWithoutRouter(t *testing.
 
 func TestSession_AskStream_ResizesAndEvicts_WhenSmallerWindow(t *testing.T) {
 	fake := &agenttest.FakeLLM{StreamDeltas: [][]string{{"ok"}}}
-	a := startAgent(t, fake)
+	a := agent.NewAgent(agent.Definition{ID: "test-agent", ContextWindow: 500}, fake, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("agent Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(2 * time.Second) })
 	cw := ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer())
 	s := NewSession("s1", "t1", a, cw, nil, nil)
 
@@ -799,16 +796,7 @@ func TestSession_AskStream_ResizesAndEvicts_WhenSmallerWindow(t *testing.T) {
 		t.Skipf("not enough tokens (%d) to test eviction, try longer messages", tokensBefore)
 	}
 
-	// Router returns a much smaller window
-	s.Router = func(ctx context.Context, prompt string, priorLevel string, history []ctxwin.PayloadMessage) (RouteResult, error) {
-		return RouteResult{
-			ProviderID:    "test",
-			ModelID:       "tiny-model",
-			Level:         "L0-Conversation",
-			ContextWindow: 500,
-		}, nil
-	}
-
+	// The agent's configured window is much smaller than the live one.
 	ch, err := s.AskStream(context.Background(), "hi")
 	if err != nil {
 		t.Fatalf("AskStream: %v", err)
@@ -1160,7 +1148,7 @@ func TestRequestRouteFramesStayExactAcrossAsyncYield(t *testing.T) {
 	s := NewSession("route-yield", "team", a, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
 	s.SetTranscriptRegistry(transcript.NewRegistry(transcript.Config{Grace: time.Hour}))
 	s.Router = func(_ context.Context, prompt, _ string, _ []ctxwin.PayloadMessage) (RouteResult, error) {
-		return RouteResult{Level: "engineering", ModelID: "model-" + prompt, ProviderID: "provider-" + prompt}, nil
+		return RouteResult{Level: "level-" + prompt}, nil
 	}
 	var sourcesMu sync.Mutex
 	var sources []chan agent.AgentEvent
@@ -1210,7 +1198,7 @@ func TestRequestRouteFramesStayExactAcrossAsyncYield(t *testing.T) {
 	if !ok1 || !ok2 {
 		t.Fatalf("missing route frames: first=%v second=%v", ok1, ok2)
 	}
-	if firstRoute.ModelID != "model-first" || secondRoute.ModelID != "model-second" {
+	if firstRoute.TaskType != "level-first" || secondRoute.TaskType != "level-second" {
 		t.Fatalf("routes crossed async yield: first=%+v second=%+v", firstRoute, secondRoute)
 	}
 	if secondRoute.Seq <= firstRoute.Seq {
@@ -1378,14 +1366,14 @@ func TestGenerationRebuildRejectedByConcurrentCloseCleansFreshDomain(t *testing.
 	}
 }
 
-func TestRoutedModelSurvivesQuarantinedGenerationRebuild(t *testing.T) {
+func TestRebuiltGenerationUsesDefinitionModel(t *testing.T) {
 	old := agent.NewAgent(agent.Definition{ID: "old", ModelID: "default"}, &agenttest.FakeLLM{}, nil)
 	if err := old.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	old.Quarantine(errors.New("stuck"))
 	var gotModel, gotProvider string
-	fresh := agent.NewAgent(agent.Definition{ID: "fresh", ModelID: "default"}, &agenttest.FakeLLM{
+	fresh := agent.NewAgent(agent.Definition{ID: "fresh", ModelID: "default", ProviderID: "default-provider"}, &agenttest.FakeLLM{
 		Responses: []string{"ok"},
 		Hook: func(req agent.LLMRequest) {
 			gotModel, gotProvider = req.Model, req.ProviderID
@@ -1397,7 +1385,7 @@ func TestRoutedModelSurvivesQuarantinedGenerationRebuild(t *testing.T) {
 	t.Cleanup(func() { _ = fresh.Stop(time.Second) })
 	s := NewSession("route-rebuild", "team", old, ctxwin.NewContextWindow(10000, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
 	s.Router = func(context.Context, string, string, []ctxwin.PayloadMessage) (RouteResult, error) {
-		return RouteResult{Level: "engineering", ProviderID: "routed-provider", ModelID: "routed-model"}, nil
+		return RouteResult{Level: "engineering"}, nil
 	}
 	s.SetAgentRebuilder(func(context.Context) (*agent.Agent, error) { return fresh, nil })
 	stream, err := s.AskStream(context.Background(), "repair")
@@ -1406,8 +1394,8 @@ func TestRoutedModelSurvivesQuarantinedGenerationRebuild(t *testing.T) {
 	}
 	for range stream {
 	}
-	if gotModel != "routed-model" || gotProvider != "routed-provider" {
-		t.Fatalf("rebuilt generation route = %q/%q, want routed-provider/routed-model", gotProvider, gotModel)
+	if gotModel != "default" || gotProvider != "default-provider" {
+		t.Fatalf("rebuilt generation model = %q/%q, want default-provider/default", gotProvider, gotModel)
 	}
 }
 

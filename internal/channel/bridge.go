@@ -296,11 +296,22 @@ func channelUserRef(userID string) string {
 }
 
 func (b *TextBridge) handleCommand(ctx context.Context, msg Message) bool {
+	// /model takes an argument, so it cannot use the exact-match switch below.
+	if arg, ok := modelCommandArg(msg.Text); ok {
+		commander, ok := b.sess.(interface{ ModelCommand(string) string })
+		if !ok {
+			b.send(ctx, msg, "Model switching is not available on this channel.")
+			return true
+		}
+		b.send(ctx, msg, commander.ModelCommand(arg))
+		return true
+	}
+
 	switch strings.ToLower(strings.TrimSpace(msg.Text)) {
 	case "/myid", "/openid":
 		b.send(ctx, msg, fmt.Sprintf("Your User ID is:\n%s", msg.UserID))
 	case "/help":
-		b.send(ctx, msg, "Available commands: /help /cancel /clear /compact /version /myid")
+		b.send(ctx, msg, "Available commands: /help /cancel /clear /compact /version /myid /model")
 	case "/version":
 		b.send(ctx, msg, "SoloQueue "+b.version)
 	case "/cancel":
@@ -328,6 +339,20 @@ func (b *TextBridge) handleCommand(ctx context.Context, msg Message) bool {
 		return false
 	}
 	return true
+}
+
+// modelCommandArg extracts the /model argument. ok=false means the message is
+// not a /model command.
+func modelCommandArg(text string) (string, bool) {
+	trimmed := strings.TrimSpace(text)
+	lower := strings.ToLower(trimmed)
+	if lower == "/model" {
+		return "", true
+	}
+	if !strings.HasPrefix(lower, "/model ") {
+		return "", false
+	}
+	return strings.TrimSpace(trimmed[len("/model"):]), true
 }
 
 func (b *TextBridge) send(ctx context.Context, msg Message, text string) {

@@ -21,10 +21,6 @@ func (d *runtimeDecider) Decide(context.Context, string) (tasktype.TaskType, err
 
 func TestClassifierHotReloadSwitchesActualRouter(t *testing.T) {
 	dir := t.TempDir()
-	cfg, err := config.New(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
 	log, err := logger.System(dir, logger.WithConsole(false), logger.WithFile(false))
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +29,7 @@ func TestClassifierHotReloadSwitchesActualRouter(t *testing.T) {
 	client := &agenttest.FakeLLM{Responses: []string{`{"task_type":"general"}`}}
 	decider := &runtimeDecider{}
 	classifier := router.NewDefaultClassifier(router.DefaultClassifierConfig(), client, "provider", "model", decider, nil)
-	r := router.NewRouter(classifier, cfg, nil)
+	r := router.NewRouter(classifier, nil)
 	stack := &Stack{TaskRouter: r, Log: log, workDir: dir}
 	settings := config.DefaultSettings()
 	for _, tt := range []struct {
@@ -50,8 +46,8 @@ func TestClassifierHotReloadSwitchesActualRouter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decision.Classification.Source != tt.source {
-			t.Fatalf("engine %q: source %s, want %s", tt.engine, decision.Classification.Source, tt.source)
+		if decision.Source != tt.source {
+			t.Fatalf("engine %q: source %s, want %s", tt.engine, decision.Source, tt.source)
 		}
 	}
 	if client.CallCount() != 3 || decider.calls.Load() != 2 {

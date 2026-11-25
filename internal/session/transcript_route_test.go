@@ -45,41 +45,23 @@ func routeFrameNow(t *testing.T, s *Session, requestID string) transcript.Frame 
 	return transcript.Frame{}
 }
 
-func TestRouteFrameCarriesEffectivePerAskRoute(t *testing.T) {
+func TestRouteFrameCarriesTaskTypeAndAgentModel(t *testing.T) {
 	a := agent.NewAgent(agent.Definition{ID: "leader", ModelID: "fallback-model", ProviderID: "fallback-provider"}, &agenttest.FakeLLM{}, nil)
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.Stop(time.Second) })
-	s := newRouteSession(t, "l2:s1", a, RouteResult{Level: "engineering", ModelID: "routed-model", ProviderID: "routed-provider"})
+	s := newRouteSession(t, "l2:s1", a, RouteResult{Level: "engineering"})
 	stream, err := s.AskStream(desktopRequest("req-1"), "route me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	route := routeFrameNow(t, s, "req-1")
-	if route.TaskType != "engineering" || route.ModelID != "routed-model" || route.ProviderID != "routed-provider" {
+	if route.TaskType != "engineering" || route.ModelID != "fallback-model" || route.ProviderID != "fallback-provider" {
 		t.Fatalf("route frame = %+v", route)
 	}
 	if route.AgentInstanceID != a.InstanceID {
 		t.Fatalf("agent_instance_id = %q, want %q", route.AgentInstanceID, a.InstanceID)
-	}
-	for range stream {
-	}
-}
-
-func TestRouteFrameFallsBackToDefinitionModel(t *testing.T) {
-	a := agent.NewAgent(agent.Definition{ID: "leader", ModelID: "fallback-model", ProviderID: "fallback-provider"}, &agenttest.FakeLLM{}, nil)
-	if err := a.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = a.Stop(time.Second) })
-	s := newRouteSession(t, "l1", a, RouteResult{Level: "general"})
-	stream, err := s.AskStream(desktopRequest("req-1"), "hello")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if route := routeFrameNow(t, s, "req-1"); route.ModelID != "fallback-model" || route.ProviderID != "fallback-provider" {
-		t.Fatalf("fallback route frame = %+v", route)
 	}
 	for range stream {
 	}
@@ -101,12 +83,12 @@ func TestRouteFramePublishedBeforeQueuedActorStarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-started
-	s := newRouteSession(t, "l2:queued", a, RouteResult{Level: "research", ModelID: "queued-route", ProviderID: "queued-provider"})
+	s := newRouteSession(t, "l2:queued", a, RouteResult{Level: "research"})
 	stream, err := s.AskStream(desktopRequest("req-queued"), "queued")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if route := routeFrameNow(t, s, "req-queued"); route.ModelID != "queued-route" || route.ProviderID != "queued-provider" || route.TaskType != "research" {
+	if route := routeFrameNow(t, s, "req-queued"); route.ModelID != "fallback" || route.TaskType != "research" {
 		t.Fatalf("route before actor start = %+v", route)
 	}
 	close(release)
@@ -125,13 +107,13 @@ func TestRouteFrameUsesFreshGenerationOnRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = fresh.Stop(time.Second) })
-	s := newRouteSession(t, "l2:rebuild", old, RouteResult{Level: "engineering", ModelID: "rebuilt-route", ProviderID: "rebuilt-provider"})
+	s := newRouteSession(t, "l2:rebuild", old, RouteResult{Level: "engineering"})
 	s.SetAgentRebuilder(func(context.Context) (*agent.Agent, error) { return fresh, nil })
 	stream, err := s.AskStream(desktopRequest("req-rebuild"), "rebuild")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if route := routeFrameNow(t, s, "req-rebuild"); route.AgentInstanceID != fresh.InstanceID || route.ModelID != "rebuilt-route" {
+	if route := routeFrameNow(t, s, "req-rebuild"); route.AgentInstanceID != fresh.InstanceID || route.ModelID != "fresh-default" {
 		t.Fatalf("rebuilt route frame = %+v", route)
 	}
 	for range stream {

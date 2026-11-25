@@ -46,17 +46,13 @@ func (bc *buildContext) buildAgentInfra() {
 	bc.supervisors = []*agent.Supervisor{} // empty slice
 
 	// ── Compactor (context compression engine) ────────────────────────────
-	compactorModel := bc.cfg.DefaultClassifierModel()
-	if compactorModel == nil {
-		compactorModel = bc.defaultModel
-	}
-	compactorModelID := compactorModel.APIModel
+	compactorModelID := bc.defaultModel.APIModel
 	if compactorModelID == "" {
-		compactorModelID = compactorModel.ID
+		compactorModelID = bc.defaultModel.ID
 	}
 	bc.compactorInstance = NewLLMCompactor(
 		NewAgentChatClient(bc.llmClient),
-		compactorModel.ProviderID,
+		bc.defaultModel.ProviderID,
 		compactorModelID,
 		WithLogger(bc.log),
 	)
@@ -64,20 +60,16 @@ func (bc *buildContext) buildAgentInfra() {
 	bc.tokenizer = ctxwin.NewTokenizer()
 
 	// ── Task Router Classifier ───────────────────────────────────────────────
-	classifierModelConfig := bc.cfg.DefaultClassifierModel()
-	if classifierModelConfig == nil {
-		classifierModelConfig = bc.defaultModel
-	}
-	classifierModel := classifierModelConfig.APIModel
+	classifierModel := bc.defaultModel.APIModel
 	if classifierModel == "" {
-		classifierModel = classifierModelConfig.ID
+		classifierModel = bc.defaultModel.ID
 	}
 	classifierConfig := router.DefaultClassifierConfig()
 	// NewDefaultClassifier normalizes an empty engine in both startup and reload paths.
 	classifierConfig.Engine = router.Engine(bc.settings.Classifier.Engine)
 	bc.classifierManager = laya.New(bc.workDir, bc.log)
-	classifier := router.NewDefaultClassifier(classifierConfig, bc.llmClient, classifierModelConfig.ProviderID, classifierModel, bc.classifierManager, bc.log)
-	bc.taskRouter = router.NewRouter(classifier, bc.cfg, bc.log)
+	classifier := router.NewDefaultClassifier(classifierConfig, bc.llmClient, bc.defaultModel.ProviderID, classifierModel, bc.classifierManager, bc.log)
+	bc.taskRouter = router.NewRouter(classifier, bc.log)
 	bc.classifierManager.Apply(layaConfig(bc.settings.Classifier))
 }
 

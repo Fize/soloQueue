@@ -169,7 +169,7 @@ func TestEngineSwitchDoesNotWaitForInFlightInference(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	client := &agenttest.FakeLLM{Responses: []string{`{"task_type":"general"}`}}
 	c := NewDefaultClassifier(ClassifierConfig{Engine: EngineLaya, EnableLLM: true}, client, "p", "m", blockingDecider{entered, release}, nil)
-	r := NewRouter(c, nil, nil)
+	r := NewRouter(c, nil)
 	result := make(chan ClassificationResult, 1)
 	go func() { result <- c.Classify(context.Background(), ClassifyInput{Text: "continue"}, nil) }()
 	<-entered
@@ -191,7 +191,7 @@ func TestEngineSwitchDoesNotWaitForInFlightInference(t *testing.T) {
 func TestConcurrentEngineSwitchAndClassify(t *testing.T) {
 	client := &agenttest.FakeLLM{Responses: []string{`{"task_type":"general"}`}}
 	c := NewDefaultClassifier(ClassifierConfig{EnableLLM: true}, client, "p", "m", nil, nil)
-	r := NewRouter(c, nil, nil)
+	r := NewRouter(c, nil)
 	var wg sync.WaitGroup
 	for range 4 {
 		wg.Add(1)

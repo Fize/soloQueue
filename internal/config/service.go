@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
-	"github.com/xiaobaitu/soloqueue/internal/tasktype"
 )
 
 // GlobalService manages application configuration persisted in settings.yaml.
@@ -127,15 +126,11 @@ func (s *GlobalService) ModelByProviderID(providerID, modelID string) *LLMModel 
 	return nil
 }
 
-// DefaultModelForTask resolves an interactive task model. It keeps the former
-// configured-route -> fallback -> compiled-default resolution order, while
-// using task types instead of difficulty roles.
-func (s *GlobalService) DefaultModelForTask(t tasktype.TaskType) *LLMModel {
-	if !t.Valid() {
-		return nil
-	}
+// DefaultModel resolves the single model used for every conversation turn.
+// Task routing classifies work but no longer selects models.
+func (s *GlobalService) DefaultModel() *LLMModel {
 	settings := s.Get()
-	for _, ref := range []string{settings.ModelRoutes.TaskRef(t), settings.ModelRoutes.Fallback, taskDefault(t)} {
+	for _, ref := range []string{settings.ModelRoutes.Ref(), compiledDefaultModelRef} {
 		if model := enabledModelByRef(settings, ref); model != nil {
 			return model
 		}
@@ -143,49 +138,29 @@ func (s *GlobalService) DefaultModelForTask(t tasktype.TaskType) *LLMModel {
 	return nil
 }
 
-// DefaultClassifierModel resolves the compact non-thinking classifier model.
-func (s *GlobalService) DefaultClassifierModel() *LLMModel {
+// EnabledModel returns the model for a provider/model pair when both the
+// provider and the model are enabled; nil otherwise.
+func (s *GlobalService) EnabledModel(providerID, modelID string) *LLMModel {
+	if providerID == "" || modelID == "" {
+		return nil
+	}
+	return enabledModelByRef(s.Get(), providerID+":"+modelID)
+}
+
+// VisionModel returns the first enabled model that can read images. It is only
+// used to transcribe attachments when the active model cannot see them.
+func (s *GlobalService) VisionModel() *LLMModel {
 	settings := s.Get()
-	for _, ref := range []string{settings.ModelRoutes.Classifier, settings.ModelRoutes.Fallback, classifierDefault()} {
-		if model := enabledModelByRef(settings, ref); model != nil {
-			return model
+	for i := range settings.Models {
+		model := settings.Models[i]
+		if !model.Enabled || !model.Vision {
+			continue
+		}
+		if enabledModelByRef(settings, model.ProviderID+":"+model.ID) != nil {
+			return &model
 		}
 	}
 	return nil
-}
-
-// DefaultVisionModel resolves the configured vision model used for image transcription.
-// Returns nil if no vision model is configured or if the configured model is disabled/lacks vision.
-func (s *GlobalService) DefaultVisionModel() *LLMModel {
-	settings := s.Get()
-	if settings.ModelRoutes.Vision == "" {
-		return nil
-	}
-	model := enabledModelByRef(settings, settings.ModelRoutes.Vision)
-	if model != nil && model.Vision {
-		return model
-	}
-	return nil
-}
-
-// ResolveScheduledTaskModel resolves a persisted task type. Scheduled tasks
-// intentionally do not fall back to compiled defaults: unattended work must
-// use an explicitly configured model or fail visibly.
-func (s *GlobalService) ResolveScheduledTaskModel(t tasktype.TaskType) (model *LLMModel, usedFallback bool, err error) {
-	if !t.Valid() {
-		return nil, false, fmt.Errorf("unsupported scheduled task type %q", t)
-	}
-	settings := s.Get()
-	if resolved := enabledModelByRef(settings, settings.ModelRoutes.TaskRef(t)); resolved != nil {
-		return resolved, false, nil
-	}
-	if settings.ModelRoutes.Fallback == "" {
-		return nil, false, fmt.Errorf("no enabled model configured for %s and no fallback model configured", t)
-	}
-	if resolved := enabledModelByRef(settings, settings.ModelRoutes.Fallback); resolved != nil {
-		return resolved, true, nil
-	}
-	return nil, false, fmt.Errorf("fallback model %q is missing or disabled", settings.ModelRoutes.Fallback)
 }
 
 func enabledModelByRef(settings Settings, ref string) *LLMModel {
@@ -212,18 +187,8 @@ func enabledModelByRef(settings Settings, ref string) *LLMModel {
 	return nil
 }
 
-func taskDefault(t tasktype.TaskType) string {
-	switch t {
-	case tasktype.General:
-		return "deepseek:deepseek-v4-flash-thinking"
-	case tasktype.Engineering, tasktype.Research:
-		return "deepseek:deepseek-v4-flash-thinking-max"
-	default:
-		return ""
-	}
-}
-
-func classifierDefault() string { return "deepseek:deepseek-v4-flash" }
+// compiledDefaultModelRef is the last-resort model when nothing is configured.
+const compiledDefaultModelRef = "deepseek:deepseek-v4-flash-thinking"
 
 // DefaultWorkDir returns the working directory for soloqueue.
 // It checks the SOLOQUEUE_WORK_DIR env var first, then falls back to ~/.soloqueue.

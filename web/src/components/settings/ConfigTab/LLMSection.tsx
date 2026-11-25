@@ -415,82 +415,50 @@ export function LLMSection({
             {t('config.modelRoutesDesc')}
           </p>
         </div>
-        <div className="grid gap-3 xl:grid-cols-2">
-          {([
-			{ role: 'general', title: 'config.taskTypeGeneral', desc: 'config.taskTypeGeneralDesc' },
-			{ role: 'engineering', title: 'config.taskTypeEngineering', desc: 'config.taskTypeEngineeringDesc' },
-			{ role: 'research', title: 'config.taskTypeResearch', desc: 'config.taskTypeResearchDesc' },
-          ] as const).map(({ role, title, desc }) => {
-            const val = defaultModels[role] || ''
-            return (
-              <div key={role} className="grid gap-2 rounded-lg border bg-muted/30 p-3 ">
-                <label htmlFor={`role-select-${role}`} className="text-sm font-semibold text-foreground">
-                  {t(title)}
-                </label>
-                <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground leading-relaxed">{t(desc)}</p>
-                </div>
-                <div className="min-w-0">
-                  <Select
-                    id={`role-select-${role}`}
-                    value={val}
-                    onChange={(v) => onDefaultModelsChange({ ...defaultModels, [role]: v })}
-                    placeholder={t('config.llmUnsetInherit')}
-                    options={[
-                      { value: '', label: t('config.llmUnsetInherit') },
-                      ...models
-                        .filter((m) => m.enabled)
-                        .map((m) => ({
-                          value: `${m.providerId}:${m.id}`,
-                          label: `${m.providerId}:${m.id} (${m.name})`,
-                        })),
-                    ]}
-                  />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-        <div className="border-t pt-4 grid gap-3 xl:grid-cols-2">
-          <h4 className="text-sm font-medium text-foreground xl:col-span-2">{t('config.modelRouteSupportTitle')}</h4>
-          {([
-            { role: 'classifier', title: 'config.modelRouteClassifier', desc: 'config.modelRouteClassifierDesc', required: false, filterVision: false },
-            { role: 'vision', title: 'config.modelRouteVision', desc: 'config.modelRouteVisionDesc', required: false, filterVision: true },
-            { role: 'fallback', title: 'config.modelRouteFallback', desc: 'config.modelRouteFallbackDesc', required: true, filterVision: false },
-          ] as const).map(({ role, title, desc, required, filterVision }) => (
-            <div key={role} className="grid gap-2 rounded-lg bg-muted/30 p-3 ">
-              <label
-                htmlFor={role === 'classifier' && classifier.engine === 'laya' ? undefined : `role-select-${role}`}
-                className="text-sm font-semibold text-foreground"
-              >
-                {t(title)}
-              </label>
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground leading-relaxed">{t(desc)}</p>
-                {required && <p className="mt-1 text-xs text-destructive">{t('config.modelRouteRequired')}</p>}
-              </div>
-              <div className="min-w-0 space-y-2">
-              {role === 'classifier' && (
-                <ClassifierEngineControl config={classifier} onChange={onClassifierChange} />
-              )}
-              {!(role === 'classifier' && classifier.engine === 'laya') && (
-                <Select
-                  id={`role-select-${role}`}
-                  value={defaultModels[role] || ''}
-                  onChange={(v) => {
-                    if (required && !v) return
-                    onDefaultModelsChange({ ...defaultModels, [role]: v })
-                  }}
-                  placeholder={required ? t('config.llmSelectModel') : t('config.llmUnsetConfigured')}
-                  options={[
-                    ...(required ? [] : [{ value: '', label: t('config.llmUnsetConfigured') }]),
-                    ...models.filter((m) => m.enabled && (!filterVision || m.vision)).map((m) => ({ value: `${m.providerId}:${m.id}`, label: `${m.providerId}:${m.id} (${m.name})` })),
-                  ]}
-                />
-              )}
-              </div>
+        <div className="grid gap-3">
+          <div className="grid gap-2 rounded-lg border bg-muted/30 p-3">
+            <label htmlFor="role-select-default" className="text-sm font-semibold text-foreground">
+              {t('config.modelRouteDefault')}
+            </label>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground leading-relaxed">{t('config.modelRouteDefaultDesc')}</p>
+              <p className="mt-1 text-xs text-destructive">{t('config.modelRouteRequired')}</p>
             </div>
-          ))}
+            <div className="min-w-0">
+              <Select
+                id="role-select-default"
+                value={defaultModels.default || ''}
+                onChange={(v) => {
+                  if (!v) return
+                  onDefaultModelsChange({ ...defaultModels, default: v })
+                }}
+                placeholder={t('config.llmSelectModel')}
+                options={models
+                  .filter((m) => m.enabled)
+                  .map((m) => ({
+                    value: `${m.providerId}:${m.id}`,
+                    label: `${m.providerId}:${m.id} (${m.name})`,
+                  }))}
+              />
+            </div>
+          </div>
+        </div>
+        <div className="border-t pt-4 grid gap-3">
+          <h4 className="text-sm font-medium text-foreground">{t('config.modelRouteSupportTitle')}</h4>
+          <div className="grid gap-2 rounded-lg bg-muted/30 p-3">
+            <label
+              htmlFor={classifier.engine === 'laya' ? undefined : 'role-select-classifier'}
+              className="text-sm font-semibold text-foreground"
+            >
+              {t('config.modelRouteClassifier')}
+            </label>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground leading-relaxed">{t('config.modelRouteClassifierDesc')}</p>
+            </div>
+            <div className="min-w-0">
+              <ClassifierEngineControl config={classifier} onChange={onClassifierChange} />
+            </div>
+          </div>
         </div>
         <div className="flex justify-end pt-2">
           <Button size="sm" onClick={onSaveDefaults}>
