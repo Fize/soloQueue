@@ -1720,7 +1720,7 @@ func (s *Session) Clear() error {
 	// Reset ContextWindow (retaining system prompt)
 	s.cw.Reset()
 	if a := s.CurrentAgent(); a != nil && a.Def.ProjectInstructions != "" {
-		s.cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions)
+		s.cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions, ctxwin.WithProjectInstructions())
 	}
 	s.mu.Unlock()
 	s.PublishTranscriptReset("clear")
@@ -1942,7 +1942,7 @@ func (s *Session) ClearSilent() error {
 	if a := s.CurrentAgent(); a != nil && a.Def.ProjectInstructions != "" {
 		// Silent clear must not append another initial input to durable history.
 		s.cw.SetReplayMode(true)
-		s.cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions)
+		s.cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions, ctxwin.WithProjectInstructions())
 		s.cw.SetReplayMode(false)
 	}
 	s.mu.Unlock()

@@ -7,7 +7,10 @@
 //   - /clear does not destroy data; it only appends a control event and clears active conversation.
 package timeline
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // ─── EventType ───────────────────────────────────────────────────────────────
 
@@ -55,27 +58,50 @@ type TemporalPartPayload struct {
 
 // MessagePayload represents the payload for a message event.
 type MessagePayload struct {
-	IsSummary        bool                  `json:"-"`
-	RequestFailed    bool                  `json:"-"`
-	Role             string                `json:"role"`                       // system/user/assistant/tool
-	Content          string                `json:"content"`                    // Message content
-	ReasoningContent string                `json:"reasoning,omitempty"`        // DeepSeek reasoning
-	Name             string                `json:"name,omitempty"`             // Tool name (role=tool)
-	ToolCallID       string                `json:"tool_call_id,omitempty"`     // Tool call ID (role=tool)
-	ToolCalls        []ToolCallRec         `json:"tool_calls,omitempty"`       // tool_calls when role is assistant
-	SegmentOrder     []string              `json:"segment_order,omitempty"`    // Visible assistant field order for history replay
-	Files            []FileAttachment      `json:"files,omitempty"`            // Attached files metadata (role=user)
-	IsEphemeral      bool                  `json:"ephemeral,omitempty"`        // Marks verbose tool output
-	AgentID          string                `json:"agent_id,omitempty"`         // Reserved for multi-agent systems
-	Timestamp        string                `json:"ts,omitempty"`               // Original message timestamp (RFC3339Nano)
-	ExposeTimestamp  bool                  `json:"expose_timestamp,omitempty"` // Allows replay to restore LLM-visible temporal context.
-	TemporalParts    []TemporalPartPayload `json:"temporal_parts,omitempty"`
-	RequestID        string                `json:"request_id,omitempty"`
+	IsSummary             bool                  `json:"-"`
+	RequestFailed         bool                  `json:"-"`
+	IsProjectInstructions bool                  `json:"project_instructions,omitempty"` // Implicit project context, not a user-authored turn.
+	Role                  string                `json:"role"`                           // system/user/assistant/tool
+	Content               string                `json:"content"`                        // Message content
+	ReasoningContent      string                `json:"reasoning,omitempty"`            // DeepSeek reasoning
+	Name                  string                `json:"name,omitempty"`                 // Tool name (role=tool)
+	ToolCallID            string                `json:"tool_call_id,omitempty"`         // Tool call ID (role=tool)
+	ToolCalls             []ToolCallRec         `json:"tool_calls,omitempty"`           // tool_calls when role is assistant
+	SegmentOrder          []string              `json:"segment_order,omitempty"`        // Visible assistant field order for history replay
+	Files                 []FileAttachment      `json:"files,omitempty"`                // Attached files metadata (role=user)
+	IsEphemeral           bool                  `json:"ephemeral,omitempty"`            // Marks verbose tool output
+	AgentID               string                `json:"agent_id,omitempty"`             // Reserved for multi-agent systems
+	Timestamp             string                `json:"ts,omitempty"`                   // Original message timestamp (RFC3339Nano)
+	ExposeTimestamp       bool                  `json:"expose_timestamp,omitempty"`     // Allows replay to restore LLM-visible temporal context.
+	TemporalParts         []TemporalPartPayload `json:"temporal_parts,omitempty"`
+	RequestID             string                `json:"request_id,omitempty"`
 	// ItemID and Seq bind the row to the live transcript item it persists.
 	// Seq is the session sequence at which the item opened; legacy rows have
 	// neither field.
 	ItemID string `json:"item_id,omitempty"`
 	Seq    uint64 `json:"seq,omitempty"`
+}
+
+const (
+	projectInstructionsAGENTSHeader = "\n\n# Project Instructions (from AGENTS.md)\n\n"
+	projectInstructionsCLAUDEHeader = "\n\n# Project Instructions (from CLAUDE.md)\n\n"
+)
+
+// IsInjectedProjectInstructions reports whether msg is implicit project
+// context rather than a user-authored turn. Rows written before the marker was
+// added are recognized by their exact header and lack of transcript identity.
+func IsInjectedProjectInstructions(msg *MessagePayload) bool {
+	if msg == nil {
+		return false
+	}
+	if msg.IsProjectInstructions {
+		return true
+	}
+	if msg.Role != "user" || msg.RequestID != "" || msg.ItemID != "" || msg.Seq != 0 {
+		return false
+	}
+	return strings.HasPrefix(msg.Content, projectInstructionsAGENTSHeader) ||
+		strings.HasPrefix(msg.Content, projectInstructionsCLAUDEHeader)
 }
 
 // ─── ControlPayload ─────────────────────────────────────────────────────────

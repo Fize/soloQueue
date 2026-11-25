@@ -568,6 +568,16 @@ func TestBuildPayloadPreservesTimestampExposure(t *testing.T) {
 	}
 }
 
+func TestBuildPayloadPreservesProjectInstructions(t *testing.T) {
+	cw := newTestCW(10000, 2000)
+	cw.Push(RoleUser, "project rules", WithProjectInstructions())
+
+	payload := cw.BuildPayload()
+	if len(payload) != 1 || !payload[0].IsProjectInstructions {
+		t.Fatalf("project instruction marker lost in payload: %+v", payload)
+	}
+}
+
 func TestTemporalMetadataDoesNotChangeRawTokenAccounting(t *testing.T) {
 	cw := newTestCW(10000, 1000)
 	cw.Push(RoleUser, "hello", WithTimestamp(time.Date(2026, time.August, 27, 9, 35, 59, 0, time.Local)), WithExposeTimestamp(true))

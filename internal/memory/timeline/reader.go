@@ -339,9 +339,12 @@ func pushMessage(cw *ctxwin.ContextWindow, msg MessagePayload) {
 		msg.Role = "user"
 		msg.IsSummary = true
 	}
-	opts := make([]ctxwin.PushOption, 0, 5)
+	opts := make([]ctxwin.PushOption, 0, 6)
 	if msg.IsSummary {
 		opts = append(opts, ctxwin.WithSummary())
+	}
+	if IsInjectedProjectInstructions(&msg) {
+		opts = append(opts, ctxwin.WithProjectInstructions())
 	}
 	if msg.RequestFailed {
 		opts = append(opts, ctxwin.WithRequestFailed())

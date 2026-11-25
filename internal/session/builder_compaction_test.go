@@ -49,6 +49,9 @@ func TestBuildL2ProjectInstructionsAreInitialUserInputAcrossReplay(t *testing.T)
 				if m.Role != ctxwin.RoleUser {
 					t.Fatalf("project instructions have role %s, want user", m.Role)
 				}
+				if !m.IsProjectInstructions {
+					t.Fatal("project instructions must be marked as injected context")
+				}
 				count++
 			}
 		}

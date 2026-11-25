@@ -881,7 +881,7 @@ func (f *DefaultFactory) CreateWithOptions(ctx context.Context, tmpl AgentTempla
 		cw.Push(ctxwin.RoleSystem, a.Def.SystemPrompt)
 	}
 	if a.Def.ProjectInstructions != "" {
-		cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions)
+		cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions, ctxwin.WithProjectInstructions())
 	}
 
 	// 8. Register to registry

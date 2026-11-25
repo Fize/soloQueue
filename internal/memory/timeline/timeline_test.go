@@ -1000,6 +1000,29 @@ func TestReplayInto_WithEphemeral(t *testing.T) {
 	}
 }
 
+func TestReplayInto_ProjectInstructionsFlag(t *testing.T) {
+	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
+	cw.SetReplayMode(true)
+
+	segments := []Segment{{
+		Messages: []MessagePayload{
+			{Role: "user", Content: "\n\n# Project Instructions (from AGENTS.md)\n\nRules"},
+			{Role: "user", Content: "task", RequestID: "r1", ItemID: "in:r1", Seq: 1},
+		},
+	}}
+	ReplayInto(cw, segments)
+	cw.SetReplayMode(false)
+
+	project, ok := cw.MessageAt(0)
+	if !ok || !project.IsProjectInstructions {
+		t.Fatalf("legacy project instructions not marked during replay: %+v", project)
+	}
+	task, ok := cw.MessageAt(1)
+	if !ok || task.IsProjectInstructions {
+		t.Fatalf("ordinary user message incorrectly marked: %+v", task)
+	}
+}
+
 func TestReplayInto_MultipleSegments(t *testing.T) {
 	cw := ctxwin.NewContextWindow(1048576, 2000, 0, ctxwin.NewTokenizer())
 	cw.SetReplayMode(true)

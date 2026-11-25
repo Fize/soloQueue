@@ -8,6 +8,7 @@ import (
 	"time"
 
 	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
+	"github.com/xiaobaitu/soloqueue/internal/memory/timeline"
 )
 
 // ─── L2SessionStore tests ──────────────────────────────────────────────────
@@ -28,6 +29,31 @@ func TestL2SessionStore_Create(t *testing.T) {
 	}
 	if info.Name != "" {
 		t.Errorf("Name should be empty initially, got %q", info.Name)
+	}
+}
+
+func TestResolveSessionNameFromTimelineSkipsProjectInstructions(t *testing.T) {
+	workDir := t.TempDir()
+	id := "project-name"
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "l2-"+id)
+	tl, err := timeline.NewWriter(timelineDir, "timeline", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tl.Close()
+
+	for _, msg := range []*timeline.MessagePayload{
+		{Role: "user", Content: "\n\n# Project Instructions (from AGENTS.md)\n\nRules"},
+		{Role: "user", IsProjectInstructions: true, Content: "\n\n# Project Instructions (from CLAUDE.md)\n\nRules"},
+		{Role: "user", Content: "Fix the actual bug", RequestID: "r1", ItemID: "in:r1", Seq: 1},
+	} {
+		if err := tl.AppendMessage(msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := ResolveSessionNameFromTimeline(workDir, id); got != "Fix the actual bug" {
+		t.Fatalf("ResolveSessionNameFromTimeline() = %q, want the real user turn", got)
 	}
 }
 

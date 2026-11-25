@@ -149,18 +149,19 @@ func truncateTemporalContent(content string, parts []TemporalPart, headRatio, ta
 // Independent of agent.LLMMessage to avoid circular dependency between ctxwin and agent.
 // The Agent package is responsible for converting PayloadMessage to agent.LLMMessage.
 type PayloadMessage struct {
-	IsSummary        bool `json:"-"`
-	IsPersonaState   bool `json:"-"`
-	Role             string
-	Content          string
-	Images           []llm.ImageContent // Multimodal images (only used in user messages)
-	ReasoningContent string
-	Name             string
-	ToolCallID       string
-	ToolCalls        []llm.ToolCall
-	Timestamp        time.Time // Original message timestamp (used for memory and other time-sensitive contexts)
-	ExposeTimestamp  bool      // Allows the LLM boundary to render temporal context for eligible channel input.
-	TemporalParts    []TemporalPart
+	IsSummary             bool `json:"-"`
+	IsPersonaState        bool `json:"-"`
+	IsProjectInstructions bool `json:"-"`
+	Role                  string
+	Content               string
+	Images                []llm.ImageContent // Multimodal images (only used in user messages)
+	ReasoningContent      string
+	Name                  string
+	ToolCallID            string
+	ToolCalls             []llm.ToolCall
+	Timestamp             time.Time // Original message timestamp (used for memory and other time-sensitive contexts)
+	ExposeTimestamp       bool      // Allows the LLM boundary to render temporal context for eligible channel input.
+	TemporalParts         []TemporalPart
 }
 
 // ─── MessageRole ────────────────────────────────────────────────────────────
@@ -183,28 +184,29 @@ const (
 //   - Calibrate proportionally adjusts each msg.Tokens so that sum ≈ currentTokens
 //   - Eviction strategies use currentTokens for decisions; msg.Tokens is only used for incremental calculations
 type Message struct {
-	IsSummary           bool // Synthetic history context, not a user turn.
-	IsPersonaState      bool // Synthetic persona state, distinct from a user turn.
-	Role                MessageRole
-	Content             string
-	Images              []llm.ImageContent // Multimodal images (only used in user messages)
-	Files               []FileAttachment   // Attached files metadata (only used in user messages)
-	Tokens              int                // Estimated on insertion; after Calibrate, sum no longer guarantees == currentTokens
-	IsEphemeral         bool               // Marks verbose tool output (large error logs, file read results)
-	ReasoningContent    string             // DeepSeek reasoning; required for API roundtrip
-	Name                string             // Tool name (role=tool)
-	ToolCallID          string             // Tool call ID (role=tool)
-	ToolCalls           []llm.ToolCall     // Tool calls when role=assistant
-	Timestamp           time.Time          // Timestamp when the message was pushed; restored from timeline events during replay
-	ExposeTimestamp     bool               // Restricts LLM-visible temporal context to explicitly eligible input.
-	TemporalParts       []TemporalPart     // Components of one aggregated pending user turn.
-	RequestFailed       bool               // Internal outcome, attached to this user input.
-	RequestID           string             // Stable request identity for timeline/UI ownership; never sent to the LLM.
-	ItemID              string             // Live transcript item persisted by this message; never sent to the LLM.
-	Seq                 uint64             // Session sequence at which ItemID opened; never sent to the LLM.
-	Iter                int                // Agent iteration that produced an assistant message (valid when IterSet).
-	IterSet             bool
-	suppressAutoCompact bool
+	IsSummary             bool // Synthetic history context, not a user turn.
+	IsPersonaState        bool // Synthetic persona state, distinct from a user turn.
+	IsProjectInstructions bool // Implicit project context, not a user-authored turn.
+	Role                  MessageRole
+	Content               string
+	Images                []llm.ImageContent // Multimodal images (only used in user messages)
+	Files                 []FileAttachment   // Attached files metadata (only used in user messages)
+	Tokens                int                // Estimated on insertion; after Calibrate, sum no longer guarantees == currentTokens
+	IsEphemeral           bool               // Marks verbose tool output (large error logs, file read results)
+	ReasoningContent      string             // DeepSeek reasoning; required for API roundtrip
+	Name                  string             // Tool name (role=tool)
+	ToolCallID            string             // Tool call ID (role=tool)
+	ToolCalls             []llm.ToolCall     // Tool calls when role=assistant
+	Timestamp             time.Time          // Timestamp when the message was pushed; restored from timeline events during replay
+	ExposeTimestamp       bool               // Restricts LLM-visible temporal context to explicitly eligible input.
+	TemporalParts         []TemporalPart     // Components of one aggregated pending user turn.
+	RequestFailed         bool               // Internal outcome, attached to this user input.
+	RequestID             string             // Stable request identity for timeline/UI ownership; never sent to the LLM.
+	ItemID                string             // Live transcript item persisted by this message; never sent to the LLM.
+	Seq                   uint64             // Session sequence at which ItemID opened; never sent to the LLM.
+	Iter                  int                // Agent iteration that produced an assistant message (valid when IterSet).
+	IterSet               bool
+	suppressAutoCompact   bool
 }
 
 // ─── PushOption ─────────────────────────────────────────────────────────────
@@ -214,6 +216,12 @@ type PushOption func(*Message)
 
 // WithSummary marks a synthetic history summary.
 func WithSummary() PushOption { return func(m *Message) { m.IsSummary = true } }
+
+// WithProjectInstructions marks implicit project context loaded from AGENTS.md
+// or CLAUDE.md. It remains model-visible but is not a user-authored turn.
+func WithProjectInstructions() PushOption {
+	return func(m *Message) { m.IsProjectInstructions = true }
+}
 
 // WithEphemeral sets the IsEphemeral flag on the message
 func WithEphemeral(isEphemeral bool) PushOption {
@@ -675,17 +683,18 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 			}
 			pendingCalls = len(m.ToolCalls)
 			out = append(out, PayloadMessage{
-				IsSummary:        m.IsSummary,
-				IsPersonaState:   m.IsPersonaState,
-				Role:             string(m.Role),
-				Content:          m.Content,
-				ReasoningContent: m.ReasoningContent,
-				Name:             m.Name,
-				ToolCallID:       m.ToolCallID,
-				ToolCalls:        m.ToolCalls,
-				Timestamp:        m.Timestamp,
-				ExposeTimestamp:  m.ExposeTimestamp,
-				TemporalParts:    append([]TemporalPart(nil), m.TemporalParts...),
+				IsSummary:             m.IsSummary,
+				IsPersonaState:        m.IsPersonaState,
+				IsProjectInstructions: m.IsProjectInstructions,
+				Role:                  string(m.Role),
+				Content:               m.Content,
+				ReasoningContent:      m.ReasoningContent,
+				Name:                  m.Name,
+				ToolCallID:            m.ToolCallID,
+				ToolCalls:             m.ToolCalls,
+				Timestamp:             m.Timestamp,
+				ExposeTimestamp:       m.ExposeTimestamp,
+				TemporalParts:         append([]TemporalPart(nil), m.TemporalParts...),
 			})
 		} else if m.Role == RoleTool && m.ToolCallID != "" {
 			if !valid[m.ToolCallID] {
@@ -695,17 +704,18 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 				pendingCalls--
 			}
 			out = append(out, PayloadMessage{
-				IsSummary:        m.IsSummary,
-				IsPersonaState:   m.IsPersonaState,
-				Role:             string(m.Role),
-				Content:          m.Content,
-				ReasoningContent: m.ReasoningContent,
-				Name:             m.Name,
-				ToolCallID:       m.ToolCallID,
-				ToolCalls:        m.ToolCalls,
-				Timestamp:        m.Timestamp,
-				ExposeTimestamp:  m.ExposeTimestamp,
-				TemporalParts:    append([]TemporalPart(nil), m.TemporalParts...),
+				IsSummary:             m.IsSummary,
+				IsPersonaState:        m.IsPersonaState,
+				IsProjectInstructions: m.IsProjectInstructions,
+				Role:                  string(m.Role),
+				Content:               m.Content,
+				ReasoningContent:      m.ReasoningContent,
+				Name:                  m.Name,
+				ToolCallID:            m.ToolCallID,
+				ToolCalls:             m.ToolCalls,
+				Timestamp:             m.Timestamp,
+				ExposeTimestamp:       m.ExposeTimestamp,
+				TemporalParts:         append([]TemporalPart(nil), m.TemporalParts...),
 			})
 		} else {
 			// user or assistant(content) message
@@ -726,17 +736,18 @@ func filterCompletePairs(msgs []Message) []PayloadMessage {
 				content += "\n[System: This request failed before completion.]"
 			}
 			out = append(out, PayloadMessage{
-				IsSummary:        m.IsSummary,
-				IsPersonaState:   m.IsPersonaState,
-				Role:             string(m.Role),
-				Content:          content,
-				ReasoningContent: m.ReasoningContent,
-				Name:             m.Name,
-				ToolCallID:       m.ToolCallID,
-				ToolCalls:        m.ToolCalls,
-				Timestamp:        m.Timestamp,
-				ExposeTimestamp:  m.ExposeTimestamp,
-				TemporalParts:    append([]TemporalPart(nil), m.TemporalParts...),
+				IsSummary:             m.IsSummary,
+				IsPersonaState:        m.IsPersonaState,
+				IsProjectInstructions: m.IsProjectInstructions,
+				Role:                  string(m.Role),
+				Content:               content,
+				ReasoningContent:      m.ReasoningContent,
+				Name:                  m.Name,
+				ToolCallID:            m.ToolCallID,
+				ToolCalls:             m.ToolCalls,
+				Timestamp:             m.Timestamp,
+				ExposeTimestamp:       m.ExposeTimestamp,
+				TemporalParts:         append([]TemporalPart(nil), m.TemporalParts...),
 			})
 		}
 	}

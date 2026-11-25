@@ -90,7 +90,7 @@ func (s *Session) stampPush(msg *ctxwin.Message) {
 	}
 	switch msg.Role {
 	case ctxwin.RoleUser:
-		if msg.IsSummary || msg.IsPersonaState || msg.IsEphemeral || msg.RequestID == "" {
+		if msg.IsSummary || msg.IsPersonaState || msg.IsProjectInstructions || msg.IsEphemeral || msg.RequestID == "" {
 			return
 		}
 		frame := transcript.Frame{

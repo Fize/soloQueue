@@ -146,6 +146,42 @@ func TestHTTP_SessionTranscript_HidesAutomaticCompactionSummary(t *testing.T) {
 	}
 }
 
+func TestHTTP_SessionTranscript_HidesProjectInstructions(t *testing.T) {
+	workDir := t.TempDir()
+	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))
+
+	timelineDir := filepath.Join(workDir, "logs", "timelines", "default")
+	if err := os.MkdirAll(timelineDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	timelinePath := filepath.Join(timelineDir, "timeline-"+time.Now().Format("2006-01-02")+".jsonl")
+	events := strings.Join([]string{
+		`{"ts":"2026-10-13T17:02:25+08:00","type":"message","msg":{"role":"user","content":"\n\n# Project Instructions (from AGENTS.md)\n\nlegacy rules"}}`,
+		`{"ts":"2026-10-13T17:02:26+08:00","type":"message","msg":{"role":"user","project_instructions":true,"content":"\n\n# Project Instructions (from CLAUDE.md)\n\nmarked rules"}}`,
+		`{"ts":"2026-10-13T17:02:27+08:00","type":"message","msg":{"role":"user","content":"real question","request_id":"r1","item_id":"in:r1","seq":1}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(timelinePath, []byte(events), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mux := NewMux(workDir, log)
+	defer mux.Close()
+	req := newLocalhostRequest("GET", "/api/session/transcript?session_id=l1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "legacy rules") || strings.Contains(body, "marked rules") {
+		t.Fatalf("project instructions leaked into visible history: %s", body)
+	}
+	if !strings.Contains(body, "real question") {
+		t.Fatalf("real user message missing: %s", body)
+	}
+}
+
 func TestHTTP_SessionTranscriptCompactionsIgnorePaginationAndClearBoundary(t *testing.T) {
 	workDir := t.TempDir()
 	log, _ := logger.System(workDir, logger.WithConsole(false), logger.WithFile(false))

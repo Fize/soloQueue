@@ -314,8 +314,8 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 	return nil
 }
 
-// ResolveSessionNameFromTimeline scans the timeline for the first non-ephemeral
-// user message and returns a short display name derived from it. Exported so
+// ResolveSessionNameFromTimeline scans the timeline for the first user-authored
+// message and returns a short display name derived from it. Exported so
 // the session list handler can reuse the same logic when backfilling names.
 func ResolveSessionNameFromTimeline(workDir, id string) string {
 	tlDir := filepath.Join(workDir, "logs", "timelines", "l2-"+id)
@@ -333,7 +333,7 @@ func ResolveSessionNameFromTimeline(workDir, id string) string {
 			if msg.Role != "user" || msg.Content == "" {
 				continue
 			}
-			if msg.IsEphemeral {
+			if msg.IsEphemeral || timeline.IsInjectedProjectInstructions(msg) {
 				continue
 			}
 			if strings.HasPrefix(msg.Content, "[Delegation Completed]") {

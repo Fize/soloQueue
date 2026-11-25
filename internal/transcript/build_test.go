@@ -49,6 +49,20 @@ func TestBuildKeepsLegacyGrouping(t *testing.T) {
 	}
 }
 
+func TestBuildHidesInjectedProjectInstructions(t *testing.T) {
+	const header = "\n\n# Project Instructions (from AGENTS.md)\n\nRules"
+	events := []timeline.Event{
+		msgEvent(ts(0), timeline.MessagePayload{Role: "user", IsProjectInstructions: true, Content: header}),
+		msgEvent(ts(1), timeline.MessagePayload{Role: "user", Content: header}),
+		msgEvent(ts(2), timeline.MessagePayload{Role: "user", Content: header, RequestID: "user-authored", ItemID: "in:user-authored", Seq: 1}),
+	}
+
+	items := Build(events, BuildOptions{})
+	if got := itemIDs(items); got != "in:user-authored" {
+		t.Fatalf("ids = %s, want only the stamped user message", got)
+	}
+}
+
 func TestBuildOrdersStampedItemsBySequence(t *testing.T) {
 	events := []timeline.Event{
 		msgEvent(ts(0), timeline.MessagePayload{Role: "user", Content: "old", RequestID: "legacy"}),

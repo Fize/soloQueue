@@ -48,8 +48,8 @@ func (m *Mux) handleGetSessionStatus(w http.ResponseWriter, r *http.Request) {
 	payload := sess.CW().BuildPayload()
 	msgs := make([]SessionMessageInfo, 0, len(payload))
 	for _, msg := range payload {
-		if msg.Role == "system" || msg.IsSummary || msg.IsPersonaState {
-			continue // skip system prompt messages for cleaner chat UI
+		if msg.Role == "system" || msg.IsSummary || msg.IsPersonaState || msg.IsProjectInstructions {
+			continue // skip non-conversation context for a cleaner chat UI
 		}
 		msgs = append(msgs, SessionMessageInfo{
 			Role:      msg.Role,

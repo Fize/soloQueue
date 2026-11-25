@@ -179,6 +179,10 @@ func Build(events []timeline.Event, opts BuildOptions) []Item {
 		if msg.Role == "system" {
 			continue
 		}
+		// Project instructions are model context, not a user-authored turn.
+		if timeline.IsInjectedProjectInstructions(msg) {
+			continue
+		}
 		// Ephemeral non-tool messages are internal, except delegation results
 		// which complete delegate tool calls.
 		if msg.Role != "tool" && msg.IsEphemeral && !strings.HasPrefix(msg.Content, "[Delegation Completed]") {

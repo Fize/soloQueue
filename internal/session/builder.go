@@ -67,8 +67,8 @@ func timelineTemporalParts(parts []ctxwin.TemporalPart) []timeline.TemporalPartP
 	return out
 }
 
-// timelinePushHook persists every visible ContextWindow push to the session
-// timeline, including the transcript identity stamped by the Session.
+// timelinePushHook persists every ContextWindow push to the session timeline,
+// including the transcript identity stamped by the Session.
 func timelinePushHook(tl *timeline.Writer, agentID string, sessLog *logger.Logger) ctxwin.PushHook {
 	return func(msg ctxwin.Message) {
 		var toolCalls []timeline.ToolCallRec
@@ -85,21 +85,22 @@ func timelinePushHook(tl *timeline.Writer, agentID string, sessLog *logger.Logge
 			files = append(files, timeline.FileAttachment{Name: f.Name, Path: f.Path})
 		}
 		if err := tl.AppendMessage(&timeline.MessagePayload{
-			Role:             string(msg.Role),
-			Content:          msg.Content,
-			Timestamp:        msg.Timestamp.Format(time.RFC3339Nano),
-			ReasoningContent: msg.ReasoningContent,
-			Name:             msg.Name,
-			ToolCallID:       msg.ToolCallID,
-			ToolCalls:        toolCalls,
-			Files:            files,
-			IsEphemeral:      msg.IsEphemeral,
-			AgentID:          agentID,
-			ExposeTimestamp:  msg.ExposeTimestamp,
-			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
-			RequestID:        msg.RequestID,
-			ItemID:           msg.ItemID,
-			Seq:              msg.Seq,
+			Role:                  string(msg.Role),
+			Content:               msg.Content,
+			Timestamp:             msg.Timestamp.Format(time.RFC3339Nano),
+			ReasoningContent:      msg.ReasoningContent,
+			Name:                  msg.Name,
+			ToolCallID:            msg.ToolCallID,
+			ToolCalls:             toolCalls,
+			Files:                 files,
+			IsEphemeral:           msg.IsEphemeral,
+			IsProjectInstructions: msg.IsProjectInstructions,
+			AgentID:               agentID,
+			ExposeTimestamp:       msg.ExposeTimestamp,
+			TemporalParts:         timelineTemporalParts(msg.TemporalParts),
+			RequestID:             msg.RequestID,
+			ItemID:                msg.ItemID,
+			Seq:                   msg.Seq,
 		}); err != nil && sessLog != nil {
 			sessLog.Error(logger.CatActor, "timeline append failed",
 				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
@@ -1096,7 +1097,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 	// Persist the initial input once. Replayed history (including a summary)
 	// already owns the conversation context and must not receive another copy.
 	if err == nil && cw.Len() == 1 && childAgent.Def.ProjectInstructions != "" {
-		cw.Push(ctxwin.RoleUser, childAgent.Def.ProjectInstructions)
+		cw.Push(ctxwin.RoleUser, childAgent.Def.ProjectInstructions, ctxwin.WithProjectInstructions())
 	}
 
 	// Build the Session.
@@ -1275,18 +1276,19 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 			})
 		}
 		if err := tl.AppendMessage(&timeline.MessagePayload{
-			Role:             string(msg.Role),
-			Content:          msg.Content,
-			Timestamp:        msg.Timestamp.Format(time.RFC3339Nano),
-			ReasoningContent: msg.ReasoningContent,
-			Name:             msg.Name,
-			ToolCallID:       msg.ToolCallID,
-			ToolCalls:        toolCalls,
-			Files:            files,
-			IsEphemeral:      msg.IsEphemeral,
-			AgentID:          agentID,
-			ExposeTimestamp:  msg.ExposeTimestamp,
-			TemporalParts:    timelineTemporalParts(msg.TemporalParts),
+			Role:                  string(msg.Role),
+			Content:               msg.Content,
+			Timestamp:             msg.Timestamp.Format(time.RFC3339Nano),
+			ReasoningContent:      msg.ReasoningContent,
+			Name:                  msg.Name,
+			ToolCallID:            msg.ToolCallID,
+			ToolCalls:             toolCalls,
+			Files:                 files,
+			IsEphemeral:           msg.IsEphemeral,
+			IsProjectInstructions: msg.IsProjectInstructions,
+			AgentID:               agentID,
+			ExposeTimestamp:       msg.ExposeTimestamp,
+			TemporalParts:         timelineTemporalParts(msg.TemporalParts),
 		}); err != nil {
 			sessLog.Error(logger.CatActor, "timeline append failed",
 				"err", err.Error(), "role", string(msg.Role), "agent_id", agentID)
@@ -1311,7 +1313,7 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	cw.SetReplayMode(false)
 
 	if childAgent.Def.ProjectInstructions != "" {
-		cw.Push(ctxwin.RoleUser, childAgent.Def.ProjectInstructions)
+		cw.Push(ctxwin.RoleUser, childAgent.Def.ProjectInstructions, ctxwin.WithProjectInstructions())
 	}
 	// Build the Session — no idle reaper, no router, no level file, no supervisor
 	// registration, no memory hooks. Cron sessions are short-lived.
