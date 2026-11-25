@@ -151,6 +151,10 @@ type DelegateTool struct {
 	alwaysAsync                bool
 	isPeerTarget               func(string) bool
 	progressCheckpointInterval time.Duration
+
+	// delegationContextHook lets tests observe each async delegation's
+	// cancelable context as soon as it is created. It is nil in production.
+	delegationContextHook func(context.Context)
 }
 
 var (
@@ -597,6 +601,9 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 		return nil, nil
 	}
 	delCtx, cancelDelegation := context.WithCancelCause(delCtx)
+	if dt.delegationContextHook != nil {
+		dt.delegationContextHook(delCtx)
+	}
 	if scope, ok := dispatch.ScopeFromContext(delCtx); ok {
 		if err := scope.Manager.RegisterCancel(dispatchID, cancelDelegation); err != nil {
 			cancelDelegation(err)
@@ -614,9 +621,17 @@ func (dt *DelegateTool) ExecuteAsync(ctx context.Context, args string) (action *
 	var delegationWatch *runwatch.Handle
 	watchTransferred := false
 	defer func() {
-		if delegationWatch != nil && !watchTransferred {
+		if watchTransferred {
+			return
+		}
+		// Setup failed before the action was handed off, so neither the async
+		// runner nor the dispatch manager will cancel the delegation context.
+		// finish has already run by now (in the failing return or the recover
+		// handler), so cancelling cannot interfere with recording the dispatch.
+		if delegationWatch != nil {
 			delegationWatch.Complete()
 		}
+		cancelDelegation(retErr)
 	}()
 	if parent := runwatch.HandleFromContext(delCtx); parent != nil && dispatchID != "" {
 		var localCtx context.Context

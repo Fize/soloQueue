@@ -202,6 +202,136 @@ func TestDelegateToolAsyncSetupPanicAfterBeginPersistsFailedTerminalOnce(t *test
 	}
 }
 
+// asyncSetupFailure captures what a caller can observe after ExecuteAsync fails
+// while setting up a delegation.
+type asyncSetupFailure struct {
+	err            error
+	records        []dispatch.Record
+	delegationCtx  context.Context
+	liveAtTerminal bool
+}
+
+// runAsyncSetupFailure delegates from a managed, watched parent run. With
+// rejectLocalOperations the parent run has already finished, so the watchdog
+// refuses the delegation's local operation.
+func runAsyncSetupFailure(t *testing.T, resolver LocateOrSpawnResolver, rejectLocalOperations bool) asyncSetupFailure {
+	t.Helper()
+	m, err := dispatch.NewManager(t.TempDir(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out asyncSetupFailure
+	dt := NewDelegateTool("L1", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited, WithAlwaysAsyncDelegation())
+	dt.delegationContextHook = func(ctx context.Context) { out.delegationCtx = ctx }
+	watch := runwatch.NewManager(runwatch.Policy{RootIdle: time.Minute, OrphanIdle: 10 * time.Minute})
+	t.Cleanup(watch.Close)
+	watchCtx, rootWatch, err := watch.Start(context.Background(), runwatch.Metadata{RunID: "async-setup-failure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejectLocalOperations {
+		rootWatch.Complete()
+	}
+	scope := dispatch.Scope{Manager: m, OnTerminal: func(dispatch.Record) {
+		out.liveAtTerminal = out.delegationCtx != nil && out.delegationCtx.Err() == nil
+	}}
+	ctx := dispatch.WithScope(iface.ContextWithWorkDir(watchCtx, t.TempDir()), scope)
+	action, err := dt.ExecuteAsync(ctx, `{"target":"worker","task_name":"setup failure","task":"Fail during async setup."}`)
+	if action != nil {
+		t.Fatalf("ExecuteAsync returned an action after a setup failure: %#v", action)
+	}
+	out.err = err
+	out.records = m.List()
+	return out
+}
+
+// requireReleased checks the contract shared by every failed async setup: the
+// failure is returned and recorded as the dispatch's failed terminal state while
+// the delegation context is still live, and only then is that context cancelled
+// with the failure as its cause.
+func (f asyncSetupFailure) requireReleased(t *testing.T, wantErr string) {
+	t.Helper()
+	if f.err == nil || !strings.Contains(f.err.Error(), wantErr) {
+		t.Fatalf("ExecuteAsync error = %v, want it to contain %q", f.err, wantErr)
+	}
+	if len(f.records) != 1 || f.records[0].Status != dispatch.StatusFailed {
+		t.Fatalf("records after setup failure = %#v, want one failed dispatch", f.records)
+	}
+	if f.delegationCtx == nil {
+		t.Fatal("async delegation context was never created")
+	}
+	if !f.liveAtTerminal {
+		t.Fatal("delegation context was not live when the failed terminal state was recorded")
+	}
+	if f.delegationCtx.Err() == nil {
+		t.Fatal("delegation context stayed live after the setup failure")
+	}
+	if cause := context.Cause(f.delegationCtx); !errors.Is(cause, f.err) {
+		t.Fatalf("delegation context cause = %v, want the setup failure %v", cause, f.err)
+	}
+}
+
+func TestDelegateToolAsyncLocalOperationFailureCancelsDelegationContext(t *testing.T) {
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		t.Error("target resolver ran although the delegation's local operation was rejected")
+		return nil, false, errors.New("unexpected resolver call")
+	}
+	runAsyncSetupFailure(t, resolver, true).requireReleased(t, "parent is not active")
+}
+
+func TestDelegateToolAsyncSetupFailureAfterLocalOperationCancelsDelegationContext(t *testing.T) {
+	tests := []struct {
+		name     string
+		resolver LocateOrSpawnResolver
+		wantErr  string
+	}{
+		{
+			name: "target unavailable",
+			resolver: func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+				return nil, false, errors.New("no capacity")
+			},
+			wantErr: "no capacity",
+		},
+		{
+			name: "setup panic",
+			resolver: func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+				panic("resolver exploded")
+			},
+			wantErr: "resolver exploded",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runAsyncSetupFailure(t, tt.resolver, false).requireReleased(t, tt.wantErr)
+		})
+	}
+}
+
+func TestDelegateToolAsyncSuccessLeavesDelegationContextToDispatchCancellation(t *testing.T) {
+	m, err := dispatch.NewManager(t.TempDir(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		return dispatchTestTarget{}, false, nil
+	}
+	dt := NewDelegateTool("L1", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited, WithAlwaysAsyncDelegation())
+	ctx := dispatch.WithScope(iface.ContextWithWorkDir(context.Background(), t.TempDir()), dispatch.Scope{Manager: m})
+	action, err := dt.ExecuteAsync(ctx, `{"target":"worker","task_name":"hand off","task":"Setup succeeds."}`)
+	if err != nil || action == nil {
+		t.Fatalf("ExecuteAsync = %#v, %v", action, err)
+	}
+	if err := action.Context.Err(); err != nil {
+		t.Fatalf("successful setup cancelled the delegation context: %v", err)
+	}
+	if err := m.Cancel(action.DispatchID, "operator stop"); err != nil {
+		t.Fatal(err)
+	}
+	if cause := context.Cause(action.Context); !errors.Is(cause, dispatch.ErrDelegationCancelled) {
+		t.Fatalf("delegation context cause after dispatch cancellation = %v", cause)
+	}
+}
+
 type persistenceFailTarget struct {
 	root    string
 	manager *dispatch.Manager
