@@ -2,7 +2,7 @@
 
 Tactical guidance for AI coding agents working in this repository.
 
-> For detailed architecture docs, browse [docs/](docs/README.md).
+> For detailed architecture docs, browse [docs/](docs/architecture.md) (Chinese: `docs/zh/`).
 
 ## Build
 
@@ -26,17 +26,25 @@ make clean            # Remove all build artifacts
 
 The Go binary embeds only the independent Web Console and Status UI bundles. Skills are installed into `${SOLOQUEUE_WORK_DIR:-$HOME/.soloqueue}/skills/` and are never bundled into the binary. Always run `make build-assets` (or `make build`) before a production build.
 
+### Cross-platform / CI
+
+- `scripts/build-windows.ps1` — Windows build (pnpm install/test/build for both UIs, then Go).
+- `make docker-build` — container image from `deploy/docker/Dockerfile` (`IMAGE ?= soloqueue:local`).
+- CI (`.github/workflows/{onnx,windows,release}.yml`) gates on `go test ./...`, `pnpm --dir web lint`, and `python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v` for the release/ONNX helper scripts. CI pins pnpm via `npm install --global pnpm@12.16.1`.
+
 ## Testing
 
 ### Go tests
 
 ```bash
 go test ./...                          # all packages
-go test ./internal/timeline/...        # single package
-go test -run TestReplayInto ./internal/timeline/...  # single test
+go test ./internal/memory/timeline/...              # single package
+go test -run TestReplayInto ./internal/memory/timeline/...  # single test
 ```
 
-Use `rtk go test ./...` for compact output (hides pass lines, shows only failures).
+`internal/assets/dist` is gitignored but required by `//go:embed all:dist` (`internal/assets/embed.go`). In a fresh clone, run `make build-assets` once before `go build ./...` or `go test ./...`.
+
+Optional local tooling: `rtk go test ./...` gives compact output (hides pass lines, shows only failures).
 
 ### Frontend lint & tests
 
@@ -68,7 +76,7 @@ Open the Web Console Vite dev server at `http://localhost:5173`; it proxies `/ap
 
 ## Go module & binary
 
-`github.com/xiaobaitu/soloqueue`. Go 1.25.8.
+`github.com/xiaobaitu/soloqueue`. The Go version is pinned by `go.mod` (`go 1.27.3`); CI reads it via `go-version-file: go.mod`.
 
 `soloqueue start` is the combined browser mode. `serve` defaults to port 57689 and `web` to 57648. All bind `127.0.0.1` by default.
 Other subcommands: `version`.
@@ -156,14 +164,14 @@ internal/infra/localonnx/ Go ONNX inference for embedding and local classificati
 internal/infra/tokenizer/ Go tokenizer used by both local models
 web/                    Full browser Web Console (React 19 + TypeScript + Vite + TailwindCSS v4 + Zustand)
 status-ui/              Independent read-only backend status page
-skills/                 Skill source packages maintained independently from this runtime
+deploy/docker/          container image build (make docker-build)
 ```
 
 ### Branch boundary
 
 `main` excludes simulation and is being prepared for a stable release; no stable release is implied by this extraction. `experimental/simulation` preserves the full pre-extraction implementation from `6efd796`. Historical simulation database files are retained but are not opened or initialized by `main`; do not delete them as part of extraction. Use a separate `SOLOQUEUE_WORK_DIR` when experimenting on the preserved branch so settings rewrites do not affect the work directory used by `main`. See [README.md](README.md#branch-boundary).
 
-### Memory engine (`internal/memoryengine/`)
+### Memory engine (`internal/memory/engine/`)
 
 Config-driven hybrid search: BM25 (SQLite FTS5) + Knowledge Graph (in-process, pure Go) + optional vector (OpenAI embeddings).
 
@@ -174,7 +182,7 @@ Config-driven hybrid search: BM25 (SQLite FTS5) + Knowledge Graph (in-process, p
 - RRF fusion (k=60) deduplicates by `content_hash`; same memory found by multiple pipelines gets a combined score.
 - Salience uses Ebbinghaus decay computed at query-time — no background job needed.
 
-### Short-term memory (`internal/conversationlog/`)
+### Short-term memory (`internal/memory/conversation/`)
 
 LLM-driven conversation summaries triggered on context window compaction. `Manager` coordinates summarization and persistence to daily `.md` files under the work directory. Shared via `Stack.MemoryManager`.
 
@@ -192,14 +200,14 @@ LLM-driven conversation summaries triggered on context window compaction. `Manag
 - **Logger categories**: `logger.CatApp`, `logger.CatActor`, `logger.CatMessages`, `logger.CatConfig`, `logger.CatTool`, `logger.CatLLM`, `logger.CatMCP`.
 - **Config hot-reload**: callers read latest via `cfg.Get()`; fsnotify under the hood.
 - **Agent state machine**: `Idle → Processing → (Idle | Stopping → Stopped)`.
-- **FakeLLM** (`internal/agent/llm.go`): scripted LLM stub for testing — use instead of mocking across packages.
+- **FakeLLM** (`internal/agent/agenttest/fakellm.go`): scripted LLM stub for testing — use instead of mocking across packages.
 - **RunCommand**: `run_command.go` executes `/bin/sh -c` and uses process-group cancellation on supported Unix-like platforms.
 - **Environment info in prompts**: `internal/prompt/environment.go` injects `<environment>` into system prompts with OS, arch, shell, working directory, explore directory.
 - **QQ returns `expires_in` as a string** — do not parse as integer.
 - **Test conventions**: no `TestMain` or shared fixtures. Self-contained per package.
-- **Package manager**: `pnpm` (NOT npm). Lockfile: `pnpm-lock.yaml`.
+- **Package manager**: `pnpm` (NOT npm). Lockfiles are per package: `web/pnpm-lock.yaml`, `status-ui/pnpm-lock.yaml` (no root lockfile).
 - **Frontend**: State management via Zustand stores (`web/src/stores/`). Real-time updates via WebSocket. `@/` path alias maps to `src/`.
-- **TelemetryClient** (`internal/telemetry/`): wraps `agent.LLMClient` to log token usage to SQLite on every Chat/ChatStream call.
+- **TelemetryClient** (`internal/infra/telemetry/`): wraps `agent.LLMClient` to log token usage to SQLite on every Chat/ChatStream call.
 
 ## Known discrepancies
 
