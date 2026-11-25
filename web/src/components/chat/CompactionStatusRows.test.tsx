@@ -51,6 +51,32 @@ describe('CompactionStatusRows', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('yields to a committed /compact event row with the same request', () => {
+    const compacted: CompactionStatus = {
+      id: 'compact-1',
+      status: 'completed',
+      reason: 'user_command',
+      started_at: startedAt,
+      finished_at: startedAt,
+      requestId: 'req-1',
+    }
+    const { container } = render(
+      <CompactionStatusRows rows={[compacted]} committedRequestIds={['req-1']} />
+    )
+    expect(container).toBeEmptyDOMElement()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps a running compression visible even when its request is committed elsewhere', () => {
+    render(
+      <CompactionStatusRows
+        rows={[{ id: 'compact-2', status: 'running', started_at: startedAt, requestId: 'req-2' }]}
+        committedRequestIds={['req-2']}
+      />
+    )
+    expect(screen.getByText('Compressing conversation context…')).toBeVisible()
+  })
+
   it('cleans up the expiration timer when unmounted', () => {
     const { unmount } = render(
       <CompactionStatusRows rows={[{ ...running, status: 'completed', finished_at: startedAt }]} />

@@ -88,11 +88,29 @@ function assistantMessage(items: TranscriptItem[], running: boolean, continuatio
     id: items[0].id,
     requestId: items[0].request_id,
     role: 'assistant',
-    segments: items.flatMap((item) => item.segments.map(toChatSegment)),
+    // An empty content delta (for example a compact that now only publishes a
+    // segment) must not become an empty bubble.
+    segments: items
+      .flatMap((item) => item.segments.map(toChatSegment))
+      .filter((segment) => segment.type !== 'content' || segment.text.trim().length > 0),
     timestamp: items[0].ts,
     running,
     continuation: continuation || undefined,
   }
+}
+
+/**
+ * Request ids whose `/compact` event row is already committed to the flow.
+ * The compaction status row and its event row share the request id, so the
+ * status strip can step aside instead of reporting the same compaction twice.
+ */
+export function compactionEventRequests(messages: ChatMessage[]): Set<string> {
+  const ids = new Set<string>()
+  for (const message of messages) {
+    if (!message.requestId) continue
+    if (message.segments.some((segment) => segment.type === 'compact')) ids.add(message.requestId)
+  }
+  return ids
 }
 
 function cached(
@@ -148,11 +166,12 @@ export function buildMessages(
     const running = request ? !request.ended : items.some((item) => !item.done)
     const continuation = !!requestId && seenRequests.has(requestId)
     if (requestId) seenRequests.add(requestId)
-    messages.push(
-      cached(cache, next, items[0].id, items, running, continuation, () =>
-        assistantMessage(items, running, continuation)
-      )
+    const message = cached(cache, next, items[0].id, items, running, continuation, () =>
+      assistantMessage(items, running, continuation)
     )
+    // Nothing left to show and nothing still producing: no empty bubble.
+    if (message.segments.length === 0 && !message.running) return
+    messages.push(message)
   }
 
   for (const id of state.order) {
@@ -214,7 +233,7 @@ export function buildMessages(
 }
 
 function commandMessages(command: CommandResult): ChatMessage[] {
-  return [
+  const messages: ChatMessage[] = [
     {
       id: `command:${command.requestId}`,
       requestId: command.requestId,
@@ -222,12 +241,16 @@ function commandMessages(command: CommandResult): ChatMessage[] {
       segments: [{ type: 'content', text: command.prompt }],
       timestamp: command.ts,
     },
-    {
-      id: `command-result:${command.requestId}`,
-      requestId: command.requestId,
-      role: 'assistant',
-      segments: [{ type: 'content', text: command.text }],
-      timestamp: command.ts,
-    },
   ]
+  // Commands that report through a transcript segment (for example /compact)
+  // reply with no text; an empty assistant bubble would read as a blank answer.
+  if (!command.text.trim()) return messages
+  messages.push({
+    id: `command-result:${command.requestId}`,
+    requestId: command.requestId,
+    role: 'assistant',
+    segments: [{ type: 'content', text: command.text }],
+    timestamp: command.ts,
+  })
+  return messages
 }

@@ -247,8 +247,13 @@ type GenerationParams struct {
 
 // ThinkingConfig thinking/reasoning configuration (DeepSeek V4 thinking mode)
 type ThinkingConfig struct {
-	Enabled         bool   `json:"enabled"         yaml:"enabled,omitempty"`
-	ReasoningEffort string `json:"reasoningEffort" yaml:"reasoning_effort,omitempty"`
+	Enabled bool `json:"enabled" yaml:"enabled,omitempty"`
+	// ReasoningEfforts declares which reasoning efforts this model supports.
+	// The order is significant: the UI renders the choices in this order.
+	ReasoningEfforts []string `json:"reasoningEfforts" yaml:"reasoning_efforts,omitempty"`
+	// ReasoningEffort is the legacy single-value field. It is only read when
+	// loading an old configuration and is always cleared when saving.
+	ReasoningEffort string `json:"-" yaml:"reasoning_effort,omitempty"`
 	// ThinkingType is the value for the thinking.type field sent to the LLM API.
 	// Default "enabled" (DeepSeek convention). Use "adaptive" for MiniMax M3 and other
 	// OpenAI-compatible providers that expect "adaptive" instead of "enabled".

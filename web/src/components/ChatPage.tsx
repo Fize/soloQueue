@@ -7,6 +7,7 @@ import { ChatInput } from "@/components/ChatInput";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useTranscript } from "@/hooks/useTranscript";
+import { compactionEventRequests } from "@/lib/transcript/messages";
 import { wsManager } from "@/lib/websocket";
 import {
   PanelRight,
@@ -899,7 +900,10 @@ export function ChatPage() {
                       />
                     ))}
 
-                    <CompactionStatusRows rows={compactions} />
+                    <CompactionStatusRows
+                      rows={compactions}
+                      committedRequestIds={compactionEventRequests(finalMessages)}
+                    />
 
                     {delegating && (
                       <div className="flex items-center gap-2.5 text-xs text-muted-foreground bg-secondary/30 p-3 rounded-lg border border-border/25 font-mono animate-pulse">

@@ -10,11 +10,31 @@ function noticeExpiresAt(row: CompactionStatus) {
   return Number.isFinite(finishedAt) ? finishedAt + COMPLETION_NOTICE_MS : 0
 }
 
-export function CompactionStatusRows({ rows }: { rows: CompactionStatus[] }) {
+/**
+ * One line per compression, never twice: a committed `/compact` event row in
+ * the transcript already states the outcome, so the status strip yields to it.
+ *
+ *   visible = running || (terminal && noticeExpiresAt > now && no event row)
+ *
+ * The row and its event row share the browser-side `requestId`
+ * (`CompactionStatus.id` is minted by the context window and never reaches the
+ * transcript), so the request is the join the client can actually make.
+ * A running compression has no event row yet and always keeps its status strip.
+ */
+export function CompactionStatusRows({
+  rows,
+  committedRequestIds,
+}: {
+  rows: CompactionStatus[]
+  committedRequestIds?: Iterable<string>
+}) {
   const [now, setNow] = useState(Date.now)
+  const committed = new Set(committedRequestIds ?? [])
+  const hasEventRow = (row: CompactionStatus) => !!row.requestId && committed.has(row.requestId)
+
   useEffect(() => {
     const deadlines = rows
-      .filter((row) => row.status !== 'running')
+      .filter((row) => row.status !== 'running' && !hasEventRow(row))
       .map(noticeExpiresAt)
       .filter((deadline) => deadline > now)
     if (!deadlines.length) return
@@ -23,9 +43,13 @@ export function CompactionStatusRows({ rows }: { rows: CompactionStatus[] }) {
       Math.max(0, Math.min(...deadlines) - Date.now())
     )
     return () => clearTimeout(timer)
-  }, [rows, now])
+    // hasEventRow is derived from committedRequestIds; re-run when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, now, committedRequestIds])
 
-  const visible = rows.filter((row) => row.status === 'running' || noticeExpiresAt(row) > now)
+  const visible = rows.filter(
+    (row) => row.status === 'running' || (noticeExpiresAt(row) > now && !hasEventRow(row))
+  )
   if (!visible.length) return null
   return (
     <div className="mx-auto max-w-3xl space-y-2 px-4" aria-live="polite">
@@ -37,7 +61,7 @@ export function CompactionStatusRows({ rows }: { rows: CompactionStatus[] }) {
           {row.status === 'running' ? (
             <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
           ) : row.status === 'completed' ? (
-            <Check className="mt-0.5 h-4 w-4 text-green-600" />
+            <Check className="mt-0.5 h-4 w-4 text-success" />
           ) : (
             <CircleAlert className="mt-0.5 h-4 w-4 text-destructive" />
           )}

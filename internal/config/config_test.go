@@ -921,3 +921,158 @@ func TestEmptyReasoningEffortSurvivesReload(t *testing.T) {
 		t.Fatalf("reloaded models: %+v", got)
 	}
 }
+
+// A legacy single-value reasoning_effort expands to the full vocabulary on load
+// and is cleared, so the new capability set is the only stored shape.
+func TestThinkingLegacyReasoningEffortMigratesToCapabilitySet(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	legacy := "models:\n" +
+		"  - id: legacy-thinking\n" +
+		"    provider_id: p\n" +
+		"    enabled: true\n" +
+		"    thinking:\n" +
+		"      enabled: true\n" +
+		"      reasoning_effort: high\n"
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Load(); err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Get().Models
+	if len(got) != 1 {
+		t.Fatalf("models = %+v", got)
+	}
+	if got[0].Thinking.ReasoningEffort != "" {
+		t.Fatalf("legacy field not cleared: %q", got[0].Thinking.ReasoningEffort)
+	}
+	if strings.Join(got[0].Thinking.ReasoningEfforts, ",") != "low,medium,high,xhigh,max" {
+		t.Fatalf("migrated efforts = %v", got[0].Thinking.ReasoningEfforts)
+	}
+
+	// The legacy key never reaches disk again.
+	if _, err := cfg.Set(func(st *Settings) { st.Log.Level = "debug" }); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "reasoning_effort:") {
+		t.Fatalf("legacy key persisted: %s", saved)
+	}
+	if !strings.Contains(string(saved), "reasoning_efforts:") {
+		t.Fatalf("capability set missing: %s", saved)
+	}
+}
+
+// Capabilities are normalized on load: lowercase, trimmed, deduped, order kept,
+// unknown values dropped.
+func TestThinkingCapabilitiesAreNormalizedOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	raw := "models:\n" +
+		"  - id: thinking\n" +
+		"    provider_id: p\n" +
+		"    enabled: true\n" +
+		"    thinking:\n" +
+		"      enabled: true\n" +
+		"      reasoning_efforts: [HIGH, \" xhigh \", ultra, high, max]\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Load(); err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Get().Models[0].Thinking.ReasoningEfforts
+	if strings.Join(got, ",") != "high,xhigh,max" {
+		t.Fatalf("normalized efforts = %v", got)
+	}
+}
+
+// A model that does not think declares no capability.
+func TestThinkingDisabledClearsCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	raw := "models:\n" +
+		"  - id: plain\n" +
+		"    provider_id: p\n" +
+		"    enabled: true\n" +
+		"    thinking:\n" +
+		"      enabled: false\n" +
+		"      reasoning_efforts: [low, high]\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Get().Models[0].Thinking.ReasoningEfforts; len(got) != 0 {
+		t.Fatalf("disabled model kept capabilities: %v", got)
+	}
+}
+
+func TestCreateModelValidatesThinkingCapabilities(t *testing.T) {
+	cfg, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	thinking := func(efforts ...string) LLMModel {
+		return LLMModel{ID: "m", ProviderID: "p", Enabled: true,
+			Thinking: ThinkingConfig{Enabled: true, ReasoningEfforts: efforts}}
+	}
+
+	if err := cfg.CreateModel(thinking("low", "ultra")); err == nil {
+		t.Fatal("expected an unknown reasoning effort to be rejected")
+	}
+	if err := cfg.CreateModel(LLMModel{ID: "m", ProviderID: "p", Enabled: true,
+		Thinking: ThinkingConfig{ReasoningEfforts: []string{"low"}}}); err == nil {
+		t.Fatal("expected capabilities without thinking.enabled to be rejected")
+	}
+	if err := cfg.CreateModel(thinking("HIGH", "low", "high")); err != nil {
+		t.Fatalf("CreateModel: %v", err)
+	}
+	if got := cfg.ModelByID("m").Thinking.ReasoningEfforts; strings.Join(got, ",") != "high,low" {
+		t.Fatalf("stored efforts = %v", got)
+	}
+
+	updated := thinking("medium", "nope")
+	if err := cfg.UpdateModel("p", "m", updated); err == nil {
+		t.Fatal("expected UpdateModel to reject an unknown reasoning effort")
+	}
+	if err := cfg.UpdateModel("p", "m", thinking("medium", "max")); err != nil {
+		t.Fatalf("UpdateModel: %v", err)
+	}
+	if got := cfg.ModelByID("m").Thinking.ReasoningEfforts; strings.Join(got, ",") != "medium,max" {
+		t.Fatalf("updated efforts = %v", got)
+	}
+}
+
+// The built-in thinking models declare the full vocabulary instead of a single
+// hardcoded effort.
+func TestDefaultThinkingModelsDeclareCapabilitySet(t *testing.T) {
+	for _, model := range DefaultSettings().Models {
+		if model.Thinking.ReasoningEffort != "" {
+			t.Fatalf("%s still sets a legacy reasoning effort", model.ID)
+		}
+		if !model.Thinking.Enabled {
+			continue
+		}
+		if strings.Join(model.Thinking.ReasoningEfforts, ",") != "low,medium,high,xhigh,max" {
+			t.Fatalf("%s efforts = %v", model.ID, model.Thinking.ReasoningEfforts)
+		}
+	}
+}

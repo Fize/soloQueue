@@ -25,14 +25,14 @@ func (m ModelSelection) IsAuto() bool { return m.ModelID == "" }
 // ModelSpec is the resolved shape of a selectable model. It keeps the session
 // layer free of the settings schema.
 type ModelSpec struct {
-	ProviderID      string
-	APIModel        string
-	Name            string
-	ContextWindow   int
-	Vision          bool
-	ThinkingEnabled bool
-	ReasoningEffort string
-	ThinkingType    string
+	ProviderID       string
+	APIModel         string
+	Name             string
+	ContextWindow    int
+	Vision           bool
+	ThinkingEnabled  bool
+	ReasoningEfforts []string
+	ThinkingType     string
 }
 
 // ModelLookup resolves an enabled model. It reports false when the provider or
@@ -54,14 +54,14 @@ func ModelLookupForConfig(cfg *config.GlobalService) ModelLookup {
 			apiModel = model.ID
 		}
 		return ModelSpec{
-			ProviderID:      model.ProviderID,
-			APIModel:        apiModel,
-			Name:            model.Name,
-			ContextWindow:   model.ContextWindow,
-			Vision:          model.Vision,
-			ThinkingEnabled: model.Thinking.Enabled,
-			ReasoningEffort: model.Thinking.ReasoningEffort,
-			ThinkingType:    model.Thinking.ThinkingType,
+			ProviderID:       model.ProviderID,
+			APIModel:         apiModel,
+			Name:             model.Name,
+			ContextWindow:    model.ContextWindow,
+			Vision:           model.Vision,
+			ThinkingEnabled:  model.Thinking.Enabled,
+			ReasoningEfforts: append([]string(nil), model.Thinking.ReasoningEfforts...),
+			ThinkingType:     model.Thinking.ThinkingType,
 		}, true
 	}
 }
@@ -75,26 +75,50 @@ func ModelLookupForStack(rt *runtime.Stack) ModelLookup {
 }
 
 // NormalizeModelSelection validates and canonicalizes a selection. A nil lookup
-// skips the enabled-model check. An empty ModelID clears the selection.
+// skips the enabled-model check and the capability check. An empty ModelID
+// clears the selection. A non-empty ReasoningEffort must be declared by the
+// selected model; the error lists the efforts it does accept.
 func NormalizeModelSelection(sel ModelSelection, lookup ModelLookup) (ModelSelection, error) {
 	sel.ProviderID = strings.TrimSpace(sel.ProviderID)
 	sel.ModelID = strings.TrimSpace(sel.ModelID)
-	effort := strings.ToLower(strings.TrimSpace(sel.ReasoningEffort))
-	switch effort {
-	case "", "low", "high", "max":
-		sel.ReasoningEffort = effort
-	default:
-		return ModelSelection{}, fmt.Errorf("unsupported reasoning effort %q (use low, high, or max)", sel.ReasoningEffort)
-	}
+	sel.ReasoningEffort = strings.ToLower(strings.TrimSpace(sel.ReasoningEffort))
 	if sel.ModelID == "" {
 		return ModelSelection{}, nil
 	}
+	var spec ModelSpec
 	if lookup != nil {
-		if _, ok := lookup(sel.ProviderID, sel.ModelID); !ok {
+		var ok bool
+		spec, ok = lookup(sel.ProviderID, sel.ModelID)
+		if !ok {
 			return ModelSelection{}, fmt.Errorf("model %s:%s is not enabled", sel.ProviderID, sel.ModelID)
 		}
 	}
+	if sel.ReasoningEffort == "" {
+		return sel, nil
+	}
+	if lookup != nil && !supportsReasoningEffort(spec.ReasoningEfforts, sel.ReasoningEffort) {
+		return ModelSelection{}, fmt.Errorf("unsupported reasoning effort %q for model %s:%s (available: %s)",
+			sel.ReasoningEffort, sel.ProviderID, sel.ModelID, describeReasoningEfforts(spec.ReasoningEfforts))
+	}
 	return sel, nil
+}
+
+// supportsReasoningEffort reports whether the model declares effort.
+func supportsReasoningEffort(available []string, effort string) bool {
+	for _, candidate := range available {
+		if candidate == effort {
+			return true
+		}
+	}
+	return false
+}
+
+// describeReasoningEfforts renders the declared efforts for error messages.
+func describeReasoningEfforts(available []string) string {
+	if len(available) == 0 {
+		return "none"
+	}
+	return strings.Join(available, ", ")
 }
 
 // ModelSelection returns the session's chosen model override.
@@ -123,13 +147,33 @@ func (s *Session) SetModelSelection(sel ModelSelection) error {
 	return s.persistModelSelection(normalized)
 }
 
-// hydrateModelSelection restores the persisted selection.
+// hydrateModelSelection restores the persisted selection. A persisted effort the
+// model no longer declares degrades to "not specified" instead of making the
+// session unusable; the provider then picks its own default.
 func (s *Session) hydrateModelSelection(meta *SessionMeta) {
 	if meta == nil {
 		return
 	}
+	sel := meta.Model
+	s.modelSelMu.RLock()
+	lookup := s.modelLookup
+	s.modelSelMu.RUnlock()
+	if sel.ReasoningEffort != "" && lookup != nil {
+		if spec, ok := lookup(sel.ProviderID, sel.ModelID); ok && !supportsReasoningEffort(spec.ReasoningEfforts, sel.ReasoningEffort) {
+			if s.logger != nil {
+				s.logger.Warn(logger.CatApp, "session reasoning effort no longer supported, dropping it",
+					"target_id", s.TargetID,
+					"provider_id", sel.ProviderID,
+					"model_id", sel.ModelID,
+					"reasoning_effort", sel.ReasoningEffort,
+					"available", describeReasoningEfforts(spec.ReasoningEfforts),
+				)
+			}
+			sel.ReasoningEffort = ""
+		}
+	}
 	s.modelSelMu.Lock()
-	s.modelSelection = meta.Model
+	s.modelSelection = sel
 	s.modelSelMu.Unlock()
 }
 
@@ -181,9 +225,10 @@ func (s *Session) modelOverrideParams() (iface.ModelOverrideParams, bool) {
 	}
 	if spec.ThinkingEnabled {
 		params.ThinkingEnabled = true
-		params.ReasoningEffort = spec.ReasoningEffort
 		params.ThinkingType = spec.ThinkingType
-		if sel.ReasoningEffort != "" {
+		// The effort comes from the session selection only. Without a selection
+		// nothing is sent and the provider decides.
+		if supportsReasoningEffort(spec.ReasoningEfforts, sel.ReasoningEffort) {
 			params.ReasoningEffort = sel.ReasoningEffort
 		}
 	}
@@ -207,7 +252,8 @@ func (s *Session) ModelCommand(arg string) string {
 	fields := strings.Fields(arg)
 	providerID, modelID, ok := strings.Cut(fields[0], ":")
 	if !ok || providerID == "" || modelID == "" {
-		return fmt.Sprintf("Usage: /model <provider:model> [low|high|max], /model auto. Unrecognized reference %q.", fields[0])
+		return fmt.Sprintf("Usage: /model <provider:model> [%s] (model-declared), /model auto. Unrecognized reference %q.",
+			strings.Join(config.ReasoningEffortVocabulary, "|"), fields[0])
 	}
 	sel := ModelSelection{ProviderID: providerID, ModelID: modelID}
 	if len(fields) > 1 {

@@ -227,6 +227,26 @@ describe('ChatMessageView request-owned streams', () => {
   })
 })
 
+describe('ChatMessageView compaction events', () => {
+  it('renders a compaction result as a system row without avatar or role label', () => {
+    render(
+      <ChatMessageView
+        message={{
+          id: 'compact-1',
+          role: 'assistant',
+          requestId: 'req-compact',
+          segments: [{ type: 'compact', text: 'compacted summary' }],
+          timestamp: '2026-08-31T10:00:00Z',
+        }}
+        sessionId="session-1"
+      />
+    )
+
+    expect(screen.getByTestId('segment-compacted summary')).toBeInTheDocument()
+    expect(screen.queryByText('Assistant')).not.toBeInTheDocument()
+  })
+})
+
 describe('ChatMessageView destructive actions', () => {
   beforeEach(() => {
     vi.clearAllMocks()

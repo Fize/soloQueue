@@ -37,6 +37,12 @@ export function useSessionModel(sessionId?: string) {
         return next
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
+        // Roll the UI back to what the server actually holds.
+        try {
+          setState(await getSessionModel(sessionId))
+        } catch {
+          // Keep the last known server state when the refetch also fails.
+        }
         return null
       } finally {
         setSaving(false)

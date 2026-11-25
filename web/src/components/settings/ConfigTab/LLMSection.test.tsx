@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { getChatGPTStatus, startChatGPTLogin } from '@/lib/api/config-api'
-import type { LLMProvider } from '@/types'
+import type { LLMModel, LLMProvider } from '@/types'
 
 import { LLMSection, normalizeProviderTimeoutMs, validateProviderForm } from './LLMSection'
 
@@ -234,16 +234,46 @@ describe('compact model layout', () => {
  })
 })
 
-describe('reasoning effort', () => {
-  it('saves an explicit empty effort when editing a model', async () => {
+describe('reasoning efforts', () => {
+  const retry = { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2 }
+  const provider = { id: 'test', name: 'Test', baseUrl: 'https://example.test', apiKeyEnv: '', enabled: true, isDefault: false, timeoutMs: 0, retry }
+  const renderThinkingModel = (thinking: LLMModel['thinking']) => {
     const update = vi.fn().mockResolvedValue(undefined)
-    const retry = { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2 }
-    const provider = { id: 'test', name: 'Test', baseUrl: 'https://example.test', apiKeyEnv: '', enabled: true, isDefault: false, timeoutMs: 0, retry }
-    const model = { providerId: 'test', id: 'm', name: 'Test model', apiModel: 'm', contextWindow: 128000, enabled: true, generation: { temperature: 0.7, maxTokens: 4096 }, thinking: { enabled: true, reasoningEffort: '' } }
+    const model = { providerId: 'test', id: 'm', name: 'Test model', apiModel: 'm', contextWindow: 128000, enabled: true, generation: { temperature: 0.7, maxTokens: 4096 }, thinking }
     render(<LLMSection view="conversation" providers={[provider]} models={[model]} providerFilter="test" onProviderFilterChange={vi.fn()} defaultModels={{ general: '', engineering: '', research: '', classifier: '', vision: '', fallback: '' }} classifier={{ engine: 'llm' }} onClassifierChange={vi.fn()} onSaveDefaults={vi.fn()} onDefaultModelsChange={vi.fn()} onCreateProvider={vi.fn()} onUpdateProvider={vi.fn()} onDeleteProvider={vi.fn()} onToggleProviderStatus={vi.fn()} onSetProviderAsDefault={vi.fn()} onCreateModel={vi.fn()} onUpdateModel={update} onDeleteModel={vi.fn()} onToggleModelStatus={vi.fn()} />)
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit' }).at(-1)!)
-    expect(screen.getByText("None (don't send)")).toBeInTheDocument()
+    return update
+  }
+
+  it('saves the declared capability set without a default effort', async () => {
+    const update = renderThinkingModel({ enabled: true, reasoningEfforts: ['low', 'max'] })
+
+    expect(screen.getByRole('button', { name: 'low' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'max' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'high' })).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'high' }))
     fireEvent.click(screen.getByRole('button', { name: 'Update Model' }))
-    await waitFor(() => expect(update).toHaveBeenCalledWith('m', expect.objectContaining({ thinking: expect.objectContaining({ reasoningEffort: '' }) })))
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith('m', expect.objectContaining({
+        thinking: expect.objectContaining({ reasoningEfforts: ['low', 'high', 'max'] }),
+      })),
+    )
+    expect(update.mock.calls[0][1].thinking).not.toHaveProperty('reasoningEffort')
+  })
+
+  it('disables and clears the capability set when thinking is off', async () => {
+    const update = renderThinkingModel({ enabled: false, reasoningEfforts: ['low', 'high'] })
+
+    expect(screen.getByRole('button', { name: 'low' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'high' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update Model' }))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith('m', expect.objectContaining({
+        thinking: expect.objectContaining({ enabled: false, reasoningEfforts: [] }),
+      })),
+    )
   })
 })

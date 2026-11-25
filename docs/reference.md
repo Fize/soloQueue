@@ -32,7 +32,7 @@ models:
       max_tokens: 16384
     thinking:
       enabled: true
-      reasoning_effort: high
+      reasoning_efforts: [low, medium, high, xhigh, max]
 
 model_routes:
   default: deepseek:deepseek-v4-flash-thinking
@@ -76,8 +76,10 @@ The keys below use their YAML names. Omitted fields retain their built-in defaul
 | `models[].enabled`, `models[].vision` | Enable the model; set `vision: true` when it accepts image content. |
 | `models[].generation.temperature`, `models[].generation.max_tokens` | Sampling temperature and maximum generated tokens. |
 | `models[].thinking.enabled` | Enable the provider's reasoning/thinking mode. |
-| `models[].thinking.reasoning_effort` | Provider-specific reasoning effort, such as `high` or `max`. |
+| `models[].thinking.reasoning_efforts` | Ordered set of reasoning efforts the model accepts. The closed vocabulary is `low`, `medium`, `high`, `xhigh`, `max`; a model that declares nothing accepts no effort, and the UI renders the choices in this order. |
 | `models[].thinking.thinking_type` | Value sent as the provider's thinking type, for APIs that require a non-default value. |
+
+A model only declares which efforts it accepts; the effort itself is a per-session choice (Web Console or `/model provider:model xhigh`) validated against that set. With no selection nothing is sent and the provider applies its own default. The legacy single-value `thinking.reasoning_effort` is read only for migration: a non-empty value expands to the full vocabulary on load, and the key is dropped on the next save.
 
 #### Model routes
 

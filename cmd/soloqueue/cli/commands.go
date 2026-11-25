@@ -164,7 +164,6 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 						ProviderID:      model.ProviderID,
 						ModelID:         modelID,
 						ThinkingEnabled: model.Thinking.Enabled,
-						ReasoningEffort: model.Thinking.ReasoningEffort,
 						ThinkingType:    model.Thinking.ThinkingType,
 						TaskType:        taskType,
 						ContextWindow:   model.ContextWindow,

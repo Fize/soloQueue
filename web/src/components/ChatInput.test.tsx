@@ -1,6 +1,6 @@
 import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatInput } from './ChatInput'
 import { getProjectBranches, uploadFile } from '@/lib/api'
 
@@ -217,6 +217,99 @@ describe('ChatInput workspace selector', () => {
     await user.type(input, '/compact{enter}')
 
     expect(onSend).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatInput composer meta row', () => {
+  const longBranch = 'feature/composer-v2-ui-polish'
+
+  function setViewportWidth(width: number) {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
+  }
+
+  afterEach(() => {
+    setViewportWidth(1024)
+    vi.mocked(getProjectBranches).mockResolvedValue(['main'])
+  })
+
+  it('keeps a long branch inside its width budget with a middle ellipsis', async () => {
+    vi.mocked(getProjectBranches).mockResolvedValue([longBranch])
+    renderInput({ activeSessionId: 'branch-budget', selectedProjectPath: project.path })
+
+    const truncated = `…${longBranch.slice(-10)}`
+    expect(await screen.findByText(truncated)).toBeInTheDocument()
+    expect(screen.queryByText(longBranch)).not.toBeInTheDocument()
+    // The full name stays reachable as the tooltip.
+    expect(screen.getByTitle(longBranch)).toBeInTheDocument()
+  })
+
+  it('hides the ring number in the middle tier but keeps the ring', async () => {
+    setViewportWidth(500)
+    renderInput({
+      activeSessionId: 'tier-b',
+      selectedProjectPath: project.path,
+      ctxwinLimit: 100_000,
+      ctxwinUsed: 42_000,
+    })
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: 'Project One' })).toBeInTheDocument()
+    expect(screen.queryByText('42%')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '42% context window' })).toBeInTheDocument()
+  })
+
+  it('folds the project segment in the narrow tier', async () => {
+    setViewportWidth(400)
+    renderInput({
+      activeSessionId: 'tier-c',
+      selectedProjectPath: project.path,
+      ctxwinLimit: 100_000,
+      ctxwinUsed: 42_000,
+    })
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: 'dev' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Project One' })).not.toBeInTheDocument()
+    expect(screen.queryByText('42%')).not.toBeInTheDocument()
+  })
+
+  it('tabs through the card and then the meta row in reading order', async () => {
+    const user = userEvent.setup()
+    renderInput({
+      activeSessionId: 'l1',
+      selectedProjectPath: project.path,
+      ctxwinLimit: 100_000,
+      ctxwinUsed: 42_000,
+    })
+    await user.type(screen.getByPlaceholderText('Ask anything...'), 'hello')
+    await act(async () => {})
+
+    const plus = screen.getByRole('button', { name: 'Add context' })
+    const send = screen.getByRole('button', { name: 'Send message' })
+    const team = screen.getByRole('button', { name: 'dev' })
+    const projectButton = screen.getByRole('button', { name: 'Project One' })
+    const branchButton = screen.getByRole('button', { name: 'main' })
+    const model = screen.getByRole('button', { name: 'Model' })
+    const ring = screen.getByRole('button', { name: '42% context window' })
+
+    for (const expected of [plus, send, team, projectButton, branchButton, model, ring]) {
+      await user.tab()
+      expect(document.activeElement).toBe(expected)
+    }
+  })
+
+  it('opens the model panel with ⌘⇧K and closes it with Escape', async () => {
+    const user = userEvent.setup()
+    renderInput({ activeSessionId: 'shortcut' })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('Flash'),
+    )
+
+    await user.keyboard('{Meta>}{Shift>}k{/Shift}{/Meta}')
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
 

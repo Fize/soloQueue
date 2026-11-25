@@ -191,7 +191,6 @@ func (b *Builder) buildL1(ctx context.Context, teamID, cronLogDir string) (*agen
 		ModelID:         effectiveModelID,
 		Temperature:     defModel.Generation.Temperature,
 		MaxTokens:       defModel.Generation.MaxTokens,
-		ReasoningEffort: defModel.Thinking.ReasoningEffort,
 		ThinkingEnabled: defModel.Thinking.Enabled,
 		MaxIterations:   200,
 		ProviderID:      defModel.ProviderID,

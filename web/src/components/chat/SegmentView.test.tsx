@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { SegmentView } from './SegmentView'
 
@@ -55,5 +56,42 @@ describe('SegmentView request-owned delegation', () => {
       'data-agent-instance-id',
       'peer-instance-1',
     )
+  })
+})
+
+describe('SegmentView compact event row', () => {
+  it('collapses the summary behind one 28px event row', async () => {
+    const user = userEvent.setup()
+    render(<SegmentView segment={{ type: 'compact', text: '## Summary\n\nkept paragraph' }} />)
+
+    const row = screen.getByRole('button', { name: 'Show compacted summary' })
+    expect(row).toHaveAttribute('aria-expanded', 'false')
+    expect(row).toHaveTextContent('Context compacted')
+    expect(screen.queryByText('kept paragraph')).not.toBeInTheDocument()
+
+    await user.click(row)
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+    expect(await screen.findByText('kept paragraph')).toBeInTheDocument()
+
+    await user.click(row)
+    expect(row).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('kept paragraph')).not.toBeInTheDocument()
+  })
+
+  it('copies the raw markdown from the expanded block', async () => {
+    const user = userEvent.setup()
+    render(<SegmentView segment={{ type: 'compact', text: '## Summary\n\nkept paragraph' }} />)
+
+    await user.click(screen.getByRole('button', { name: 'Show compacted summary' }))
+    await user.click(screen.getByRole('button', { name: 'Copy summary' }))
+
+    await expect(navigator.clipboard.readText()).resolves.toBe('## Summary\n\nkept paragraph')
+  })
+
+  it('renders a row without a disclosure for an empty summary', () => {
+    render(<SegmentView segment={{ type: 'compact', text: '   ' }} />)
+
+    expect(screen.getByText('Context compacted')).toBeInTheDocument()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })

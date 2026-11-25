@@ -88,6 +88,10 @@ func (s *GlobalService) CreateModel(m LLMModel) error {
 	if m.ProviderID == "" {
 		return fmt.Errorf("model provider id is required")
 	}
+	if err := ValidateThinking(m.Thinking); err != nil {
+		return err
+	}
+	normalizeThinking(&m.Thinking)
 	settings := s.Get()
 	for _, existing := range settings.Models {
 		if existing.ProviderID == m.ProviderID && existing.ID == m.ID {
@@ -105,6 +109,10 @@ func (s *GlobalService) UpdateModel(providerID, id string, m LLMModel) error {
 	if id == "" || providerID == "" {
 		return fmt.Errorf("model id and provider id are required")
 	}
+	if err := ValidateThinking(m.Thinking); err != nil {
+		return err
+	}
+	normalizeThinking(&m.Thinking)
 	var found bool
 	_, err := s.Set(func(st *Settings) {
 		for i := range st.Models {

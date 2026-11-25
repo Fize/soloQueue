@@ -32,7 +32,7 @@ models:
       max_tokens: 16384
     thinking:
       enabled: true
-      reasoning_effort: high
+      reasoning_efforts: [low, medium, high, xhigh, max]
 
 model_routes:
   default: deepseek:deepseek-v4-flash-thinking
@@ -76,8 +76,10 @@ model_routes:
 | `models[].enabled`、`models[].vision` | 启用模型；模型支持图像输入时设置 `vision: true`。 |
 | `models[].generation.temperature`、`models[].generation.max_tokens` | 采样温度和最大生成 Token 数。 |
 | `models[].thinking.enabled` | 启用 Provider 的推理/思考模式。 |
-| `models[].thinking.reasoning_effort` | Provider 支持的推理强度，例如 `high` 或 `max`。 |
+| `models[].thinking.reasoning_efforts` | 该模型支持的思考强度集合（有序，UI 按此顺序渲染）。词表固定为 `low`、`medium`、`high`、`xhigh`、`max`；未声明即不接受任何强度。 |
 | `models[].thinking.thinking_type` | 某些 API 使用的思考类型参数值。 |
+
+模型只声明自己支持哪些强度，强度本身是会话级选择（Web Console 或 `/model provider:model xhigh`），并按该集合校验。未选择则不发送 `reasoning_effort`，由服务商决定默认强度。旧的单值字段 `thinking.reasoning_effort` 仅用于迁移读取：加载时非空值展开为完整能力集，保存时该字段被清空。
 
 #### 模型路由
 

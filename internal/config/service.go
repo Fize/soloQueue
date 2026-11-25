@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger"
@@ -46,6 +47,16 @@ func (s *GlobalService) SetLogger(log *logger.Logger) {
 	}
 	s.Loader.SetOnError(func(err error) {
 		log.Error(logger.CatConfig, "config hot-reload failed", "err", err.Error())
+	})
+}
+
+// Set applies a mutation, normalizes the resulting snapshot, and persists it.
+// Normalization runs on the save path so no caller can write a thinking
+// configuration the loader would reject or rewrite on the next load.
+func (s *GlobalService) Set(mutate func(*Settings)) (Settings, error) {
+	return s.Loader.Set(func(st *Settings) {
+		mutate(st)
+		normalizeThinkingConfigs(st)
 	})
 }
 
@@ -189,6 +200,82 @@ func enabledModelByRef(settings Settings, ref string) *LLMModel {
 
 // compiledDefaultModelRef is the last-resort model when nothing is configured.
 const compiledDefaultModelRef = "deepseek:deepseek-v4-flash-thinking"
+
+// ReasoningEffortVocabulary is the closed set of reasoning efforts a model may
+// declare. The order is the render order used by the UI.
+var ReasoningEffortVocabulary = []string{"low", "medium", "high", "xhigh", "max"}
+
+// IsKnownReasoningEffort reports whether effort belongs to the vocabulary.
+func IsKnownReasoningEffort(effort string) bool {
+	for _, known := range ReasoningEffortVocabulary {
+		if effort == known {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeThinking canonicalizes one thinking configuration in place:
+// lowercase/trim, drop unknown values, dedupe while keeping order, migrate the
+// legacy single-value field to the full vocabulary, and clear the legacy field.
+// A disabled model keeps no declared capability.
+func normalizeThinking(t *ThinkingConfig) {
+	if t == nil {
+		return
+	}
+	if !t.Enabled {
+		t.ReasoningEfforts = nil
+		t.ReasoningEffort = ""
+		return
+	}
+	if len(t.ReasoningEfforts) == 0 && t.ReasoningEffort != "" {
+		// Legacy config declared one effort; the closed vocabulary is the
+		// widest set those models can be asked for.
+		t.ReasoningEfforts = append([]string(nil), ReasoningEffortVocabulary...)
+	}
+	t.ReasoningEffort = ""
+	canonical := make([]string, 0, len(t.ReasoningEfforts))
+	seen := make(map[string]bool, len(t.ReasoningEfforts))
+	for _, effort := range t.ReasoningEfforts {
+		effort = strings.ToLower(strings.TrimSpace(effort))
+		if !IsKnownReasoningEffort(effort) || seen[effort] {
+			continue
+		}
+		seen[effort] = true
+		canonical = append(canonical, effort)
+	}
+	if len(canonical) == 0 {
+		t.ReasoningEfforts = nil
+		return
+	}
+	t.ReasoningEfforts = canonical
+}
+
+// normalizeThinkingConfigs normalizes the thinking block of every model.
+func normalizeThinkingConfigs(st *Settings) {
+	for i := range st.Models {
+		normalizeThinking(&st.Models[i].Thinking)
+	}
+}
+
+// ValidateThinking rejects thinking configurations that cannot be stored:
+// values outside the vocabulary and capabilities declared by a model that does
+// not think. Case and surrounding spaces are accepted (they are normalized).
+func ValidateThinking(t ThinkingConfig) error {
+	if !t.Enabled {
+		if len(t.ReasoningEfforts) > 0 {
+			return fmt.Errorf("thinking.reasoning_efforts requires thinking.enabled")
+		}
+		return nil
+	}
+	for _, effort := range t.ReasoningEfforts {
+		if !IsKnownReasoningEffort(strings.ToLower(strings.TrimSpace(effort))) {
+			return fmt.Errorf("unsupported reasoning effort %q (use %s)",
+				effort, strings.Join(ReasoningEffortVocabulary, ", "))
+		}
+	}
+	return nil
+}
 
 // DefaultWorkDir returns the working directory for soloqueue.
 // It checks the SOLOQUEUE_WORK_DIR env var first, then falls back to ~/.soloqueue.

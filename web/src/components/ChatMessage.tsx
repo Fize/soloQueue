@@ -95,6 +95,32 @@ function ChatMessageViewInner({
   // User meta lives in the hover overlay so it never inflates the bubble width.
   const userMeta = isUser && !compact
 
+  // Compaction results are system events, not replies: render them in the flow
+  // without an avatar, role label or bubble.
+  const compactOnly =
+    !isUser &&
+    renderedMessage.segments.length > 0 &&
+    renderedMessage.segments.every((segment) => segment.type === 'compact')
+
+  if (compactOnly) {
+    return (
+      <div className={`group/message w-full ${compact ? 'px-2 py-1' : 'px-4 py-1'}`}>
+        <div className="w-full space-y-1">
+          {renderedMessage.segments.map((segment, index) => (
+            <SegmentView
+              key={index}
+              segment={segment}
+              segmentIndex={index}
+              segments={renderedMessage.segments}
+              isStreaming={isStreaming}
+              requestId={effectiveRequestId}
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className={`group/message ${compact ? 'px-2 py-2' : 'px-4 py-3'} ${isUser ? 'flex justify-end' : ''}`}

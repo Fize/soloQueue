@@ -2219,9 +2219,10 @@ func (s *Session) AskStream(ctx context.Context, prompt string) (result <-chan i
 					summary = "Context window compacted (no content to summarize)"
 				}
 				terminalCode = "completed"
+				// The summary is published as a compact system segment only. It
+				// is not assistant prose, so it is never emitted as content.
 				s.publishSyntheticOutput(requestID, []transcript.Segment{{Type: transcript.SegmentCompact, Text: summary}}, false)
-				out <- agent.ContentDeltaEvent{Delta: summary}
-				out <- agent.DoneEvent{Content: summary}
+				out <- agent.DoneEvent{}
 			}
 		}()
 		return out, nil

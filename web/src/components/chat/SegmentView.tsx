@@ -1,11 +1,13 @@
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Check, ChevronDown, Copy, Loader2 } from 'lucide-react'
 import { StreamdownPreview } from '@/components/ui/streamdown-preview'
 import { DelegationCard } from '@/components/DelegationCard'
 import { ThinkingSegment } from './ThinkingSegment'
 import { ToolCallSegment } from './ToolCallSegment'
 import { SubagentCard } from './WorkedSegment'
 import { useTranslation } from '@/lib/i18n'
-import { memo } from 'react'
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import type { ChatMessage } from '@/types'
 
 export function LoadingIndicator() {
@@ -32,12 +34,102 @@ export function LoadingIndicator() {
   )
 }
 
-function CompactSegment({ text }: { text: string }) {
+type CompactStatus = 'running' | 'completed' | 'failed' | 'interrupted'
+
+// A committed compact event row only exists once a summary does, so the
+// terminal state is `completed`; failures surface as compaction notices.
+const COMPACT_ICON: Record<CompactStatus, { className: string; size: string }> = {
+  running: { className: 'text-signal', size: 'h-3 w-3' },
+  completed: { className: 'text-success', size: 'h-3.5 w-3.5' },
+  failed: { className: 'text-destructive', size: 'h-3.5 w-3.5' },
+  interrupted: { className: 'text-warning', size: 'h-3.5 w-3.5' },
+}
+
+function CompactSegment({ text, status = 'completed' }: { text: string; status?: CompactStatus }) {
   const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const summary = text.trim()
+  const expandable = summary.length > 0
+  const bodyId = `compact-body-${useId()}`
+  const icon = COMPACT_ICON[status]
+
+  useEffect(() => () => clearTimeout(copyTimer.current), [])
+
+  const copy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => setCopied(false), 1200)
+    } catch {
+      toast.error(t('common.failedToCopy'))
+    }
+  }, [text, t])
+
   return (
-    <div className="text-muted-foreground/50 italic py-0.5">
-      <span className="text-xs">{t('common.contextCompacted')}</span>
-      <StreamdownPreview content={text} className="text-xs compact-preview" />
+    <div className="py-0.5">
+      {expandable ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={open ? t('chat.compactEventCollapse') : t('chat.compactEventExpand')}
+          onClick={() => setOpen((prev) => !prev)}
+          className="flex h-7 w-full items-center gap-1.5 rounded-lg bg-transparent px-2 text-left transition-colors hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8AB4FF] cursor-pointer"
+        >
+          {status === 'running' ? (
+            <Loader2 aria-hidden="true" className={cn(icon.size, icon.className, 'animate-spin')} />
+          ) : (
+            <Check aria-hidden="true" className={cn(icon.size, icon.className)} strokeWidth={2} />
+          )}
+          <span className="truncate text-[12px] font-medium leading-4 text-[#9CA3AF]">
+            {t('common.contextCompacted')}
+          </span>
+          <ChevronDown
+            aria-hidden="true"
+            className={cn(
+              'ml-auto h-3 w-3 shrink-0 text-[#9CA3AF] transition-transform duration-150',
+              open && 'rotate-180',
+            )}
+          />
+        </button>
+      ) : (
+        <div className="flex h-7 items-center gap-1.5 px-2">
+          <Check aria-hidden="true" className={cn(icon.size, icon.className)} strokeWidth={2} />
+          <span className="truncate text-[12px] font-medium leading-4 text-[#9CA3AF]">
+            {t('common.contextCompacted')}
+          </span>
+        </div>
+      )}
+
+      {expandable && open && (
+        <div id={bodyId} className="mt-1.5 rounded-lg bg-white/[0.04] px-3 pb-3 pt-2">
+          <div className="flex h-6 items-center justify-between">
+            <span className="text-[11px] leading-4 text-[#9CA3AF]">{t('chat.contextCompaction')}</span>
+            <button
+              type="button"
+              onClick={copy}
+              aria-label={t('chat.compactEventCopy')}
+              title={t('chat.compactEventCopy')}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-[#9CA3AF] transition-colors hover:bg-white/[0.06] hover:text-[#EDEDF0] cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8AB4FF]"
+            >
+              {copied ? (
+                <Check aria-hidden="true" className="h-3.5 w-3.5 text-success" />
+              ) : (
+                <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
+          <div className="max-h-[320px] overflow-y-auto overscroll-contain">
+            <StreamdownPreview content={text} className="text-[12px] font-normal leading-[18px] text-[#9CA3AF]" />
+          </div>
+          <p aria-live="polite" className="sr-only">
+            {copied ? t('common.copiedSuccess') : ''}
+          </p>
+        </div>
+      )}
     </div>
   )
 }

@@ -122,6 +122,9 @@ func (s *Settings) UnmarshalYAML(node *yaml.Node) error {
 		}
 	}
 	*s = Settings(value)
+	// Thinking capabilities are normalized on load so a hand-edited or legacy
+	// settings file always exposes a canonical vocabulary.
+	normalizeThinkingConfigs(s)
 	if legacy && !newSize && s.Session.TimelineMaxFileMB > 0 {
 		s.Storage.SessionHistory.MaxFileMB = s.Session.TimelineMaxFileMB
 	}

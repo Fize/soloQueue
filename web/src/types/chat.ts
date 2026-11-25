@@ -127,6 +127,8 @@ export interface SessionModelView {
   provider_id: string;
   model_id: string;
   reasoning_effort?: string;
+  /** Effective efforts for this model, in declaration order. Empty when thinking is off. */
+  reasoning_efforts?: string[];
   name?: string;
 }
 

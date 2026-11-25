@@ -54,6 +54,13 @@ import {
 import type { LLMProvider, LLMModel, ClassifierConfig, ModelRoutesConfig } from '@/types'
 import { ClassifierEngineControl } from './ClassifierEngineControl'
 
+/** Closed vocabulary, in the order the session picker renders it. */
+const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
+function orderEfforts(values: string[]): string[] {
+  return REASONING_EFFORTS.filter((value) => values.includes(value))
+}
+
 interface LLMSectionProps {
   view?: 'conversation' | 'routes'
 
@@ -129,7 +136,7 @@ export function LLMSection({
   const [modelError, setModelError] = useState<string | null>(null)
   const [modelForm, setModelForm] = useState<Partial<LLMModel>>({
     generation: { temperature: 0.7, maxTokens: 4096 },
-    thinking: { enabled: false, reasoningEffort: 'medium' },
+    thinking: { enabled: false },
   })
   const [remoteModels, setRemoteModels] = useState<string[]>([])
   const [remoteModelNames, setRemoteModelNames] = useState<Record<string, string>>({})
@@ -346,7 +353,7 @@ export function LLMSection({
       contextWindow: 128000,
       enabled: true,
       generation: { temperature: 0.7, maxTokens: 4096 },
-      thinking: { enabled: false, reasoningEffort: 'medium' },
+      thinking: { enabled: false },
       vision: false,
     })
   }
@@ -380,7 +387,9 @@ export function LLMSection({
       },
       thinking: {
         enabled: modelForm.thinking?.enabled ?? false,
-        reasoningEffort: modelForm.thinking?.reasoningEffort ?? 'medium',
+        reasoningEfforts: modelForm.thinking?.enabled
+          ? orderEfforts(modelForm.thinking?.reasoningEfforts ?? [])
+          : [],
         thinkingType: modelForm.thinking?.thinkingType || '',
       },
       vision: !!modelForm.vision,
@@ -915,8 +924,11 @@ export function LLMSection({
                         setModelForm({
                           ...modelForm,
                           thinking: {
-                            ...(modelForm.thinking || { reasoningEffort: 'medium' }),
+                            ...(modelForm.thinking || { enabled: false }),
                             enabled: val,
+                            reasoningEfforts: val
+                              ? orderEfforts(modelForm.thinking?.reasoningEfforts ?? [])
+                              : [],
                           },
                         })
                       }
@@ -924,27 +936,41 @@ export function LLMSection({
                     <span className="text-xs font-semibold text-foreground">{t('config.llmEnableThinking')}</span>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <Select
-                      label={t('config.llmReasoningEffort')}
-                      value={modelForm.thinking?.reasoningEffort === '' ? '__none__' : (modelForm.thinking?.reasoningEffort || 'medium')}
-                      onChange={(v) =>
-                        setModelForm({
-                          ...modelForm,
-                          thinking: {
-                            ...(modelForm.thinking || { enabled: false }),
-                            reasoningEffort: v === '__none__' ? '' : v,
-                          },
-                        })
-                      }
-                      options={[
-                        { value: '__none__', label: t('config.llmReasoningNone') },
-                        { value: 'low', label: 'low' },
-                        { value: 'medium', label: 'medium' },
-                        { value: 'high', label: 'high' },
-                        { value: 'xhigh', label: 'xhigh' },
-                        { value: 'max', label: 'max' },
-                      ]}
-                    />
+                    <span className="text-[10px] font-semibold text-muted-foreground">
+                      {t('config.llmReasoningEfforts')}
+                    </span>
+                    <div role="group" aria-label={t('config.llmReasoningEfforts')} className="flex flex-wrap gap-1">
+                      {REASONING_EFFORTS.map((value) => {
+                        const disabled = !modelForm.thinking?.enabled
+                        const selected = (modelForm.thinking?.reasoningEfforts ?? []).includes(value)
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={selected}
+                            disabled={disabled}
+                            onClick={() => {
+                              const current = modelForm.thinking?.reasoningEfforts ?? []
+                              const next = selected
+                                ? current.filter((item) => item !== value)
+                                : [...current, value]
+                              setModelForm({
+                                ...modelForm,
+                                thinking: {
+                                  ...(modelForm.thinking || { enabled: false }),
+                                  reasoningEfforts: orderEfforts(next),
+                                },
+                              })
+                            }}
+                            className={`rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${
+                              selected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                            } ${disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:text-foreground'}`}
+                          >
+                            {value}
+                          </button>
+                        )
+                      })}
+                    </div>
                     <p className="text-[10px] text-muted-foreground leading-relaxed">
                       {t('config.llmReasoningEffortHint')}
                     </p>
@@ -959,7 +985,7 @@ export function LLMSection({
                         setModelForm({
                           ...modelForm,
                           thinking: {
-                            ...(modelForm.thinking || { enabled: false, reasoningEffort: 'medium' }),
+                            ...(modelForm.thinking || { enabled: false }),
                             thinkingType: e.target.value,
                           },
                         })

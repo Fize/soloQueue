@@ -123,6 +123,10 @@ The classifier uses Local FastTrack rules (code blocks, tracebacks, commands) fi
 
 The local engine downloads a pinned 1.3GB checkpoint into `models/laya/laya-multilingual-fp32/` and provisions ONNX Runtime 1.30.0. It runs an isolated internal mode of the main Go executable. Disabling it parks that process for 60s so toggling does not reload the model. `make build` and `make build-go` require cgo and include local inference. Status and actions are exposed at `/api/config/classifier/{status,actions}`.
 
+### Thinking effort
+
+A model declares which reasoning efforts it supports (`thinking.reasoning_efforts`, closed vocabulary `low|medium|high|xhigh|max`, order preserved for rendering); the session selects at most one (`/model provider:model xhigh`, or the Web Console). No selection means no `reasoning_effort` is sent, so the provider decides. The legacy single-value `thinking.reasoning_effort` is read only for migration — a non-empty value expands to the full vocabulary on load and the key is cleared on save (`normalizeThinking` in `internal/config/service.go`).
+
 ### Dependency container (`internal/runtime/`)
 
 `Stack` is built once at startup and holds all shared dependencies (LLM client, tools config, agent registry, skill registry, MCP managers, tokenizer, compactor, shared SQLite DB). Hot-reload replaces the LLM client and tools config via `sync.RWMutex`.

@@ -2748,12 +2748,14 @@ func TestSession_AskStream_InterceptsSlashCommands(t *testing.T) {
 		for ev := range ch {
 			events = append(events, ev)
 		}
-		if len(events) < 2 {
-			t.Fatalf("expected at least 2 events, got %d", len(events))
+		// The summary is a compact system segment, never assistant prose: the
+		// only event is an empty terminal marker.
+		if len(events) != 1 {
+			t.Fatalf("expected exactly 1 event, got %d: %+v", len(events), events)
 		}
-		delta, ok := events[0].(agent.ContentDeltaEvent)
-		if !ok || !strings.Contains(delta.Delta, "compacted") {
-			t.Errorf("unexpected event content: %+v", events[0])
+		done, ok := events[0].(agent.DoneEvent)
+		if !ok || done.Content != "" {
+			t.Errorf("unexpected compact terminal event: %+v", events[0])
 		}
 	})
 }

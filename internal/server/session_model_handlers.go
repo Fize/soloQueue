@@ -11,12 +11,14 @@ import (
 )
 
 // sessionModelView is the wire shape of a model selection. Empty fields mean
-// "use the configured default model".
+// "use the configured default model". ReasoningEfforts is the capability set the
+// model declares; an empty ReasoningEffort means "not specified".
 type sessionModelView struct {
-	ProviderID      string `json:"provider_id"`
-	ModelID         string `json:"model_id"`
-	ReasoningEffort string `json:"reasoning_effort,omitempty"`
-	Name            string `json:"name,omitempty"`
+	ProviderID       string   `json:"provider_id"`
+	ModelID          string   `json:"model_id"`
+	ReasoningEffort  string   `json:"reasoning_effort,omitempty"`
+	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+	Name             string   `json:"name,omitempty"`
 }
 
 // sessionModelResponse reports the stored selection and the model that will
@@ -43,9 +45,10 @@ func (m *Mux) sessionModelResponseFor(sel session.ModelSelection) sessionModelRe
 	if sel.IsAuto() {
 		if model := m.configSvc.DefaultModel(); model != nil {
 			resp.Effective = &sessionModelView{
-				ProviderID: model.ProviderID,
-				ModelID:    model.ID,
-				Name:       model.Name,
+				ProviderID:       model.ProviderID,
+				ModelID:          model.ID,
+				ReasoningEfforts: model.Thinking.ReasoningEfforts,
+				Name:             model.Name,
 			}
 		}
 		return resp
@@ -58,11 +61,13 @@ func (m *Mux) sessionModelResponseFor(sel session.ModelSelection) sessionModelRe
 	}
 	resp.Source = "user"
 	if spec, ok := lookup(sel.ProviderID, sel.ModelID); ok {
+		resp.Selection.ReasoningEfforts = spec.ReasoningEfforts
 		resp.Effective = &sessionModelView{
-			ProviderID:      spec.ProviderID,
-			ModelID:         spec.APIModel,
-			ReasoningEffort: sel.ReasoningEffort,
-			Name:            spec.Name,
+			ProviderID:       spec.ProviderID,
+			ModelID:          spec.APIModel,
+			ReasoningEffort:  sel.ReasoningEffort,
+			ReasoningEfforts: spec.ReasoningEfforts,
+			Name:             spec.Name,
 		}
 	}
 	return resp

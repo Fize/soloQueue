@@ -124,4 +124,34 @@ describe('transcript messages', () => {
     expect(messages.map((m) => m.id)).toEqual(['in:r', 'command:h', 'command-result:h'])
     expect(later.messages.map((m) => m.id)).toEqual(['in:r', 'command:h', 'command-result:h', 'out:r:0'])
   })
+
+  it('drops a zero-length assistant item instead of rendering an empty bubble', () => {
+    // /compact reports through a transcript segment, so no content delta arrives.
+    let state = start()
+    state = run(state, [
+      frame('request_started', { request_id: 'r', item_id: 'in:r' }),
+      frame('input_committed', { request_id: 'r', item_id: 'in:r', text: '/compact' }),
+    ])
+    state = run(state, [
+      frame('item_snapshot', {
+        request_id: 'r',
+        item_id: 'out:r:0',
+        segments: [{ type: 'compact', text: 'summary' }],
+      }),
+      frame('request_ended', { request_id: 'r' }),
+    ])
+    expect(layout(state)).toEqual(['user:/compact', 'assistant:summary'])
+  })
+
+  it('keeps the command prompt without an empty assistant answer', () => {
+    let state = start()
+    state = run(state, [frame('input_committed', { request_id: 'r', item_id: 'in:r', text: 'Q' })])
+    const { messages } = buildMessages(
+      state,
+      [],
+      [{ requestId: 'c', sessionId: 'l2:s', prompt: '/compact', text: '', afterSeq: 1, ts: 't' }],
+      new Map()
+    )
+    expect(messages.map((m) => m.id)).toEqual(['in:r', 'command:c'])
+  })
 })

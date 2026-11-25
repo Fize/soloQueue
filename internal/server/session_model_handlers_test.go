@@ -61,7 +61,7 @@ func TestL2SessionModelRoundTripWithoutActivation(t *testing.T) {
 		t.Fatalf("effective model missing: %+v", empty)
 	}
 
-	body := strings.NewReader(`{"provider_id":"deepseek","model_id":"deepseek-v4-flash","reasoning_effort":"max"}`)
+	body := strings.NewReader(`{"provider_id":"deepseek","model_id":"deepseek-v4-flash-thinking","reasoning_effort":"max"}`)
 	recorder = httpRecord(t, m, http.MethodPut, "/api/session/l2/abc/model", body)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("PUT status = %d body = %s", recorder.Code, recorder.Body.String())
@@ -70,18 +70,22 @@ func TestL2SessionModelRoundTripWithoutActivation(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &updated); err != nil {
 		t.Fatalf("decode PUT: %v", err)
 	}
-	if updated.Selection == nil || updated.Selection.ModelID != "deepseek-v4-flash" || updated.Selection.ReasoningEffort != "max" {
+	if updated.Selection == nil || updated.Selection.ModelID != "deepseek-v4-flash-thinking" || updated.Selection.ReasoningEffort != "max" {
 		t.Fatalf("PUT selection = %+v", updated.Selection)
 	}
 	if updated.Source != "user" || updated.Effective == nil || updated.Effective.ModelID != "deepseek-v4-flash" {
 		t.Fatalf("PUT effective = %+v", updated)
+	}
+	// The effective view carries the capability set the model declares.
+	if len(updated.Effective.ReasoningEfforts) != 5 || len(updated.Selection.ReasoningEfforts) != 5 {
+		t.Fatalf("capabilities missing from response: %+v", updated)
 	}
 
 	meta, err := session.LoadMeta(workDir, "abc")
 	if err != nil {
 		t.Fatalf("LoadMeta: %v", err)
 	}
-	if meta.Model.ModelID != "deepseek-v4-flash" || meta.Model.ReasoningEffort != "max" {
+	if meta.Model.ModelID != "deepseek-v4-flash-thinking" || meta.Model.ReasoningEffort != "max" {
 		t.Fatalf("persisted model = %+v", meta.Model)
 	}
 

@@ -37,7 +37,13 @@ export interface GenerationParams {
 
 export interface ThinkingConfig {
   enabled: boolean;
-  reasoningEffort: string;
+  /**
+   * Ordered capabilities the model declares (`low|medium|high|xhigh|max`).
+   * The session picks at most one; the UI renders them in this order.
+   */
+  reasoningEfforts?: string[];
+  /** @deprecated Legacy single value, read only for migration; never sent back. */
+  readonly reasoningEffort?: string;
   thinkingType?: string;
 }
 

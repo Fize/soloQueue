@@ -2,10 +2,7 @@ import { useTranslation } from '@/lib/i18n'
 import { type KeyboardEvent, useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import {
-  ArrowUp, StopCircle, Plus, ChevronDown,
-  Check, Laptop, GitBranch, Users, Palette
-} from 'lucide-react'
+import { ArrowUp, Plus, ChevronRight, Check, Palette } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
 import type { SessionUsage } from '@/types/chat'
@@ -13,7 +10,7 @@ import { cn, pathsMatch } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useWorkspaceCapabilities } from '@/hooks/useWorkspaceCapabilities'
 import { ChatInputAutocomplete, BUILTIN_SLASH_COMMANDS, type ChatInputAutocompleteHandle } from './ChatInputAutocomplete'
-import { ModelMenu } from './chat/ModelMenu'
+import { ModelPicker, type ComposerTier } from './chat/ModelPicker'
 import { useSessionModel } from '@/hooks/useSessionModel'
 import { ChatInputAttachments, type Attachment } from './ChatInputAttachments'
 import { clearChatDraft, getChatDraft, setChatDraft } from './chat/chatDrafts'
@@ -66,6 +63,44 @@ export interface ChatInputProps {
   onClearSelectedTarget?: () => void
 }
 
+/** Segment text budgets per width tier (ui-spec §2.5). */
+const SEGMENT_WIDTH: Record<ComposerTier, { team: number; project: number; branch: number }> = {
+  A: { team: 72, project: 112, branch: 88 },
+  B: { team: 44, project: 64, branch: 52 },
+  C: { team: 40, project: 0, branch: 64 },
+}
+
+/**
+ * Branch names differ at the tail (`feature/composer-v2`), so keep the end and
+ * hide the middle. The budget is per tier: A keeps 10 characters, B/C fewer.
+ */
+function midEllipsis(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  return `…${text.slice(-(maxChars - 1))}`
+}
+
+const BRANCH_BUDGET: Record<ComposerTier, number> = { A: 11, B: 5, C: 7 }
+
+/** Card width drives the three collapse tiers; jsdom reports 0, so fall back. */
+function useComposerWidth(ref: React.RefObject<HTMLDivElement | null>): number {
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const measure = () => {
+      const measured = ref.current?.getBoundingClientRect().width ?? 0
+      setWidth(measured > 0 ? measured : window.innerWidth)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    if (observer && ref.current) observer.observe(ref.current)
+    return () => {
+      window.removeEventListener('resize', measure)
+      observer?.disconnect()
+    }
+  }, [ref])
+  return width
+}
+
 export function ChatInput({
   onSend,
   onCancel,
@@ -103,10 +138,14 @@ export function ChatInput({
   currentDraftKey.current = draftKey
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
   const groupRef = useRef<HTMLDivElement>(null)
   const projectRef = useRef<HTMLDivElement>(null)
   const branchRef = useRef<HTMLDivElement>(null)
+  const cwRef = useRef<HTMLButtonElement>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const composerWidth = useComposerWidth(cardRef)
+  const tier: ComposerTier = composerWidth >= 640 ? 'A' : composerWidth >= 420 ? 'B' : 'C'
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const setDesignMode = useRuntimeStore((s) => s.setDesignMode)
   const setSidebarCollapsed = useRuntimeStore((s) => s.setSidebarCollapsed)
@@ -141,6 +180,8 @@ export function ChatInput({
   const [branch, setBranch] = useState<string>('main')
   const [branches, setBranches] = useState<string[]>(['main'])
   const branchRequestRef = useRef(0)
+  const [cwOpen, setCwOpen] = useState(false)
+  const [cwPos, setCwPos] = useState<{ bottom: number; left: number } | null>(null)
 
   // Sets for O(1) token-type lookup (used by backdrop highlight)
   const commandSet = useMemo(() => new Set(BUILTIN_SLASH_COMMANDS.map(c => c.label)), [])
@@ -207,7 +248,7 @@ export function ChatInput({
     const el = inputRef.current
     if (!el) return
     el.style.height = 'auto'
-    const nextHeight = Math.min(el.scrollHeight, 160)
+    const nextHeight = Math.min(Math.max(el.scrollHeight, 34.4), 160)
     el.style.height = nextHeight + 'px'
   }
 
@@ -250,9 +291,7 @@ export function ChatInput({
     const rect = ref.current?.getBoundingClientRect()
     if (!rect) return null
 
-    const dropdownWidth = dropdown === 'project' ? 208
-                        : dropdown === 'group' ? 176
-                        : 128
+    const dropdownWidth = 240
     const margin = 4
     const vw = window.innerWidth
     const vh = window.innerHeight
@@ -292,6 +331,8 @@ export function ChatInput({
       if (clickedInside) return
       const clickedInPortal = (e.target as HTMLElement)?.closest?.('[data-dropdown-portal]')
       if (clickedInPortal) return
+      const clickedRing = cwRef.current?.contains(e.target as Node)
+      setCwOpen((prev) => (prev && !clickedRing ? false : prev))
       setActiveDropdown(null)
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -605,13 +646,83 @@ export function ChatInput({
     acRef.current?.handleInput()
   }, [draftKey])
 
+  const toggleDropdown = useCallback((next: 'group' | 'project' | 'branch') => {
+    if (readOnlySelectors) return
+    const target = activeDropdown === next ? null : next
+    setDropdownPos(target ? computeDropdownPos(target) : null)
+    setActiveDropdown(target)
+  }, [activeDropdown, computeDropdownPos, readOnlySelectors])
+
+  // Esc unwinds one layer at a time: an open selector menu first, then focus
+  // back to the textarea without touching the caret.
+  const handleMetaKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Escape') return
+    if (activeDropdown) {
+      e.preventDefault()
+      setActiveDropdown(null)
+      return
+    }
+    e.preventDefault()
+    inputRef.current?.focus()
+  }
+
+  // Segments open their menu with Enter/Space (native click) or either arrow.
+  const openSegments = (next: 'group' | 'project' | 'branch') => (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    e.preventDefault()
+    if (!activeDropdown) toggleDropdown(next)
+  }
+
+  const toggleRing = () => {
+    if (cwOpen) {
+      setCwOpen(false)
+      return
+    }
+    const rect = cwRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const left = Math.min(Math.max(12, rect.left - 116), Math.max(12, window.innerWidth - 232 - 12))
+    setCwPos({ bottom: window.innerHeight - rect.top + 8, left })
+    setCwOpen(true)
+  }
+
+  const segWidth = SEGMENT_WIDTH[tier]
+  const showBranch = filteredProjects.length > 0 && !!selectedProjectPath
+  const showProject = tier !== 'C'
+  const groupLabel = selectedGroup || 'Select Group'
+  const selectedProject = projects.find((p) => pathsMatch(p.path, selectedProjectPath))
+  const projectLabel = selectedProjectPath
+    ? (selectedProject?.name || t('chat.local'))
+    : (filteredProjects.length === 0 ? t('chat.composerNoProject') : t('chat.local'))
+  const canPick = !readOnlySelectors
+  const segmentClass = (interactive: boolean) => cn(
+    `group/seg relative flex h-5 items-center gap-1 rounded-[4px] px-1 text-[12px] font-medium leading-none text-[#C2C3C7] transition-colors after:absolute after:inset-x-[-2px] after:top-0 after:bottom-[-4px] after:content-['']`,
+    interactive
+      ? 'cursor-pointer hover:bg-white/[0.04] hover:text-[#EDEDF0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8AB4FF]'
+      : 'cursor-default',
+  )
+  const segmentChevron = tier === 'C' ? null : (
+    <ChevronRight
+      aria-hidden="true"
+      className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover/seg:opacity-60 group-focus-visible/seg:opacity-60"
+    />
+  )
+  const identityStatus = groupsLoading
+    ? t('chat.teamLoading')
+    : groups.length === 0
+      ? t('chat.noTeams')
+      : null
 
   return (
     <div className="w-full py-2">
-      {/* Input card */}
+      {/* Input card: the only three things that belong here are the textarea,
+          the attach button and the send/stop button. */}
       <div
+        ref={cardRef}
         className={cn(
-          "relative flex flex-col rounded-xl border border-border bg-background p-2.5 transition-all shadow-sm focus-within:border-primary focus-within:ring-2 focus-within:ring-ring"
+          'relative flex flex-col rounded-xl bg-card p-[10px] transition-shadow',
+          'shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.28)]',
+          'focus-within:shadow-[inset_0_0_0_1px_rgba(138,180,255,0.55),0_0_0_3px_rgba(138,180,255,0.14)]',
+          disabled && 'opacity-[0.55]',
         )}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
@@ -624,77 +735,47 @@ export function ChatInput({
             onRemove={removeAttachment}
           />
 
-          <div className="flex flex-col w-full min-h-[32px]">
-            {/* Scoped CSS to create macOS-style inset overlay scrollbars */}
-            <style>{`
-              .hig-menu-scroll::-webkit-scrollbar {
-                width: 8px;
-                height: 8px;
-              }
-              .hig-menu-scroll::-webkit-scrollbar-track {
-                background: transparent;
-              }
-              .hig-menu-scroll::-webkit-scrollbar-thumb {
-                background-color: rgba(120, 120, 128, 0.25);
-                border-radius: 9999px;
-                border: 2px solid transparent;
-                background-clip: padding-box;
-              }
-              .hig-menu-scroll::-webkit-scrollbar-thumb:hover {
-                background-color: rgba(120, 120, 128, 0.45);
-              }
-            `}</style>
+          {/* Scoped CSS to create macOS-style inset overlay scrollbars */}
+          <style>{`
+            .hig-menu-scroll::-webkit-scrollbar {
+              width: 8px;
+              height: 8px;
+            }
+            .hig-menu-scroll::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            .hig-menu-scroll::-webkit-scrollbar-thumb {
+              background-color: rgba(120, 120, 128, 0.25);
+              border-radius: 9999px;
+              border: 2px solid transparent;
+              background-clip: padding-box;
+            }
+            .hig-menu-scroll::-webkit-scrollbar-thumb:hover {
+              background-color: rgba(120, 120, 128, 0.45);
+            }
+          `}</style>
 
-            {/* ── Textarea with backdrop highlight layer & absolute popups ── */}
-            <div className="relative w-full">
-              {/* ── Autocomplete popups (/ commands + @ files) ── */}
-              <ChatInputAutocomplete
-                ref={acRef}
-                value={inputValue}
-                inputRef={inputRef}
-                skillNames={skillNames}
-                atRootDir={atRootDir}
-                onSelectMention={handleSelectMention}
-                onValueChange={handleAutocompleteValueChange}
-                onRefreshSkills={onRefreshSkills}
-              />
+          {/* ── Textarea with backdrop highlight layer & absolute popups ── */}
+          <div className="relative w-full">
+            {/* ── Autocomplete popups (/ commands + @ files) ── */}
+            <ChatInputAutocomplete
+              ref={acRef}
+              value={inputValue}
+              inputRef={inputRef}
+              skillNames={skillNames}
+              atRootDir={atRootDir}
+              onSelectMention={handleSelectMention}
+              onValueChange={handleAutocompleteValueChange}
+              onRefreshSkills={onRefreshSkills}
+            />
 
-              {/* Backdrop: renders highlighted tokens behind transparent textarea.
-                  Font size and layout MUST exactly match the textarea to keep text aligned,
-                  which both match the 14px / 1.6 font size of the chat area. */}
-              {hasHighlight && (
-                <div
-                  aria-hidden="true"
-                  className="absolute inset-0 pointer-events-none overflow-hidden select-none"
-                  style={{
-                    paddingTop: '6px',
-                    paddingBottom: '6px',
-                    paddingLeft: '12px',
-                    paddingRight: '12px',
-                    border: '1px solid transparent',
-                    margin: '0',
-                    fontSize: '14px',
-                    lineHeight: '1.6',
-                    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
-                    fontWeight: '400',
-                    letterSpacing: 'normal',
-                    wordSpacing: 'normal',
-                    color: 'var(--foreground)',
-                  }}
-                >
-                  <div
-                    ref={backdropInnerRef}
-                    className="whitespace-pre-wrap break-words"
-                    dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-                  />
-                </div>
-              )}
-              <textarea
-                ref={inputRef}
-                className={cn(
-                  'w-full resize-none bg-transparent placeholder:text-muted-foreground focus:outline-none min-h-[32px] max-h-[160px] overflow-y-auto relative',
-                  hasHighlight ? '' : 'text-foreground'
-                )}
+            {/* Backdrop: renders highlighted tokens behind transparent textarea.
+                Font size and layout MUST exactly match the textarea to keep text aligned,
+                which both match the 14px / 1.6 font size of the chat area. */}
+            {hasHighlight && (
+              <div
+                aria-hidden="true"
+                className="absolute inset-0 pointer-events-none overflow-hidden select-none"
                 style={{
                   paddingTop: '6px',
                   paddingBottom: '6px',
@@ -708,342 +789,391 @@ export function ChatInput({
                   fontWeight: '400',
                   letterSpacing: 'normal',
                   wordSpacing: 'normal',
-                  color: hasHighlight ? 'transparent' : 'var(--foreground)',
-                  caretColor: 'var(--foreground)',
-                  scrollbarWidth: 'none',
+                  color: 'var(--foreground)',
                 }}
-                placeholder={disabled ? "" : "Ask anything..."}
-                rows={1}
-                disabled={disabled}
-                onKeyDown={handleKeyDown}
-                onInput={handleInput}
-                onScroll={handleScroll}
-                onPaste={handlePaste}
+              >
+                <div
+                  ref={backdropInnerRef}
+                  className="whitespace-pre-wrap break-words"
+                  dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+                />
+              </div>
+            )}
+            <textarea
+              ref={inputRef}
+              className={cn(
+                'w-full resize-none bg-transparent placeholder:text-muted-foreground focus:outline-none overflow-y-auto relative',
+                hasHighlight ? '' : 'text-foreground'
+              )}
+              style={{
+                paddingTop: '6px',
+                paddingBottom: '6px',
+                paddingLeft: '12px',
+                paddingRight: '12px',
+                border: '1px solid transparent',
+                margin: '0',
+                fontSize: '14px',
+                lineHeight: '1.6',
+                fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
+                fontWeight: '400',
+                letterSpacing: 'normal',
+                wordSpacing: 'normal',
+                color: hasHighlight ? 'transparent' : 'var(--foreground)',
+                caretColor: 'var(--foreground)',
+                scrollbarWidth: 'none',
+                minHeight: '34.4px',
+                maxHeight: '160px',
+              }}
+              placeholder={disabled ? "" : "Ask anything..."}
+              rows={1}
+              disabled={disabled}
+              onKeyDown={handleKeyDown}
+              onInput={handleInput}
+              onScroll={handleScroll}
+              onPaste={handlePaste}
+            />
+          </div>
+
+          {/* Action row: attach (+ / design mode) on the left, send/stop on the right. */}
+          <div className="mt-1 flex h-8 items-center justify-between">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-white/[0.06] hover:text-[#EDEDF0] active:bg-white/[0.10] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8AB4FF] cursor-pointer"
+                title="Add context"
+              >
+                <Plus className="h-4 w-4 stroke-2" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleFileChange}
+                className="hidden"
+                tabIndex={-1}
+                aria-hidden="true"
               />
+              {activeSessionId !== 'l1' && canUseDesignMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextMode = !isDesignMode
+                  setDesignMode(nextMode)
+                  setSidebarCollapsed(nextMode)
+                }}
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8AB4FF]",
+                  isDesignMode
+                    ? "bg-primary/20 text-primary"
+                    : "text-[#9CA3AF] hover:bg-white/[0.06] hover:text-[#EDEDF0]"
+                )}
+                title="Design Mode"
+              >
+                <Palette className="h-4 w-4 stroke-2" />
+              </button>
+              )}
             </div>
 
-            {/* Inner action buttons row */}
-            <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-border/15">
-              {/* Left actions: plus and selectors */}
-              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+            <div className="flex items-center gap-1">
+              {(streaming || delegating || processing) && (
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground/70 transition-colors cursor-pointer shrink-0 hidden sm:block"
-                  title="Add context"
+                  onClick={onCancel}
+                  aria-label={t('common.stopped')}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(248,113,113,0.12)] transition-colors hover:bg-[rgba(248,113,113,0.2)] cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8AB4FF]"
                 >
-                  <Plus className="h-3.5 w-3.5" />
+                  <span aria-hidden="true" className="h-3 w-3 rounded-[2px] bg-[#F87171]" />
                 </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleFileChange}
-                  className="hidden"
-                  tabIndex={-1}
-                  aria-hidden="true"
-                />
-                {activeSessionId !== 'l1' && canUseDesignMode && (
+              )}
+              {(!(streaming || delegating || processing) || !!inputValue.trim()) && (
                 <button
                   type="button"
-                  onClick={() => {
-                    const nextMode = !isDesignMode
-                    setDesignMode(nextMode)
-                    setSidebarCollapsed(nextMode)
-                  }}
-                  className={cn(
-                    "p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 hidden sm:block",
-                    isDesignMode 
-                      ? "bg-primary/20 text-primary border border-primary/20" 
-                      : "hover:bg-muted text-muted-foreground/70"
-                  )}
-                  title="Design Mode"
+                  aria-label={t('chat.sendMessage')}
+                  onClick={handleSubmit}
+                  disabled={disabled || attachments.some((att) => att.status === 'uploading')}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-[#2E6BEE] active:bg-[#1E56D0] disabled:bg-[rgba(255,255,255,0.06)] disabled:text-[rgba(255,255,255,0.6)] disabled:cursor-not-allowed cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8AB4FF]"
                 >
-                  <Palette className="h-3.5 w-3.5" />
+                  <ArrowUp className="h-4 w-4 stroke-[2.5]" />
                 </button>
-                )}
-                {showL2Selectors && (
-                  <div
-                    title={readOnlySelectors ? t('chat.contextLocked') : undefined}
-                    className="flex items-center gap-1.5 rounded-md border border-border/60 px-1.5 py-0.5 text-xs text-muted-foreground select-none overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1 min-w-0"
-                  >
-                    {groupsLoading && (
-                      <span className="shrink-0 text-[11px] text-muted-foreground/70">{t('chat.teamLoading')}</span>
-                    )}
-                    {!groupsLoading && groupsError && (
-                      <span className="flex shrink-0 items-center gap-1 text-[11px] text-destructive">
-                        <span>{t('chat.teamLoadFailed')}</span>
-                        {onRetryGroups && (
-                          <button type="button" className="underline underline-offset-2 cursor-pointer" onClick={onRetryGroups}>
-                            {t('chat.retry')}
-                          </button>
-                        )}
-                      </span>
-                    )}
-                    {!groupsLoading && !groupsError && groups.length === 0 && (
-                      <span className="shrink-0 text-[11px] text-muted-foreground/70">{t('chat.noTeams')}</span>
-                    )}
-                    {/* L2 Group Select */}
-                    <div className="relative shrink-0" ref={groupRef}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (readOnlySelectors) return
-                          const next = activeDropdown === 'group' ? null : 'group'
-                          setDropdownPos(next ? computeDropdownPos(next) : null)
-                          setActiveDropdown(next)
-                        }}
-                        className={cn(
-                          "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors text-muted-foreground/80",
-                          readOnlySelectors 
-                            ? "cursor-default" 
-                            : "cursor-pointer hover:text-foreground hover:bg-muted/40"
-                        )}
-                      >
-                        <Users className="h-2.5 w-2.5 text-muted-foreground/60" />
-                        <span className="text-foreground/80">{selectedGroup || 'Select Group'}</span>
-                        {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
-                      </button>
-
-                      {activeDropdown === 'group' && groups.length > 0 && createPortal(
-                        <div
-                          data-dropdown-portal
-                          className="fixed z-50 w-44 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
-                          style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
-                        >
-                          {groups.map((g) => (
-                            <button
-                              key={g}
-                              type="button"
-                              onClick={() => {
-                                if (onGroupChange) onGroupChange(g)
-                                setActiveDropdown(null)
-                              }}
-                              className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
-                            >
-                              <span>{g}</span>
-                              {selectedGroup === g && <Check className="h-3 w-3 text-primary" />}
-                            </button>
-                          ))}
-                        </div>,
-                        document.body
-                      )}
-                    </div>
-
-                    {/* Workspace Select */}
-                    {selectedGroup && (
-                      <>
-                        <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
-                        <div className="relative shrink-0" ref={projectRef}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (readOnlySelectors) return
-                              const next = activeDropdown === 'project' ? null : 'project'
-                              setDropdownPos(next ? computeDropdownPos(next) : null)
-                              setActiveDropdown(next)
-                            }}
-                            className={cn(
-                              "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors text-muted-foreground/80",
-                              readOnlySelectors 
-                                ? "cursor-default" 
-                                : "cursor-pointer hover:text-foreground hover:bg-muted/40"
-                            )}
-                          >
-                            <Laptop className="h-2.5 w-2.5 text-muted-foreground/60" />
-                            <span className="text-foreground/80 truncate max-w-[120px]">
-                              {projects.find((p) => pathsMatch(p.path, selectedProjectPath))?.name || t('chat.local')}
-                            </span>
-                            {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
-                          </button>
-
-                          {activeDropdown === 'project' && createPortal(
-                            <div
-                              data-dropdown-portal
-                              className="fixed z-50 w-52 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
-                              style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (onProjectChange) onProjectChange('')
-                                  setActiveDropdown(null)
-                                }}
-                                className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
-                              >
-                                <span className="truncate">{t('chat.local')}</span>
-                                {!selectedProjectPath && <Check className="h-3 w-3 text-primary" />}
-                              </button>
-                              {filteredProjects.map((p) => (
-                                <button
-                                  key={p.id}
-                                  type="button"
-                                  onClick={() => {
-                                    if (onProjectChange) onProjectChange(p.path)
-                                    setActiveDropdown(null)
-                                  }}
-                                  className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
-                                >
-                                  <span className="truncate">{p.name}</span>
-                                  {pathsMatch(selectedProjectPath, p.path) && <Check className="h-3 w-3 text-primary" />}
-                                </button>
-                              ))}
-                            </div>,
-                            document.body
-                          )}
-                        </div>
-                      </>
-                    )}
-
-                    {/* Branch Select - Only show if projects are present and one is selected */}
-                    {filteredProjects.length > 0 && selectedProjectPath && (
-                      <>
-                        <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
-                        <div className="relative shrink-0" ref={branchRef}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (readOnlySelectors) return
-                              const next = activeDropdown === 'branch' ? null : 'branch'
-                              setDropdownPos(next ? computeDropdownPos(next) : null)
-                              setActiveDropdown(next)
-                            }}
-                            className={cn(
-                              "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors text-muted-foreground/80",
-                              readOnlySelectors 
-                                ? "cursor-default" 
-                                : "cursor-pointer hover:text-foreground hover:bg-muted/40"
-                            )}
-                          >
-                            <GitBranch className="h-2.5 w-2.5 text-muted-foreground/60" />
-                            <span className="text-foreground/80">{branch}</span>
-                            {!readOnlySelectors && <ChevronDown className="h-2.5 w-2.5 opacity-60" />}
-                          </button>
-
-                          {activeDropdown === 'branch' && createPortal(
-                            <div
-                              data-dropdown-portal
-                              className="fixed z-50 w-32 rounded-xl border border-border bg-popover p-1 shadow-lg"
-                              style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
-                            >
-                              {branches.map((b) => (
-                                <button
-                                  key={b}
-                                  type="button"
-                                  onClick={() => {
-                                    setBranch(b)
-                                    setActiveDropdown(null)
-                                  }}
-                                  className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
-                                >
-                                  <span>{b}</span>
-                                  {branch === b && <Check className="h-3 w-3 text-primary" />}
-                                </button>
-                              ))}
-                            </div>,
-                            document.body
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Right actions wrap within the pane, including beside an expanded sidebar. */}
-              <div className="ml-auto flex flex-wrap items-center justify-end gap-2 min-w-0 max-w-full">
-                {taskLevel ? (
-                  <span className="hidden shrink-0 items-center rounded-md bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:flex">
-                    {taskLevel}
-                  </span>
-                ) : null}
-                <ModelMenu
-                  state={sessionModel.state}
-                  saving={sessionModel.saving}
-                  disabled={disabled || (showL2Selectors && !activeSessionId)}
-                  onSelect={async (selection) => {
-                    const next = await sessionModel.select(selection)
-                    if (!next) toast.error(t('chat.modelSelectorSaveFailed'))
-                  }}
-                />
-                {ctxwinLimit > 0 && (
-                  <div className="relative group/cw flex items-center">
-                    <svg
-                      width="20" height="20" viewBox="0 0 20 20"
-                      className="-rotate-90 shrink-0"
-                    >
-                      {/* Background track */}
-                      <circle
-                        cx="10" cy="10" r={cwRadius}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="text-muted-foreground/15"
-                      />
-                      {/* Progress arc */}
-                      <circle
-                        cx="10" cy="10" r={cwRadius}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeDasharray={cwCircum}
-                        strokeDashoffset={cwOffset}
-                        className="text-signal transition-all duration-500 ease-out"
-                      />
-                    </svg>
-                    {/* Hover tooltip */}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/cw:block z-50 pointer-events-none">
-                      <div className="bg-popover border border-border rounded-xl px-3 py-2 shadow-xl whitespace-nowrap">
-                        <p className="text-xs font-semibold text-foreground">
-                          {cwPct.toFixed(1)}% used
-                        </p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {ctxwinUsed.toLocaleString()} / {ctxwinLimit.toLocaleString()} tokens
-                        </p>
-                        {sessionUsage && (
-                          <div className="mt-1 border-t border-border pt-1 text-[10px] text-muted-foreground space-y-0.5">
-                            <p>Current segment cache hit: {cacheRate(currentUsageSegment?.cache_hit_tokens ?? 0, currentUsageSegment?.cache_input_tokens ?? 0)}</p>
-                            <p>Lifetime cache hit: {cacheRate(sessionUsage.lifetime.cache_hit_tokens, sessionUsage.lifetime.cache_input_tokens)}</p>
-                            <p>Current cached tokens: {(currentUsageSegment?.cache_hit_tokens ?? 0).toLocaleString()} hit / {(currentUsageSegment?.cache_miss_tokens ?? 0).toLocaleString()} miss</p>
-                            <p>Lifetime cached tokens: {sessionUsage.lifetime.cache_hit_tokens.toLocaleString()} hit / {sessionUsage.lifetime.cache_miss_tokens.toLocaleString()} miss</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {(streaming || delegating || processing) && (
-                  <button
-                    type="button"
-                    onClick={onCancel}
-                    aria-label={t('common.stopped')}
-                    className="flex shrink-0 items-center gap-1 px-2 sm:px-3 py-1 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all text-xs font-semibold cursor-pointer"
-                  >
-                    <StopCircle className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">{t('common.stopped')}</span>
-                  </button>
-                )}
-                {(!(streaming || delegating || processing) || !!inputValue.trim()) && (
-                  <button
-                    type="button"
-                    aria-label={t('chat.sendMessage')}
-                    onClick={handleSubmit}
-                    disabled={disabled || attachments.some((att) => att.status === 'uploading')}
-                    className="flex shrink-0 items-center justify-center h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-all disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
-                  </button>
-                )}
-              </div>
+              )}
             </div>
           </div>
       </div>
 
+      {/* Meta row: no surface of its own, one 24px line, never wraps. */}
+      <div
+        data-testid="composer-meta"
+        className="mt-2 flex h-6 items-center justify-between gap-3 px-[10px]"
+        onKeyDown={handleMetaKeyDown}
+      >
+        {/* Identity group: who is answering, in which workspace, on which branch. */}
+        <div className="flex min-w-0 items-center" style={{ maxWidth: '50%' }}>
+          {!showL2Selectors ? null : groupsError ? (
+            <span className="flex min-w-0 items-center gap-1 text-[11px] leading-none text-destructive">
+              <span className="truncate">{t('chat.teamLoadFailed')}</span>
+              {onRetryGroups && (
+                <button type="button" className="shrink-0 underline underline-offset-2 cursor-pointer" onClick={onRetryGroups}>
+                  {t('chat.retry')}
+                </button>
+              )}
+            </span>
+          ) : identityStatus ? (
+            <span className="truncate text-[11px] leading-none text-[#9CA3AF]">{identityStatus}</span>
+          ) : (
+            <>
+              <div ref={groupRef} className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => toggleDropdown('group')}
+                  onKeyDown={openSegments('group')}
+                  aria-haspopup="menu"
+                  aria-expanded={activeDropdown === 'group'}
+                  title={readOnlySelectors ? t('chat.contextLocked') : groupLabel}
+                  className={segmentClass(canPick)}
+                >
+                  <span className="truncate" style={{ maxWidth: `${segWidth.team}px` }}>
+                    {groupLabel}
+                  </span>
+                  {segmentChevron}
+                </button>
+              </div>
+
+              {showProject && selectedGroup && (
+                <>
+                  <ChevronRight aria-hidden="true" className="mx-0.5 h-2.5 w-2.5 shrink-0 text-[rgba(156,163,175,0.5)]" />
+                  <div ref={projectRef} className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleDropdown('project')}
+                      onKeyDown={openSegments('project')}
+                      aria-haspopup="menu"
+                      aria-expanded={activeDropdown === 'project'}
+                      title={readOnlySelectors ? t('chat.contextLocked') : projectLabel}
+                      className={segmentClass(canPick)}
+                    >
+                      <span className="truncate" style={{ maxWidth: `${segWidth.project}px` }}>
+                        {projectLabel}
+                      </span>
+                      {segmentChevron}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {showBranch && (
+                <>
+                  <ChevronRight aria-hidden="true" className="mx-0.5 h-2.5 w-2.5 shrink-0 text-[rgba(156,163,175,0.5)]" />
+                  <div ref={branchRef} className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleDropdown('branch')}
+                      onKeyDown={openSegments('branch')}
+                      aria-haspopup="menu"
+                      aria-expanded={activeDropdown === 'branch'}
+                      title={branch}
+                      className={segmentClass(canPick)}
+                    >
+                      <span className="truncate" style={{ maxWidth: `${segWidth.branch}px` }}>
+                        {midEllipsis(branch, BRANCH_BUDGET[tier])}
+                      </span>
+                      {segmentChevron}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Engine group: task type, engine (model + effort), context ring. */}
+        <div className="flex min-w-0 shrink-0 items-center">
+          {taskLevel ? (
+            <>
+              <span
+                className="shrink-0 text-[10px] font-semibold uppercase leading-[14px] tracking-[0.06em] text-[#8C939E]"
+                title={taskLevel}
+              >
+                {taskLevel}
+              </span>
+              <span aria-hidden="true" className="mx-1.5 shrink-0 text-[11px] leading-none text-[rgba(156,163,175,0.4)]">·</span>
+            </>
+          ) : null}
+
+          <ModelPicker
+            state={sessionModel.state}
+            saving={sessionModel.saving}
+            tier={tier}
+            disabled={disabled || (showL2Selectors && !activeSessionId)}
+            onSelect={async (selection) => {
+              const next = await sessionModel.select(selection)
+              return !!next
+            }}
+          />
+
+          {ctxwinLimit > 0 && (
+            <>
+              <span aria-hidden="true" className="mx-1.5 shrink-0 text-[11px] leading-none text-[rgba(156,163,175,0.4)]">·</span>
+              <button
+                ref={cwRef}
+                type="button"
+                onClick={toggleRing}
+                onKeyDown={(e) => {
+                  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+                  e.preventDefault()
+                  if (!cwOpen) toggleRing()
+                }}
+                aria-haspopup="dialog"
+                aria-expanded={cwOpen}
+                aria-label={`${Math.round(cwPct)}% context window`}
+                className="group/ring relative flex h-5 items-center gap-1 rounded-[4px] px-1 transition-colors cursor-pointer hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8AB4FF] after:absolute after:inset-x-[-2px] after:top-0 after:bottom-[-4px] after:content-['']"
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" className="shrink-0 -rotate-90" aria-hidden="true">
+                  {/* Background track */}
+                  <circle
+                    cx="10" cy="10" r={cwRadius}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    className="text-[rgba(156,163,175,0.2)]"
+                  />
+                  {/* Progress arc */}
+                  <circle
+                    cx="10" cy="10" r={cwRadius}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeDasharray={cwCircum}
+                    strokeDashoffset={cwOffset}
+                    className="text-signal transition-all duration-500 ease-out"
+                  />
+                </svg>
+                {tier === 'A' && (
+                  <span className="shrink-0 text-[11px] leading-none tabular-nums text-[#9CA3AF]" style={{ maxWidth: '32px' }}>
+                    {Math.round(cwPct)}%
+                  </span>
+                )}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Selector menus are portaled: the meta row has no overflow and must not
+          clip them, and their width is independent of the segment width. */}
+      {activeDropdown === 'group' && groups.length > 0 && createPortal(
+        <div
+          data-dropdown-portal
+          className="fixed z-50 w-60 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
+          style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
+        >
+          {groups.map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => {
+                if (onGroupChange) onGroupChange(g)
+                setActiveDropdown(null)
+              }}
+              className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
+            >
+              <span>{g}</span>
+              {selectedGroup === g && <Check className="h-3 w-3 text-primary" />}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+
+      {activeDropdown === 'project' && createPortal(
+        <div
+          data-dropdown-portal
+          className="fixed z-50 w-60 rounded-xl border border-border bg-popover p-1 shadow-lg max-h-60 overflow-y-auto"
+          style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (onProjectChange) onProjectChange('')
+              setActiveDropdown(null)
+            }}
+            className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
+          >
+            <span className="truncate">{t('chat.local')}</span>
+            {!selectedProjectPath && <Check className="h-3 w-3 text-primary" />}
+          </button>
+          {filteredProjects.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                if (onProjectChange) onProjectChange(p.path)
+                setActiveDropdown(null)
+              }}
+              className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
+            >
+              <span className="truncate">{p.name}</span>
+              {pathsMatch(selectedProjectPath, p.path) && <Check className="h-3 w-3 text-primary" />}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+
+      {activeDropdown === 'branch' && createPortal(
+        <div
+          data-dropdown-portal
+          className="fixed z-50 w-60 rounded-xl border border-border bg-popover p-1 shadow-lg"
+          style={dropdownPos ? { top: dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined, bottom: dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined, left: `${dropdownPos.left}px` } : undefined}
+        >
+          {branches.map((b) => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => {
+                setBranch(b)
+                setActiveDropdown(null)
+              }}
+              className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold rounded-lg hover:bg-muted text-foreground transition-colors"
+            >
+              <span className="truncate">{b}</span>
+              {branch === b && <Check className="h-3 w-3 text-primary" />}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+
+      {cwOpen && cwPos && createPortal(
+        <div
+          role="dialog"
+          aria-modal="false"
+          aria-label="Context window"
+          className="fixed z-50 rounded-xl border border-border bg-popover p-3 shadow-xl"
+          style={{ width: '232px', bottom: `${cwPos.bottom}px`, left: `${cwPos.left}px` }}
+        >
+          <p className="text-xs font-semibold text-foreground">
+            {cwPct.toFixed(1)}% used
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {ctxwinUsed.toLocaleString()} / {ctxwinLimit.toLocaleString()} tokens
+          </p>
+          {sessionUsage && (
+            <div className="mt-1 border-t border-border pt-1 text-[10px] text-muted-foreground space-y-0.5">
+              <p>Current segment cache hit: {cacheRate(currentUsageSegment?.cache_hit_tokens ?? 0, currentUsageSegment?.cache_input_tokens ?? 0)}</p>
+              <p>Lifetime cache hit: {cacheRate(sessionUsage.lifetime.cache_hit_tokens, sessionUsage.lifetime.cache_input_tokens)}</p>
+              <p>Current cached tokens: {(currentUsageSegment?.cache_hit_tokens ?? 0).toLocaleString()} hit / {(currentUsageSegment?.cache_miss_tokens ?? 0).toLocaleString()} miss</p>
+              <p>Lifetime cached tokens: {sessionUsage.lifetime.cache_hit_tokens.toLocaleString()} hit / {sessionUsage.lifetime.cache_miss_tokens.toLocaleString()} miss</p>
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
+
       {disabled && !showL2Selectors && (
-        <p className="mt-2 text-center text-[11px] text-muted-foreground/50">
+        <p className="mt-2 text-center text-[11px] text-muted-foreground">
           Create a new session from the sidebar to get started
         </p>
       )}

@@ -7,6 +7,7 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useTranscript } from "@/hooks/useTranscript";
+import { compactionEventRequests } from "@/lib/transcript/messages";
 import { useShallow } from "zustand/react/shallow";
 import { useAgentStore } from "@/stores/agentStore";
 import { runtimeSessionId, useRuntimeStore } from "@/stores/runtimeStore";
@@ -232,7 +233,10 @@ export function AssistantPage() {
                     sessionAgentId={l1AgentInstanceId}
                   />
                 ))}
-                <CompactionStatusRows rows={compactions[activeSessionId || 'l1'] || []} />
+                <CompactionStatusRows
+                  rows={compactions[activeSessionId || 'l1'] || []}
+                  committedRequestIds={compactionEventRequests(finalMessages)}
+                />
               </div>
               {requestActive && (
                 <div className="mx-auto max-w-3xl px-4 w-full">
