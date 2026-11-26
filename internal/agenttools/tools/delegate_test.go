@@ -15,6 +15,7 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/dispatch"
 	"github.com/xiaobaitu/soloqueue/internal/iface"
+	"github.com/xiaobaitu/soloqueue/internal/infra/telemetryctx"
 	workdirutil "github.com/xiaobaitu/soloqueue/internal/infra/workdir"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
 )
@@ -808,4 +809,59 @@ func TestSyncDelegateWatchdogFailureStopsSilentStreamAndPreservesParent(t *testi
 		t.Fatalf("parent unusable after failure: %v", err)
 	}
 	next.Complete()
+}
+
+type identityCapturingTarget struct {
+	dispatchTestTarget
+	instanceID string
+	childCtx   chan context.Context
+}
+
+func (t *identityCapturingTarget) InstanceID() string { return t.instanceID }
+
+func (t *identityCapturingTarget) AskStream(ctx context.Context, prompt string) (<-chan iface.AgentEvent, error) {
+	t.childCtx <- ctx
+	return t.dispatchTestTarget.AskStream(ctx, prompt)
+}
+
+// The dispatch identity must exist before the executor is known and be published
+// again once it is assigned, so the UI and the transcript can attribute the
+// delegation without guessing from the agent name.
+func TestDelegateToolPublishesDelegationIdentity(t *testing.T) {
+	manager, err := dispatch.NewManager(t.TempDir(), "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := &identityCapturingTarget{instanceID: "inst-a", childCtx: make(chan context.Context, 1)}
+	resolver := func(context.Context, string, string, string, string, string, string) (iface.Locatable, bool, error) {
+		return target, false, nil
+	}
+	dt := NewDelegateTool("L2", time.Minute, resolver, nil, nil, WorkDirExplicitOrInherited)
+	var seen []dispatch.Record
+	ctx := dispatch.WithScope(iface.ContextWithWorkDir(context.Background(), t.TempDir()), dispatch.Scope{
+		Manager: manager,
+		OnBegin: func(record dispatch.Record) { seen = append(seen, record) },
+	})
+
+	if _, err := dt.Execute(ctx, `{"target":"worker","task_name":"identity","task":"do it"}`); err != nil {
+		t.Fatalf("Execute error = %v", err)
+	}
+
+	records := manager.List()
+	if len(records) != 1 {
+		t.Fatalf("records = %#v", records)
+	}
+	dispatchID := records[0].ID
+	if len(seen) < 2 {
+		t.Fatalf("OnBegin calls = %d, want the identity before and after executor assignment: %#v", len(seen), seen)
+	}
+	if seen[0].ID != dispatchID || seen[0].ExecutorInstanceID != "" {
+		t.Fatalf("first OnBegin = %#v", seen[0])
+	}
+	if last := seen[len(seen)-1]; last.ID != dispatchID || last.ExecutorInstanceID != "inst-a" {
+		t.Fatalf("last OnBegin = %#v", last)
+	}
+	if got := telemetryctx.FromContext(<-target.childCtx).DispatchID; got != dispatchID {
+		t.Fatalf("child turn dispatch = %q, want %q", got, dispatchID)
+	}
 }

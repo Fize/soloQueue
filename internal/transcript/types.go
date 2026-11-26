@@ -27,6 +27,7 @@ const (
 	KindItemSnapshot       = "item_snapshot"
 	KindToolStarted        = "tool_started"
 	KindToolFinished       = "tool_finished"
+	KindDispatchStarted    = "dispatch_started"
 	KindDispatchTerminal   = "dispatch_terminal"
 	KindDelegationStarted  = "delegation_started"
 	KindDelegationFinished = "delegation_finished"

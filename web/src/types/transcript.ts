@@ -45,6 +45,7 @@ export type TranscriptFrameKind =
   | 'item_snapshot'
   | 'tool_started'
   | 'tool_finished'
+  | 'dispatch_started'
   | 'dispatch_terminal'
   | 'delegation_started'
   | 'delegation_finished'

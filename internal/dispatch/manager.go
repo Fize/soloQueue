@@ -808,6 +808,9 @@ func newID() (string, error) {
 type contextKey struct{}
 
 type Scope struct {
+	// OnBegin observes a dispatch identity as soon as it exists, and again when
+	// the executor instance becomes known. Consumers must treat it as idempotent.
+	OnBegin    func(Record)
 	OnTerminal func(Record)
 	Manager    *Manager
 	RootID     string

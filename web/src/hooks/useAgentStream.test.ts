@@ -47,6 +47,26 @@ describe('useAgentStream', () => {
     expect(result.current).toBeNull()
   })
 
+  it('separates two delegations served by the same agent instance', () => {
+    const first = { agent_id: 'child-1', request_id: 'req-parent', dispatch_id: 'dlg-a', processing: false, segments: [], iteration: 1 }
+    const second = { agent_id: 'child-1', request_id: 'req-parent', dispatch_id: 'dlg-b', processing: true, segments: [], iteration: 2 }
+    mockUseRuntime.mockReturnValue(mockRuntime({
+      'child-1\u0000req-parent\u0000dlg-a': first,
+      'child-1\u0000req-parent\u0000dlg-b': second,
+    }))
+    const firstCard = renderHook(() => useAgentStream('child-1', 'req-parent', 'dlg-a'))
+    const secondCard = renderHook(() => useAgentStream('child-1', 'req-parent', 'dlg-b'))
+    expect(firstCard.result.current).toEqual(first)
+    expect(secondCard.result.current).toEqual(second)
+  })
+
+  it('does not fall back to another delegation when the dispatch has no stream', () => {
+    const other = { agent_id: 'child-1', request_id: 'req-parent', dispatch_id: 'dlg-b', processing: true, segments: [], iteration: 2 }
+    mockUseRuntime.mockReturnValue(mockRuntime({ 'child-1\u0000req-parent\u0000dlg-b': other }))
+    const { result } = renderHook(() => useAgentStream('child-1', 'req-parent', 'dlg-a'))
+    expect(result.current).toBeNull()
+  })
+
   it('selects the stream belonging to the requested turn', () => {
     const oldStream = { agent_id: 'a1', request_id: 'req-old', processing: true, segments: [], iteration: 1 }
     const newStream = { agent_id: 'a1', request_id: 'req-new', processing: true, segments: [], iteration: 2 }

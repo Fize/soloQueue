@@ -25,6 +25,14 @@ export interface TranscriptState {
   requests: Record<string, TranscriptRequestState>
   /** request ID + "\u0000" + call ID → item ID */
   calls: Record<string, string>
+  /** request ID + "\u0000" + call ID → delegation identity, kept for frames
+   * that arrive before their tool segment. */
+  dispatch: Record<string, DelegationIdentity>
+}
+
+export interface DelegationIdentity {
+  dispatch_id?: string
+  agent_instance_id?: string
 }
 
 export type ResyncReason = 'epoch' | 'gap' | 'reset'
@@ -36,7 +44,7 @@ export interface ApplyResult {
 }
 
 export function emptyTranscript(): TranscriptState {
-  return { epoch: null, headSeq: 0, items: {}, order: [], pending: {}, requests: {}, calls: {} }
+  return { epoch: null, headSeq: 0, items: {}, order: [], pending: {}, requests: {}, calls: {}, dispatch: {} }
 }
 
 const callKey = (requestId: string | undefined, callId: string | undefined) =>
@@ -91,7 +99,7 @@ class Draft {
     this.state = { ...state }
   }
 
-  private own<K extends 'items' | 'pending' | 'requests' | 'calls' | 'order'>(key: K): TranscriptState[K] {
+  private own<K extends 'items' | 'pending' | 'requests' | 'calls' | 'order' | 'dispatch'>(key: K): TranscriptState[K] {
     if (!this.copied.has(key)) {
       const value = this.state[key]
       this.state[key] = (Array.isArray(value) ? [...value] : { ...value }) as TranscriptState[K]
@@ -145,6 +153,22 @@ class Draft {
 
   setRequest(request: TranscriptRequestState) {
     this.own('requests')[request.request_id] = request
+  }
+
+  dispatchIdentity(requestId: string | undefined, callId: string | undefined): DelegationIdentity | undefined {
+    return this.state.dispatch[callKey(requestId, callId)]
+  }
+
+  setDispatchIdentity(requestId: string | undefined, callId: string | undefined, identity: DelegationIdentity) {
+    if (!callId || (!identity.dispatch_id && !identity.agent_instance_id)) return
+    const key = callKey(requestId, callId)
+    const current = this.state.dispatch[key]
+    if (
+      current &&
+      current.dispatch_id === identity.dispatch_id &&
+      current.agent_instance_id === identity.agent_instance_id
+    ) return
+    this.own('dispatch')[key] = { ...current, ...identity }
   }
 
   setCall(requestId: string | undefined, callId: string | undefined, itemId: string) {
@@ -267,9 +291,20 @@ function applyFrame(draft: Draft, frame: TranscriptFrame) {
       const index = item.segments.findIndex(
         (segment) => segment.type === 'tool_call' && segment.call_id === frame.call_id
       )
+      draft.setDispatchIdentity(frame.request_id, frame.call_id, {
+        dispatch_id: frame.dispatch_id,
+        agent_instance_id: frame.target_agent_id,
+      })
+      const identity = draft.dispatchIdentity(frame.request_id, frame.call_id)
       const segments = [...item.segments]
       if (index >= 0) {
-        segments[index] = { ...segments[index], name: frame.name, args: frame.args }
+        segments[index] = {
+          ...segments[index],
+          name: frame.name,
+          args: frame.args,
+          dispatch_id: segments[index].dispatch_id || identity?.dispatch_id,
+          agent_instance_id: segments[index].agent_instance_id || identity?.agent_instance_id,
+        }
       } else {
         segments.push({
           type: 'tool_call',
@@ -277,8 +312,8 @@ function applyFrame(draft: Draft, frame: TranscriptFrame) {
           name: frame.name,
           args: frame.args,
           done: false,
-          dispatch_id: frame.dispatch_id || undefined,
-          agent_instance_id: frame.target_agent_id || undefined,
+          dispatch_id: identity?.dispatch_id,
+          agent_instance_id: identity?.agent_instance_id,
         })
       }
       draft.setItem({ ...item, segments, last_seq: frame.seq })
@@ -306,7 +341,32 @@ function applyFrame(draft: Draft, frame: TranscriptFrame) {
       draft.setItem({ ...item, segments, last_seq: frame.seq })
       return
     }
+    case 'dispatch_started': {
+      draft.setDispatchIdentity(frame.request_id, frame.call_id, {
+        dispatch_id: frame.dispatch_id,
+        agent_instance_id: frame.agent_instance_id,
+      })
+      const item = draft.callItem(frame)
+      if (!item) return
+      let changed = false
+      const segments = item.segments.map((segment) => {
+        if (segment.type !== 'tool_call' || segment.call_id !== frame.call_id) return segment
+        if (segment.dispatch_id === frame.dispatch_id && segment.agent_instance_id === frame.agent_instance_id) return segment
+        changed = true
+        return {
+          ...segment,
+          dispatch_id: segment.dispatch_id || frame.dispatch_id,
+          agent_instance_id: segment.agent_instance_id || frame.agent_instance_id,
+        }
+      })
+      if (changed) draft.setItem({ ...item, segments, last_seq: frame.seq })
+      return
+    }
     case 'dispatch_terminal': {
+      draft.setDispatchIdentity(frame.request_id, frame.call_id, {
+        dispatch_id: frame.dispatch_id,
+        agent_instance_id: frame.agent_instance_id,
+      })
       const item = draft.callItem(frame)
       if (!item) return
       let changed = false
@@ -318,6 +378,7 @@ function applyFrame(draft: Draft, frame: TranscriptFrame) {
         return {
           ...segment,
           dispatch_id: frame.dispatch_id,
+          agent_instance_id: segment.agent_instance_id || frame.agent_instance_id,
           done: true,
           error: frame.error ? frame.error : segment.error,
         }

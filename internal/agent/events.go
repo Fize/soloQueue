@@ -18,52 +18,58 @@ type AgentEvent interface {
 // the assistant's user-facing content stream. Control-plane status belongs in
 // a dedicated structural event instead of this event.
 type ContentDeltaEvent struct {
-	RequestID string
-	Iter      int
-	Delta     string
+	RequestID  string
+	DispatchID string // dispatch whose turn produced this fragment
+	Iter       int
+	Delta      string
 }
 
 // ReasoningDeltaEvent carries an incremental reasoning_content fragment.
 type ReasoningDeltaEvent struct {
-	RequestID string
-	Iter      int
-	Delta     string
+	RequestID  string
+	DispatchID string // dispatch whose turn produced this fragment
+	Iter       int
+	Delta      string
 }
 
 // ToolCallDeltaEvent carries an incremental tool_call arguments fragment.
 type ToolCallDeltaEvent struct {
-	RequestID string
-	Iter      int
-	CallID    string
-	Name      string
-	ArgsDelta string
+	RequestID  string
+	DispatchID string // dispatch whose turn produced this fragment
+	Iter       int
+	CallID     string
+	Name       string
+	ArgsDelta  string
 }
 
 // ToolExecStartEvent signals a tool execution start.
 type ToolExecStartEvent struct {
-	DispatchID    string
-	RequestID     string
-	Iter          int
-	CallID        string
-	Name          string
-	Args          string // complete JSON arguments
-	TargetAgentID string // unique instance ID of target agent (UUID) for delegation tools
+	DispatchID     string
+	TurnDispatchID string // dispatch whose turn issued this call
+	RequestID      string
+	Iter           int
+	CallID         string
+	Name           string
+	Args           string // complete JSON arguments
+	TargetAgentID  string // unique instance ID of target agent (UUID) for delegation tools
 }
 
 // ToolExecDoneEvent signals a tool execution completion.
 type ToolExecDoneEvent struct {
-	RequestID string
-	Iter      int
-	CallID    string
-	Name      string
-	Result    string
-	Err       error
-	Duration  time.Duration
+	RequestID  string
+	DispatchID string // dispatch whose turn issued this call
+	Iter       int
+	CallID     string
+	Name       string
+	Result     string
+	Err        error
+	Duration   time.Duration
 }
 
 // IterationDoneEvent signals the end of an LLM iteration.
 type IterationDoneEvent struct {
 	RequestID    string
+	DispatchID   string // dispatch whose turn produced this iteration
 	Iter         int
 	FinishReason llm.FinishReason
 	Usage        llm.Usage
@@ -73,14 +79,16 @@ type IterationDoneEvent struct {
 // Content is the final assistant response.
 type DoneEvent struct {
 	RequestID        string
+	DispatchID       string // dispatch whose turn produced this response
 	Content          string
 	ReasoningContent string
 }
 
 // ErrorEvent signals that AskStream has terminated due to an error.
 type ErrorEvent struct {
-	RequestID string
-	Err       error
+	RequestID  string
+	DispatchID string // dispatch whose turn failed
+	Err        error
 }
 
 // DelegationStartedEvent signals that async delegation has begun.
@@ -103,6 +111,7 @@ type DelegationCompletedEvent struct {
 // of queued user inputs has been injected into the next LLM request.
 type PendingInputStartedEvent struct {
 	RequestID         string
+	DispatchID        string // dispatch whose turn received the queued input
 	PreviousRequestID string
 	RequestIDs        []string
 	Prompt            string
@@ -136,6 +145,36 @@ func RequestIDOfEvent(ev AgentEvent) string {
 		return e.RequestID
 	case PendingInputStartedEvent:
 		return e.RequestID
+	default:
+		return ""
+	}
+}
+
+// DispatchIDOfEvent returns the dispatch whose turn produced the event.
+//
+// ToolExecStartEvent carries two identities: DispatchID is the dispatch the call
+// created (delegation tools only), TurnDispatchID is the dispatch the emitting
+// turn belongs to. Live stream keying needs the turn owner, so it is returned.
+func DispatchIDOfEvent(ev AgentEvent) string {
+	switch e := ev.(type) {
+	case ContentDeltaEvent:
+		return e.DispatchID
+	case ReasoningDeltaEvent:
+		return e.DispatchID
+	case ToolCallDeltaEvent:
+		return e.DispatchID
+	case ToolExecStartEvent:
+		return e.TurnDispatchID
+	case ToolExecDoneEvent:
+		return e.DispatchID
+	case IterationDoneEvent:
+		return e.DispatchID
+	case DoneEvent:
+		return e.DispatchID
+	case ErrorEvent:
+		return e.DispatchID
+	case PendingInputStartedEvent:
+		return e.DispatchID
 	default:
 		return ""
 	}

@@ -768,8 +768,11 @@ func (dt *DelegateTool) beginDispatch(ctx context.Context, args delegateArgs) (s
 	if err != nil {
 		return "", false, ctx, err
 	}
-	childScope := dispatch.Scope{OnTerminal: scope.OnTerminal, Manager: scope.Manager, RootID: result.Record.RootID, ParentID: result.Record.ID}
-	ctx = telemetryctx.WithMetadata(ctx, telemetryctx.Metadata{ParentDispatchID: scope.ParentID})
+	if scope.OnBegin != nil {
+		scope.OnBegin(result.Record)
+	}
+	childScope := dispatch.Scope{OnBegin: scope.OnBegin, OnTerminal: scope.OnTerminal, Manager: scope.Manager, RootID: result.Record.RootID, ParentID: result.Record.ID}
+	ctx = telemetryctx.WithMetadata(ctx, telemetryctx.Metadata{ParentDispatchID: scope.ParentID, DispatchID: result.Record.ID})
 	return result.Record.ID, result.Reused, dispatch.WithScope(ctx, childScope), nil
 }
 
@@ -779,7 +782,14 @@ func (dt *DelegateTool) assignExecutorInstance(ctx context.Context, id string, t
 		return nil
 	}
 	if scope, present := dispatch.ScopeFromContext(ctx); present {
-		return scope.Manager.AssignExecutorInstance(id, provider.InstanceID())
+		if err := scope.Manager.AssignExecutorInstance(id, provider.InstanceID()); err != nil {
+			return err
+		}
+		if scope.OnBegin != nil {
+			if record, found := scope.Manager.Get(id); found {
+				scope.OnBegin(record)
+			}
+		}
 	}
 	return nil
 }

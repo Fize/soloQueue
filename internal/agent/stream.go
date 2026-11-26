@@ -857,6 +857,7 @@ func (a *Agent) runOnceStreamWithHistoryFromIter(
 //   - Returning false means ctx is cancelled; the caller should return immediately (usually paired with defer close(out))
 func (a *Agent) emit(ctx context.Context, out chan<- AgentEvent, ev AgentEvent) bool {
 	ev = attachRequestID(ctx, ev)
+	ev = attachDispatchID(ctx, ev)
 	// Publish at the moment of production: the transcript order of a session
 	// is the order in which its leader agent emits.
 	if sink := iface.TranscriptSinkFromContext(ctx); sink != nil {
@@ -932,6 +933,50 @@ func attachRequestID(ctx context.Context, ev AgentEvent) AgentEvent {
 		return e
 	case PendingInputStartedEvent:
 		e.RequestID = requestID
+		return e
+	default:
+		return ev
+	}
+}
+
+// attachDispatchID stamps the dispatch that owns the emitting turn onto events.
+// The live runtime projection keys streams by (instance, request, dispatch), so
+// two delegations served by one agent instance stay distinguishable.
+func attachDispatchID(ctx context.Context, ev AgentEvent) AgentEvent {
+	if ctx == nil {
+		return ev
+	}
+	dispatchID := telemetryctx.FromContext(ctx).DispatchID
+	if dispatchID == "" || DispatchIDOfEvent(ev) != "" {
+		return ev
+	}
+	switch e := ev.(type) {
+	case ContentDeltaEvent:
+		e.DispatchID = dispatchID
+		return e
+	case ReasoningDeltaEvent:
+		e.DispatchID = dispatchID
+		return e
+	case ToolCallDeltaEvent:
+		e.DispatchID = dispatchID
+		return e
+	case ToolExecStartEvent:
+		e.TurnDispatchID = dispatchID
+		return e
+	case ToolExecDoneEvent:
+		e.DispatchID = dispatchID
+		return e
+	case IterationDoneEvent:
+		e.DispatchID = dispatchID
+		return e
+	case DoneEvent:
+		e.DispatchID = dispatchID
+		return e
+	case ErrorEvent:
+		e.DispatchID = dispatchID
+		return e
+	case PendingInputStartedEvent:
+		e.DispatchID = dispatchID
 		return e
 	default:
 		return ev

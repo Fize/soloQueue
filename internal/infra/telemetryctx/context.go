@@ -32,6 +32,7 @@ type Metadata struct {
 	RequestID        string
 	RequestIDs       []string
 	ToolCallID       string
+	DispatchID       string
 	ParentDispatchID string
 	SessionID        string
 	OwnerID          string
@@ -72,6 +73,9 @@ func WithMetadata(ctx context.Context, metadata Metadata) context.Context {
 	}
 	if metadata.ToolCallID != "" {
 		current.ToolCallID = metadata.ToolCallID
+	}
+	if metadata.DispatchID != "" {
+		current.DispatchID = metadata.DispatchID
 	}
 	if metadata.ParentDispatchID != "" {
 		current.ParentDispatchID = metadata.ParentDispatchID

@@ -219,3 +219,48 @@ func BenchmarkPublishContentDelta(b *testing.B) {
 		j.Publish(Frame{Kind: KindItemDelta, RequestID: "r", ItemID: "out:r:0", Channel: ChannelContent, Text: "token "})
 	}
 }
+
+// A delegation frame may arrive before or after the tool segment it belongs to,
+// and one turn may carry several delegations to the same agent.
+func TestViewAppliesDelegationIdentityInEitherOrder(t *testing.T) {
+	started := Frame{Seq: 2, Kind: KindToolStarted, RequestID: "r", ItemID: "out:r:0", CallID: "c1", Name: "delegate", Args: "{}"}
+	dispatch := Frame{Seq: 3, Kind: KindDispatchStarted, RequestID: "r", CallID: "c1", DispatchID: "dlg-a", AgentInstanceID: "inst-a"}
+	for _, order := range [][2]Frame{{dispatch, started}, {started, dispatch}} {
+		v := NewView()
+		v.Apply(order[0])
+		v.Apply(order[1])
+		segments := v.List()[0].Segments
+		if len(segments) != 1 || segments[0].DispatchID != "dlg-a" || segments[0].AgentInstanceID != "inst-a" {
+			t.Fatalf("segments = %#v", segments)
+		}
+	}
+}
+
+func TestViewSeparatesSiblingDelegationsOfOneAgent(t *testing.T) {
+	v := NewView()
+	v.Apply(Frame{Seq: 1, Kind: KindToolStarted, RequestID: "r", ItemID: "out:r:0", CallID: "c1", Name: "delegate"})
+	v.Apply(Frame{Seq: 2, Kind: KindToolStarted, RequestID: "r", ItemID: "out:r:0", CallID: "c2", Name: "delegate"})
+	v.Apply(Frame{Seq: 3, Kind: KindDispatchStarted, RequestID: "r", CallID: "c1", DispatchID: "dlg-a", AgentInstanceID: "inst-a"})
+	v.Apply(Frame{Seq: 4, Kind: KindDispatchStarted, RequestID: "r", CallID: "c2", DispatchID: "dlg-b", AgentInstanceID: "inst-b"})
+
+	got := map[string][2]string{}
+	for _, segment := range v.List()[0].Segments {
+		got[segment.CallID] = [2]string{segment.DispatchID, segment.AgentInstanceID}
+	}
+	if got["c1"] != [2]string{"dlg-a", "inst-a"} || got["c2"] != [2]string{"dlg-b", "inst-b"} {
+		t.Fatalf("segment identity = %#v", got)
+	}
+}
+
+// The terminal frame finalizes the segment and repeats the executor instance, so
+// a delegation that never opened a tool segment still ends with its identity.
+func TestViewTerminalKeepsDelegationIdentity(t *testing.T) {
+	v := NewView()
+	v.Apply(Frame{Seq: 1, Kind: KindToolStarted, RequestID: "r", ItemID: "out:r:0", CallID: "c1", Name: "delegate"})
+	v.Apply(Frame{Seq: 2, Kind: KindDispatchTerminal, RequestID: "r", CallID: "c1", DispatchID: "dlg-a", AgentInstanceID: "inst-a", Status: "completed"})
+
+	segment := v.List()[0].Segments[0]
+	if segment.DispatchID != "dlg-a" || segment.AgentInstanceID != "inst-a" || segment.Done == nil || !*segment.Done {
+		t.Fatalf("segment = %#v", segment)
+	}
+}

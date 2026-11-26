@@ -361,7 +361,7 @@ func (h *Hub) handleChatCancel(client *Client, msg *ClientMessage) {
 		return
 	}
 	if h.mux != nil && h.mux.runtimeMetrics != nil {
-		h.mux.runtimeMetrics.TerminalizeAgentStream(req.AgentInstanceID, req.RequestID, "Task cancelled.")
+		h.mux.runtimeMetrics.TerminalizeAgentStream(req.AgentInstanceID, req.RequestID, "", "Task cancelled.")
 	}
 	// Pin the exact request's terminal state synchronously. Session cancellation
 	// completion can precede the event forwarder consuming ErrorEvent.

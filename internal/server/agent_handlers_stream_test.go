@@ -28,7 +28,7 @@ func TestRuntimeMetricsKeepsConcurrentAgentStreamsByRequest(t *testing.T) {
 	if seen["req-a"] != "first" || seen["req-b"] != "second" {
 		t.Fatalf("request streams = %#v, want independent req-a/req-b snapshots", seen)
 	}
-	if !streams[agentStreamKey("agent-1", "req-a")].Processing || !streams[agentStreamKey("agent-1", "req-b")].Processing {
+	if !streams[agentStreamKey("agent-1", "req-a", "")].Processing || !streams[agentStreamKey("agent-1", "req-b", "")].Processing {
 		t.Fatalf("concurrent request streams were retired: %#v", streams)
 	}
 }
@@ -47,10 +47,10 @@ func TestRuntimeMetricsSwitchesDeliveryOwnershipAtPendingBoundary(t *testing.T) 
 	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-queued", Delta: "queued output"})
 
 	streams := rm.AgentStreams()
-	if _, ok := streams[agentStreamKey("agent-1", "req-root")]; ok {
+	if _, ok := streams[agentStreamKey("agent-1", "req-root", "")]; ok {
 		t.Fatalf("root runtime stream remained recoverable after delivery moved: %#v", streams)
 	}
-	queued := streams[agentStreamKey("agent-1", "req-queued")]
+	queued := streams[agentStreamKey("agent-1", "req-queued", "")]
 	if queued == nil || len(queued.Segments) != 1 || queued.Segments[0].Text != "queued output" {
 		t.Fatalf("queued runtime stream = %#v, want only queued output", queued)
 	}
@@ -62,10 +62,10 @@ func TestRuntimeMetricsSwitchesDeliveryOwnershipAtPendingBoundary(t *testing.T) 
 	})
 	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-next", Delta: "next output"})
 	streams = rm.AgentStreams()
-	if _, ok := streams[agentStreamKey("agent-1", "req-queued")]; ok {
+	if _, ok := streams[agentStreamKey("agent-1", "req-queued", "")]; ok {
 		t.Fatalf("first queued stream remained recoverable after second boundary: %#v", streams)
 	}
-	next := streams[agentStreamKey("agent-1", "req-next")]
+	next := streams[agentStreamKey("agent-1", "req-next", "")]
 	if next == nil || len(next.Segments) != 1 || next.Segments[0].Text != "next output" {
 		t.Fatalf("next runtime stream = %#v, want only next output", next)
 	}
@@ -121,7 +121,7 @@ func TestRuntimeMetricsTerminalizesCancelledRequestStream(t *testing.T) {
 	}
 	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-cancelled", Delta: "partial"})
 
-	rm.TerminalizeAgentStream("agent-1", "req-cancelled", "Task cancelled.")
+	rm.TerminalizeAgentStream("agent-1", "req-cancelled", "", "Task cancelled.")
 
 	stream := rm.AgentStreams()["agent-1\x00req-cancelled"]
 	if stream == nil {
@@ -234,5 +234,51 @@ func TestRuntimeMetricsDropsLateEventsFromReplacedOrStoppedWatch(t *testing.T) {
 	})
 	if streams := rm.AgentStreams(); len(streams) != 0 {
 		t.Fatalf("late stopped-watch event recreated streams: %#v", streams)
+	}
+}
+
+// Two delegations served by one agent instance under the same request must keep
+// separate streams: the dispatch segment of the key is their only difference.
+func TestRuntimeMetricsSeparatesDelegationStreamsByDispatch(t *testing.T) {
+	rm := &RuntimeMetrics{
+		agentStreams: make(map[string]*AgentStreamState),
+		agentCancels: make(map[string]func()),
+	}
+
+	rm.updateAgentStream("child-1", agent.ContentDeltaEvent{RequestID: "req-parent", DispatchID: "dlg-a", Delta: "first"})
+	rm.updateAgentStream("child-1", agent.ContentDeltaEvent{RequestID: "req-parent", DispatchID: "dlg-b", Delta: "second"})
+
+	streams := rm.AgentStreams()
+	if len(streams) != 2 {
+		t.Fatalf("stream count = %d, want 2: %#v", len(streams), streams)
+	}
+	first := streams[agentStreamKey("child-1", "req-parent", "dlg-a")]
+	second := streams[agentStreamKey("child-1", "req-parent", "dlg-b")]
+	if first == nil || second == nil {
+		t.Fatalf("dispatch-keyed streams missing: %#v", streams)
+	}
+	if first.Segments[0].Text != "first" || second.Segments[0].Text != "second" {
+		t.Fatalf("segments = %q / %q", first.Segments[0].Text, second.Segments[0].Text)
+	}
+	if first.DispatchID != "dlg-a" || second.DispatchID != "dlg-b" {
+		t.Fatalf("dispatch identity = %q / %q", first.DispatchID, second.DispatchID)
+	}
+}
+
+// A turn that belongs to no delegation keeps the historical two-part key so
+// existing consumers of the runtime payload are unaffected.
+func TestRuntimeMetricsKeepsLegacyKeyWithoutDispatch(t *testing.T) {
+	rm := &RuntimeMetrics{
+		agentStreams: make(map[string]*AgentStreamState),
+		agentCancels: make(map[string]func()),
+	}
+
+	rm.updateAgentStream("agent-1", agent.ContentDeltaEvent{RequestID: "req-a", Delta: "hello"})
+
+	if rm.AgentStreams()[agentStreamKey("agent-1", "req-a", "")] == nil {
+		t.Fatalf("legacy stream key missing: %#v", rm.AgentStreams())
+	}
+	if len(rm.AgentStreams()) != 1 {
+		t.Fatalf("stream count = %d, want 1", len(rm.AgentStreams()))
 	}
 }

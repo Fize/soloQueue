@@ -33,6 +33,33 @@ function apply(state: TranscriptState, frames: TranscriptFrame[]) {
 const ids = (state: TranscriptState) => orderedItems(state).map((item) => item.id)
 
 describe('transcript reducer', () => {
+  it('attributes sibling delegations to distinct dispatches', () => {
+    const state = apply(fromSnapshot(snapshot()), [
+      frame(1, 'input_committed', { request_id: 'r', item_id: 'in:r', text: 'go' }),
+      frame(2, 'tool_started', { request_id: 'r', item_id: 'out:r:0', call_id: 'c1', name: 'delegate', args: '{}' }),
+      frame(3, 'tool_started', { request_id: 'r', item_id: 'out:r:0', call_id: 'c2', name: 'delegate', args: '{}' }),
+      frame(4, 'dispatch_started', { request_id: 'r', call_id: 'c1', dispatch_id: 'dlg-a', agent_instance_id: 'inst-a' }),
+      frame(5, 'dispatch_started', { request_id: 'r', call_id: 'c2', dispatch_id: 'dlg-b', agent_instance_id: 'inst-b' }),
+    ])
+    const segments = state.items['out:r:0'].segments
+    expect(segments.map((segment) => [segment.dispatch_id, segment.agent_instance_id])).toEqual([
+      ['dlg-a', 'inst-a'],
+      ['dlg-b', 'inst-b'],
+    ])
+  })
+
+  it('keeps the dispatch identity when the delegation frame arrives first', () => {
+    const state = apply(fromSnapshot(snapshot()), [
+      frame(1, 'input_committed', { request_id: 'r', item_id: 'in:r', text: 'go' }),
+      frame(2, 'dispatch_started', { request_id: 'r', call_id: 'c1', dispatch_id: 'dlg-a', agent_instance_id: 'inst-a' }),
+      frame(3, 'tool_started', { request_id: 'r', item_id: 'out:r:0', call_id: 'c1', name: 'delegate', args: '{}' }),
+    ])
+    expect(state.items['out:r:0'].segments[0]).toMatchObject({
+      dispatch_id: 'dlg-a',
+      agent_instance_id: 'inst-a',
+    })
+  })
+
   it('materializes items exactly like the server view', () => {
     const state = apply(fromSnapshot(snapshot()), [
       frame(1, 'input_queued', { request_id: 'q', text: 'later' }),

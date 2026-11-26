@@ -114,6 +114,7 @@ type Segment struct {
 type AgentStreamState struct {
 	AgentID    string    `json:"agent_id"`
 	RequestID  string    `json:"request_id,omitempty"`
+	DispatchID string    `json:"dispatch_id,omitempty"`
 	Processing bool      `json:"processing"`
 	Segments   []Segment `json:"segments"`
 	Iteration  int       `json:"iteration"`
@@ -208,18 +209,20 @@ func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, gene
 		return
 	}
 	requestID := agent.RequestIDOfEvent(ev)
+	dispatchID := agent.DispatchIDOfEvent(ev)
 	if boundary, ok := ev.(agent.PendingInputStartedEvent); ok && boundary.PreviousRequestID != "" {
-		if previous := rm.agentStreams[agentStreamKey(instanceID, boundary.PreviousRequestID)]; previous != nil {
+		if previous := rm.agentStreams[agentStreamKey(instanceID, boundary.PreviousRequestID, dispatchID)]; previous != nil {
 			previous.Processing = false
 		}
 	}
-	streamKey := agentStreamKey(instanceID, requestID)
+	streamKey := agentStreamKey(instanceID, requestID, dispatchID)
 	s := rm.agentStreams[streamKey]
 	if s == nil {
 		s = &AgentStreamState{
-			AgentID:   instanceID,
-			RequestID: requestID,
-			Segments:  []Segment{},
+			AgentID:    instanceID,
+			RequestID:  requestID,
+			DispatchID: dispatchID,
+			Segments:   []Segment{},
 		}
 		rm.agentStreams[streamKey] = s
 	}
@@ -329,21 +332,27 @@ func (rm *RuntimeMetrics) updateAgentStreamForGeneration(instanceID string, gene
 	}
 }
 
-func agentStreamKey(instanceID, requestID string) string {
+// agentStreamKey identifies one live stream. The dispatch segment keeps two
+// delegations served by the same agent instance apart; callers outside a
+// delegation pass an empty dispatch and keep the historical key shape.
+func agentStreamKey(instanceID, requestID, dispatchID string) string {
 	if requestID == "" {
 		return instanceID
 	}
-	return instanceID + "\x00" + requestID
+	if dispatchID == "" {
+		return instanceID + "\x00" + requestID
+	}
+	return instanceID + "\x00" + requestID + "\x00" + dispatchID
 }
 
 // TerminalizeAgentStream pins request-owned runtime state when cancellation
 // isolates a generation before its blocked job can emit a terminal event.
-func (rm *RuntimeMetrics) TerminalizeAgentStream(instanceID, requestID, message string) {
+func (rm *RuntimeMetrics) TerminalizeAgentStream(instanceID, requestID, dispatchID, message string) {
 	if rm == nil || instanceID == "" || requestID == "" {
 		return
 	}
 	rm.agentStreamsMu.Lock()
-	stream := rm.agentStreams[agentStreamKey(instanceID, requestID)]
+	stream := rm.agentStreams[agentStreamKey(instanceID, requestID, dispatchID)]
 	if stream == nil {
 		rm.agentStreamsMu.Unlock()
 		return

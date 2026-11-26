@@ -120,6 +120,7 @@ export type Segment =
 export interface AgentStreamState {
   agent_id: string;
   request_id?: string;
+  dispatch_id?: string;
   processing: boolean;
   segments: Segment[];
   iteration: number;

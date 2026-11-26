@@ -398,15 +398,27 @@ func (s *Session) publishRequestEnd(requestID, code, message string, drained []s
 	}
 }
 
+func (s *Session) publishDispatchStart(record dispatch.Record) {
+	s.publishTranscript(transcript.Frame{
+		Kind:            transcript.KindDispatchStarted,
+		RequestID:       record.RequestID,
+		CallID:          record.ToolCallID,
+		DispatchID:      record.ID,
+		AgentInstanceID: record.ExecutorInstanceID,
+		Status:          string(record.Status),
+	})
+}
+
 func (s *Session) publishDispatchTerminal(record dispatch.Record) {
 	status := string(record.Status)
 	frame := transcript.Frame{
-		Kind:       transcript.KindDispatchTerminal,
-		RequestID:  record.RequestID,
-		CallID:     record.ToolCallID,
-		DispatchID: record.ID,
-		Revision:   record.Revision,
-		Status:     status,
+		Kind:            transcript.KindDispatchTerminal,
+		RequestID:       record.RequestID,
+		CallID:          record.ToolCallID,
+		DispatchID:      record.ID,
+		AgentInstanceID: record.ExecutorInstanceID,
+		Revision:        record.Revision,
+		Status:          status,
 	}
 	if record.Status != dispatch.StatusCompleted {
 		frame.Error = status

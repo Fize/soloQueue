@@ -16,9 +16,18 @@ type View struct {
 	Pending  map[string]*PendingInput
 	Requests map[string]*RequestState
 	calls    map[string]string // request ID + "\x00" + call ID → item ID
+	// dispatch identity is recorded per tool call so frames that arrive in
+	// either order (tool_started / dispatch_started) end on the same segment.
+	dispatch map[string]dispatchIdentity
 	// tails accumulate the streaming text segment of open items, so a delta
 	// costs its own length instead of a copy of the text so far.
 	tails map[string]*textTail
+}
+
+// dispatchIdentity is the unique per-delegation identity of one tool call.
+type dispatchIdentity struct {
+	DispatchID      string
+	AgentInstanceID string
 }
 
 // textTail is the builder behind an item's last text segment. A Builder only
@@ -36,6 +45,7 @@ func NewView() *View {
 		Pending:  make(map[string]*PendingInput),
 		Requests: make(map[string]*RequestState),
 		calls:    make(map[string]string),
+		dispatch: make(map[string]dispatchIdentity),
 		tails:    make(map[string]*textTail),
 	}
 }
@@ -89,6 +99,44 @@ func (v *View) indexCalls(item *Item) {
 	for _, seg := range item.Segments {
 		if seg.Type == SegmentToolCall && seg.CallID != "" {
 			v.calls[callKey(item.RequestID, seg.CallID)] = item.ID
+		}
+	}
+}
+
+// rememberDispatch records the delegation identity of one tool call so it can
+// be painted onto the segment whichever frame arrives first.
+func (v *View) rememberDispatch(requestID, callID, dispatchID, agentInstanceID string) {
+	if callID == "" || (dispatchID == "" && agentInstanceID == "") {
+		return
+	}
+	key := callKey(requestID, callID)
+	ident := v.dispatch[key]
+	if dispatchID != "" {
+		ident.DispatchID = dispatchID
+	}
+	if agentInstanceID != "" {
+		ident.AgentInstanceID = agentInstanceID
+	}
+	v.dispatch[key] = ident
+}
+
+// paintDispatch fills the identity of every segment of item matching callID.
+// Values already on the segment win, so a repeated frame cannot rewrite them.
+func (v *View) paintDispatch(item *Item, callID string) {
+	if item == nil || callID == "" {
+		return
+	}
+	ident := v.dispatch[callKey(item.RequestID, callID)]
+	for i := range item.Segments {
+		seg := &item.Segments[i]
+		if seg.Type != SegmentToolCall || seg.CallID != callID {
+			continue
+		}
+		if seg.DispatchID == "" {
+			seg.DispatchID = ident.DispatchID
+		}
+		if seg.AgentInstanceID == "" {
+			seg.AgentInstanceID = ident.AgentInstanceID
 		}
 	}
 }
@@ -257,6 +305,14 @@ func (v *View) Apply(f Frame) []string {
 			if item.Segments[i].Type == SegmentToolCall && item.Segments[i].CallID == f.CallID {
 				item.Segments[i].Name = f.Name
 				item.Segments[i].Args = f.Args
+				if item.Segments[i].DispatchID == "" {
+					item.Segments[i].DispatchID = f.DispatchID
+				}
+				if item.Segments[i].AgentInstanceID == "" {
+					item.Segments[i].AgentInstanceID = f.TargetAgentID
+				}
+				v.rememberDispatch(f.RequestID, f.CallID, f.DispatchID, f.TargetAgentID)
+				v.paintDispatch(item, f.CallID)
 				item.LastSeq = f.Seq
 				return opened
 			}
@@ -265,6 +321,8 @@ func (v *View) Apply(f Frame) []string {
 			Type: SegmentToolCall, CallID: f.CallID, Name: f.Name, Args: f.Args,
 			Done: boolPtr(false), DispatchID: f.DispatchID, AgentInstanceID: f.TargetAgentID,
 		})
+		v.rememberDispatch(f.RequestID, f.CallID, f.DispatchID, f.TargetAgentID)
+		v.paintDispatch(item, f.CallID)
 		item.LastSeq = f.Seq
 	case KindToolFinished:
 		item := v.callItem(f)
@@ -289,11 +347,21 @@ func (v *View) Apply(f Frame) []string {
 		})
 		v.calls[callKey(item.RequestID, f.CallID)] = item.ID
 		item.LastSeq = f.Seq
+	case KindDispatchStarted:
+		v.rememberDispatch(f.RequestID, f.CallID, f.DispatchID, f.AgentInstanceID)
+		if itemID, ok := v.calls[callKey(f.RequestID, f.CallID)]; ok {
+			v.paintDispatch(v.Items[itemID], f.CallID)
+			if item := v.Items[itemID]; item != nil {
+				item.LastSeq = f.Seq
+			}
+		}
 	case KindDispatchTerminal:
+		v.rememberDispatch(f.RequestID, f.CallID, f.DispatchID, f.AgentInstanceID)
 		item := v.callItem(f)
 		if item == nil {
 			return nil
 		}
+		v.paintDispatch(item, f.CallID)
 		for i := range item.Segments {
 			seg := &item.Segments[i]
 			if seg.Type != SegmentToolCall {

@@ -1,8 +1,8 @@
 import { useTranslation } from '@/lib/i18n'
 import { useRef, useState } from 'react'
 import { Loader2, CheckCircle2, XCircle, ExternalLink } from 'lucide-react'
-import { useAgentStore } from '@/stores/agentStore'
 import { useAgentStream } from '@/hooks/useAgentStream'
+import { useDelegationIdentity } from '@/hooks/useDelegationIdentity'
 import { AgentStreamView } from '@/components/AgentStreamView'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
@@ -38,7 +38,6 @@ export function DelegationCard({
   const activeSessionId = useChatStore((state) => state.activeSessionId)
   const requestSessionId = useChatStore((state) => requestId ? state.activeRequests[requestId]?.sessionId : undefined)
   const sessionId = requestSessionId || activeSessionId
-  const agentsData = useAgentStore((state) => state.agents)
 
   const { t } = useTranslation()
 
@@ -60,13 +59,14 @@ export function DelegationCard({
   const rawTarget = getTargetName()
   const cleanName = rawTarget.replace(/_/g, ' ')
 
-  const namePart = rawTarget.toLowerCase().replace(/[\s_-]/g, '')
-  const matchedAgent = agentsData?.agents.find(
-    (a) => a.name.toLowerCase().replace(/[\s_-]/g, '') === namePart
-  )
-
-  const instanceId = agentInstanceId || matchedAgent?.instance_id || null
-  const agentStream = useAgentStream(instanceId, requestId)
+  const identity = useDelegationIdentity({
+    sessionId,
+    requestId,
+    callId,
+    dispatchId,
+    agentInstanceId,
+  })
+  const agentStream = useAgentStream(identity.instanceId, requestId, identity.dispatchId ?? undefined)
 
   const running = !done
   const cancelled = done && error === 'Cancelled by user'
@@ -183,8 +183,8 @@ export function DelegationCard({
               <summary className="cursor-pointer px-3 py-2 text-muted-foreground">{t('observability.taskDescription')}</summary>
               <div tabIndex={0} className="max-h-[35vh] overflow-y-auto whitespace-pre-wrap break-words border-t border-border/40 px-3 py-2 text-muted-foreground">{taskText}</div>
             </details>}
-            {agentStream ? <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} conversationStyle identity={`${sessionId}:${dispatchId || callId}`} /> : sessionId && (dispatchId || requestId) ?
-              <DelegationHistory sessionId={sessionId} requestId={requestId} dispatchId={dispatchId} toolCallId={callId} result={result} error={error} scrollRef={streamScrollRef} /> :
+            {running && agentStream ? <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} conversationStyle identity={`${sessionId}:${identity.dispatchId || callId}`} /> : sessionId && (identity.dispatchId || requestId) ?
+              <DelegationHistory sessionId={sessionId} requestId={requestId} dispatchId={identity.dispatchId} toolCallId={callId} result={result} error={error} scrollRef={streamScrollRef} /> :
               <div className="space-y-3 text-xs">
                 {result && <MarkdownPreview content={result} />}
                 {error && <pre role="alert" className="whitespace-pre-wrap break-words text-destructive">{error}</pre>}

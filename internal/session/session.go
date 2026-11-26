@@ -1380,7 +1380,7 @@ func (s *Session) withDispatchScope(ctx context.Context) context.Context {
 	if s.dispatchManager == nil {
 		return ctx
 	}
-	return dispatch.WithScope(ctx, dispatch.Scope{Manager: s.dispatchManager, OnTerminal: s.publishDispatchTerminal})
+	return dispatch.WithScope(ctx, dispatch.Scope{Manager: s.dispatchManager, OnBegin: s.publishDispatchStart, OnTerminal: s.publishDispatchTerminal})
 }
 
 // beginRunLifecycle attaches one Runtime-owned watchdog root to a public
