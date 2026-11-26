@@ -3,16 +3,16 @@ import { describe, expect, it } from 'vitest'
 import { AgentWorkingIndicator } from './AgentWorkingIndicator'
 
 describe('AgentWorkingIndicator', () => {
-  it('leaves route badges to the composer when requested', () => {
+  it('keeps the task type in the stream while the composer owns the engine badges', () => {
     const { container } = render(
       <AgentWorkingIndicator
-        hideRouteInfo
+        hideModelInfo
         providerName="deepseek"
         modelName="deepseek/deepseek-v4-flash-202605"
         taskLevel="general"
       />,
     )
-    expect(screen.queryByText('general')).not.toBeInTheDocument()
+    expect(screen.getByText('general')).toBeInTheDocument()
     expect(screen.queryByText('deepseek')).not.toBeInTheDocument()
     expect(screen.queryByText('deepseek/deepseek-v4-flash-202605')).not.toBeInTheDocument()
     expect(container.querySelector('.animate-led-breathing')).toBeInTheDocument()
@@ -38,6 +38,14 @@ describe('AgentWorkingIndicator', () => {
     )
 
     expect(container.querySelectorAll('.animate-pulse')).toHaveLength(3)
+  })
+
+  it('keeps a single task type placeholder when the composer owns the engine badges', () => {
+    const { container } = render(
+      <AgentWorkingIndicator hideModelInfo providerName="" modelName="" taskLevel="" />,
+    )
+
+    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(1)
   })
 
   it('hides route badges when route metadata is undefined', () => {

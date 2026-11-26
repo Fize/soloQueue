@@ -21,8 +21,7 @@ export interface AgentWorkingIndicatorProps {
    */
   modelName?: string | undefined
   /**
-   * Internal routing metadata. It is intentionally not rendered in the
-   * desktop UI because routing levels are implementation details.
+   * Task classification label (`general` | `engineering` | `research`).
    *
    * Special value `""` (empty string) means "the agent is processing but
    * the router hasn't classified the prompt yet, and there's no
@@ -35,8 +34,12 @@ export interface AgentWorkingIndicatorProps {
   taskLevel?: string | undefined
   /** True while the team is mid-delegation — shows a different label. */
   delegating?: boolean
-  /** The composer owns route badges when this is true. */
-  hideRouteInfo?: boolean
+  /**
+   * The composer owns the engine controls (provider + model), so hide those
+   * two badges here when this is true. The task type always stays visible in
+   * the stream: it describes the work being done, not the engine doing it.
+   */
+  hideModelInfo?: boolean
   /** Layout density — design mode uses tighter spacing. */
   compact?: boolean
 }
@@ -53,7 +56,8 @@ export interface AgentWorkingIndicatorProps {
  * Visual recipe:
  *  - Avatar matches the assistant message avatar (Sparkles)
  *  - Label: "Working…" or "Delegating…" with three pulsing dots
- *  - Right side: task type, provider, and model chips (placeholders until known)
+ *  - Right side: the task type chip, plus provider/model unless the composer
+ *    owns them (placeholders appear until the route is known)
  *  - Whole pill is wrapped in a breathing scale/opacity animation
  *    (see `.agent-working-breathing` in index.css) that softly
  *    expands and contracts on a 2.4s cycle.
@@ -66,7 +70,7 @@ function AgentWorkingIndicatorInner({
   modelName,
   taskLevel,
   compact = false,
-  hideRouteInfo = false,
+  hideModelInfo = false,
 }: AgentWorkingIndicatorProps) {
   // Route values are intentionally string-or-undefined:
   //   - undefined  → not processing, no chip
@@ -76,6 +80,10 @@ function AgentWorkingIndicatorInner({
   const providerNameIsPending = providerName !== undefined && providerName === ''
   const modelNameIsPending = modelName !== undefined && modelName === ''
   const modelColorVar = getModelColorVar(providerName || modelName)
+  const showModelInfo = !hideModelInfo
+  const showRoute =
+    taskLevel !== undefined ||
+    (showModelInfo && (providerName !== undefined || modelName !== undefined))
 
   return (
     <div
@@ -89,8 +97,7 @@ function AgentWorkingIndicatorInner({
         <span className="animate-led-breathing absolute h-2 w-2 rounded-full bg-signal" />
       </span>
 
-      {!hideRouteInfo &&
-        (taskLevel !== undefined || providerName !== undefined || modelName !== undefined) && (
+      {showRoute && (
         <div className="flex items-center gap-1.5 shrink-0">
           {taskTypeIsPending ? (
             <div className="h-[22px] w-[72px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
@@ -99,40 +106,42 @@ function AgentWorkingIndicatorInner({
               {taskLevel}
             </span>
           ) : null}
-          {providerNameIsPending ? (
-            <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
-          ) : providerName ? (
-            <span
-              className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[140px] truncate"
-              style={{
-                backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
-                color: `var(--foreground)`,
-                borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
-              }}
-              title={providerName}
-            >
-              <Cpu
-                className="h-2.5 w-2.5 shrink-0"
-                style={{ color: `color-mix(in srgb, ${modelColorVar} 80%, var(--foreground))` }}
-              />
-              <span className="truncate opacity-90">{providerName}</span>
-            </span>
-          ) : null}
-          {modelNameIsPending ? (
-            <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
-          ) : modelName ? (
-            <span
-              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[220px] truncate"
-              style={{
-                backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
-                color: `var(--foreground)`,
-                borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
-              }}
-              title={modelName}
-            >
-              {modelName}
-            </span>
-          ) : null}
+          {showModelInfo &&
+            (providerNameIsPending ? (
+              <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
+            ) : providerName ? (
+              <span
+                className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[140px] truncate"
+                style={{
+                  backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
+                  color: `var(--foreground)`,
+                  borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
+                }}
+                title={providerName}
+              >
+                <Cpu
+                  className="h-2.5 w-2.5 shrink-0"
+                  style={{ color: `color-mix(in srgb, ${modelColorVar} 80%, var(--foreground))` }}
+                />
+                <span className="truncate opacity-90">{providerName}</span>
+              </span>
+            ) : null)}
+          {showModelInfo &&
+            (modelNameIsPending ? (
+              <div className="h-[22px] w-[80px] bg-foreground/5 border border-border/40 rounded-md animate-pulse shrink-0" />
+            ) : modelName ? (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap border max-w-[220px] truncate"
+                style={{
+                  backgroundColor: `color-mix(in srgb, ${modelColorVar} 15%, transparent)`,
+                  color: `var(--foreground)`,
+                  borderColor: `color-mix(in srgb, ${modelColorVar} 30%, transparent)`,
+                }}
+                title={modelName}
+              >
+                {modelName}
+              </span>
+            ) : null)}
         </div>
       )}
     </div>

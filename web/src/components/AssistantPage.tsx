@@ -246,7 +246,7 @@ export function AssistantPage() {
                     modelName={inputModelName}
                     taskLevel={inputTaskLevel}
                     delegating={delegating || runtimeDelegating}
-                    hideRouteInfo
+                    hideModelInfo
                     compact={false}
                   />
                 </div>

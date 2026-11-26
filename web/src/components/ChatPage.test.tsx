@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => ({
     modelName?: string;
     taskLevel?: string;
   },
-  agentWorkingProps: {} as { modelName?: string; taskLevel?: string },
+  agentWorkingProps: {} as { modelName?: string; taskLevel?: string; hideModelInfo?: boolean },
   setInspectorPanelWidth: vi.fn(),
   resizablePaneArgs: {} as {
     inspectorWidth?: number;
@@ -473,6 +473,7 @@ describe("ChatPage", () => {
     expect(mocks.agentWorkingProps).toMatchObject({
       modelName: "team-model",
       taskLevel: "engineering",
+      hideModelInfo: true,
     });
     expect(mocks.chatInputProps).toMatchObject({
       modelName: "team-model",
