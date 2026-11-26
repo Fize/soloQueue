@@ -29,13 +29,18 @@ const (
 
 // L2SessionEntry holds a single L2 session with its metadata.
 type L2SessionEntry struct {
-	TargetID   string    `json:"id"`              // UUID
-	Name       string    `json:"name"`            // auto-generated from first exchange
-	Group      string    `json:"group"`           // leader template group
-	ProjectID  string    `json:"project_id"`      // optional project ID
-	WorkDir    string    `json:"work_dir"`        // working directory for agent (defaults to global)
-	Session    *Session  `json:"-"`               // the backing Session (nil if not yet activated)
-	CreatedAt  time.Time `json:"created_at"`      // creation timestamp
+	TargetID  string    `json:"id"`         // UUID
+	Name      string    `json:"name"`       // auto-generated from first exchange
+	Group     string    `json:"group"`      // leader template group
+	ProjectID string    `json:"project_id"` // optional project ID
+	WorkDir   string    `json:"work_dir"`   // working directory for agent (defaults to global)
+	Session   *Session  `json:"-"`          // the backing Session (nil if not yet activated)
+	CreatedAt time.Time `json:"created_at"` // creation timestamp
+	// ActivityAt is the in-memory moment of the last accepted user input. It
+	// covers the window before the first timeline write of a turn lands on
+	// disk, and is intentionally never persisted: after a restart the timeline
+	// file mtime is the authoritative activity timestamp.
+	ActivityAt time.Time `json:"-"`
 	GitBaseRef string    `json:"-"`               // git HEAD at session start (empty = non-git or not captured)
 	Plans      []string  `json:"plans,omitempty"` // list of modified plan files
 
@@ -55,6 +60,7 @@ type L2SessionInfo struct {
 	WorkDir         string       `json:"work_dir,omitempty"`
 	AgentInstanceID string       `json:"agent_instance_id,omitempty"`
 	CreatedAt       time.Time    `json:"created_at"`
+	LastActiveAt    time.Time    `json:"last_active_at"` // last conversation activity
 	CtxwinUsed      int          `json:"ctxwin_used"`
 	CtxwinLimit     int          `json:"ctxwin_limit"`
 	Usage           SessionUsage `json:"usage"`
@@ -208,14 +214,16 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 		return nil, fmt.Errorf("L2 session %q already exists", id)
 	}
 
+	now := time.Now().UTC()
 	entry := &L2SessionEntry{
-		TargetID:  id,
-		Name:      "", // auto-generated after first exchange
-		Group:     group,
-		ProjectID: projectID,
-		WorkDir:   workDir,
-		Session:   nil, // built lazily on first use
-		CreatedAt: time.Now(),
+		TargetID:   id,
+		Name:       "", // auto-generated after first exchange
+		Group:      group,
+		ProjectID:  projectID,
+		WorkDir:    workDir,
+		Session:    nil, // built lazily on first use
+		CreatedAt:  now,
+		ActivityAt: now,
 	}
 	s.sessions[id] = entry
 
@@ -228,12 +236,13 @@ func (s *L2SessionStore) Create(ctx context.Context, id, group, projectID, workD
 	}
 
 	return &L2SessionInfo{
-		ID:        entry.TargetID,
-		Name:      entry.Name,
-		Group:     entry.Group,
-		ProjectID: entry.ProjectID,
-		WorkDir:   entry.WorkDir,
-		CreatedAt: entry.CreatedAt,
+		ID:           entry.TargetID,
+		Name:         entry.Name,
+		Group:        entry.Group,
+		ProjectID:    entry.ProjectID,
+		WorkDir:      entry.WorkDir,
+		CreatedAt:    entry.CreatedAt,
+		LastActiveAt: entry.ActivityAt,
 	}, nil
 }
 
@@ -283,6 +292,30 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 		}
 	}
 
+	// Resolve the creation timestamp from disk instead of stamping "now": a
+	// restore is not a creation, and using the restore time made an untouched
+	// historical session jump to the top of the list every time it was opened.
+	// The value is backfilled into meta.json so later restores are exact.
+	tlDir := timelineDirFor(s.workDir, id)
+	createdAt := meta.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = FirstEventTime(tlDir)
+		if createdAt.IsZero() {
+			createdAt = LatestTimelineWrite(tlDir)
+		}
+		if !createdAt.IsZero() {
+			meta.CreatedAt = createdAt
+			if err := MergeAndSave(s.workDir, id, func(m *SessionMeta) {
+				if m.CreatedAt.IsZero() {
+					m.CreatedAt = createdAt
+				}
+			}); err != nil && s.logger != nil {
+				s.logger.WarnContext(ctx, logger.CatApp, "L2 session created_at backfill to meta.json failed",
+					"id", id, "err", err.Error())
+			}
+		}
+	}
+
 	// Create in-memory entry under write lock.
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -299,7 +332,8 @@ func (s *L2SessionStore) restoreFromDisk(ctx context.Context, id string) error {
 		Group:      meta.Group,
 		WorkDir:    meta.WorkDir,
 		Session:    nil, // will be built lazily by Activate
-		CreatedAt:  time.Now(),
+		CreatedAt:  createdAt,
+		ActivityAt: LatestTimelineWrite(tlDir),
 		GitBaseRef: meta.GitBaseRef,
 		Plans:      plans,
 	}
@@ -494,6 +528,39 @@ func (s *L2SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 	return s.Activate(ctx, id)
 }
 
+// TouchActivity records the moment a user turn started for an L2 session. The
+// value only lives in memory: the timeline file mtime is the durable record of
+// activity, and it is written as soon as the turn's first event lands.
+func (s *L2SessionStore) TouchActivity(id string, at time.Time) {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	at = at.UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.sessions[id]
+	if !ok {
+		return
+	}
+	if at.After(entry.ActivityAt) {
+		entry.ActivityAt = at
+	}
+}
+
+// LastActive returns the most recent known activity of an L2 session: the
+// latest timeline write, or the last accepted input when that is newer.
+func (s *L2SessionStore) LastActive(id string) time.Time {
+	s.mu.RLock()
+	entry, ok := s.sessions[id]
+	if !ok {
+		s.mu.RUnlock()
+		return time.Time{}
+	}
+	activityAt := entry.ActivityAt
+	s.mu.RUnlock()
+	return latestActivity(activityAt, LatestTimelineWrite(timelineDirFor(s.workDir, id)))
+}
+
 // SetName updates the display name of an L2 session.
 func (s *L2SessionStore) SetName(id, name string) {
 	s.mu.Lock()
@@ -535,10 +602,11 @@ type l2EntrySeed struct {
 	Group      string
 	WorkDir    string
 	GitBaseRef string
+	CreatedAt  time.Time
 }
 
 func newL2EntrySeed(e *L2SessionEntry) l2EntrySeed {
-	return l2EntrySeed{Group: e.Group, WorkDir: e.WorkDir, GitBaseRef: e.GitBaseRef}
+	return l2EntrySeed{Group: e.Group, WorkDir: e.WorkDir, GitBaseRef: e.GitBaseRef, CreatedAt: e.CreatedAt}
 }
 
 // applyEntrySeed fills in any field that the caller is about to mutate but
@@ -553,6 +621,11 @@ func applyEntrySeed(m *SessionMeta, s l2EntrySeed) {
 	}
 	if m.GitBaseRef == "" {
 		m.GitBaseRef = s.GitBaseRef
+	}
+	// Persist the creation moment on the first metadata write so a later
+	// restore never has to guess it from the timeline.
+	if m.CreatedAt.IsZero() && !s.CreatedAt.IsZero() {
+		m.CreatedAt = s.CreatedAt
 	}
 }
 
@@ -689,7 +762,11 @@ func (s *L2SessionStore) DefaultContextLimit() int {
 	return 1048576 // fallback default
 }
 
-// List returns metadata for all L2 sessions, sorted by created_at descending.
+// List returns metadata for all L2 sessions, most recently active first.
+//
+// The order is a total order (activity, then creation, then id) so repeated
+// calls are deterministic: the entries come from a Go map, whose iteration
+// order is randomized, and sort.Slice alone would leave ties in that order.
 func (s *L2SessionStore) List() []L2SessionInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -711,10 +788,13 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 		// Skip sessions that have never been activated (no timeline directory on disk).
 		// These are "phantom" sessions created but never used — they should not
 		// reappear after the window is closed and reopened while the server is still running.
-		tlDir := filepath.Join(s.workDir, "logs", "timelines", "l2-"+entry.TargetID)
+		tlDir := timelineDirFor(s.workDir, entry.TargetID)
 		if _, err := os.Stat(tlDir); err != nil {
 			continue
 		}
+		// Activity is derived from the timeline files, never from the directory
+		// mtime, which moves on every metadata write.
+		lastActiveAt := latestActivity(entry.ActivityAt, LatestTimelineWrite(tlDir))
 		usage := SessionUsage{}
 		if meta, err := LoadMeta(s.workDir, entry.TargetID); err == nil {
 			usage = meta.Usage
@@ -730,6 +810,7 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 			WorkDir:         entry.WorkDir,
 			AgentInstanceID: agentInstanceID,
 			CreatedAt:       entry.CreatedAt,
+			LastActiveAt:    lastActiveAt,
 			CtxwinUsed:      ctxwinUsed,
 			CtxwinLimit:     ctxwinLimit,
 			Usage:           usage,
@@ -737,9 +818,14 @@ func (s *L2SessionStore) List() []L2SessionInfo {
 		})
 	}
 
-	// Sort by created_at descending (newest first).
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.After(result[j].CreatedAt)
+	sort.SliceStable(result, func(i, j int) bool {
+		if !result[i].LastActiveAt.Equal(result[j].LastActiveAt) {
+			return result[i].LastActiveAt.After(result[j].LastActiveAt)
+		}
+		if !result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].CreatedAt.After(result[j].CreatedAt)
+		}
+		return result[i].ID < result[j].ID
 	})
 
 	return result

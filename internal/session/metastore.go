@@ -27,8 +27,12 @@ const CurrentSchemaVersion = 1
 // to disk. All fields are best-effort: a missing field is treated as the
 // zero value when the file is re-read.
 type SessionMeta struct {
-	SchemaVersion int               `json:"schema_version"`
-	Name          string            `json:"name,omitempty"`
+	SchemaVersion int    `json:"schema_version"`
+	Name          string `json:"name,omitempty"`
+	// CreatedAt is the wall-clock moment the session was created. It is
+	// optional: sessions created before the field existed derive it from the
+	// first timeline event and backfill it on their first restore.
+	CreatedAt     time.Time         `json:"created_at,omitempty"`
 	Group         string            `json:"group"`
 	WorkDir       string            `json:"work_dir,omitempty"`
 	GitBaseRef    string            `json:"git_base_ref,omitempty"`

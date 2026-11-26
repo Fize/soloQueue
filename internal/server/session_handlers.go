@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -262,13 +263,17 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		// DesignDir is the absolute path to the design assets directory for this
 		// session. For project sessions: <project_path>/.soloqueue/design/.
 		// For no-project sessions: <workDir>/design/.
-		DesignDir   string               `json:"design_dir,omitempty"`
-		CreatedAt   time.Time            `json:"created_at"`
-		IsQBot      bool                 `json:"is_qbot"`
-		CtxwinUsed  int                  `json:"ctxwin_used"`
-		CtxwinLimit int                  `json:"ctxwin_limit"`
-		Usage       session.SessionUsage `json:"usage,omitempty"`
-		Plans       []string             `json:"plans,omitempty"`
+		DesignDir string    `json:"design_dir,omitempty"`
+		CreatedAt time.Time `json:"created_at"`
+		// LastActiveAt is the moment of the last conversation activity. The
+		// session list is ordered by it; it is never derived from a directory
+		// mtime, which moves on metadata writes rather than on conversation.
+		LastActiveAt time.Time            `json:"last_active_at"`
+		IsQBot       bool                 `json:"is_qbot"`
+		CtxwinUsed   int                  `json:"ctxwin_used"`
+		CtxwinLimit  int                  `json:"ctxwin_limit"`
+		Usage        session.SessionUsage `json:"usage,omitempty"`
+		Plans        []string             `json:"plans,omitempty"`
 	}
 
 	// resolveDesignDir computes the design directory for a session.
@@ -331,6 +336,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			AgentName:       name,
 			AgentInstanceID: agentInstanceID,
 			CreatedAt:       l1Sess.Created,
+			LastActiveAt:    l1Sess.LastActive().UTC(),
 			IsQBot:          l1Sess.IsQBot(),
 			CtxwinUsed:      ctxwinUsed,
 			CtxwinLimit:     ctxwinLimit,
@@ -362,6 +368,7 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				ProjectPath:     info.WorkDir,
 				DesignDir:       resolveDesignDir(info.WorkDir, info.Group),
 				CreatedAt:       info.CreatedAt,
+				LastActiveAt:    info.LastActiveAt,
 				CtxwinUsed:      ctxwinUsed,
 				CtxwinLimit:     ctxwinLimit,
 				Usage:           info.Usage,
@@ -404,9 +411,25 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				plans = append(plans, loaded.Plans...)
 			}
 
-			createdAt := time.Now()
-			if info, rerr := entry.Info(); rerr == nil {
-				createdAt = info.ModTime()
+			// Ordering timestamps come from the timeline files only. The directory
+			// mtime is bumped by every meta.json write (temp file + rename), so
+			// using it made the list reorder itself just by being listed.
+			tlDir := filepath.Join(timelinesDir, entry.Name())
+			lastActiveAt := session.LatestTimelineWrite(tlDir)
+			createdAt := loaded.CreatedAt
+			if createdAt.IsZero() {
+				createdAt = session.FirstEventTime(tlDir)
+			}
+			if lastActiveAt.IsZero() {
+				// A session whose metadata was written but whose timeline is still
+				// empty (first message never reached the log).
+				lastActiveAt = session.SessionMetadataWrite(tlDir)
+			}
+			if createdAt.IsZero() {
+				createdAt = lastActiveAt
+			}
+			if lastActiveAt.IsZero() {
+				lastActiveAt = createdAt
 			}
 
 			if name == "" {
@@ -432,21 +455,35 @@ func (m *Mux) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			ctxwinUsed, ctxwinLimit := resolveL2ContextUsage(id, group, projectPath, 0, 0)
 
 			sessions = append(sessions, sessionInfo{
-				ID:          "l2:" + id,
-				Type:        "l2",
-				Name:        name,
-				Group:       group,
-				AgentName:   m.leaderAgentName(r.Context(), group),
-				ProjectPath: projectPath,
-				DesignDir:   resolveDesignDir(projectPath, group),
-				CreatedAt:   createdAt,
-				CtxwinUsed:  ctxwinUsed,
-				CtxwinLimit: ctxwinLimit,
-				Usage:       loaded.Usage,
-				Plans:       plans,
+				ID:           "l2:" + id,
+				Type:         "l2",
+				Name:         name,
+				Group:        group,
+				AgentName:    m.leaderAgentName(r.Context(), group),
+				ProjectPath:  projectPath,
+				DesignDir:    resolveDesignDir(projectPath, group),
+				CreatedAt:    createdAt,
+				LastActiveAt: lastActiveAt,
+				CtxwinUsed:   ctxwinUsed,
+				CtxwinLimit:  ctxwinLimit,
+				Usage:        loaded.Usage,
+				Plans:        plans,
 			})
 		}
 	}
+
+	// One order for the merged list (L1 + live L2 + past L2): most recently
+	// active first, then newest created, then id. Clients render this order
+	// as-is, so it must be total and reproducible.
+	sort.SliceStable(sessions, func(i, j int) bool {
+		if !sessions[i].LastActiveAt.Equal(sessions[j].LastActiveAt) {
+			return sessions[i].LastActiveAt.After(sessions[j].LastActiveAt)
+		}
+		if !sessions[i].CreatedAt.Equal(sessions[j].CreatedAt) {
+			return sessions[i].CreatedAt.After(sessions[j].CreatedAt)
+		}
+		return sessions[i].ID < sessions[j].ID
+	})
 
 	m.writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": sessions})
 }
