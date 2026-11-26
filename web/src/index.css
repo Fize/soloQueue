@@ -274,6 +274,16 @@ body {
   margin-bottom: 0;
 }
 
+/* Chunked streaming output: a chunk seam must read like the seam between two
+   adjacent blocks inside one document, so the trimmed edge margins above only
+   apply at the real document edges. */
+.long-markdown > .markdown-preview + .markdown-preview > p:first-child {
+  margin-top: 0.25em;
+}
+.long-markdown > .markdown-preview:not(:last-child) > p:last-child {
+  margin-bottom: 0.5em;
+}
+
 /* Inline code is styled via Tailwind in the component */
 
 /* Blockquotes */

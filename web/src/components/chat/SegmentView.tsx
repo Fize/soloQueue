@@ -1,5 +1,6 @@
 import { AlertCircle, Check, ChevronDown, Copy, Loader2 } from 'lucide-react'
 import { StreamdownPreview } from '@/components/ui/streamdown-preview'
+import { LongMarkdown } from '@/components/ui/long-markdown'
 import { DelegationCard } from '@/components/DelegationCard'
 import { ThinkingSegment } from './ThinkingSegment'
 import { ToolCallSegment } from './ToolCallSegment'
@@ -156,15 +157,12 @@ function SegmentViewInner({
     segmentIndex != null && segments != null && segmentIndex === segments.length - 1
   switch (segment.type) {
     case 'content':
-      // Use StreamdownPreview for streaming content — it parses in blocks
-      // and handles partial markdown (incomplete code fences stay as
-      // inline text until they close), eliminating the per-token
-      // full-reparse cost of react-markdown.
+      // LongMarkdown freezes completed blocks and streams only the tail, so a
+      // long answer is parsed once instead of once per token.
       return (
-        <StreamdownPreview
+        <LongMarkdown
           content={segment.text}
           isAnimating={!!isStreaming}
-          className=""
         />
       )
     case 'compact':

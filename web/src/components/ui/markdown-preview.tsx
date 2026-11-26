@@ -1,7 +1,7 @@
 import { Streamdown } from 'streamdown'
 import { code } from '@streamdown/code'
 import { mermaid } from '@streamdown/mermaid'
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { getFileUrl } from '@/lib/api'
 import { useTranslation } from '@/lib/i18n'
@@ -37,6 +37,12 @@ function MarkdownPreviewInner({
 }: MarkdownPreviewProps) {
   const { t } = useTranslation()
   const contentVal = content ?? children ?? ''
+  // Rewriting explore paths scans the whole document; skip it unless a path is
+  // actually present and keep the result for a re-render of the same content.
+  const processed = useMemo(
+    () => (contentVal.includes('/.soloqueue/explore/') ? preprocessExplorePaths(contentVal) : contentVal),
+    [contentVal]
+  )
   if (!contentVal) return null
 
   // Streamdown calls the input renderer in source order during this render.
@@ -112,7 +118,7 @@ function MarkdownPreviewInner({
           },
         }}
       >
-        {preprocessExplorePaths(contentVal)}
+        {processed}
       </Streamdown>
     </div>
   )
