@@ -15,16 +15,15 @@ func budgetCall(request, id string, kib int) Call {
 }
 func assertFinalTurnBudget(t *testing.T, s *Store, request string, maxBytes int64) {
 	t.Helper()
-	diskMu.Lock()
-	_, turn, known := s.sharedUsage("l1", request)
-	diskMu.Unlock()
-	if !known || turn > maxBytes {
-		t.Fatalf("final turn usage=%d, limit=%d, known=%v", turn, maxBytes, known)
+	l := s.ledger()
+	turn := l.TurnUsage(request)
+	if len(l.Errors) > 0 || turn > maxBytes {
+		t.Fatalf("final turn usage=%d, limit=%d, errors=%v", turn, maxBytes, l.Errors)
 	}
 }
 func TestFinalStateCombinedPromptAndBodyBudget(t *testing.T) {
 	s := ForWorkDir(t.TempDir())
-	s.SetPolicy(func() Policy { return Policy{MaxBytes: 4 << 20, MaxTurnBytes: 1 << 20, MaxFileBytes: 1 << 20} })
+	s.SetPolicy(func() Policy { return bytePolicy(4<<20, 1<<20, 1<<20) })
 	if e := s.SaveCall(budgetCall("r", "call", 650), budgetPrompt(650)); e != nil {
 		t.Fatal(e)
 	}
@@ -39,7 +38,7 @@ func TestFinalStateExistingPromptFirstUseAndTightenedPolicy(t *testing.T) {
 		t.Run(map[bool]string{false: "existing", true: "tightened"}[tighten], func(t *testing.T) {
 			s := ForWorkDir(t.TempDir())
 			limit := int64(1 << 20)
-			s.SetPolicy(func() Policy { return Policy{MaxBytes: 4 << 20, MaxTurnBytes: limit, MaxFileBytes: 1 << 20} })
+			s.SetPolicy(func() Policy { return bytePolicy(4<<20, limit, 1<<20) })
 			if e := s.SaveCall(budgetCall("origin", "origin", 0), budgetPrompt(650)); e != nil {
 				t.Fatal(e)
 			}
@@ -65,7 +64,7 @@ func TestFinalStateExistingPromptFirstUseAndTightenedPolicy(t *testing.T) {
 }
 func TestFinalStateSameTurnDedupAndReplacementNoDoubleCharge(t *testing.T) {
 	s := ForWorkDir(t.TempDir())
-	s.SetPolicy(func() Policy { return Policy{MaxBytes: 1 << 20, MaxTurnBytes: 550 << 10, MaxFileBytes: 1 << 20} })
+	s.SetPolicy(func() Policy { return bytePolicy(1<<20, 550<<10, 1<<20) })
 	for _, id := range []string{"first", "second"} {
 		if e := s.SaveCall(budgetCall("r", id, 100), budgetPrompt(300)); e != nil {
 			t.Fatal(e)
@@ -99,7 +98,7 @@ func TestFinalStateSameTurnDedupAndReplacementNoDoubleCharge(t *testing.T) {
 }
 func TestFinalStateGlobalReusedPromptAndReplacementCost(t *testing.T) {
 	s := ForWorkDir(t.TempDir())
-	s.SetPolicy(func() Policy { return Policy{MaxBytes: 1500 << 10, MaxTurnBytes: 2 << 20, MaxFileBytes: 1 << 20} })
+	s.SetPolicy(func() Policy { return bytePolicy(1500<<10, 2<<20, 1<<20) })
 	if e := s.SaveCall(budgetCall("origin", "origin", 0), budgetPrompt(650)); e != nil {
 		t.Fatal(e)
 	}
@@ -122,7 +121,7 @@ func TestFinalStateGlobalReusedPromptAndReplacementCost(t *testing.T) {
 
 func TestReplacingSnapshotsReclaimsOrphansWithinBudget(t *testing.T) {
 	s := ForWorkDir(t.TempDir())
-	s.SetPolicy(func() Policy { return Policy{MaxBytes: 900 << 10, MaxTurnBytes: 900 << 10, MaxFileBytes: 700 << 10} })
+	s.SetPolicy(func() Policy { return bytePolicy(900<<10, 900<<10, 700<<10) })
 	for i := 0; i < 8; i++ {
 		p := budgetPrompt(300)
 		p.Messages[0].Content += strings.Repeat("x", i)
@@ -160,7 +159,7 @@ func TestReplacingSnapshotPreservesAnotherCallReference(t *testing.T) {
 
 func TestOverBudgetReplacementRetainsPreviousSnapshotAsPartial(t *testing.T) {
 	s := ForWorkDir(t.TempDir())
-	s.SetPolicy(func() Policy { return Policy{MaxBytes: 600 << 10, MaxTurnBytes: 900 << 10, MaxFileBytes: 700 << 10} })
+	s.SetPolicy(func() Policy { return bytePolicy(600<<10, 900<<10, 700<<10) })
 	c := budgetCall("r", "call", 0)
 	old := budgetPrompt(350)
 	if err := s.SaveCall(c, old); err != nil {

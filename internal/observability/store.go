@@ -14,15 +14,21 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/storagepolicy"
 )
 
 var diskMu sync.Mutex
 var ErrActive = errors.New("execution is active")
 
-type Policy struct{ MaxBytes, MaxTurnBytes, MaxFileBytes int64 }
+// Policy is the configured storage policy; Limits is the execution-details view
+// of it. Both come from storagepolicy, so there is no second limits definition.
+type Policy = storagepolicy.Policy
+type Limits = storagepolicy.Limits
+
 type Store struct {
 	root   string
-	policy func() Policy
+	policy func() storagepolicy.Policy
 }
 
 func ForWorkDir(dir string) *Store {
@@ -31,8 +37,8 @@ func ForWorkDir(dir string) *Store {
 	}
 	return &Store{root: filepath.Join(dir, "logs", "observability")}
 }
-func (s *Store) SetPolicy(fn func() Policy) { s.policy = fn }
-func (s *Store) Root() string               { return s.root }
+func (s *Store) SetPolicy(fn func() storagepolicy.Policy) { s.policy = fn }
+func (s *Store) Root() string                             { return s.root }
 func FromTimelineDir(dir string) *Store {
 	for p := filepath.Clean(dir); p != "." && p != filepath.Dir(p); p = filepath.Dir(p) {
 		if filepath.Base(p) == "logs" {
@@ -416,6 +422,27 @@ func (s *Store) SaveCall(c Call, p *Prompt) error {
 	path := filepath.Join(dir, c.CallID+".json")
 	budget := s.prepareCallBudget(c.SessionID, c.RequestID, path, prior, pendingHash, int64(len(promptBytes)))
 	policy := s.effectivePolicy()
+	// Roll the cleanup forward instead of destroying this turn's detail text:
+	// prune other units to fit, and only degrade when that is impossible.
+	if policy.MaxBytes > 0 && !budget.fits(policy, dc) {
+		keep := func(u storagepolicy.Unit) bool {
+			if m.Generation != "" && u.Key == "observability/requests/"+m.Generation {
+				return true
+			}
+			if u.RequestID == c.RequestID {
+				return true
+			}
+			for _, alias := range c.RequestIDs {
+				if u.RequestID == alias {
+					return true
+				}
+			}
+			return false
+		}
+		if res, err := storagepolicy.EnsureKeeping(filepath.Dir(filepath.Dir(s.root)), s.effectiveConfig(), storagepolicy.ExecutionDetails, int64(len(promptBytes)), keep); err == nil && res.DeletedUnits > 0 {
+			budget = s.prepareCallBudget(c.SessionID, c.RequestID, path, prior, pendingHash, int64(len(promptBytes)))
+		}
+	}
 	if dc.Kind == "tool" && !budget.fits(policy, dc) {
 		dc.Arguments = ""
 		dc.Content = ""
@@ -428,6 +455,8 @@ func (s *Store) SaveCall(c Call, p *Prompt) error {
 		}
 	}
 	if !budget.fits(policy, dc) {
+		m.Errors = append(m.Errors, "execution detail budget exceeded")
+		_ = writeJSON(filepath.Join(s.requestDir(c.SessionID, c.RequestID), "meta.json"), m)
 		originalContent, originalReasoning := dc.Content, dc.Reasoning
 		dc.Content = ""
 		dc.Reasoning = ""

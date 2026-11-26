@@ -81,7 +81,7 @@ func TestPromptDedupAndReplacement(t *testing.T) {
 }
 func TestBudgetAndConcurrentCapture(t *testing.T) {
 	s := ForWorkDir(t.TempDir())
-	s.SetPolicy(func() Policy { return Policy{MaxTurnBytes: 4096, MaxBytes: 16384, MaxFileBytes: 1024} })
+	s.SetPolicy(func() Policy { return bytePolicy(16384, 4096, 1024) })
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -166,7 +166,7 @@ func TestSharedRequestExpiryPropagates(t *testing.T) {
 func TestOversizedPromptAndUnknownJournalFailClosed(t *testing.T) {
 	root := t.TempDir()
 	s := ForWorkDir(root)
-	release := RegisterPolicy(root, func() Policy { return Policy{MaxBytes: 1 << 20, MaxTurnBytes: 32 << 10, MaxFileBytes: 1024} })
+	release := RegisterPolicy(root, func() Policy { return bytePolicy(1<<20, 32<<10, 1024) })
 	defer release()
 	c := Call{CallID: "c", SessionID: "l1", RequestID: "r", StartedAt: time.Now()}
 	if e := s.SaveCall(c, &Prompt{RecordingStatus: "complete", Messages: []Instruction{{Role: "system", Content: strings.Repeat("s", 4096)}}}); e != nil {
@@ -273,7 +273,7 @@ func TestAdmissionGenerationPinsAliasRejectsLateWritesAndScopesBudget(t *testing
 	if err := s.SaveCall(old, prompt); err == nil {
 		t.Fatal("late old generation write accepted")
 	}
-	s.SetPolicy(func() Policy { return Policy{MaxTurnBytes: 2000, MaxBytes: 20000, MaxFileBytes: 2000} })
+	s.SetPolicy(func() Policy { return bytePolicy(20000, 2000, 2000) })
 	fresh := Call{CallID: "new", SessionID: "l1", RequestID: "root", StartedAt: time.Now(), Status: "success", Content: strings.Repeat("n", 500)}
 	must(s.SaveCall(fresh, nil))
 	latest, err := s.Request("l1", "root")

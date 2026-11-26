@@ -117,7 +117,7 @@ func TestTerminalObservationPrecedesTerminalDelivery(t *testing.T) {
 	guardDone := make(chan struct{})
 	go func() {
 		defer close(guardDone)
-		_ = store.GuardOptional("l1", "r", 0, func(_ observability.Policy, _ bool) error { close(locked); <-release; return nil })
+		_ = store.GuardOptional("l1", "r", 0, func(_ observability.Limits, _ bool) error { close(locked); <-release; return nil })
 	}()
 	<-locked
 	close(gate)

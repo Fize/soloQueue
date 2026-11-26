@@ -23,6 +23,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/infra/db"
 	"github.com/xiaobaitu/soloqueue/internal/infra/logger/rotating"
 	"github.com/xiaobaitu/soloqueue/internal/observability"
+	"github.com/xiaobaitu/soloqueue/internal/storagepolicy"
 )
 
 const MiB int64 = 1 << 20
@@ -103,35 +104,24 @@ func New(root string, policy func() config.StorageConfig, database *db.DB) *Mana
 	return m
 }
 
+// cleanupInterval is how often rolling maintenance runs. It is short because
+// capacity is now trimmed continuously instead of once an hour.
+const cleanupInterval = 5 * time.Minute
+
 // InstallWriterPolicies must run before startup diagnostics open their first file.
 func InstallWriterPolicies(root string, policy func() config.StorageConfig) func() {
 	releaseWriter := rotating.RegisterPolicy(filepath.Join(root, "logs"), func(dir, base string) rotating.Limits {
-		p := policy()
 		rel, _ := filepath.Rel(filepath.Join(root, "logs"), dir)
-		var f config.FilePolicy
-		switch {
-		case strings.HasPrefix(rel, "timelines"):
-			f = p.SessionHistory.FilePolicy
-		case strings.HasPrefix(rel, "cron"):
-			f = p.CronHistory.FilePolicy
-		default:
-			f = p.RuntimeLogs.FilePolicy
-			if rel == "http" && p.RuntimeLogs.HTTPOverride {
-				f.MaxFileMB = p.RuntimeLogs.HTTPMaxFileMB
-				f.RetentionDays = p.RuntimeLogs.HTTPRetentionDays
-				f.MaxFiles = p.RuntimeLogs.HTTPMaxFiles
-			}
-		}
+		l := storagepolicy.FileLimits(policy().StoragePolicy(), filepath.ToSlash(filepath.Join("logs", rel, base)))
 		// Recovery files are cleaned at the owning execution/session boundary, never by an arbitrary writer.
 		if strings.HasPrefix(rel, "cron") {
-			f.RetentionDays = 0
-			f.MaxFiles = 0
+			l.MaxDays = 0
+			l.MaxFiles = 0
 		}
-		return rotating.Limits{MaxBytes: int64(f.MaxFileMB) * MiB, MaxDays: f.RetentionDays, MaxFiles: f.MaxFiles}
+		return rotating.Limits{MaxBytes: l.MaxFileBytes, MaxDays: l.MaxDays, MaxFiles: l.MaxFiles}
 	})
-	releaseDetails := observability.RegisterPolicy(root, func() observability.Policy {
-		p := policy().ExecutionDetails
-		return observability.Policy{MaxBytes: int64(p.MaxTotalMB) * MiB, MaxTurnBytes: int64(p.MaxTurnMB) * MiB, MaxFileBytes: int64(p.MaxFileMB) * MiB}
+	releaseDetails := observability.RegisterPolicy(root, func() storagepolicy.Policy {
+		return policy().StoragePolicy()
 	})
 	return func() { releaseDetails(); releaseWriter() }
 }
@@ -148,7 +138,7 @@ func (m *Manager) Start(ctx context.Context) {
 	go func() {
 		defer close(m.done)
 		m.periodic()
-		ticker := time.NewTicker(time.Hour)
+		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -185,7 +175,7 @@ func (m *Manager) periodic() {
 		_, _ = m.Execute(preview.ID, preview.Revision, true)
 	}
 	m.mu.Lock()
-	m.next = time.Now().Add(time.Hour)
+	m.next = time.Now().Add(cleanupInterval)
 	m.mu.Unlock()
 }
 func (m *Manager) Usage() Usage {
@@ -425,36 +415,10 @@ func (m *Manager) Preview(policy config.StorageConfig, revision string, includeL
 			selected[f.Path] = f
 		}
 	}
-	details := m.dispatchUnits(files, &p)
-	units, err := observability.ForWorkDir(m.root).RetentionUnits()
-	if err != nil {
-		p.Errors = append(p.Errors, "cannot inspect execution details")
-	} else {
-		for _, u := range units {
-			if u.Bytes == 0 {
-				continue
-			}
-			if u.Active {
-				p.ProtectedFiles++
-				continue
-			}
-			details = append(details, candidate{Path: "observation:" + u.ID, Category: "execution_details", ObservationID: u.ID, Size: u.Bytes, Modified: u.FinishedAt})
-		}
-	}
-	var detailBytes int64
-	for _, f := range files {
-		if f.Category == "execution_details" {
-			detailBytes += f.Size
-		}
-	}
+	details := m.ledgerUnits(&p)
 	sort.Slice(details, func(i, j int) bool { return details[i].Modified.Before(details[j].Modified) })
-	remaining := len(details)
 	for _, u := range details {
-		if (policy.ExecutionDetails.RetentionDays > 0 && u.Modified.Before(now.AddDate(0, 0, -policy.ExecutionDetails.RetentionDays))) || (policy.ExecutionDetails.MaxTotalMB > 0 && detailBytes > int64(policy.ExecutionDetails.MaxTotalMB)*MiB) || (policy.ExecutionDetails.MaxFiles > 0 && remaining > policy.ExecutionDetails.MaxFiles) {
-			selected[u.Path] = u
-			detailBytes -= u.Size
-			remaining--
-		}
+		selected[u.Path] = u
 	}
 	m.selectCron(files, policy, now, selected, &p)
 	groups := map[string]*Category{}
@@ -836,46 +800,35 @@ func (m *Manager) safeTree(rel string) bool {
 	})
 	return err == nil && safe
 }
-func (m *Manager) dispatchUnits(files []candidate, preview *Preview) []candidate {
-	dirs := map[string][]candidate{}
-	for _, f := range files {
-		if strings.Contains(filepath.ToSlash(f.Path), "/delegations/") && strings.HasPrefix(filepath.Base(filepath.Dir(f.Path)), "dlg_") {
-			dir := filepath.Dir(f.Path)
-			dirs[dir] = append(dirs[dir], f)
+
+// ledgerUnits asks the shared ledger which units are expendable. Selection and
+// accounting therefore have exactly one implementation.
+func (m *Manager) ledgerUnits(preview *Preview) []candidate {
+	l := storagepolicy.Scan(m.root)
+	plan := storagepolicy.Build(m.policy().StoragePolicy(), l, time.Now())
+	preview.Errors = append(preview.Errors, plan.Errors...)
+	for _, u := range l.Units {
+		if u.Category == storagepolicy.ExecutionDetails && u.Active {
+			preview.ProtectedFiles++
 		}
 	}
-	units := []candidate{}
-	for dir, group := range dirs {
-		if !m.safe(dir) || !m.safeTree(dir) {
-			preview.ProtectedFiles++
+	var out []candidate
+	for _, u := range plan.Delete {
+		if u.Category != storagepolicy.ExecutionDetails {
 			continue
 		}
-		path := filepath.Join(m.root, dir, "meta.json")
-		st, err := os.Lstat(path)
-		if err != nil || st.Size() > 1<<20 {
-			preview.ProtectedFiles++
+		if strings.HasPrefix(u.Key, "observability/requests/") {
+			out = append(out, candidate{Path: "observation:" + strings.TrimPrefix(u.Key, "observability/requests/"), ObservationID: strings.TrimPrefix(u.Key, "observability/requests/"), Category: "execution_details", Size: u.Bytes, Modified: u.Modified})
 			continue
 		}
-		b, err := os.ReadFile(path)
-		var rec dispatch.Record
-		if err != nil || json.Unmarshal(b, &rec) != nil {
-			preview.Errors = append(preview.Errors, "cannot inspect dispatch recovery metadata")
-			continue
-		}
-		if rec.Status != dispatch.StatusCompleted && rec.Status != dispatch.StatusFailed && rec.Status != dispatch.StatusInterrupted {
-			preview.ProtectedFiles++
-			continue
-		}
-		if rec.DetailsExpired {
-			continue
-		}
-		var size int64
-		for _, f := range group {
-			if strings.HasPrefix(filepath.Base(f.Path), "stream-") {
-				size += f.Size
+		if strings.HasPrefix(u.Key, "delegations/") {
+			dir := filepath.ToSlash(filepath.Join("logs/timelines", strings.TrimPrefix(u.Key, "delegations/")))
+			if !m.safe(dir) || !m.safeTree(dir) {
+				preview.ProtectedFiles++
+				continue
 			}
+			out = append(out, candidate{Path: "dispatch:" + dir, DispatchDir: dir, Category: "execution_details", Size: u.Bytes, Modified: u.Modified})
 		}
-		units = append(units, candidate{Path: "dispatch:" + dir, DispatchDir: dir, Category: "execution_details", Size: size, Modified: rec.UpdatedAt})
 	}
-	return units
+	return out
 }

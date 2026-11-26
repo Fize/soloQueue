@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/storagepolicy"
 )
 
 var policyRegistry struct {
@@ -18,7 +19,7 @@ var policyRegistry struct {
 type policyEntry struct {
 	id   uint64
 	root string
-	fn   func() Policy
+	fn   func() storagepolicy.Policy
 }
 
 func canonicalRoot(root string) string {
@@ -28,8 +29,10 @@ func canonicalRoot(root string) string {
 	return filepath.Clean(root)
 }
 
-// RegisterPolicy scopes shared limits to a work-directory lifetime. The latest registration wins.
-func RegisterPolicy(root string, fn func() Policy) func() {
+// RegisterPolicy scopes the storage configuration to a work-directory lifetime.
+// The latest registration wins; every limit is then derived from it by
+// storagepolicy, so writers and the cleaner cannot drift apart.
+func RegisterPolicy(root string, fn func() storagepolicy.Policy) func() {
 	root = canonicalRoot(root)
 	policyRegistry.Lock()
 	policyRegistry.next++
@@ -50,10 +53,10 @@ func RegisterPolicy(root string, fn func() Policy) func() {
 		})
 	}
 }
-func (s *Store) effectivePolicy() Policy {
+func (s *Store) effectiveConfig() storagepolicy.Policy {
 	root := filepath.Dir(filepath.Dir(s.root))
 	policyRegistry.RLock()
-	var fn func() Policy
+	var fn func() storagepolicy.Policy
 	for i := len(policyRegistry.entries) - 1; i >= 0; i-- {
 		if policyRegistry.entries[i].root == root {
 			fn = policyRegistry.entries[i].fn
@@ -67,7 +70,12 @@ func (s *Store) effectivePolicy() Policy {
 	if s.policy != nil {
 		return s.policy()
 	}
-	return Policy{MaxBytes: 1 << 30, MaxTurnBytes: 50 << 20, MaxFileBytes: 50 << 20}
+	return storagepolicy.DefaultPolicy()
+}
+
+// effectivePolicy is the execution-details view of the configured limits.
+func (s *Store) effectivePolicy() Limits {
+	return storagepolicy.LimitsFor(s.effectiveConfig(), storagepolicy.ExecutionDetails)
 }
 func canonicalSession(id string) string {
 	if id == "l1-session" {
@@ -79,118 +87,23 @@ func canonicalSession(id string) string {
 	return id
 }
 
-// SharedUsage counts optional detail files in both stores. Recovery snapshots/meta are deliberately excluded.
-// An existing legacy journal is counted conservatively as detail data until safe compaction.
-func (s *Store) sharedUsage(session, request string) (total, turn int64, complete bool) {
-	complete = true
-	root := filepath.Dir(filepath.Dir(s.root))
-	total, complete = budgetBytes(s.root)
-	meta := s.meta(session, request)
-	dir := s.callsDir(session, request, meta.Generation)
-	turn = bytesIn(dir)
-	refs := map[string]bool{}
-	calls, _ := filepath.Glob(filepath.Join(dir, "*.json"))
-	for _, p := range calls {
-		var c diskCall
-		if err := readJSON(p, &c); err != nil {
-			complete = false
-			continue
-		}
-		if c.Hash != "" && !refs[c.Hash] {
-			refs[c.Hash] = true
-			if st, e := os.Lstat(filepath.Join(s.root, "prompts", c.Hash+".json")); e == nil && st.Mode().IsRegular() {
-				turn += st.Size()
-			}
-		}
-	}
-	for _, base := range []string{"timelines", "cron"} {
-		_ = filepath.WalkDir(filepath.Join(root, "logs", base), func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				if !os.IsNotExist(err) {
-					complete = false
-				}
-				return nil
-			}
-			if d.Type()&os.ModeSymlink != 0 {
-				return nil
-			}
-			if !d.IsDir() || !strings.HasPrefix(d.Name(), "dlg_") || filepath.Base(filepath.Dir(path)) != "delegations" {
-				return nil
-			}
-			var rec struct {
-				RequestID string    `json:"request_id"`
-				Owner     string    `json:"owner_session_id"`
-				CreatedAt time.Time `json:"created_at"`
-			}
-			b, e := os.ReadFile(filepath.Join(path, "meta.json"))
-			knownOwner := e == nil && len(b) <= 1<<20 && json.Unmarshal(b, &rec) == nil
-			var bytes int64
-			entries, readErr := os.ReadDir(path)
-			if readErr != nil {
-				complete = false
-				return filepath.SkipDir
-			}
-			for _, en := range entries {
-				if en.Type()&os.ModeSymlink != 0 || en.IsDir() {
-					continue
-				}
-				if strings.HasPrefix(en.Name(), "stream-") && strings.HasSuffix(en.Name(), ".jsonl") {
-					if st, e := en.Info(); e == nil {
-						bytes += st.Size()
-					}
-				}
-			}
-			total += bytes
-			if bytes > 0 && !knownOwner {
-				complete = false
-			}
-			if rec.RequestID == request && canonicalSession(rec.Owner) == canonicalSession(session) && (meta.Generation == "" || !rec.CreatedAt.Before(meta.StartedAt)) {
-				turn += bytes
-			}
-			return filepath.SkipDir
-		})
-	}
-	return
-}
-func (s *Store) allowShared(session, request string, addition int64) bool {
-	p := s.effectivePolicy()
-	total, turn, complete := s.sharedUsage(session, request)
-	return complete && (p.MaxBytes <= 0 || total+addition <= p.MaxBytes) && (p.MaxTurnBytes <= 0 || turn+addition <= p.MaxTurnBytes)
+// ledger scans the work directory once; usage and turn bytes are read from it.
+func (s *Store) ledger() storagepolicy.Ledger {
+	return storagepolicy.Scan(filepath.Dir(filepath.Dir(s.root)))
 }
 
-// GuardOptional serializes budget assessment and the resulting write across main and child stores.
-// The callback MUST NOT call Store methods, which use this same lock.
-func (s *Store) GuardOptional(session, request string, addition int64, write func(Policy, bool) error) error {
+// GuardOptional serializes budget assessment and the resulting write across main
+// and child stores. The callback MUST NOT call Store methods, which take this
+// same lock.
+func (s *Store) GuardOptional(session, request string, addition int64, write func(Limits, bool) error) error {
 	diskMu.Lock()
 	defer diskMu.Unlock()
-	p := s.effectivePolicy()
-	return write(p, s.allowShared(canonicalSession(session), request, addition))
-}
-
-func budgetBytes(dir string) (n int64, complete bool) {
-	complete = true
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			if !os.IsNotExist(err) {
-				complete = false
-			}
-			return nil
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			complete = false
-			return nil
-		}
-		if !d.IsDir() {
-			st, e := d.Info()
-			if e != nil {
-				complete = false
-			} else {
-				n += st.Size()
-			}
-		}
-		return nil
-	})
-	return
+	limits := s.effectivePolicy()
+	l := s.ledger()
+	allowed := len(l.Errors) == 0 &&
+		(limits.MaxBytes <= 0 || l.Usage()[storagepolicy.ExecutionDetails]+addition <= limits.MaxBytes) &&
+		(limits.MaxTurnBytes <= 0 || l.TurnUsage(request)+addition <= limits.MaxTurnBytes)
+	return write(limits, allowed)
 }
 
 // callBudget models the replacement's final on-disk state before either prompt or call is written.
@@ -207,8 +120,8 @@ type callBudget struct {
 }
 
 func (s *Store) prepareCallBudget(session, request, path string, prior diskCall, pendingHash string, pendingBytes int64) callBudget {
-	total, turn, known := s.sharedUsage(session, request)
-	view := callBudget{total: total, turn: turn, known: known, oldHash: prior.Hash, refs: map[string]int{}, sizes: map[string]int64{}, pendingHash: pendingHash, pendingBytes: pendingBytes}
+	l := s.ledger()
+	view := callBudget{total: l.Usage()[storagepolicy.ExecutionDetails], turn: l.TurnUsage(request, s.meta(session, request).Generation), known: len(l.Errors) == 0, oldHash: prior.Hash, refs: map[string]int{}, sizes: map[string]int64{}, pendingHash: pendingHash, pendingBytes: pendingBytes}
 	if st, e := os.Lstat(path); e == nil && st.Mode().IsRegular() {
 		view.oldFileBytes = st.Size()
 	} else if e != nil && !os.IsNotExist(e) {
@@ -243,7 +156,7 @@ func (s *Store) prepareCallBudget(session, request, path string, prior diskCall,
 	}
 	return view
 }
-func (v callBudget) fits(policy Policy, candidate diskCall) bool {
+func (v callBudget) fits(policy Limits, candidate diskCall) bool {
 	if !v.known {
 		return false
 	}

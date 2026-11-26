@@ -564,7 +564,7 @@ func (m *Manager) appendLocked(id, eventType string, payload any, rec Record) (b
 	}
 	streamPath := filepath.Join(m.root, id, "stream-"+event.Timestamp.Format("2006-01-02")+".jsonl")
 	var committed bool
-	write := func(policy observability.Policy, allowed bool) error {
+	write := func(policy observability.Limits, allowed bool) error {
 		currentSize := int64(0)
 		if st, e := os.Stat(streamPath); e == nil {
 			currentSize = st.Size()
@@ -589,7 +589,7 @@ func (m *Manager) appendLocked(id, eventType string, payload any, rec Record) (b
 	if store := observability.FromTimelineDir(filepath.Dir(m.root)); store != nil {
 		err = store.GuardOptional(rec.OwnerSessionID, rec.RequestID, int64(len(data))+1, write)
 	} else {
-		err = write(observability.Policy{MaxFileBytes: 50 << 20}, true)
+		err = write(observability.Limits{MaxFileBytes: 50 << 20}, true)
 	}
 	if committed && diskRecord.DetailsTruncated {
 		if m.detailsTruncated == nil {

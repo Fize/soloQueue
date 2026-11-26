@@ -8,7 +8,7 @@ import (
 
 func TestToolDetailsShareLimitsAndGenerations(t *testing.T) {
 	s := ForWorkDir(t.TempDir())
-	s.SetPolicy(func() Policy { return Policy{MaxFileBytes: 2048, MaxTurnBytes: 4096, MaxBytes: 8192} })
+	s.SetPolicy(func() Policy { return bytePolicy(8192, 4096, 2048) })
 	if err := s.Begin("l1", "r"); err != nil {
 		t.Fatal(err)
 	}

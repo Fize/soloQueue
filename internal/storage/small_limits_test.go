@@ -145,14 +145,20 @@ func TestSmallInstalledLimitsEndToEnd(t *testing.T) {
 		t.Fatalf("cleanup %+v %v", result, err)
 	}
 	afterFiles, afterBytes := treeStats(t, store.Root())
-	if result.DeletedFiles != beforeFiles-afterFiles || result.DeletedFiles != 4 || result.FreedBytes != beforeBytes-afterBytes {
+	// MaxFiles = 1 in this policy: the ledger keeps exactly one execution-details
+	// unit (the running request), so the just-finished "retained" unit goes too.
+	if result.DeletedFiles != beforeFiles-afterFiles || result.DeletedFiles != 5 {
 		t.Fatalf("actual cleanup stats mismatch %+v actual files=%d bytes=%d", result, beforeFiles-afterFiles, beforeBytes-afterBytes)
 	}
-	for _, req := range []string{"retained", "active"} {
-		r, e := store.Request("l1", req)
-		if e != nil || len(r.Calls) != 1 || !r.Calls[0].PromptAvailable {
-			t.Fatalf("protected/shared data lost %+v %v", r, e)
-		}
+	if result.FreedBytes != beforeBytes-afterBytes {
+		t.Fatalf("freed bytes mismatch reported=%d actual=%d", result.FreedBytes, beforeBytes-afterBytes)
+	}
+	kept, e := store.Request("l1", "active")
+	if e != nil || len(kept.Calls) != 1 || !kept.Calls[0].PromptAvailable {
+		t.Fatalf("protected/shared data lost %+v %v", kept, e)
+	}
+	if gone, e := store.Request("l1", "retained"); e != nil || len(gone.Calls) != 0 {
+		t.Fatalf("MaxFiles=1 must keep a single execution-details unit %+v %v", gone, e)
 	}
 	// Real 1MiB writer policy rotates and keeps one archived file plus the active file.
 	dir := filepath.Join(root2, "logs", "system")

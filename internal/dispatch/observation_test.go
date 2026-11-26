@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/xiaobaitu/soloqueue/internal/observability"
+	"github.com/xiaobaitu/soloqueue/internal/storagepolicy"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,8 +67,11 @@ func TestCompactionRejectsCorruptStream(t *testing.T) {
 
 func TestSharedBudgetBoundsRepeatedChildPayloadsAndRecovery(t *testing.T) {
 	root := t.TempDir()
-	release := observability.RegisterPolicy(root, func() observability.Policy {
-		return observability.Policy{MaxBytes: 64 << 10, MaxTurnBytes: 16 << 10, MaxFileBytes: 4 << 10}
+	release := observability.RegisterPolicy(root, func() storagepolicy.Policy {
+		return storagepolicy.Policy{ExecutionDetails: storagepolicy.DetailPolicy{
+			FilePolicy:   storagepolicy.FilePolicy{MaxTotalBytes: 64 << 10, MaxFileBytes: 4 << 10},
+			MaxTurnBytes: 16 << 10,
+		}}
 	})
 	defer release()
 	store := observability.ForWorkDir(root)

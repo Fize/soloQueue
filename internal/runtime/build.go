@@ -33,6 +33,7 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/router"
 	"github.com/xiaobaitu/soloqueue/internal/router/laya"
 	"github.com/xiaobaitu/soloqueue/internal/runwatch"
+	"github.com/xiaobaitu/soloqueue/internal/storagepolicy"
 	"github.com/xiaobaitu/soloqueue/internal/team/store"
 )
 
@@ -510,9 +511,8 @@ func registerPromptHotReload(rt *Stack, log *logger.Logger, groupsDir, agentsDir
 
 func observationStore(workDir string, cfg *config.GlobalService) *observability.Store {
 	store := observability.ForWorkDir(workDir)
-	store.SetPolicy(func() observability.Policy {
-		p := cfg.Get().Storage.ExecutionDetails
-		return observability.Policy{MaxBytes: int64(p.MaxTotalMB) << 20, MaxTurnBytes: int64(p.MaxTurnMB) << 20, MaxFileBytes: int64(p.MaxFileMB) << 20}
+	store.SetPolicy(func() storagepolicy.Policy {
+		return cfg.Get().EffectiveStorage().StoragePolicy()
 	})
 	return store
 }
