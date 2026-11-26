@@ -111,6 +111,10 @@ export interface ChatSession {
   project_path?: string;
   design_dir?: string;
   createdAt: string;
+  /** Last conversation activity. Server-provided; absent on legacy payloads. */
+  last_active_at?: string;
+  /** True for a client-side placeholder that no server session backs yet. */
+  draft?: boolean;
   ctxwin_used?: number;
   ctxwin_limit?: number;
   usage?: SessionUsage;

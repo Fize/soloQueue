@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -11,7 +11,7 @@ import {
   Users,
   Loader2,
 } from 'lucide-react'
-import { useChatStore } from '@/stores/chatStore'
+import { useChatStore, isDraftSessionId } from '@/stores/chatStore'
 import { useAgentStore } from '@/stores/agentStore'
 import { useConnectionStore } from '@/stores/connectionStore'
 import { BackendUnavailable } from '@/components/BackendUnavailable'
@@ -29,19 +29,20 @@ interface GroupInfo {
 export function SessionTree() {
   const navigate = useNavigate()
   const sessions = useChatStore((s) => s.sessions)
+  const drafts = useChatStore((s) => s.drafts)
   const sessionsLoading = useChatStore((s) => s.sessionsLoading)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const streamingSessions = useChatStore((s) => s.streamingSessions)
   const loadSessions = useChatStore((s) => s.loadSessions)
-  const createL2Session = useChatStore((s) => s.createL2Session)
   const deleteL2Session = useChatStore((s) => s.deleteL2Session)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
+  const beginDraft = useChatStore((s) => s.beginDraft)
+  const clearDraft = useChatStore((s) => s.clearDraft)
 
   const fetchLiveAgents = useAgentStore((s) => s.fetchLiveAgents)
   const backendRunning = useConnectionStore((s) => s.backendStatus.running)
 
   const [groups, setGroups] = useState<GroupInfo[]>([])
-  const [creating, setCreating] = useState<string | null>(null)
   // All groups expanded by default; projects collapsed by default.
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
@@ -50,6 +51,10 @@ export function SessionTree() {
   const focusedSessionPathRef = useRef<string | null>(null)
 
   const { t } = useTranslation()
+
+  // Placeholder sessions live next to real ones so every bucket below (project /
+  // unassociated / no-projects) renders and orders them with the same code.
+  const allSessions = useMemo(() => [...drafts, ...sessions], [drafts, sessions])
 
   // VISIBLE_SESSION_COUNT: max sessions shown before the "Show N more" affordance appears.
   const VISIBLE_SESSION_COUNT = 5
@@ -124,8 +129,8 @@ export function SessionTree() {
       focusedSessionPathRef.current = null
       return
     }
-    if (sessions.length === 0 || groups.length === 0) return
-    const s = sessions.find((x) => x.id === activeSessionId)
+    if (allSessions.length === 0 || groups.length === 0) return
+    const s = allSessions.find((x) => x.id === activeSessionId)
     if (!s) return
     const activeGroupName = s?.group
     const activeProjectId = s?.project_path
@@ -172,11 +177,13 @@ export function SessionTree() {
         el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
       }
     })
-  }, [activeSessionId, sessions, groups])
+  }, [activeSessionId, allSessions, groups])
 
-  const l2Sessions = sessions.filter((s) => s.type === 'l2')
+  const l2Sessions = allSessions.filter((s) => s.type === 'l2')
 
   // Build tree: sessions nested under their parent (group or project).
+  // Ordering is owned by the store (server order + local activity touches), so
+  // this only buckets: filter() keeps the relative order intact.
   const buildSessionTree = useCallback(() => {
     const grouped: Record<string, ChatSession[]> = {}
     for (const s of l2Sessions) {
@@ -184,53 +191,51 @@ export function SessionTree() {
       if (!grouped[bucket]) grouped[bucket] = []
       grouped[bucket].push(s)
     }
-    for (const bucket of Object.keys(grouped)) {
-      grouped[bucket].sort((a, b) => {
-        const timeA = a.createdAt || (a as any).created_at || ''
-        const timeB = b.createdAt || (b as any).created_at || ''
-        return timeB.localeCompare(timeA)
-      })
-    }
     return grouped
   }, [l2Sessions])
 
   const sessionTree = buildSessionTree()
 
+  // Unstarted new chats are labelled differently from an already-started
+  // session whose title has not been generated yet.
+  const sessionLabel = useCallback(
+    (s: ChatSession) =>
+      s.name || (s.draft ? t('sessionTree.draftLabel') : 'New chat'),
+    [t]
+  )
+
   const handleNewSession = useCallback(
-    async (group: string, workDir?: string) => {
-      setCreating(group)
-      try {
-        const newId = await createL2Session(group, workDir || '')
-        if (newId) {
-          navigate(`/chat/${newId}`)
-        }
-      } finally {
-        setCreating(null)
-      }
+    (group: string, workDir?: string) => {
+      // No backend call: the session is created when the first message is sent,
+      // so an abandoned new chat disappears without leaving anything behind.
+      const draftId = beginDraft(group, workDir || '')
+      navigate(`/chat/${draftId}`)
     },
-    [createL2Session, navigate]
+    [beginDraft, navigate]
   )
 
   const handleDelete = useCallback(
     async (e: React.MouseEvent, id: string) => {
       e.stopPropagation()
       if (streamingSessions[id]) return
+      // A placeholder never reached the backend: discarding it is purely local.
+      if (isDraftSessionId(id)) {
+        clearDraft(id)
+        if (activeSessionId === id) navigate('/chat')
+        return
+      }
       await deleteL2Session(id)
       if (activeSessionId === id) {
-        const remaining = sessions.filter((s) => s.id !== id && s.type === 'l2')
+        // The store keeps the list ordered; the next entry is the new default.
+        const remaining = allSessions.filter((s) => s.id !== id && s.type === 'l2')
         if (remaining.length > 0) {
-          const sorted = [...remaining].sort((a, b) => {
-            const timeA = a.createdAt || (a as any).created_at || ''
-            const timeB = b.createdAt || (b as any).created_at || ''
-            return timeB.localeCompare(timeA)
-          })
-          navigate(`/chat/${sorted[0].id}`)
+          navigate(`/chat/${remaining[0].id}`)
         } else {
           navigate('/chat')
         }
       }
     },
-    [streamingSessions, deleteL2Session, activeSessionId, sessions, navigate]
+    [streamingSessions, clearDraft, deleteL2Session, activeSessionId, allSessions, navigate]
   )
 
   const toggleGroup = (name: string) =>
@@ -308,8 +313,7 @@ export function SessionTree() {
                     e.stopPropagation()
                     handleNewSession(group.name)
                   }}
-                  disabled={creating === group.name}
-                  className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/header:opacity-100"
+                  className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors cursor-pointer opacity-0 group-hover/header:opacity-100"
                   title={`New chat in ${group.name || 'this group'}`}
                 >
                   <Plus className="h-3 w-3" />
@@ -324,13 +328,9 @@ export function SessionTree() {
                       {/* Projects & their sessions */}
                       {group.projects.map((proj) => {
                         const projKey = `${group.name}:${proj.id}`
-                        const projSessions = groupSessions
-                          .filter((s) => s.project_path && pathsMatch(s.project_path, proj.path))
-                          .sort((a, b) => {
-                            const timeA = a.createdAt || (a as any).created_at || ''
-                            const timeB = b.createdAt || (b as any).created_at || ''
-                            return timeB.localeCompare(timeA)
-                          })
+                        const projSessions = groupSessions.filter(
+                          (s) => s.project_path && pathsMatch(s.project_path, proj.path)
+                        )
                         const pExpanded = isProjExp(projKey)
 
                         return (
@@ -358,8 +358,7 @@ export function SessionTree() {
                                   e.stopPropagation()
                                   handleNewSession(group.name, proj.path)
                                 }}
-                                disabled={creating === projKey}
-                                className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 cursor-pointer opacity-0 group-hover/proj:opacity-100"
+                                className="p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors cursor-pointer opacity-0 group-hover/proj:opacity-100"
                                 title={`New chat in ${proj.name}`}
                               >
                                 <Plus className="h-3 w-3" />
@@ -378,9 +377,9 @@ export function SessionTree() {
                                   <div className="space-y-0.5 mt-0.5">
                                     {visible.map((s) => (
                                       <TreeItem
-                                        key={s.id}
+                                        key={s.id} draft={!!s.draft}
                                         sessionId={s.id}
-                                        label={s.name || 'New chat'}
+                                        label={sessionLabel(s)}
                                         isPast={s.name ? s.name.startsWith('Past') : false}
                                         active={activeSessionId === s.id}
                                         onClick={() => {
@@ -395,9 +394,9 @@ export function SessionTree() {
                                     {listExpanded &&
                                       hidden.map((s) => (
                                         <TreeItem
-                                          key={s.id}
+                                          key={s.id} draft={!!s.draft}
                                           sessionId={s.id}
-                                          label={s.name || 'New chat'}
+                                          label={sessionLabel(s)}
                                           isPast={s.name ? s.name.startsWith('Past') : false}
                                           active={activeSessionId === s.id}
                                           onClick={() => {
@@ -441,17 +440,11 @@ export function SessionTree() {
                       })}
                       {/* Sessions without a matching project path (unassociated) */}
                       {(() => {
-                        const unassociated = groupSessions
-                          .filter(
-                            (s) =>
-                              !s.project_path ||
-                              !group.projects.some((p) => pathsMatch(s.project_path!, p.path))
-                          )
-                          .sort((a, b) => {
-                            const timeA = a.createdAt || (a as any).created_at || ''
-                            const timeB = b.createdAt || (b as any).created_at || ''
-                            return timeB.localeCompare(timeA)
-                          })
+                        const unassociated = groupSessions.filter(
+                          (s) =>
+                            !s.project_path ||
+                            !group.projects.some((p) => pathsMatch(s.project_path!, p.path))
+                        )
                         if (unassociated.length === 0) return null
                         const listKey = sessionListKey(group.name)
                         const visible = unassociated.slice(0, VISIBLE_SESSION_COUNT)
@@ -461,9 +454,9 @@ export function SessionTree() {
                           <div className="space-y-0.5 mt-0.5">
                             {visible.map((s) => (
                               <TreeItem
-                                key={s.id}
+                                key={s.id} draft={!!s.draft}
                                 sessionId={s.id}
-                                label={s.name || 'New chat'}
+                                label={sessionLabel(s)}
                                 isPast={s.name ? s.name.startsWith('Past') : false}
                                 active={activeSessionId === s.id}
                                 onClick={() => {
@@ -478,9 +471,9 @@ export function SessionTree() {
                             {listExpanded &&
                               hidden.map((s) => (
                                 <TreeItem
-                                  key={s.id}
+                                  key={s.id} draft={!!s.draft}
                                   sessionId={s.id}
-                                  label={s.name || 'New chat'}
+                                  label={sessionLabel(s)}
                                   isPast={s.name ? s.name.startsWith('Past') : false}
                                   active={activeSessionId === s.id}
                                   onClick={() => {
@@ -532,9 +525,9 @@ export function SessionTree() {
                           <div className="space-y-0.5 mt-0.5">
                             {visible.map((s) => (
                               <TreeItem
-                                key={s.id}
+                                key={s.id} draft={!!s.draft}
                                 sessionId={s.id}
-                                label={s.name || 'New chat'}
+                                label={sessionLabel(s)}
                                 isPast={s.name ? s.name.startsWith('Past') : false}
                                 active={activeSessionId === s.id}
                                 onClick={() => {
@@ -549,9 +542,9 @@ export function SessionTree() {
                             {listExpanded &&
                               hidden.map((s) => (
                                 <TreeItem
-                                  key={s.id}
+                                  key={s.id} draft={!!s.draft}
                                   sessionId={s.id}
-                                  label={s.name || 'New chat'}
+                                  label={sessionLabel(s)}
                                   isPast={s.name ? s.name.startsWith('Past') : false}
                                   active={activeSessionId === s.id}
                                   onClick={() => {
@@ -613,6 +606,7 @@ function TreeItem({
   indent,
   showDelete = true,
   isPast = false,
+  draft = false,
   state,
   sessionId,
   errorCount,
@@ -626,11 +620,14 @@ function TreeItem({
   indent: number
   showDelete?: boolean
   isPast?: boolean
+  /** Client-side placeholder for a chat that has not been started yet. */
+  draft?: boolean
   state?: string
   sessionId?: string
   errorCount?: number
 }) {
   const pl = 28 + (indent - 1) * 16 // indent=1→28px, indent=2→44px
+  const { t } = useTranslation()
   return (
     <div className="group relative">
       <TooltipProvider>
@@ -643,8 +640,10 @@ function TreeItem({
               className={`w-full flex items-center gap-2 pr-8 py-1.5 rounded-md text-xs leading-tight transition-all cursor-pointer ${
                 active
                   ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground shadow-xs font-semibold'
-                  : 'text-muted-foreground hover:bg-muted/20 hover:text-foreground'
-              }`}
+                  : draft
+                    ? 'text-muted-foreground/70 hover:bg-muted/20 hover:text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/20 hover:text-foreground'
+              } ${draft ? 'border border-dashed border-muted-foreground/25' : ''}`}
             >
               <div className="relative flex items-center justify-center shrink-0">
                 {Icon && <Icon className="h-3.5 w-3.5 opacity-70" />}
@@ -666,6 +665,11 @@ function TreeItem({
               </div>
               <span className="truncate text-left flex-1 font-medium">
                 {label}
+                {draft && (
+                  <span className="ml-1.5 align-middle inline-block px-1.5 py-px rounded text-[9px] font-medium bg-muted-foreground/10 text-muted-foreground/70">
+                    {t('sessionTree.draftBadge')}
+                  </span>
+                )}
                 {isPast && (
                   <span className="ml-1.5 align-middle inline-block px-1.5 py-px rounded text-[9px] font-medium bg-amber-500/10 text-amber-600/60">
                     Past

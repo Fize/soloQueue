@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useChatStore } from './chatStore'
+import { useChatStore, compareSessions, sortSessions, isDraftSessionId } from './chatStore'
 import {
+  createL2Session as apiCreateL2Session,
   deleteL2Session as apiDeleteL2Session,
   deleteSessionMessages as apiDeleteSessionMessages,
   listSessions,
@@ -22,6 +23,7 @@ beforeEach(() => {
   useInspectorStateStore.setState({ sessions: {} })
   useChatStore.setState({
     sessions: [],
+    drafts: [],
     activeSessionId: null,
     compactions: {},
     compactionClearWatermarks: {},
@@ -210,5 +212,125 @@ describe('chatStore sessions', () => {
     expect(useChatStore.getState().sessions).toEqual([])
     expect(useChatStore.getState().sessionsLoading).toBe(false)
     expect(useChatStore.getState().sessionsLoaded).toBe(false)
+  })
+})
+
+describe('session ordering and draft placeholders', () => {
+  const session = (id: string, lastActive: string, createdAt = lastActive) => ({
+    id,
+    type: 'l2' as const,
+    name: id,
+    createdAt,
+    last_active_at: lastActive,
+  })
+
+  it('orders by last activity rather than creation time', () => {
+    const oldButBusy = session('busy', '2026-11-26T12:00:00Z', '2026-01-01T00:00:00Z')
+    const newButIdle = session('idle', '2026-11-20T12:00:00Z', '2026-11-25T00:00:00Z')
+
+    expect(sortSessions([newButIdle, oldButBusy]).map((s) => s.id)).toEqual(['busy', 'idle'])
+  })
+
+  it('compares timestamps numerically across timezone offsets', () => {
+    // 10:00+08:00 is 02:00Z, which is earlier than 05:00Z. A lexicographic or
+    // localeCompare-based comparison inverts this pair.
+    const shanghai = session('shanghai', '2026-11-26T10:00:00+08:00')
+    const utc = session('utc', '2026-11-26T05:00:00Z')
+
+    expect(sortSessions([shanghai, utc]).map((s) => s.id)).toEqual(['utc', 'shanghai'])
+  })
+
+  it('breaks ties by id so the order is deterministic', () => {
+    const a = session('a-session', '2026-11-26T10:00:00Z')
+    const b = session('b-session', '2026-11-26T10:00:00Z')
+
+    expect(compareSessions(a, b)).toBeLessThan(0)
+    expect(sortSessions([b, a]).map((s) => s.id)).toEqual(['a-session', 'b-session'])
+  })
+
+  it('loadSessions maps last_active_at and keeps one order', async () => {
+    vi.mocked(listSessions).mockResolvedValueOnce({
+      sessions: [
+        { id: 'l2:quiet', name: 'quiet', created_at: '2026-11-26T09:00:00Z', last_active_at: '2026-11-26T09:00:00Z' },
+        { id: 'l2:loud', name: 'loud', created_at: '2026-11-01T09:00:00Z', last_active_at: '2026-11-26T11:00:00Z' },
+      ],
+    } as any)
+
+    await useChatStore.getState().loadSessions()
+
+    expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual(['l2:loud', 'l2:quiet'])
+    expect(useChatStore.getState().sessions[0].last_active_at).toBe('2026-11-26T11:00:00Z')
+  })
+
+  it('touchSession moves a session to the top without a refetch', () => {
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString()
+    const twoHoursAgo = new Date(Date.now() - 7_200_000).toISOString()
+    useChatStore.setState({
+      sessions: [session('l2:a', hourAgo), session('l2:b', twoHoursAgo)],
+    })
+    const callsBefore = vi.mocked(listSessions).mock.calls.length
+
+    useChatStore.getState().touchSession('l2:b')
+
+    expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual(['l2:b', 'l2:a'])
+    expect(vi.mocked(listSessions).mock.calls.length).toBe(callsBefore)
+  })
+
+  it('beginDraft adds a client-only placeholder and abandons it when switching away', () => {
+    useChatStore.setState({ sessions: [session('l2:real', '2026-11-26T10:00:00Z')] })
+
+    const draftId = useChatStore.getState().beginDraft('engineering', '/repo')
+
+    expect(isDraftSessionId(draftId)).toBe(true)
+    expect(useChatStore.getState().activeSessionId).toBe(draftId)
+    expect(useChatStore.getState().drafts).toHaveLength(1)
+    expect(useChatStore.getState().drafts[0]).toMatchObject({
+      group: 'engineering',
+      project_path: '/repo',
+      draft: true,
+    })
+    // Starting a new chat never touches the backend.
+    expect(vi.mocked(apiCreateL2Session)).not.toHaveBeenCalled()
+
+    useChatStore.getState().setActiveSession('l2:real')
+
+    expect(useChatStore.getState().drafts).toEqual([])
+    expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual(['l2:real'])
+  })
+
+  it('beginDraft replaces a previous unstarted placeholder', () => {
+    const first = useChatStore.getState().beginDraft('engineering')
+    const second = useChatStore.getState().beginDraft('engineering')
+
+    expect(second).not.toBe(first)
+    expect(useChatStore.getState().drafts.map((d) => d.id)).toEqual([second])
+  })
+
+  it('deleteL2Session drops a draft without calling the API', async () => {
+    const draftId = useChatStore.getState().beginDraft('engineering')
+
+    await useChatStore.getState().deleteL2Session(draftId)
+
+    expect(vi.mocked(apiDeleteL2Session)).not.toHaveBeenCalled()
+    expect(useChatStore.getState().drafts).toEqual([])
+    expect(useChatStore.getState().activeSessionId).toBeNull()
+  })
+
+  it('createL2Session replaces the placeholder and clears it', async () => {
+    vi.mocked(apiCreateL2Session).mockResolvedValueOnce({
+      id: 'uuid-1',
+      group: 'engineering',
+      project_path: '/repo',
+      created_at: '2026-11-26T12:00:00Z',
+    } as any)
+    const draftId = useChatStore.getState().beginDraft('engineering', '/repo')
+
+    const created = await useChatStore.getState().createL2Session('engineering', '/repo')
+
+    expect(created).toBe('l2:uuid-1')
+    expect(useChatStore.getState().drafts).toEqual([])
+    expect(useChatStore.getState().activeSessionId).toBe('l2:uuid-1')
+    expect(draftId).not.toBe(created)
+    expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual(['l2:uuid-1'])
   })
 })

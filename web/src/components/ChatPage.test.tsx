@@ -66,6 +66,7 @@ const chatStoreState = {
       project_path: "",
     },
   ],
+  drafts: [] as Array<Record<string, unknown>>,
   sessionsLoading: false,
   sessionsLoaded: true,
   historyHasMore: {},
@@ -75,6 +76,7 @@ const chatStoreState = {
   setActiveSession: mocks.setActiveSession,
   createL2Session: mocks.createL2Session,
   deleteL2Session: mocks.deleteL2Session,
+  touchSession: vi.fn(),
 };
 
 vi.mock("react-router-dom", () => ({
@@ -85,6 +87,7 @@ vi.mock("react-router-dom", () => ({
 vi.mock("@/stores/chatStore", () => ({
   useChatStore: (selector: (state: typeof chatStoreState) => unknown) =>
     selector(chatStoreState),
+  isDraftSessionId: (id?: string | null) => !!id && id.startsWith("draft:"),
 }));
 
 vi.mock("@/stores/agentStore", () => ({

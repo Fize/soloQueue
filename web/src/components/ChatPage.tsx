@@ -4,7 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { ChatMessageView } from "@/components/ChatMessage";
 import { CompactionStatusRows } from "@/components/chat/CompactionStatusRows";
 import { ChatInput } from "@/components/ChatInput";
-import { useChatStore } from "@/stores/chatStore";
+import { useChatStore, isDraftSessionId } from "@/stores/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useTranscript } from "@/hooks/useTranscript";
 import { compactionEventRequests } from "@/lib/transcript/messages";
@@ -71,15 +71,17 @@ export function ChatPage() {
   const delegatingSessions = useChatStore(useShallow((s) => s.delegatingSessions))
   const routeSessions = useChatStore(useShallow((s) => s.routeSessions))
   const activeRequests = useChatStore(useShallow((s) => s.activeRequests))
-  const transcript = useTranscript(activeSessionId || null)
+  const transcript = useTranscript(isDraftSessionId(activeSessionId) ? null : activeSessionId || null)
   const delegating = activeSessionId ? (delegatingSessions[activeSessionId] ?? false) : false
   const isSystemCommandRunning = activeSessionId ? (systemCommandSessions[activeSessionId] ?? false) : false
   const sessions = useChatStore(useShallow((s) => s.sessions))
+  const drafts = useChatStore(useShallow((s) => s.drafts))
   const sessionsLoading = useChatStore((s) => s.sessionsLoading)
   const sessionsLoaded = useChatStore((s) => s.sessionsLoaded)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
   const createL2Session = useChatStore((s) => s.createL2Session)
   const deleteL2Session = useChatStore((s) => s.deleteL2Session)
+  const touchSession = useChatStore((s) => s.touchSession)
 
   const { send, cancel } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -262,9 +264,11 @@ export function ChatPage() {
 
   // Redirect stale persisted /chat/<id> routes once the sessions list has
   // settled — absence is authoritative only after a successful load, so a
-  // failed startup fetch (backend still booting) never redirects.
+  // failed startup fetch (backend still booting) never redirects. A placeholder
+  // new chat is not on the server yet and must never be redirected away.
   useEffect(() => {
     if (!sessionId || sessionId === "l1" || sessionsLoading || !sessionsLoaded) return;
+    if (isDraftSessionId(sessionId)) return;
     const known = sessions.some((s) => s.id === sessionId);
     if (!known) navigate("/chat", { replace: true });
   }, [sessionId, sessions, sessionsLoading, sessionsLoaded, navigate]);
@@ -275,6 +279,9 @@ export function ChatPage() {
   // messages from re-rendering, so this re-render is cheap.
   const currentMessages = transcript.messages;
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  // Placeholder new chat: the backend has no session for it yet, so it carries
+  // the group/project the user picked when they clicked "new chat".
+  const activeDraft = drafts.find((s) => s.id === activeSessionId);
   const hasActiveSession = activeSession != null;
 
   const panelOpen = Boolean((showInspector && activeSession) || designModeActive);
@@ -338,6 +345,12 @@ export function ChatPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedGroup(activeGroup || "");
       setSelectedProjectPath(activeProjectPath || "");
+    } else if (activeDraft) {
+      // An unstarted new chat keeps the context it was created in, so the first
+      // message creates the session in the right group/project.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedGroup(activeDraft.group || l2Groups[0] || "");
+      setSelectedProjectPath(activeDraft.project_path || "");
     } else {
       if (l2Groups.length > 0) {
         // The first available group is the fallback for a session without data.
@@ -345,7 +358,7 @@ export function ChatPage() {
       }
       setSelectedProjectPath("");
     }
-  }, [hasActiveSession, activeGroup, activeProjectPath, l2Groups]);
+  }, [hasActiveSession, activeGroup, activeProjectPath, l2Groups, activeDraft]);
 
   // Keep local as the default while clearing project selections that no
   // longer belong to the selected group.
@@ -468,13 +481,17 @@ export function ChatPage() {
   ): Promise<boolean> => {
     resetFollow();
     let targetSessionId = activeSessionId || undefined;
+    // A placeholder new chat has no server session yet: treat it exactly like
+    // "no session" so the message creates the real one below.
+    const activeDraftId = isDraftSessionId(activeSessionId) ? activeSessionId : null;
+    const hasServerSession = Boolean(activeSessionId) && activeDraftId === null;
 
     // Every L2 session needs an explicit team. Keep the composer draft when
     // a caller tries to submit before that context is available.
-    if (!activeSessionId && !isL1Session && !group) return false;
+    if (!hasServerSession && !isL1Session && !group) return false;
 
     if (!isL1Session && group) {
-      if (!activeSessionId) {
+      if (!hasServerSession) {
         // No session exists — auto-create one on first send
         const newId = await createL2Session(group, projectPath || "");
         if (newId) {
@@ -490,10 +507,11 @@ export function ChatPage() {
         const currentGroup = activeSession.group || "";
 
         if (group !== currentGroup || !pathsMatch(projectPath || "", currentProjPath)) {
+          const previousId = activeSessionId;
           const newId = await createL2Session(group, projectPath || "");
           if (newId) {
-            if (activeSessionId !== newId) {
-              await deleteL2Session(activeSessionId);
+            if (previousId && previousId !== newId) {
+              await deleteL2Session(previousId);
             }
             targetSessionId = newId;
             navigate(`/chat/${newId}`);
@@ -517,7 +535,12 @@ export function ChatPage() {
       activeDesignFile,
       hasDrawings,
     );
-    if (accepted !== false) setDesignSelectedTarget(null);
+    if (accepted !== false) {
+      setDesignSelectedTarget(null);
+      // Activity drives the session list order: move this session to the top
+      // right away instead of waiting for the next list refetch.
+      if (targetSessionId) touchSession(targetSessionId);
+    }
     return accepted !== false;
   };
 

@@ -1121,6 +1121,8 @@ export const translations = {
       showLess: 'Show less',
       activeSessionHint: 'Click to switch session',
       loading: 'Loading teams & sessions…',
+      draftLabel: 'New chat',
+      draftBadge: 'not started',
     },
     agent: {
       coordinator: 'Assistant',
@@ -2356,6 +2358,8 @@ export const translations = {
       showLess: '收起',
       activeSessionHint: '点击切换会话',
       loading: '正在加载团队与会话…',
+      draftLabel: '新对话',
+      draftBadge: '未开始',
     },
     agent: {
       coordinator: '助手',
