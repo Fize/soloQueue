@@ -35,6 +35,7 @@ import {
 import { ChatDesignPanel } from "@/components/ChatDesignPanel";
 import { AgentWorkingIndicator } from "@/components/chat/AgentWorkingIndicator";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
+import { useMessageWindow } from "@/hooks/useMessageWindow";
 import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
 import { toast } from "sonner";
 import {
@@ -451,6 +452,18 @@ export function ChatPage() {
 
   const activeAgentInstanceId = isL1Session ? (groupAgents[0]?.instance_id || null) : (activeAgent?.instance_id || null);
   const finalMessages = currentMessages;
+  // Bound how much of a long transcript renders at once; the newest messages
+  // stay immediate and older ones mount during idle slices.
+  const { visibleCount, includeAll } = useMessageWindow({
+    total: finalMessages.length,
+    sessionId: activeSessionId,
+    scrollRef,
+    keepPosition: showReturnToLatest,
+  });
+  const windowedMessages =
+    visibleCount >= finalMessages.length
+      ? finalMessages
+      : finalMessages.slice(finalMessages.length - visibleCount);
 
   const activeRoute = activeSessionId ? routeSessions[activeSessionId] : undefined;
   const selectedRequestId = activeRoute?.requestId || Object.values(activeRequests ?? {}).find((request) => request.sessionId === activeSessionId)?.requestId;
@@ -576,6 +589,8 @@ export function ChatPage() {
         loadingMore.current = true;
         const prevHeight = scrollHeight;
         transcript.loadOlder().then(() => {
+          // An explicit request for history shows the page that just arrived.
+          includeAll();
           if (scrollRef.current) {
             const diff = scrollRef.current.scrollHeight - prevHeight;
             scrollRef.current.scrollTop = diff;
@@ -592,12 +607,12 @@ export function ChatPage() {
       el.removeEventListener("scroll", handleScroll);
       if (cooldownTimer !== null) clearTimeout(cooldownTimer);
     };
-  }, [transcript]);
+  }, [transcript, includeAll]);
 
   useLayoutEffect(() => {
-    if (finalMessages.length === 0) return;
+    if (windowedMessages.length === 0) return;
     followOutput();
-  }, [finalMessages, followOutput]);
+  }, [windowedMessages, followOutput]);
 
   const matchedRegAgent = useMemo(() => {
     if (!activeAgent || !registeredAgents) return null;
@@ -910,7 +925,7 @@ export function ChatPage() {
                       </div>
                     )}
 
-                    {finalMessages.map((msg) => (
+                    {windowedMessages.map((msg) => (
                       <ChatMessageView
                         key={msg.id}
                         message={msg}

@@ -38,7 +38,7 @@ const thinking: ChatMessage['segments'][number] = { type: 'thinking', text: 'Ins
 function assistant(id: string, segments: ChatMessage['segments'] = [thinking], running = false): ChatMessage {
   return { id: `out:${id}:0`, requestId: id, role: 'assistant', segments, timestamp: '', running }
 }
-function worked(container: HTMLElement) { return container.querySelector('details') as HTMLDetailsElement }
+function worked(container: HTMLElement) { return container.querySelector('[data-worked]') as HTMLDetailsElement }
 
 beforeEach(() => {
   state.activeSessionId = 'other-session'
@@ -65,7 +65,7 @@ describe('transcript-owned worked lifecycle', () => {
 it('renders the initial empty thinking as worked and preserves its manual state when work arrives', () => {
   const emptyThinking: ChatMessage['segments'][number] = { type: 'thinking', text: '' }
   const { container, rerender } = render(<ChatMessageView message={assistant('empty-thinking', [emptyThinking], true)} sessionId="l1" />)
-  expect(container.querySelectorAll('details')).toHaveLength(1)
+  expect(container.querySelectorAll('[data-worked]')).toHaveLength(1)
   expect(worked(container).open).toBe(true)
   expect(groupSegments([emptyThinking])).toMatchObject([
     { type: 'worked', id: 'worked-0', segments: [{ originalIndex: 0 }] },
@@ -73,7 +73,7 @@ it('renders the initial empty thinking as worked and preserves its manual state 
   fireEvent.click(screen.getByText('worked'))
   expect(worked(container).open).toBe(false)
   rerender(<ChatMessageView message={assistant('empty-thinking', [emptyThinking, { type: 'tool_call', name: 'read_file', callId: 'empty-tool', args: '{}', done: false }], true)} sessionId="l1" />)
-  expect(container.querySelectorAll('details')).toHaveLength(1)
+  expect(container.querySelectorAll('[data-worked]')).toHaveLength(1)
   expect(worked(container).open).toBe(false)
   expect(groupSegments([emptyThinking, { type: 'tool_call', name: 'read_file', callId: 'empty-tool', args: '{}', done: false }])).toMatchObject([
     { type: 'worked', id: 'worked-0', segments: [{ originalIndex: 1 }] },
@@ -140,9 +140,9 @@ it('keeps interleaved work and content in arrival order inside one assistant mes
   const { container } = render(
     <ChatMessageView message={assistant('interleaved-stream', segments)} sessionId="l1" />,
   )
-  expect(container.querySelectorAll('details')).toHaveLength(2)
+  expect(container.querySelectorAll('[data-worked]')).toHaveLength(2)
   const firstAnswer = screen.getByText('First answer.')
-  const secondWorked = container.querySelectorAll('details')[1]
+  const secondWorked = container.querySelectorAll('[data-worked]')[1]
   const secondAnswer = screen.getByText('Second answer.')
   expect(firstAnswer.compareDocumentPosition(secondWorked) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(secondWorked.compareDocumentPosition(secondAnswer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -310,10 +310,14 @@ it('identifies images by saved path even when display name lacks the extension',
 
 it('closes completed work before content and opens later work below it', () => {
   const { container } = render(<ChatMessageView message={assistant('two-groups', [thinking, { type: 'content', text: 'Progress' }, thinking], true)} sessionId="session-2" isStreaming />)
-  const groups = container.querySelectorAll('details')
+  const groups = container.querySelectorAll('[data-worked]')
   expect(groups).toHaveLength(2)
   expect(groups[0].open).toBe(false)
   expect(groups[1].open).toBe(true)
+  // The live batch stays nested inside the open worked group.
+  const batches = groups[1].querySelectorAll('[data-thinking-batch]')
+  expect(batches).toHaveLength(1)
+  expect(batches[0].closest('[data-worked]')).toBe(groups[1])
 })
 
 

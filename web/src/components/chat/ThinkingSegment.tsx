@@ -3,20 +3,39 @@ import { ChevronRight, ChevronDown } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useTranslation } from '@/lib/i18n'
+import { LongMarkdown } from '@/components/ui/long-markdown'
 import type { ChatMessage } from '@/types'
 
+/**
+ * One thinking batch. Batches are rendered inside their worked group, so the
+ * group keeps its own collapse state and this one only adds a second level:
+ * the batch that is still streaming is open, every finished batch collapses.
+ *
+ * The body mounts only while open: a finished batch of a long answer is
+ * otherwise a large amount of markdown that nobody is reading.
+ */
 export function ThinkingSegment({
   segment,
   isLastSegment = true,
+  isStreaming,
+  nested = false,
+  expanded = false,
   onUserInteraction,
 }: {
   segment: Extract<ChatMessage['segments'][number], { type: 'thinking' }>
   isLastSegment?: boolean
+  /** Stream state of the owning message; falls back to the active session. */
+  isStreaming?: boolean
+  /** Rendered inside a worked group, which already draws the indent guide. */
+  nested?: boolean
+  /** The reader opened the enclosing group, so every batch of it is open. */
+  expanded?: boolean
   onUserInteraction?: () => void
 }) {
   const streamingSessions = useChatStore((s) => s.streamingSessions)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const streaming = activeSessionId ? !!streamingSessions[activeSessionId] : false
+  const sessionStreaming = activeSessionId ? !!streamingSessions[activeSessionId] : false
+  const streaming = isStreaming ?? sessionStreaming
   const isDesignMode = useRuntimeStore((s) => s.isDesignMode)
   const compact = isDesignMode
   const { t } = useTranslation()
@@ -24,27 +43,28 @@ export function ThinkingSegment({
   // A thinking segment is done when:
   //   a) there are subsequent segments (LLM moved on to content/tool_call), OR
   //   b) it's the last segment but the global stream has ended
-  const isDone = !isLastSegment || (isLastSegment && !streaming)
+  const isDone = !isLastSegment || !streaming
+  const autoOpen = !isDone || expanded
 
-  const [isOpen, setIsOpen] = useState(!isDone)
+  const [isOpen, setIsOpen] = useState(autoOpen)
   const hasManuallyToggled = useRef(false)
 
-  // Sync isOpen with isDone only if not manually toggled
+  // Sync isOpen with the automatic state only if not manually toggled
   useEffect(() => {
     if (!hasManuallyToggled.current) {
-      setIsOpen(!isDone)
+      setIsOpen(autoOpen)
     }
-  }, [isDone])
+  }, [autoOpen])
 
   // Reset manual toggle when active session changes
   useEffect(() => {
     hasManuallyToggled.current = false
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsOpen(!isDone)
-  }, [activeSessionId, isDone])
+    setIsOpen(autoOpen)
+  }, [activeSessionId, autoOpen])
 
   return (
-    <details className="group/thinking" open={isOpen}>
+    <details className="group/thinking" open={isOpen} data-thinking-batch>
       <summary
         onClick={(e) => {
           e.preventDefault()
@@ -72,11 +92,17 @@ export function ThinkingSegment({
         <ChevronRight className="h-3 w-3 ml-auto group-open/thinking:hidden" />
         <ChevronDown className="h-3 w-3 ml-auto hidden group-open/thinking:block" />
       </summary>
-      <div
-        className={`${compact ? 'mt-1 ml-3 pl-2' : 'mt-1 ml-5 pl-3'} border-l-2 text-xs whitespace-pre-wrap leading-relaxed border-muted-foreground/20 text-muted-foreground/75`}
-      >
-        {segment.text}
-      </div>
+      {isOpen && (
+        <div
+          className={
+            nested
+              ? 'mt-1 text-xs text-muted-foreground/75'
+              : `${compact ? 'mt-1 ml-3 pl-2' : 'mt-1 ml-5 pl-3'} border-l-2 text-xs whitespace-pre-wrap leading-relaxed border-muted-foreground/20 text-muted-foreground/75`
+          }
+        >
+          <LongMarkdown content={segment.text} isAnimating={!isDone} />
+        </div>
+      )}
     </details>
   )
 }

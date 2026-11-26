@@ -16,6 +16,7 @@ import { useAgentStore } from '@/stores/agentStore'
 import { useAgentStream } from '@/hooks/useAgentStream'
 import { AgentStreamView } from '@/components/AgentStreamView'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
+import { ThinkingSegment } from './ThinkingSegment'
 import { cn } from '@/lib/utils'
 import type { ChatMessage } from '@/types'
 import type { GroupedWorked } from '../ChatMessage'
@@ -50,6 +51,12 @@ function WorkedSegmentInner({
   const label = 'worked'
 
   const toolCalls = group.segments.filter((s) => s.segment.type === 'tool_call')
+  // The batch that is still streaming is the last thinking segment of the last
+  // group; every earlier batch is finished and collapses.
+  const lastThinkingIndex = group.segments.reduce(
+    (last, entry, index) => (entry.segment.type === 'thinking' ? index : last),
+    -1
+  )
   const completedToolCalls = toolCalls.filter((s) => {
     const seg = s.segment
     return seg.type === 'tool_call' && seg.done
@@ -59,7 +66,7 @@ function WorkedSegmentInner({
     : ''
 
   return (
-    <details className="group/worked" open={isOpen}>
+    <details className="group/worked" open={isOpen} data-worked>
       <summary
         onClick={(e) => {
           e.preventDefault()
@@ -89,32 +96,38 @@ function WorkedSegmentInner({
         <ChevronRight className="h-3 w-3 ml-auto group-open/worked:hidden" />
         <ChevronDown className="h-3 w-3 ml-auto hidden group-open/worked:block" />
       </summary>
-      <div
-        className={`${compact ? 'mt-1 ml-1.5 pl-2 space-y-2' : 'mt-1.5 ml-2.5 pl-3.5 space-y-3'} border-l-2 border-muted-foreground/20`}
-      >
-        {group.segments.map(({ segment }, idx) => {
-          if (segment.type === 'thinking') {
-            return (
-              <MarkdownPreview
-                key={idx}
-                content={segment.text}
-                className={`text-xs whitespace-pre-wrap leading-relaxed text-muted-foreground/75`}
-              />
-            )
-          } else if (segment.type === 'tool_call') {
-            return (
-              <div key={idx} className="my-1.5">
-                <ToolCallSegment
+      {isOpen && (
+        <div
+          className={`${compact ? 'mt-1 ml-1.5 pl-2 space-y-2' : 'mt-1.5 ml-2.5 pl-3.5 space-y-3'} border-l-2 border-muted-foreground/20`}
+        >
+          {group.segments.map(({ segment }, idx) => {
+            if (segment.type === 'thinking') {
+              return (
+                <ThinkingSegment
+                  key={idx}
                   segment={segment}
-                  isUser={isUser}
+                  isLastSegment={idx === lastThinkingIndex && group.isLast}
+                  isStreaming={isStreaming}
+                  nested
+                  expanded={manualOpen === true}
                   onUserInteraction={onUserInteraction}
                 />
-              </div>
-            )
-          }
-          return null
-        })}
-      </div>
+              )
+            } else if (segment.type === 'tool_call') {
+              return (
+                <div key={idx} className="my-1.5">
+                  <ToolCallSegment
+                    segment={segment}
+                    isUser={isUser}
+                    onUserInteraction={onUserInteraction}
+                  />
+                </div>
+              )
+            }
+            return null
+          })}
+        </div>
+      )}
     </details>
   )
 }
