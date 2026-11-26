@@ -4,6 +4,7 @@ import type {
   AgentStreamState,
   NotificationPayload,
   ClientMessage,
+  TranscriptFrame,
   WSMessage,
   WSStateMessage,
 } from '@/types'
@@ -45,6 +46,8 @@ class WebSocketManager {
   private sessionRevisions: Record<string, number> = {}
   private intentionalClose = false
   private pingTimer: ReturnType<typeof setInterval> | null = null
+  private pendingFrames: { sessionId: string; epoch: string; frames: TranscriptFrame[] }[] = []
+  private frameFlush: number | null = null
 
   async connect() {
     if (
@@ -99,6 +102,8 @@ class WebSocketManager {
   disconnect() {
     this.intentionalClose = true
     this.stopPingInterval()
+    // Frames still queued are re-read from the cursor after reconnecting.
+    this.dropFrames()
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -125,11 +130,68 @@ class WebSocketManager {
   }
 
   subscribeTranscript(sessionId: string, epoch: string, afterSeq: number) {
+    // The subscription replays everything after this cursor; queued frames are
+    // older than it.
+    this.dropFrames(sessionId)
     this.send({ type: 'subscribe', session_id: sessionId, epoch, after_seq: afterSeq })
   }
 
   unsubscribeTranscript(sessionId: string) {
+    this.dropFrames(sessionId)
     this.send({ type: 'unsubscribe', session_id: sessionId })
+  }
+
+  /**
+   * Coalesce transcript frames until the next animation frame.
+   *
+   * A streamed token arrives as its own message; applying each one as it lands
+   * renders the answer as often as the model tokenizes. Merging per displayed
+   * frame keeps the render rate tied to the screen instead of the transport.
+   */
+  private queueFrames(sessionId: string, epoch: string, frames: TranscriptFrame[]) {
+    if (frames.length === 0) return
+    const last = this.pendingFrames.at(-1)
+    if (last && last.sessionId === sessionId && last.epoch === epoch) {
+      last.frames.push(...frames)
+    } else {
+      this.pendingFrames.push({ sessionId, epoch, frames: [...frames] })
+    }
+    this.scheduleFrameFlush()
+  }
+
+  private scheduleFrameFlush() {
+    if (this.frameFlush !== null) return
+    // A hidden tab never runs animation frames; apply immediately so a queued
+    // backlog cannot grow while nothing is painted.
+    if (typeof requestAnimationFrame !== 'function' || document.hidden) {
+      this.flushTranscriptFrames()
+      return
+    }
+    this.frameFlush = requestAnimationFrame(() => this.flushTranscriptFrames())
+  }
+
+  /** Apply every queued transcript frame now, in arrival order. */
+  flushTranscriptFrames() {
+    if (this.frameFlush !== null) {
+      cancelAnimationFrame(this.frameFlush)
+      this.frameFlush = null
+    }
+    if (this.pendingFrames.length === 0) return
+    const pending = this.pendingFrames
+    this.pendingFrames = []
+    const transcripts = useTranscriptStore.getState()
+    for (const batch of pending) transcripts.receiveFrames(batch.sessionId, batch.epoch, batch.frames)
+  }
+
+  private dropFrames(sessionId?: string) {
+    if (this.frameFlush !== null) {
+      cancelAnimationFrame(this.frameFlush)
+      this.frameFlush = null
+    }
+    this.pendingFrames = sessionId
+      ? this.pendingFrames.filter((batch) => batch.sessionId !== sessionId)
+      : []
+    if (this.pendingFrames.length > 0) this.scheduleFrameFlush()
   }
 
   private flushPendingMessages() {
@@ -169,9 +231,11 @@ class WebSocketManager {
     const transcripts = useTranscriptStore.getState()
     switch (msg.type) {
       case 'frames':
-        transcripts.receiveFrames(msg.session_id, msg.epoch, msg.frames ?? [])
+        this.queueFrames(msg.session_id, msg.epoch, msg.frames ?? [])
         return
       case 'resync_required':
+        // Queued frames belong to the cursor the resync replaces.
+        this.flushTranscriptFrames()
         if (isTranscriptLive(msg.session_id)) void transcripts.resync(msg.session_id)
         return
       case 'chat_ack':

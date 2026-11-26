@@ -14,11 +14,41 @@ export function useStickToBottom(options?: UseStickToBottomOptions) {
   const [showReturnToLatest, setShowReturnToLatest] = useState(false)
   const viewportHeightRef = useRef(0)
 
-  const followOutput = useCallback(() => {
+  const frameRef = useRef<number | null>(null)
+
+  /** Scroll to the newest output now. Only a user action needs this. */
+  const followNow = useCallback(() => {
     const viewport = activeScrollRef.current.current
     if (!viewport || !isAttachedRef.current) return
     viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'auto' })
   }, [])
+
+  /**
+   * Follow the newest output on the next animation frame.
+   *
+   * Streamed output changes size many times per second and each follow reads
+   * scrollHeight, which forces layout. Coalescing per frame keeps a burst of
+   * deltas from laying the document out once per delta.
+   */
+  const followOutput = useCallback(() => {
+    if (frameRef.current !== null) return
+    if (typeof requestAnimationFrame !== 'function') {
+      followNow()
+      return
+    }
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null
+      followNow()
+    })
+  }, [followNow])
+
+  useEffect(
+    () => () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+      frameRef.current = null
+    },
+    []
+  )
 
   const resetFollow = useCallback(() => {
     isAttachedRef.current = true
@@ -31,8 +61,8 @@ export function useStickToBottom(options?: UseStickToBottomOptions) {
 
   const jumpToLatest = useCallback(() => {
     resetFollow()
-    followOutput()
-  }, [followOutput, resetFollow])
+    followNow()
+  }, [followNow, resetFollow])
 
   const syncFollowState = useCallback(() => {
     const viewport = activeScrollRef.current.current

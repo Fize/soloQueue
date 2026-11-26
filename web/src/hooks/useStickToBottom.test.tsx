@@ -3,6 +3,13 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useStickToBottom } from './useStickToBottom'
 
+/** Following happens on the next animation frame; assertions wait for it. */
+async function nextFrame() {
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+  })
+}
+
 describe('useStickToBottom', () => {
   const originalResizeObserver = globalThis.ResizeObserver
   const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
@@ -14,7 +21,7 @@ describe('useStickToBottom', () => {
     HTMLElement.prototype.scrollTo = originalScrollTo
   })
 
-  it.each(['none', 'native', 'direct'])('keeps the bottom visible on viewport resize (early scroll: %s)', (earlyScroll) => {
+  it.each(['none', 'native', 'direct'])('keeps the bottom visible on viewport resize (early scroll: %s)', async (earlyScroll) => {
     const callbacks = new Map<Element, () => void>()
     const disconnect = vi.fn()
     const scrollTo = vi.fn()
@@ -51,6 +58,7 @@ describe('useStickToBottom', () => {
     callbacks.get(viewport)?.()
 
     expect(callbacks.has(viewport)).toBe(true)
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 1000, behavior: 'auto' })
 
     scrollTo.mockClear()
@@ -59,6 +67,7 @@ describe('useStickToBottom', () => {
     fireEvent.scroll(viewport)
     Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 300 })
     callbacks.get(viewport)?.()
+    await nextFrame()
     expect(scrollTo).not.toHaveBeenCalled()
     expect(viewport.scrollTop).toBe(300)
 
@@ -66,7 +75,7 @@ describe('useStickToBottom', () => {
     expect(disconnect.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('offers a way back to the latest output after reading older content', () => {
+  it('offers a way back to the latest output after reading older content', async () => {
     globalThis.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver
     HTMLElement.prototype.scrollTo = vi.fn()
     function Harness() {
@@ -86,7 +95,7 @@ describe('useStickToBottom', () => {
     expect(screen.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument()
   })
 
-  it('offers latest when output grows after an interaction paused following', () => {
+  it('offers latest when output grows after an interaction paused following', async () => {
     const callbacks = new Map<Element, () => void>()
     globalThis.ResizeObserver = class {
       constructor(private callback: ResizeObserverCallback) {}
@@ -109,7 +118,7 @@ describe('useStickToBottom', () => {
     expect(screen.getByText('Latest available')).toBeInTheDocument()
   })
 
-  it('observes and tracks a viewport mounted after the empty state', () => {
+  it('observes and tracks a viewport mounted after the empty state', async () => {
     const callbacks = new Map<Element, () => void>()
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
@@ -136,15 +145,17 @@ describe('useStickToBottom', () => {
       scrollTop: { configurable: true, writable: true, value: 600 },
     })
     callbacks.get(viewport)?.()
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 1000, behavior: 'auto' })
     scrollTo.mockClear()
     fireEvent.wheel(viewport, { deltaY: -100 })
     Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 200 })
     callbacks.get(viewport)?.()
+    await nextFrame()
     expect(scrollTo).not.toHaveBeenCalled()
   })
 
-  it('scrolls only the supplied viewport when attached content grows', () => {
+  it('scrolls only the supplied viewport when attached content grows', async () => {
     let resizeCallback: ResizeObserverCallback | undefined
     const scrollTo = vi.fn()
     const scrollIntoView = vi.fn()
@@ -175,11 +186,12 @@ describe('useStickToBottom', () => {
 
     resizeCallback?.([], {} as ResizeObserver)
 
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 400, behavior: 'auto' })
     expect(scrollIntoView).not.toHaveBeenCalled()
   })
 
-  it('observes content that mounts after the viewport', () => {
+  it('observes content that mounts after the viewport', async () => {
     let resizeCallback: ResizeObserverCallback | undefined
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
@@ -209,10 +221,11 @@ describe('useStickToBottom', () => {
     rerender(<Harness showContent />)
     resizeCallback?.([], {} as ResizeObserver)
 
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 400, behavior: 'auto' })
   })
 
-  it('follows new output when the viewport is attached to the bottom', () => {
+  it('follows new output when the viewport is attached to the bottom', async () => {
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
     globalThis.ResizeObserver = class {
@@ -239,10 +252,11 @@ describe('useStickToBottom', () => {
     expect(followOutput).toBeTypeOf('function')
     followOutput?.()
 
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 400, behavior: 'auto' })
   })
 
-  it('does not follow new output after the user scrolls away from the bottom', () => {
+  it('does not follow new output after the user scrolls away from the bottom', async () => {
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
     globalThis.ResizeObserver = class {
@@ -273,10 +287,11 @@ describe('useStickToBottom', () => {
 
     followOutput?.()
 
+    await nextFrame()
     expect(scrollTo).not.toHaveBeenCalled()
   })
 
-  it('reattaches after the user returns within 48 pixels of the bottom', () => {
+  it('reattaches after the user returns within 48 pixels of the bottom', async () => {
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
     globalThis.ResizeObserver = class {
@@ -309,10 +324,11 @@ describe('useStickToBottom', () => {
 
     followOutput?.()
 
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 400, behavior: 'auto' })
   })
 
-  it('keeps following after returning to the bottom and overscrolling downward', () => {
+  it('keeps following after returning to the bottom and overscrolling downward', async () => {
     const callbacks = new Map<Element, ResizeObserverCallback>()
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
@@ -351,10 +367,11 @@ describe('useStickToBottom', () => {
     Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 500 })
     callbacks.get(content)?.([], {} as ResizeObserver)
 
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 500, behavior: 'auto' })
   })
 
-  it('keeps following after a touch starts while attached to the bottom', () => {
+  it('keeps following after a touch starts while attached to the bottom', async () => {
     const callbacks = new Map<Element, ResizeObserverCallback>()
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
@@ -390,10 +407,11 @@ describe('useStickToBottom', () => {
     Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 500 })
     callbacks.get(content)?.([], {} as ResizeObserver)
 
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 500, behavior: 'auto' })
   })
 
-  it('detaches immediately when the user wheels upward', () => {
+  it('detaches immediately when the user wheels upward', async () => {
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
     globalThis.ResizeObserver = class {
@@ -418,10 +436,11 @@ describe('useStickToBottom', () => {
 
     followOutput?.()
 
+    await nextFrame()
     expect(scrollTo).not.toHaveBeenCalled()
   })
 
-  it('keeps a touch interaction detached while the viewport is away from the bottom', () => {
+  it('keeps a touch interaction detached while the viewport is away from the bottom', async () => {
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
     globalThis.ResizeObserver = class {
@@ -452,10 +471,11 @@ describe('useStickToBottom', () => {
 
     followOutput?.()
 
+    await nextFrame()
     expect(scrollTo).not.toHaveBeenCalled()
   })
 
-  it('reattaches when the page explicitly resets following', () => {
+  it('reattaches when the page explicitly resets following', async () => {
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
     globalThis.ResizeObserver = class {
@@ -490,10 +510,11 @@ describe('useStickToBottom', () => {
     resetFollow?.()
     followOutput?.()
 
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 400, behavior: 'auto' })
   })
 
-  it('uses a scroll viewport owned by the parent component', () => {
+  it('uses a scroll viewport owned by the parent component', async () => {
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
     globalThis.ResizeObserver = class {
@@ -522,10 +543,11 @@ describe('useStickToBottom', () => {
 
     followOutput?.()
 
+    await nextFrame()
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 400, behavior: 'auto' })
   })
 
-  it('detaches when a nested interaction asks to preserve the viewport', () => {
+  it('detaches when a nested interaction asks to preserve the viewport', async () => {
     const scrollTo = vi.fn()
     HTMLElement.prototype.scrollTo = scrollTo
     globalThis.ResizeObserver = class {
@@ -557,6 +579,36 @@ describe('useStickToBottom', () => {
 
     followOutput?.()
 
+    await nextFrame()
     expect(scrollTo).not.toHaveBeenCalled()
   })
+})
+
+it('coalesces follow requests into one scroll per animation frame', async () => {
+  globalThis.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver
+  const scrollTo = vi.fn()
+  HTMLElement.prototype.scrollTo = scrollTo
+  let follow: (() => void) | undefined
+  function Harness() {
+    const { scrollRef, followOutput } = useStickToBottom()
+    follow = followOutput
+    return <div ref={scrollRef} data-testid="viewport">output</div>
+  }
+  render(<Harness />)
+  const viewport = screen.getByTestId('viewport')
+  Object.defineProperties(viewport, {
+    scrollHeight: { configurable: true, value: 1000 },
+    clientHeight: { configurable: true, value: 400 },
+    scrollTop: { configurable: true, writable: true, value: 600 },
+  })
+  scrollTo.mockClear()
+
+  follow?.()
+  follow?.()
+  follow?.()
+  expect(scrollTo).not.toHaveBeenCalled()
+
+  await nextFrame()
+  expect(scrollTo).toHaveBeenCalledTimes(1)
+  expect(scrollTo).toHaveBeenLastCalledWith({ top: 1000, behavior: 'auto' })
 })

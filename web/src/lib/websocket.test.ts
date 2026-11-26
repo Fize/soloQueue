@@ -24,6 +24,7 @@ let socket: WSInstance | null = null
 const sockets: WSInstance[] = []
 
 beforeEach(() => {
+  vi.restoreAllMocks()
   localStorage.clear()
   useRuntimeStore.setState({ status: null, connectionStatus: 'disconnected' })
   useConnectionStore.setState({
@@ -82,6 +83,8 @@ function open() {
 
 function receive(data: unknown) {
   current().onmessage?.({ data: JSON.stringify(data) } as unknown as MessageEvent)
+  // Frames are coalesced per animation frame; tests assert the applied state.
+  wsManager.flushTranscriptFrames()
 }
 
 function sentMessages() {
@@ -176,6 +179,90 @@ describe('websocket transcript transport', () => {
     const state = useTranscriptStore.getState().sessions['l2:live'].state
     expect(state.order).toEqual(['in:r', 'out:r:0'])
     expect(state.items['out:r:0'].segments[0].text).toBe(text)
+  })
+
+  it('coalesces consecutive frame messages into one store update', async () => {
+    liveSession('l2:live')
+    await wsManager.connect()
+    open()
+    const headSeqs: number[] = []
+    const unsubscribe = useTranscriptStore.subscribe((store) => {
+      headSeqs.push(store.sessions['l2:live'].state.headSeq)
+    })
+    const send = (seq: number, text: string) =>
+      current().onmessage?.({
+        data: JSON.stringify({
+          type: 'frames',
+          session_id: 'l2:live',
+          epoch: 'e1',
+          frames: [frame(seq, 'item_delta', { request_id: 'r', item_id: 'out:r:0', text })],
+        }),
+      } as unknown as MessageEvent)
+
+    send(1, 'a')
+    send(2, 'b')
+    expect(headSeqs).toEqual([])
+
+    wsManager.flushTranscriptFrames()
+    expect(headSeqs).toEqual([2])
+
+    const state: TranscriptState = useTranscriptStore.getState().sessions['l2:live'].state
+    expect(state.items['out:r:0'].segments[0].text).toBe('ab')
+    unsubscribe()
+  })
+
+  it('applies frames immediately while the tab is hidden', async () => {
+    liveSession('l2:live')
+    await wsManager.connect()
+    open()
+    const headSeqs: number[] = []
+    const unsubscribe = useTranscriptStore.subscribe((store) => headSeqs.push(store.sessions['l2:live'].state.headSeq))
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    try {
+      current().onmessage?.({
+        data: JSON.stringify({
+          type: 'frames',
+          session_id: 'l2:live',
+          epoch: 'e1',
+          frames: [frame(1, 'item_delta', { request_id: 'r', item_id: 'out:r:0', text: 'x' })],
+        }),
+      } as unknown as MessageEvent)
+      expect(headSeqs).toEqual([1])
+    } finally {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+      unsubscribe()
+    }
+  })
+
+  it('applies queued frames before honoring a resync request', async () => {
+    liveSession('l2:live')
+    await wsManager.connect()
+    open()
+    const order: string[] = []
+    const unsubscribe = useTranscriptStore.subscribe(() => order.push('apply'))
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      order.push(`fetch:${String(input)}`)
+      return new Response('{}', { status: 200 })
+    })
+
+    current().onmessage?.({
+      data: JSON.stringify({
+        type: 'frames',
+        session_id: 'l2:live',
+        epoch: 'e1',
+        frames: [frame(1, 'item_delta', { request_id: 'r', item_id: 'out:r:0', text: 'x' })],
+      }),
+    } as unknown as MessageEvent)
+    receive({ type: 'resync_required', session_id: 'l2:live', epoch: 'e2', head_seq: 9, reason: 'epoch' })
+    // The resync fetches its snapshot asynchronously.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const applied = order.indexOf('apply')
+    const snapshotted = order.findIndex((entry) => entry.startsWith('fetch:'))
+    expect(applied).toBe(0)
+    expect(snapshotted).toBeGreaterThan(applied)
+    unsubscribe()
   })
 
   it('routes resync, acknowledgements and command results to the transcript store', async () => {
