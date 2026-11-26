@@ -17,6 +17,7 @@ const VIEWPORT_MARGIN = 12
 // Effort values are API parameters; render the vocabulary verbatim so the UI
 // and the configured capability list always use the same names.
 const EFFORT_DISPLAY: Record<string, string> = {
+  off: 'Off',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
@@ -119,12 +120,10 @@ export function ModelPicker({
     [selection, effective],
   )
 
-  // A model declares its capabilities; `thinking.enabled = false` means none.
+  // A model declares its capabilities; an empty set means it never thinks and
+  // `off` means it accepts being silenced.
   const effortsFor = useCallback((model: LLMModel | undefined): string[] => {
     if (!model) return []
-    // `thinking.enabled = false` means no capability, whatever an older
-    // selection still carries.
-    if (!model.thinking?.enabled) return []
     const view = viewFor(model)
     if (view?.reasoning_efforts?.length) return view.reasoning_efforts
     return model.thinking.reasoningEfforts ?? []

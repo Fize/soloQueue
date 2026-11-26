@@ -164,7 +164,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 					Params: iface.ModelOverrideParams{
 						ProviderID:      model.ProviderID,
 						ModelID:         modelID,
-						ThinkingEnabled: model.Thinking.Enabled,
+						ThinkingEnabled: config.ThinkingCapable(model.Thinking.ReasoningEfforts),
 						ThinkingType:    model.Thinking.ThinkingType,
 						TaskType:        taskType,
 						ContextWindow:   model.ContextWindow,

@@ -12,7 +12,7 @@ import (
 
 // ModelSelection is the model a user chose for one session. An empty ModelID
 // means "use the configured default model". ReasoningEffort is optional and
-// only applies when the chosen model thinks.
+// only applies when the chosen model thinks; "off" explicitly disables it.
 type ModelSelection struct {
 	ProviderID      string `json:"provider_id,omitempty"`
 	ModelID         string `json:"model_id,omitempty"`
@@ -25,11 +25,13 @@ func (m ModelSelection) IsAuto() bool { return m.ModelID == "" }
 // ModelSpec is the resolved shape of a selectable model. It keeps the session
 // layer free of the settings schema.
 type ModelSpec struct {
-	ProviderID       string
-	APIModel         string
-	Name             string
-	ContextWindow    int
-	Vision           bool
+	ProviderID    string
+	APIModel      string
+	Name          string
+	ContextWindow int
+	Vision        bool
+	// ThinkingEnabled reports that the model can reason, i.e. its capability set
+	// declares an effort other than "off".
 	ThinkingEnabled  bool
 	ReasoningEfforts []string
 	ThinkingType     string
@@ -95,7 +97,7 @@ func modelSpecFromConfig(model *config.LLMModel) (ModelSpec, bool) {
 		Name:             model.Name,
 		ContextWindow:    model.ContextWindow,
 		Vision:           model.Vision,
-		ThinkingEnabled:  model.Thinking.Enabled,
+		ThinkingEnabled:  config.ThinkingCapable(model.Thinking.ReasoningEfforts),
 		ReasoningEfforts: append([]string(nil), model.Thinking.ReasoningEfforts...),
 		ThinkingType:     model.Thinking.ThinkingType,
 	}, true
@@ -258,14 +260,18 @@ func modelOverrideFromSpec(spec ModelSpec, reasoningEffort string) iface.ModelOv
 		ContextWindow: spec.ContextWindow,
 		Vision:        spec.Vision,
 	}
-	if spec.ThinkingEnabled {
-		params.ThinkingEnabled = true
-		params.ThinkingType = spec.ThinkingType
-		// The effort comes from the session selection only. Without a selection
-		// nothing is sent and the provider decides.
-		if supportsReasoningEffort(spec.ReasoningEfforts, reasoningEffort) {
-			params.ReasoningEffort = reasoningEffort
-		}
+	if !spec.ThinkingEnabled || reasoningEffort == config.OffReasoningEffort {
+		// The model cannot reason, or the session explicitly asked it not to.
+		// Leaving ThinkingEnabled false makes the provider receive an explicit
+		// "disabled" with no effort.
+		return params
+	}
+	params.ThinkingEnabled = true
+	params.ThinkingType = spec.ThinkingType
+	// The effort comes from the session selection only. Without a selection
+	// nothing is sent and the provider decides.
+	if supportsReasoningEffort(spec.ReasoningEfforts, reasoningEffort) {
+		params.ReasoningEffort = reasoningEffort
 	}
 	return params
 }

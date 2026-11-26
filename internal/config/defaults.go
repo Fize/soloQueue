@@ -76,7 +76,6 @@ func DefaultSettings() Settings {
 					MaxTokens:   16384,
 				},
 				Thinking: ThinkingConfig{
-					Enabled:          true,
 					ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"},
 				},
 			},
@@ -92,7 +91,6 @@ func DefaultSettings() Settings {
 					MaxTokens:   16384,
 				},
 				Thinking: ThinkingConfig{
-					Enabled:          true,
 					ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"},
 				},
 			},
@@ -107,7 +105,6 @@ func DefaultSettings() Settings {
 					MaxTokens:   16384,
 				},
 				Thinking: ThinkingConfig{
-					Enabled:          true,
 					ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"},
 				},
 			},
@@ -123,7 +120,6 @@ func DefaultSettings() Settings {
 					MaxTokens:   16384,
 				},
 				Thinking: ThinkingConfig{
-					Enabled:          true,
 					ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"},
 				},
 			},

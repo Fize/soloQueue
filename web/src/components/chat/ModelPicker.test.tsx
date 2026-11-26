@@ -16,7 +16,7 @@ vi.mock('@/lib/api', () => ({
       contextWindow: 1048576,
       enabled: true,
       generation: {},
-      thinking: { enabled: false },
+      thinking: { reasoningEfforts: [] },
       vision: false,
     },
     {
@@ -26,7 +26,7 @@ vi.mock('@/lib/api', () => ({
       contextWindow: 1048576,
       enabled: true,
       generation: {},
-      thinking: { enabled: true, reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      thinking: { reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
       vision: true,
     },
     {
@@ -36,7 +36,7 @@ vi.mock('@/lib/api', () => ({
       contextWindow: 128000,
       enabled: true,
       generation: {},
-      thinking: { enabled: true, reasoningEfforts: ['high'] },
+      thinking: { reasoningEfforts: ['high'] },
     },
     {
       id: 'off',
@@ -45,7 +45,7 @@ vi.mock('@/lib/api', () => ({
       contextWindow: 0,
       enabled: false,
       generation: {},
-      thinking: { enabled: false },
+      thinking: { reasoningEfforts: [] },
     },
   ]),
   listProviders: vi.fn(async () => [{ id: 'deepseek', name: 'DeepSeek', enabled: true }]),
@@ -104,6 +104,23 @@ const proWithoutEffort: SessionModelState = {
   source: 'user',
 }
 
+const offState: SessionModelState = {
+  selection: {
+    provider_id: 'deepseek',
+    model_id: 'pro',
+    reasoning_effort: 'off',
+    reasoning_efforts: ['off', 'low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  effective: {
+    provider_id: 'deepseek',
+    model_id: 'pro',
+    name: 'Pro',
+    reasoning_effort: 'off',
+    reasoning_efforts: ['off', 'low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  source: 'user',
+}
+
 function renderPicker(state: SessionModelState, onSelect = vi.fn(async () => true)) {
   render(<ModelPicker state={state} onSelect={onSelect} />)
   return { onSelect, trigger: screen.getByRole('button', { name: 'Model' }) }
@@ -133,7 +150,36 @@ describe('ModelPicker', () => {
       .getAllByRole('radio')
       .map((radio) => radio.textContent)
     expect(labels).toEqual(['Low', 'Medium', 'High', 'XHigh', 'Max'])
+    // A model that does not declare off always thinks.
+    expect(labels).not.toContain('Off')
     expect(within(group).getByRole('radio', { name: 'High' })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('offers off for a model that declares it and disables thinking', async () => {
+    const user = userEvent.setup()
+    const { onSelect, trigger } = renderPicker(offState)
+    expect(trigger).toHaveTextContent('Off')
+
+    await user.click(trigger)
+    const group = await screen.findByRole('radiogroup')
+    expect(within(group).getAllByRole('radio').map((radio) => radio.textContent)).toEqual([
+      'Off',
+      'Low',
+      'Medium',
+      'High',
+      'XHigh',
+      'Max',
+    ])
+    expect(within(group).getByRole('radio', { name: 'Off' })).toHaveAttribute('aria-checked', 'true')
+
+    await user.click(within(group).getByRole('radio', { name: 'High' }))
+    await waitFor(() =>
+      expect(onSelect).toHaveBeenCalledWith({
+        provider_id: 'deepseek',
+        model_id: 'pro',
+        reasoning_effort: 'high',
+      })
+    )
   })
 
   it('renders no effort section until an effort is selected', async () => {

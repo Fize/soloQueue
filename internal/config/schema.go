@@ -247,8 +247,9 @@ type GenerationParams struct {
 
 // ThinkingConfig thinking/reasoning configuration (DeepSeek V4 thinking mode)
 type ThinkingConfig struct {
-	Enabled bool `json:"enabled" yaml:"enabled,omitempty"`
-	// ReasoningEfforts declares which reasoning efforts this model supports.
+	// ReasoningEfforts declares which reasoning efforts this model supports. An
+	// empty set means the model never thinks; "off" means the provider accepts
+	// disabling thinking, which is not universal.
 	// The order is significant: the UI renders the choices in this order.
 	ReasoningEfforts []string `json:"reasoningEfforts" yaml:"reasoning_efforts,omitempty"`
 	// ReasoningEffort is the legacy single-value field. It is only read when

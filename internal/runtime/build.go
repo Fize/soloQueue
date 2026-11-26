@@ -178,7 +178,7 @@ func BuildModelResolver(cfg *config.GlobalService) agent.ModelResolver {
 			ContextWindow:   m.ContextWindow,
 			Temperature:     m.Generation.Temperature,
 			MaxTokens:       m.Generation.MaxTokens,
-			ThinkingEnabled: m.Thinking.Enabled,
+			ThinkingEnabled: config.ThinkingCapable(m.Thinking.ReasoningEfforts),
 			ThinkingType:    m.Thinking.ThinkingType,
 			Vision:          m.Vision,
 		}, nil

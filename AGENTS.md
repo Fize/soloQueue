@@ -125,7 +125,7 @@ The local engine downloads a pinned 1.3GB checkpoint into `models/laya/laya-mult
 
 ### Thinking effort
 
-A model declares which reasoning efforts it supports (`thinking.reasoning_efforts`, closed vocabulary `low|medium|high|xhigh|max`, order preserved for rendering); the session selects at most one (`/model provider:model xhigh`, or the Web Console). No selection means no `reasoning_effort` is sent, so the provider decides. The legacy single-value `thinking.reasoning_effort` is read only for migration — a non-empty value expands to the full vocabulary on load and the key is cleared on save (`normalizeThinking` in `internal/config/service.go`).
+A model declares which reasoning efforts it supports (`thinking.reasoning_efforts`, closed vocabulary `off|low|medium|high|xhigh|max`, order preserved for rendering); the session selects at most one (`/model provider:model xhigh`, or the Web Console). An empty set means the model never thinks. `off` is a declaration that the provider accepts disabling thinking, which is not universal — a model that omits it always thinks, and the session picker then offers no way to silence it. No selection means no `reasoning_effort` is sent, so the provider decides; selecting `off` sends a disabled thinking mode with no effort. The legacy single-value `thinking.reasoning_effort` is read only for migration — a non-empty value expands to the intensity vocabulary (never `off`) on load and the key is cleared on save (`normalizeThinking` in `internal/config/service.go`).
 
 ### Dependency container (`internal/runtime/`)
 

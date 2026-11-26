@@ -36,10 +36,10 @@ export interface GenerationParams {
 }
 
 export interface ThinkingConfig {
-  enabled: boolean;
   /**
-   * Ordered capabilities the model declares (`low|medium|high|xhigh|max`).
-   * The session picks at most one; the UI renders them in this order.
+   * Ordered capabilities the model declares (`off|low|medium|high|xhigh|max`).
+   * The session picks at most one; the UI renders them in this order. An empty
+   * set means the model never thinks; `off` means it accepts being silenced.
    */
   reasoningEfforts?: string[];
   /** @deprecated Legacy single value, read only for migration; never sent back. */

@@ -897,14 +897,15 @@ func TestSpeechConfigRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEmptyReasoningEffortSurvivesReload(t *testing.T) {
+func TestCapabilitiesSurviveReload(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := New(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = cfg.Set(func(s *Settings) {
-		s.Models = []LLMModel{{ID: "test", ProviderID: "provider", Enabled: true, Thinking: ThinkingConfig{Enabled: true, ReasoningEffort: ""}}}
+		s.Models = []LLMModel{{ID: "test", ProviderID: "provider", Enabled: true,
+			Thinking: ThinkingConfig{ReasoningEfforts: []string{"low", "high"}}}}
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -917,8 +918,11 @@ func TestEmptyReasoningEffortSurvivesReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := reloaded.Get().Models
-	if len(got) != 1 || got[0].Thinking.ReasoningEffort != "" || !got[0].Thinking.Enabled {
+	if len(got) != 1 || strings.Join(got[0].Thinking.ReasoningEfforts, ",") != "low,high" {
 		t.Fatalf("reloaded models: %+v", got)
+	}
+	if got[0].Thinking.ReasoningEffort != "" {
+		t.Fatalf("legacy field resurrected: %q", got[0].Thinking.ReasoningEffort)
 	}
 }
 
@@ -999,8 +1003,9 @@ func TestThinkingCapabilitiesAreNormalizedOnLoad(t *testing.T) {
 	}
 }
 
-// A model that does not think declares no capability.
-func TestThinkingDisabledClearsCapabilities(t *testing.T) {
+// The removed thinking.enabled switch is ignored on load, so a legacy file that
+// still carries it keeps the capabilities it declares instead of being muted.
+func TestThinkingLegacyEnabledKeyIsIgnored(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.yaml")
 	raw := "models:\n" +
@@ -1020,8 +1025,51 @@ func TestThinkingDisabledClearsCapabilities(t *testing.T) {
 	if err := cfg.Load(); err != nil {
 		t.Fatal(err)
 	}
+	if got := cfg.Get().Models[0].Thinking.ReasoningEfforts; strings.Join(got, ",") != "low,high" {
+		t.Fatalf("declared capabilities lost: %v", got)
+	}
+}
+
+// A model that can never think declares nothing: "off" on its own is not a
+// capability set.
+func TestThinkingOffAloneClearsCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	raw := "models:\n" +
+		"  - id: only-off\n" +
+		"    provider_id: p\n" +
+		"    enabled: true\n" +
+		"    thinking:\n" +
+		"      reasoning_efforts: [off]\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Load(); err != nil {
+		t.Fatal(err)
+	}
 	if got := cfg.Get().Models[0].Thinking.ReasoningEfforts; len(got) != 0 {
-		t.Fatalf("disabled model kept capabilities: %v", got)
+		t.Fatalf("off-only model kept capabilities: %v", got)
+	}
+}
+
+func TestThinkingCapable(t *testing.T) {
+	cases := []struct {
+		efforts []string
+		want    bool
+	}{
+		{nil, false},
+		{[]string{OffReasoningEffort}, false},
+		{[]string{OffReasoningEffort, "low"}, true},
+		{[]string{"low"}, true},
+	}
+	for _, tc := range cases {
+		if got := ThinkingCapable(tc.efforts); got != tc.want {
+			t.Errorf("ThinkingCapable(%v) = %v, want %v", tc.efforts, got, tc.want)
+		}
 	}
 }
 
@@ -1032,20 +1080,16 @@ func TestCreateModelValidatesThinkingCapabilities(t *testing.T) {
 	}
 	thinking := func(efforts ...string) LLMModel {
 		return LLMModel{ID: "m", ProviderID: "p", Enabled: true,
-			Thinking: ThinkingConfig{Enabled: true, ReasoningEfforts: efforts}}
+			Thinking: ThinkingConfig{ReasoningEfforts: efforts}}
 	}
 
 	if err := cfg.CreateModel(thinking("low", "ultra")); err == nil {
 		t.Fatal("expected an unknown reasoning effort to be rejected")
 	}
-	if err := cfg.CreateModel(LLMModel{ID: "m", ProviderID: "p", Enabled: true,
-		Thinking: ThinkingConfig{ReasoningEfforts: []string{"low"}}}); err == nil {
-		t.Fatal("expected capabilities without thinking.enabled to be rejected")
-	}
-	if err := cfg.CreateModel(thinking("HIGH", "low", "high")); err != nil {
+	if err := cfg.CreateModel(thinking("OFF", "low", "high")); err != nil {
 		t.Fatalf("CreateModel: %v", err)
 	}
-	if got := cfg.ModelByID("m").Thinking.ReasoningEfforts; strings.Join(got, ",") != "high,low" {
+	if got := cfg.ModelByID("m").Thinking.ReasoningEfforts; strings.Join(got, ",") != "off,low,high" {
 		t.Fatalf("stored efforts = %v", got)
 	}
 
@@ -1061,14 +1105,15 @@ func TestCreateModelValidatesThinkingCapabilities(t *testing.T) {
 	}
 }
 
-// The built-in thinking models declare the full vocabulary instead of a single
-// hardcoded effort.
+// The built-in thinking models declare the intensity vocabulary. "off" stays
+// undeclared: disabling thinking is provider-specific and must be an explicit
+// per-model decision.
 func TestDefaultThinkingModelsDeclareCapabilitySet(t *testing.T) {
 	for _, model := range DefaultSettings().Models {
 		if model.Thinking.ReasoningEffort != "" {
 			t.Fatalf("%s still sets a legacy reasoning effort", model.ID)
 		}
-		if !model.Thinking.Enabled {
+		if len(model.Thinking.ReasoningEfforts) == 0 {
 			continue
 		}
 		if strings.Join(model.Thinking.ReasoningEfforts, ",") != "low,medium,high,xhigh,max" {

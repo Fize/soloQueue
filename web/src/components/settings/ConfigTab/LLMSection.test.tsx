@@ -224,7 +224,7 @@ describe('compact model layout', () => {
  it('shows only the active provider models and searches the table without rendering routes', () => {
   const retry = { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 30000, backoffMultiplier: 2 }
   const providers = ['first', 'second'].map(id => ({ id, name: id, baseUrl: 'https://example.test', apiKeyEnv: '', enabled: true, isDefault: false, timeoutMs: 0, retry }))
-  const models = ['first', 'second'].map(providerId => ({ providerId, id: providerId + '-model', name: providerId + ' model', apiModel: providerId + '-remote', contextWindow: 128000, enabled: true, generation: { temperature: 0.7, maxTokens: 4096 }, thinking: { enabled: false, reasoningEffort: 'medium' } }))
+  const models = ['first', 'second'].map(providerId => ({ providerId, id: providerId + '-model', name: providerId + ' model', apiModel: providerId + '-remote', contextWindow: 128000, enabled: true, generation: { temperature: 0.7, maxTokens: 4096 }, thinking: { reasoningEfforts: [] } }))
   render(<LLMSection view="conversation" providers={providers} models={models} providerFilter="second" onProviderFilterChange={vi.fn()} defaultModels={{ general: '', engineering: '', research: '', classifier: '', vision: '', fallback: '' }} classifier={{ engine: 'llm' }} onClassifierChange={vi.fn()} onSaveDefaults={vi.fn()} onDefaultModelsChange={vi.fn()} onCreateProvider={vi.fn()} onUpdateProvider={vi.fn()} onDeleteProvider={vi.fn()} onToggleProviderStatus={vi.fn()} onSetProviderAsDefault={vi.fn()} onCreateModel={vi.fn()} onUpdateModel={vi.fn()} onDeleteModel={vi.fn()} onToggleModelStatus={vi.fn()} />)
   expect(screen.getByText('second model')).toBeInTheDocument()
   expect(screen.queryByText('first model')).not.toBeInTheDocument()
@@ -246,7 +246,7 @@ describe('reasoning efforts', () => {
   }
 
   it('saves the declared capability set without a default effort', async () => {
-    const update = renderThinkingModel({ enabled: true, reasoningEfforts: ['low', 'max'] })
+    const update = renderThinkingModel({ reasoningEfforts: ['low', 'max'] })
 
     expect(screen.getByRole('button', { name: 'low' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'max' })).toHaveAttribute('aria-pressed', 'true')
@@ -263,16 +263,30 @@ describe('reasoning efforts', () => {
     expect(update.mock.calls[0][1].thinking).not.toHaveProperty('reasoningEffort')
   })
 
-  it('disables and clears the capability set when thinking is off', async () => {
-    const update = renderThinkingModel({ enabled: false, reasoningEfforts: ['low', 'high'] })
+  it('declares off so the session can silence a model that allows it', async () => {
+    const update = renderThinkingModel({ reasoningEfforts: ['off', 'high'] })
 
-    expect(screen.getByRole('button', { name: 'low' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'high' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'off' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'high' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'low' })).toHaveAttribute('aria-pressed', 'false')
 
     fireEvent.click(screen.getByRole('button', { name: 'Update Model' }))
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith('m', expect.objectContaining({
-        thinking: expect.objectContaining({ enabled: false, reasoningEfforts: [] }),
+        thinking: expect.objectContaining({ reasoningEfforts: ['off', 'high'] }),
+      })),
+    )
+    expect(update.mock.calls[0][1].thinking).not.toHaveProperty('enabled')
+  })
+
+  it('clears the capability set when every effort is deselected', async () => {
+    const update = renderThinkingModel({ reasoningEfforts: ['off'] })
+
+    fireEvent.click(screen.getByRole('button', { name: 'off' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update Model' }))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith('m', expect.objectContaining({
+        thinking: expect.objectContaining({ reasoningEfforts: [] }),
       })),
     )
   })

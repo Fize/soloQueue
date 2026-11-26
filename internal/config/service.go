@@ -222,9 +222,29 @@ func enabledModelByRef(settings Settings, ref string) *LLMModel {
 	return nil
 }
 
+// OffReasoningEffort is the capability that lets a model be asked not to think.
+// Providers that cannot disable reasoning must not declare it, so a model
+// without "off" always thinks.
+const OffReasoningEffort = "off"
+
+// thinkingEfforts is the closed set of thinking intensities, in render order.
+var thinkingEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+
 // ReasoningEffortVocabulary is the closed set of reasoning efforts a model may
-// declare. The order is the render order used by the UI.
-var ReasoningEffortVocabulary = []string{"low", "medium", "high", "xhigh", "max"}
+// declare: "off" plus the intensities, in render order, so a model that can be
+// silenced renders that choice first.
+var ReasoningEffortVocabulary = append([]string{OffReasoningEffort}, thinkingEfforts...)
+
+// ThinkingCapable reports whether a capability set allows actual reasoning. A
+// model that declares nothing, or only "off", never thinks.
+func ThinkingCapable(efforts []string) bool {
+	for _, effort := range efforts {
+		if effort != OffReasoningEffort {
+			return true
+		}
+	}
+	return false
+}
 
 // IsKnownReasoningEffort reports whether effort belongs to the vocabulary.
 func IsKnownReasoningEffort(effort string) bool {
@@ -238,21 +258,16 @@ func IsKnownReasoningEffort(effort string) bool {
 
 // normalizeThinking canonicalizes one thinking configuration in place:
 // lowercase/trim, drop unknown values, dedupe while keeping order, migrate the
-// legacy single-value field to the full vocabulary, and clear the legacy field.
-// A disabled model keeps no declared capability.
+// legacy single-value field to the intensity vocabulary, and clear the legacy
+// field. A model that never thinks keeps no declared capability.
 func normalizeThinking(t *ThinkingConfig) {
 	if t == nil {
 		return
 	}
-	if !t.Enabled {
-		t.ReasoningEfforts = nil
-		t.ReasoningEffort = ""
-		return
-	}
 	if len(t.ReasoningEfforts) == 0 && t.ReasoningEffort != "" {
-		// Legacy config declared one effort; the closed vocabulary is the
-		// widest set those models can be asked for.
-		t.ReasoningEfforts = append([]string(nil), ReasoningEffortVocabulary...)
+		// Legacy config declared one effort; it said the model reasons, never
+		// that it can stop, so the expansion is the intensities only.
+		t.ReasoningEfforts = append([]string(nil), thinkingEfforts...)
 	}
 	t.ReasoningEffort = ""
 	canonical := make([]string, 0, len(t.ReasoningEfforts))
@@ -265,7 +280,9 @@ func normalizeThinking(t *ThinkingConfig) {
 		seen[effort] = true
 		canonical = append(canonical, effort)
 	}
-	if len(canonical) == 0 {
+	if !ThinkingCapable(canonical) {
+		// "off" alone declares a model that never thinks, which is the same as
+		// declaring nothing.
 		t.ReasoningEfforts = nil
 		return
 	}
@@ -280,15 +297,9 @@ func normalizeThinkingConfigs(st *Settings) {
 }
 
 // ValidateThinking rejects thinking configurations that cannot be stored:
-// values outside the vocabulary and capabilities declared by a model that does
-// not think. Case and surrounding spaces are accepted (they are normalized).
+// values outside the closed vocabulary. Case and surrounding spaces are
+// accepted (they are normalized).
 func ValidateThinking(t ThinkingConfig) error {
-	if !t.Enabled {
-		if len(t.ReasoningEfforts) > 0 {
-			return fmt.Errorf("thinking.reasoning_efforts requires thinking.enabled")
-		}
-		return nil
-	}
 	for _, effort := range t.ReasoningEfforts {
 		if !IsKnownReasoningEffort(strings.ToLower(strings.TrimSpace(effort))) {
 			return fmt.Errorf("unsupported reasoning effort %q (use %s)",

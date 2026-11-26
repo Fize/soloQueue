@@ -386,3 +386,41 @@ func TestModelOverrideSendsOnlySelectedEffort(t *testing.T) {
 		t.Fatalf("effort = %q, want medium", params.ReasoningEffort)
 	}
 }
+
+// "off" is a declared capability: a model that accepts it can be silenced, and
+// the next turn carries disabled thinking with no effort.
+func TestOffReasoningEffortDisablesThinking(t *testing.T) {
+	s := NewSession("l2:x", "team", nil, nil, nil, nil)
+	s.modelLookup = effortModelLookup("off", "low", "high")
+
+	if err := s.SetModelSelection(ModelSelection{ProviderID: "p", ModelID: "big", ReasoningEffort: "off"}); err != nil {
+		t.Fatalf("SetModelSelection(off): %v", err)
+	}
+	params, ok := s.modelOverrideParams()
+	if !ok {
+		t.Fatal("expected an override for the selected model")
+	}
+	if params.ThinkingEnabled {
+		t.Error("off must disable thinking")
+	}
+	if params.ReasoningEffort != "" {
+		t.Errorf("off must not send an effort, got %q", params.ReasoningEffort)
+	}
+}
+
+// A model that never declares "off" always thinks: the session cannot silence it.
+func TestOffRejectedWhenNotDeclared(t *testing.T) {
+	s := NewSession("l2:x", "team", nil, nil, nil, nil)
+	s.modelLookup = effortModelLookup("low", "high")
+
+	err := s.SetModelSelection(ModelSelection{ProviderID: "p", ModelID: "big", ReasoningEffort: "off"})
+	if err == nil {
+		t.Fatal("expected off to be rejected for an always-thinking model")
+	}
+	if !strings.Contains(err.Error(), "available: low, high") {
+		t.Fatalf("error does not list available efforts: %v", err)
+	}
+	if got := s.ModelSelection(); got.ModelID != "" || got.ReasoningEffort != "" {
+		t.Fatalf("rejected off must not persist: %+v", got)
+	}
+}

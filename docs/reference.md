@@ -31,7 +31,6 @@ models:
       temperature: 0
       max_tokens: 16384
     thinking:
-      enabled: true
       reasoning_efforts: [low, medium, high, xhigh, max]
 
 model_routes:
@@ -75,11 +74,10 @@ The keys below use their YAML names. Omitted fields retain their built-in defaul
 | `models[].context_window` | Model context-window size in tokens. |
 | `models[].enabled`, `models[].vision` | Enable the model; set `vision: true` when it accepts image content. |
 | `models[].generation.temperature`, `models[].generation.max_tokens` | Sampling temperature and maximum generated tokens. |
-| `models[].thinking.enabled` | Enable the provider's reasoning/thinking mode. |
-| `models[].thinking.reasoning_efforts` | Ordered set of reasoning efforts the model accepts. The closed vocabulary is `low`, `medium`, `high`, `xhigh`, `max`; a model that declares nothing accepts no effort, and the UI renders the choices in this order. |
+| `models[].thinking.reasoning_efforts` | Ordered set of reasoning efforts the model accepts. The closed vocabulary is `off`, `low`, `medium`, `high`, `xhigh`, `max`; an empty set means the model never thinks, and the UI renders the choices in this order. |
 | `models[].thinking.thinking_type` | Value sent as the provider's thinking type, for APIs that require a non-default value. |
 
-A model only declares which efforts it accepts; the effort itself is a per-session choice (Web Console or `/model provider:model xhigh`) validated against that set. With no selection nothing is sent and the provider applies its own default. The legacy single-value `thinking.reasoning_effort` is read only for migration: a non-empty value expands to the full vocabulary on load, and the key is dropped on the next save.
+A model only declares which efforts it accepts; the effort itself is a per-session choice (Web Console or `/model provider:model xhigh`) validated against that set. With no selection nothing is sent and the provider applies its own default. `off` is a declaration that the provider accepts disabling thinking, which not every provider does — a model that omits `off` always thinks, and the session picker then offers no way to silence it. The legacy single-value `thinking.reasoning_effort` is read only for migration: a non-empty value expands to the intensity vocabulary (never `off`) on load, and the key is dropped on the next save.
 
 #### Model routes
 
