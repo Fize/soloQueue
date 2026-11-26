@@ -910,7 +910,14 @@ func (s *Scheduler) runTaskAttempts(ctx context.Context, t Task, execID string, 
 		if !cronAttemptFailed(result, attemptErr) || runwatch.CodeOf(attemptErr) == runwatch.CodeCancelledByUser {
 			break
 		}
-		s.logger.Warn(logger.CatApp, "cron: task attempt failed", "task_id", t.ID, "attempt", attempt+1, "err", attemptErr)
+		s.logger.Warn(logger.CatApp, "cron: task attempt failed",
+			"task_id", t.ID,
+			"run_id", execID,
+			"attempt", attempt+1,
+			"status", result.canonical.Status,
+			"diagnostic", result.diagnosticError,
+			"err", attemptErr,
+		)
 	}
 	return
 }
