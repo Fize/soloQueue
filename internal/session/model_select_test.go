@@ -9,7 +9,9 @@ import (
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/agent/agenttest"
+	"github.com/xiaobaitu/soloqueue/internal/config"
 	"github.com/xiaobaitu/soloqueue/internal/memory/ctxwin"
+	"github.com/xiaobaitu/soloqueue/internal/runtime"
 	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
@@ -94,6 +96,9 @@ func TestSessionModelSelectionOverridesAskModel(t *testing.T) {
 	s := NewSession("l2:x", "team", a, cw, nil, nil)
 	s.SetTranscriptRegistry(transcript.NewRegistry(transcript.Config{Grace: time.Hour}))
 	s.modelLookup = stubModelLookup
+	s.defaultModelLookup = func() (ModelSpec, bool) {
+		return ModelSpec{ProviderID: "fallback", APIModel: "fallback-api"}, true
+	}
 
 	if err := s.SetModelSelection(ModelSelection{ProviderID: "p", ModelID: "big"}); err != nil {
 		t.Fatalf("SetModelSelection: %v", err)
@@ -151,6 +156,115 @@ func TestSessionModelSelectionDegradesWhenModelBecomesUnavailable(t *testing.T) 
 	if gotModel != "default-model" || gotProvider != "default-provider" {
 		t.Fatalf("ask used %q/%q, want the definition model", gotProvider, gotModel)
 	}
+}
+
+func TestAutoSessionUsesCurrentDefaultAfterProviderDeletion(t *testing.T) {
+	cfg := newFallbackTestConfig(t)
+	rt := &runtime.Stack{Settings: cfg}
+
+	var gotModel, gotProvider string
+	fake := &agenttest.FakeLLM{
+		StreamDeltas: [][]string{{"ok"}},
+		Hook: func(req agent.LLMRequest) {
+			gotModel, gotProvider = req.Model, req.ProviderID
+		},
+	}
+	a := agent.NewAgent(agent.Definition{
+		ID:         "test-agent",
+		ModelID:    "used-api",
+		ProviderID: "used",
+	}, fake, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("agent Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(0) })
+
+	s := NewSession("l2:x", "team", a, ctxwin.NewContextWindow(8192, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetTranscriptRegistry(transcript.NewRegistry(transcript.Config{Grace: time.Hour}))
+	s.modelLookup = ModelLookupForStack(rt)
+	s.defaultModelLookup = DefaultModelLookupForStack(rt)
+
+	if _, err := cfg.DeleteProvider("used"); err != nil {
+		t.Fatalf("DeleteProvider: %v", err)
+	}
+
+	stream, err := s.AskStream(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	for range stream {
+	}
+
+	if gotProvider != "backup" || gotModel != "backup-api" {
+		t.Fatalf("ask used %q/%q, want backup/backup-api", gotProvider, gotModel)
+	}
+}
+
+func TestStaleSessionSelectionFallsBackToCurrentDefault(t *testing.T) {
+	cfg := newFallbackTestConfig(t)
+	rt := &runtime.Stack{Settings: cfg}
+
+	var gotModel, gotProvider string
+	fake := &agenttest.FakeLLM{
+		StreamDeltas: [][]string{{"ok"}},
+		Hook: func(req agent.LLMRequest) {
+			gotModel, gotProvider = req.Model, req.ProviderID
+		},
+	}
+	a := agent.NewAgent(agent.Definition{
+		ID:         "test-agent",
+		ModelID:    "used-api",
+		ProviderID: "used",
+	}, fake, nil)
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatalf("agent Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Stop(0) })
+
+	s := NewSession("l2:x", "team", a, ctxwin.NewContextWindow(8192, 1000, 0, ctxwin.NewTokenizer()), nil, nil)
+	s.SetTranscriptRegistry(transcript.NewRegistry(transcript.Config{Grace: time.Hour}))
+	s.modelLookup = ModelLookupForStack(rt)
+	s.defaultModelLookup = DefaultModelLookupForStack(rt)
+
+	if _, err := cfg.DeleteProvider("used"); err != nil {
+		t.Fatalf("DeleteProvider: %v", err)
+	}
+	s.modelSelMu.Lock()
+	s.modelSelection = ModelSelection{ProviderID: "used", ModelID: "used-model"}
+	s.modelSelMu.Unlock()
+
+	stream, err := s.AskStream(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	for range stream {
+	}
+
+	if gotProvider != "backup" || gotModel != "backup-api" {
+		t.Fatalf("ask used %q/%q, want backup/backup-api", gotProvider, gotModel)
+	}
+}
+
+func newFallbackTestConfig(t *testing.T) *config.GlobalService {
+	t.Helper()
+	cfg, err := config.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("config.New: %v", err)
+	}
+	if _, err := cfg.Set(func(settings *config.Settings) {
+		settings.Providers = []config.LLMProvider{
+			{ID: "used", Enabled: true, IsDefault: true},
+			{ID: "backup", Enabled: true},
+		}
+		settings.Models = []config.LLMModel{
+			{ID: "used-model", ProviderID: "used", APIModel: "used-api", Enabled: true},
+			{ID: "backup-model", ProviderID: "backup", APIModel: "backup-api", Enabled: true},
+		}
+		settings.ModelRoutes = config.ModelRoutesConfig{Default: "used:used-model"}
+	}); err != nil {
+		t.Fatalf("config.Set: %v", err)
+	}
+	return cfg
 }
 
 func TestModelCommand(t *testing.T) {

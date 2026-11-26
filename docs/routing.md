@@ -62,12 +62,14 @@ Only a valid JSON response containing a supported task type is accepted. Provide
 
 Classification and model selection are independent. `internal/router/router.go` returns the task type only; the configuration service resolves the one configured default model:
 
-1. `model_routes.default` in `settings.yaml`.
-2. The compiled default (`deepseek:deepseek-v4-flash-thinking`), when its provider and model are enabled.
+1. `model_routes.default` in `settings.yaml`, when its provider and model are enabled.
+2. Otherwise, the first enabled model of the first enabled provider in configuration order.
 
-A reference resolves only when both its provider and model are enabled. Conversations, scheduled tasks, and the auxiliary classifier all use that single model; the classifier call forces non-thinking mode. Image transcription uses the active model when it declares `vision: true`, otherwise the first enabled vision-capable model.
+A reference resolves only when both its provider and model are enabled. An empty or stale `model_routes.default` is treated as an automatic preference rather than a startup error. Conversations, scheduled tasks, and the auxiliary classifier all use that single model; the classifier call forces non-thinking mode. Image transcription uses the active model when it declares `vision: true`, otherwise the first enabled vision-capable model.
 
-A session may override the default. The choice lives in the session's `meta.json` (`model`), so it survives restarts and applies to every entry point sharing that session: Web Console, QQ, WeChat, WeCom, and Telegram. Precedence is session selection → `model_routes.default` → compiled default. A selection whose provider or model was later disabled degrades to the default and logs a warning instead of failing the turn. Channel bridges expose `/model` to show or change it (`/model <provider:model> [low|high|max]`, `/model auto`); the Web Console writes the same state through `PUT /api/session/model` for L1 and `PUT /api/session/l2/{id}/model` for L2. Auxiliary work (compaction, summaries, persona reflection, memory extraction) and scheduled tasks always use the configured default.
+A session may override the default. The choice lives in the session's `meta.json` (`model`), so it survives restarts and applies to every entry point sharing that session: Web Console, QQ, WeChat, WeCom, and Telegram. Precedence is session selection → valid `model_routes.default` → first enabled model of the first enabled provider. A selection whose provider or model was later disabled or deleted degrades to the resolved default and logs a warning instead of failing the turn. Channel bridges expose `/model` to show or change it (`/model <provider:model> [low|high|max]`, `/model auto`); the Web Console writes the same state through `PUT /api/session/model` for L1 and `PUT /api/session/l2/{id}/model` for L2. Auxiliary work (compaction, summaries, persona reflection, memory extraction) and scheduled tasks always use the resolved default.
+
+Deleting a provider does not block on model usage. The provider and every model owned by it are removed in one configuration write, and the next request uses the fallback resolution above. Deleting the default model or provider does not rewrite `model_routes.default`; the stale preference is ignored while it cannot resolve.
 
 The task type travels as a label: it is stored for follow-up continuity, written to usage metrics, and published with the request events, but it never selects a model. `RouteDecision` no longer exists.
 

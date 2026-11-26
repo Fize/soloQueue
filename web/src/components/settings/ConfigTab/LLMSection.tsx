@@ -56,6 +56,7 @@ import { ClassifierEngineControl } from './ClassifierEngineControl'
 
 /** Closed vocabulary, in the order the session picker renders it. */
 const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+const AUTO_MODEL_VALUE = '__auto__'
 
 function orderEfforts(values: string[]): string[] {
   return REASONING_EFFORTS.filter((value) => values.includes(value))
@@ -107,6 +108,10 @@ export function LLMSection({
 }: LLMSectionProps) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
+  const enabledProviderIDs = new Set(providers.filter((p) => p.enabled).map((p) => p.id))
+  const defaultModelOptions = models.filter(
+    (m) => m.enabled && enabledProviderIDs.has(m.providerId)
+  )
   const activeProvider = providers.find(p => p.id === providerFilter) || providers[0]
   const activeProviderId = activeProvider?.id || ''
   const visibleModels = models.filter(m => m.providerId === activeProviderId && `${m.name} ${m.id} ${m.apiModel || ''}`.toLowerCase().includes(search.toLowerCase()))
@@ -431,23 +436,31 @@ export function LLMSection({
             </label>
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground leading-relaxed">{t('config.modelRouteDefaultDesc')}</p>
-              <p className="mt-1 text-xs text-destructive">{t('config.modelRouteRequired')}</p>
             </div>
             <div className="min-w-0">
               <Select
                 id="role-select-default"
-                value={defaultModels.default || ''}
+                value={
+                  defaultModelOptions.some(
+                    (m) => `${m.providerId}:${m.id}` === defaultModels.default
+                  )
+                    ? defaultModels.default
+                    : AUTO_MODEL_VALUE
+                }
                 onChange={(v) => {
-                  if (!v) return
-                  onDefaultModelsChange({ ...defaultModels, default: v })
+                  onDefaultModelsChange({
+                    ...defaultModels,
+                    default: v === AUTO_MODEL_VALUE ? '' : v,
+                  })
                 }}
                 placeholder={t('config.llmSelectModel')}
-                options={models
-                  .filter((m) => m.enabled)
-                  .map((m) => ({
+                options={[
+                  { value: AUTO_MODEL_VALUE, label: t('config.modelRouteAuto') },
+                  ...defaultModelOptions.map((m) => ({
                     value: `${m.providerId}:${m.id}`,
                     label: `${m.providerId}:${m.id} (${m.name})`,
-                  }))}
+                  })),
+                ]}
               />
             </div>
           </div>

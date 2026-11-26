@@ -154,8 +154,8 @@ func DefaultSettings() Settings {
 				},
 			},
 		},
-		// Empty by design: the compiled default resolves when unset, and an
-		// empty value lets a legacy model_routes.fallback key still apply.
+		// Empty by design: resolution then uses the first enabled model of the
+		// first enabled provider, while a legacy fallback key still applies.
 		ModelRoutes: ModelRoutesConfig{},
 		Agent:       AgentConfig{},
 		Speech: SpeechConfig{

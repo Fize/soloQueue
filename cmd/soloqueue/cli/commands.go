@@ -126,6 +126,7 @@ func serveCmd(use, version string, frontendMode server.FrontendMode) *cobra.Comm
 			session.Version = version
 			mgr.SetRouter(session.BuildRouterFunc(rt))
 			mgr.SetModelLookup(session.ModelLookupForStack(rt))
+			mgr.SetDefaultModelLookup(session.DefaultModelLookupForStack(rt))
 			mgr.SetMemoryHook(session.BuildMemoryHook(rt))
 			mgr.SetMemoryManager(rt.MemoryManager)
 			mgr.SetVisionDescriber(session.BuildVisionDescriber(cfg, log, rt.RunWatch))

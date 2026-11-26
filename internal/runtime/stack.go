@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -380,7 +379,7 @@ func (s *Stack) OnSettingsChange(settings config.Settings) error {
 		s.LLMClient = agent.NewRoutingClient(clients)
 	}
 
-	defaultModel := defaultModelSettings(settings)
+	defaultModel := config.ResolveDefaultModel(settings)
 	if defaultModel != nil {
 		s.DefaultModel = defaultModel
 		if s.AgentFactory != nil {
@@ -522,39 +521,6 @@ func vectorConfiguration(cfg config.EmbeddingConfig) engine.VectorConfig {
 		provider = "none"
 	}
 	return engine.VectorConfig{Provider: provider, Enabled: cfg.Enabled, Model: normalized.Local.Model, Device: normalized.Local.Device, RemoteKey: key}
-}
-
-func defaultModelSettings(settings config.Settings) *config.LLMModel {
-	for _, ref := range []string{settings.ModelRoutes.Ref(), "deepseek:deepseek-v4-flash-thinking"} {
-		if model := enabledModelSettings(settings, ref); model != nil {
-			return model
-		}
-	}
-	return nil
-}
-
-func enabledModelSettings(settings config.Settings, ref string) *config.LLMModel {
-	providerID, modelID, ok := strings.Cut(ref, ":")
-	if !ok || providerID == "" || modelID == "" {
-		return nil
-	}
-	providerEnabled := false
-	for i := range settings.Providers {
-		if settings.Providers[i].ID == providerID && settings.Providers[i].Enabled {
-			providerEnabled = true
-			break
-		}
-	}
-	if !providerEnabled {
-		return nil
-	}
-	for i := range settings.Models {
-		model := settings.Models[i]
-		if model.ProviderID == providerID && model.ID == modelID && model.Enabled {
-			return &model
-		}
-	}
-	return nil
 }
 
 func defaultEmbeddingModelSettings(settings config.Settings) *config.EmbeddingModel {

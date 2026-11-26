@@ -44,7 +44,7 @@ model_routes:
 | --- | --- |
 | `providers` | OpenAI-compatible API endpoint definitions and retries |
 | `models` | Model definitions, context windows, generation, thinking parameters, and vision support |
-| `model_routes` | The single default model used by every conversation turn |
+| `model_routes` | Optional preferred model used by every conversation turn; falls back to the first enabled model |
 | `tools` | File paths, shell filters, HTTP host allowlists, output limits, and image-generation models (`image_models`) |
 | `agent` | Internal agent tool and MCP server settings |
 | `qqbots` / `wechat_bots` / `telegram_bots` / `wecom_bots` | Credentials and session bindings for QQ, WeChat, Telegram, and WeCom channels |
@@ -64,7 +64,7 @@ The keys below use their YAML names. Omitted fields retain their built-in defaul
 | `providers[].id`, `providers[].name` | Stable provider ID and display name; `id` is referenced by models and routes. |
 | `providers[].base_url` | OpenAI-compatible API base URL. |
 | `providers[].api_key`, `providers[].api_key_env` | API key or environment variable containing the key. A directly supplied key takes precedence. |
-| `providers[].enabled`, `providers[].is_default` | Enable the provider and mark it as the default provider. |
+| `providers[].enabled`, `providers[].is_default` | Enable the provider and mark it as the preferred provider. If no enabled provider is marked as default, the first enabled provider is used. |
 | `providers[].timeout_ms` | Provider request timeout in milliseconds. |
 | `providers[].headers` | Additional HTTP headers sent to the provider. |
 | `providers[].retry.max_retries` | Maximum number of retries (default: `3`). |
@@ -83,11 +83,13 @@ A model only declares which efforts it accepts; the effort itself is a per-sessi
 
 #### Model routes
 
-Route values use `provider-id:model-id` and must refer to enabled entries above.
+Route values use `provider-id:model-id`. A route is a preference: when it is empty or no longer resolves to an enabled provider and model, the first enabled model of the first enabled provider is used.
 
 | YAML key | Purpose |
 | --- | --- |
-| `model_routes.default` | The single model used for conversations, scheduled tasks, and the auxiliary classifier. The legacy key `fallback` is still read and is dropped on the next save. |
+| `model_routes.default` | Optional model used for conversations, scheduled tasks, and the auxiliary classifier. If empty or unavailable, the first enabled model of the first enabled provider is used. The legacy key `fallback` is still read and is dropped on the next save. |
+
+Deleting a provider also deletes every model it owns. Deletion is never rejected because a model is selected by a route or session; the next request resolves through the fallback rule above.
 
 #### Execution details and storage retention
 

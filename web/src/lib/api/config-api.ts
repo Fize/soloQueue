@@ -2,6 +2,7 @@ import type {
   AppConfig,
   LLMProvider,
   LLMModel,
+  ProviderDeleteResult,
   ModelRoutesConfig,
   SessionConfig,
   ToolsConfig,
@@ -59,8 +60,8 @@ export async function updateProvider(id: string, data: LLMProvider): Promise<LLM
   })
 }
 
-export async function deleteProvider(id: string): Promise<void> {
-  await request(`/config/providers/${id}`, {
+export async function deleteProvider(id: string): Promise<ProviderDeleteResult> {
+  return request<ProviderDeleteResult>(`/config/providers/${id}`, {
     method: 'DELETE',
     headers: id === 'chatgpt' ? { 'X-SoloQueue-Account-Mutation': '1' } : undefined,
   })

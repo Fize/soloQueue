@@ -291,7 +291,8 @@ type Session struct {
 	lastLevelMu        sync.RWMutex // protects lastLevel
 	modelSelection     ModelSelection
 	modelLookup        ModelLookup
-	modelSelMu         sync.RWMutex // protects modelSelection and modelLookup
+	defaultModelLookup DefaultModelLookup
+	modelSelMu         sync.RWMutex // protects modelSelection and the model resolvers
 	channelRouteMu     sync.Mutex
 	channelRouteKey    string
 	channelRouteOwners int
@@ -3399,16 +3400,17 @@ type AgentFactory func(ctx context.Context, teamID string) (*agent.Agent, *ctxwi
 
 // SessionManager manages the unique active session
 type SessionManager struct {
-	factory          AgentFactory
-	routerFunc       TaskRouterFunc
-	modelLookup      ModelLookup
-	memoryHook       MemoryHook
-	memoryManager    *conversation.Manager
-	metaStore        ChannelMetadataStore
-	visionDescriber  VisionDescriberFunc
-	personaStatePath string          // state.md path for persona state injection; empty = disabled
-	personaLLM       agent.LLMClient // reflection LLM for /clear persona reflection; nil = disabled (L2)
-	personaName      func() string   // resolves assistant name from soul.md at call time
+	factory            AgentFactory
+	routerFunc         TaskRouterFunc
+	modelLookup        ModelLookup
+	defaultModelLookup DefaultModelLookup
+	memoryHook         MemoryHook
+	memoryManager      *conversation.Manager
+	metaStore          ChannelMetadataStore
+	visionDescriber    VisionDescriberFunc
+	personaStatePath   string          // state.md path for persona state injection; empty = disabled
+	personaLLM         agent.LLMClient // reflection LLM for /clear persona reflection; nil = disabled (L2)
+	personaName        func() string   // resolves assistant name from soul.md at call time
 
 	personaProviderID string // fast/classifier model provider for reflection LLM calls
 	personaModelID    string // fast/classifier model ID for reflection LLM calls
@@ -3464,6 +3466,13 @@ func (m *SessionManager) SetRouter(fn TaskRouterFunc) {
 // selection. Must be called before Init(). Not thread-safe for setup.
 func (m *SessionManager) SetModelLookup(fn ModelLookup) {
 	m.modelLookup = fn
+}
+
+// SetDefaultModelLookup sets the per-turn default-model resolver used when a
+// session is in auto mode or its stored selection is no longer available.
+// Must be called before Init(). Not thread-safe for setup.
+func (m *SessionManager) SetDefaultModelLookup(fn DefaultModelLookup) {
+	m.defaultModelLookup = fn
 }
 
 // SetMemoryHook sets the callback for short-term memory recording.
@@ -3586,6 +3595,9 @@ func (m *SessionManager) Init(ctx context.Context, teamID string) (*Session, err
 	s := NewSession(id, teamID, a, cw, tl, sessionLogger)
 	if m.modelLookup != nil {
 		s.modelLookup = m.modelLookup
+	}
+	if m.defaultModelLookup != nil {
+		s.defaultModelLookup = m.defaultModelLookup
 	}
 	if tl != nil {
 		s.usageMetaPath = filepath.Join(tl.Dir(), MetaFileName)

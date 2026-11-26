@@ -44,7 +44,7 @@ model_routes:
 | --- | --- |
 | `providers` | OpenAI 兼容 API Endpoint 定义与重试参数 |
 | `models` | 模型定义、上下文窗口、生成参数、思考参数及视觉能力 |
-| `model_routes` | 所有对话轮次共用的唯一默认模型 |
+| `model_routes` | 所有对话轮次可选的首选模型；不可用时自动回退 |
 | `tools` | 文件路径、Shell 过滤、HTTP Host 白名单、输出限制及图像生成模型 (`image_models`) |
 | `agent` | 内置工具与 MCP Server 授权许可 |
 | `qqbots` / `wechat_bots` / `telegram_bots` / `wecom_bots` | QQ、微信、Telegram 和企业微信渠道的凭据及 Session 绑定 |
@@ -64,7 +64,7 @@ model_routes:
 | `providers[].id`、`providers[].name` | Provider 标识和显示名称；Model 与路由通过 `id` 引用 Provider。 |
 | `providers[].base_url` | OpenAI 兼容 API 的基础 URL。 |
 | `providers[].api_key`、`providers[].api_key_env` | API Key 或保存 Key 的环境变量名。直接填写的 Key 优先。 |
-| `providers[].enabled`、`providers[].is_default` | 启用 Provider，并将其设为默认 Provider。 |
+| `providers[].enabled`、`providers[].is_default` | 启用 Provider，并将其设为优先 Provider。若没有已启用的默认 Provider，则使用第一个已启用 Provider。 |
 | `providers[].timeout_ms` | Provider 请求超时时间，单位为毫秒。 |
 | `providers[].headers` | 请求 Provider 时附加的 HTTP Header。 |
 | `providers[].retry.max_retries` | 最大重试次数（默认 `3`）。 |
@@ -83,11 +83,13 @@ model_routes:
 
 #### 模型路由
 
-路由值格式为 `provider-id:model-id`，必须对应已启用的 Provider 和 Model。
+路由值格式为 `provider-id:model-id`。路由是偏好项：为空或无法解析到已启用的 Provider 和 Model 时，使用第一个已启用 Provider 下的第一个已启用 Model。
 
 | YAML 字段 | 说明 |
 | --- | --- |
-| `model_routes.default` | 对话、定时任务和辅助分类器共用的唯一模型。旧键 `fallback` 仍会被读取，并在下次保存时丢弃。 |
+| `model_routes.default` | 对话、定时任务和辅助分类器可选的首选模型。为空或不可用时，使用第一个已启用 Provider 下的第一个已启用 Model。旧键 `fallback` 仍会被读取，并在下次保存时丢弃。 |
+
+删除 Provider 会同时删除其名下全部模型。不会因为模型被路由或会话选中而拒绝删除；下一次请求按上述回退规则解析。
 
 #### 执行详情与存储保留
 

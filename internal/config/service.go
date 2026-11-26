@@ -65,11 +65,18 @@ func (s *GlobalService) LoadFromDisk() (Settings, error) {
 	return s.Loader.ReadFromDisk()
 }
 
-// DefaultProvider returns the LLM Provider with isDefault=true, or nil if not found
+// DefaultProvider returns the preferred enabled provider, falling back to the
+// first enabled provider when the default marker is absent or disabled.
 func (s *GlobalService) DefaultProvider() *LLMProvider {
 	settings := s.Get()
 	for i := range settings.Providers {
-		if settings.Providers[i].IsDefault {
+		if settings.Providers[i].Enabled && settings.Providers[i].IsDefault {
+			p := settings.Providers[i]
+			return &p
+		}
+	}
+	for i := range settings.Providers {
+		if settings.Providers[i].Enabled {
 			p := settings.Providers[i]
 			return &p
 		}
@@ -138,12 +145,29 @@ func (s *GlobalService) ModelByProviderID(providerID, modelID string) *LLMModel 
 }
 
 // DefaultModel resolves the single model used for every conversation turn.
-// Task routing classifies work but no longer selects models.
+// The configured route is a preference: when it is empty or no longer
+// resolves, the first enabled model of the first enabled provider is used.
 func (s *GlobalService) DefaultModel() *LLMModel {
-	settings := s.Get()
-	for _, ref := range []string{settings.ModelRoutes.Ref(), compiledDefaultModelRef} {
-		if model := enabledModelByRef(settings, ref); model != nil {
-			return model
+	return ResolveDefaultModel(s.Get())
+}
+
+// ResolveDefaultModel resolves the effective default model from a settings
+// snapshot. It is shared by the config service and runtime hot reload so both
+// paths apply the same fallback rules.
+func ResolveDefaultModel(settings Settings) *LLMModel {
+	if model := enabledModelByRef(settings, settings.ModelRoutes.Ref()); model != nil {
+		return model
+	}
+	for i := range settings.Providers {
+		provider := settings.Providers[i]
+		if !provider.Enabled || provider.ID == "" {
+			continue
+		}
+		for j := range settings.Models {
+			model := settings.Models[j]
+			if model.ProviderID == provider.ID && model.ID != "" && model.Enabled {
+				return &model
+			}
 		}
 	}
 	return nil
@@ -197,9 +221,6 @@ func enabledModelByRef(settings Settings, ref string) *LLMModel {
 	}
 	return nil
 }
-
-// compiledDefaultModelRef is the last-resort model when nothing is configured.
-const compiledDefaultModelRef = "deepseek:deepseek-v4-flash-thinking"
 
 // ReasoningEffortVocabulary is the closed set of reasoning efforts a model may
 // declare. The order is the render order used by the UI.

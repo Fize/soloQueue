@@ -62,12 +62,14 @@ flowchart TD
 
 分类与模型选择互不相关。`internal/router/router.go` 只返回任务类型，模型由配置服务按唯一默认值解析：
 
-1. `settings.yaml` 中的 `model_routes.default`。
-2. 其 Provider 与 Model 均已启用时，使用代码内置默认值（`deepseek:deepseek-v4-flash-thinking`）。
+1. `settings.yaml` 中的 `model_routes.default`，且其 Provider 与 Model 均已启用。
+2. 否则，按配置顺序使用第一个已启用 Provider 下的第一个已启用 Model。
 
-只有 Provider 和模型都启用时，配置引用才有效。对话、定时任务和辅助分类器都使用这同一个模型；分类调用强制非思考模式。图片转写优先使用当前模型的 `vision: true`，否则使用第一个已启用的视觉模型。
+只有 Provider 和模型都启用时，配置引用才有效。空的或失效的 `model_routes.default` 仅视为自动选择偏好，不会造成启动错误。对话、定时任务和辅助分类器都使用这同一个模型；分类调用强制非思考模式。图片转写优先使用当前模型的 `vision: true`，否则使用第一个已启用的视觉模型。
 
-会话可以覆盖该默认值。选择保存在会话的 `meta.json`（`model`）中，因此重启后仍有效，并对共享该会话的所有入口生效：Web 控制台、QQ、微信、企微和 Telegram。优先级为 会话选择 → `model_routes.default` → 代码内置默认值。若所选模型的 Provider 或模型之后被禁用，会回落到默认模型并记录一条警告，而不是让本轮失败。渠道桥接提供 `/model` 用于查看或修改（`/model <provider:model> [low|high|max]`、`/model auto`）；Web 控制台通过 `PUT /api/session/model`（L1）和 `PUT /api/session/l2/{id}/model`（L2）写入同一份状态。辅助任务（压缩、摘要、人格反思、记忆抽取）和定时任务始终使用配置的默认模型。
+会话可以覆盖该默认值。选择保存在会话的 `meta.json`（`model`）中，因此重启后仍有效，并对共享该会话的所有入口生效：Web 控制台、QQ、微信、企微和 Telegram。优先级为 会话选择 → 有效的 `model_routes.default` → 第一个已启用 Provider 的第一个已启用 Model。若所选模型的 Provider 或模型之后被禁用或删除，会回落到解析后的默认模型并记录一条警告，而不是让本轮失败。渠道桥接提供 `/model` 用于查看或修改（`/model <provider:model> [low|high|max]`、`/model auto`）；Web 控制台通过 `PUT /api/session/model`（L1）和 `PUT /api/session/l2/{id}/model`（L2）写入同一份状态。辅助任务（压缩、摘要、人格反思、记忆抽取）和定时任务始终使用解析后的默认模型。
+
+删除 Provider 不会因为模型正在使用而拦截。Provider 及其名下全部模型会在一次配置写入中级联删除，下一次请求按上述规则回退。删除默认模型或 Provider 不会改写 `model_routes.default`；无法解析的陈旧偏好会被忽略。
 
 任务类型只作为标签流转：用于后续轮次沿用、写入用量指标，并随请求事件发布，但不再决定模型。`RouteDecision` 已移除。
 

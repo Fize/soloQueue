@@ -59,6 +59,12 @@ export interface LLMModel {
   vision?: boolean;
 }
 
+export interface ProviderDeleteResult {
+  deleted: string;
+  deletedModels: string[];
+  deletedModelCount: number;
+}
+
 export interface ImageModelConfig {
   id: string;
   name: string;

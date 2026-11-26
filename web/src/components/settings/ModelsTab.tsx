@@ -92,10 +92,10 @@ export function ModelsTab() {
   const confirmDeleteProvider = async () => {
     if (!deleteProviderTarget) return
     try {
-      await deleteProvider(deleteProviderTarget.id)
+      const result = await deleteProvider(deleteProviderTarget.id)
       setDeleteProviderTarget(null)
       loadData()
-      toast.success(t('config.toastProviderDeleted'))
+      toast.success(t('config.toastProviderDeleted', { count: result.deletedModelCount }))
     } catch (err) {
       toast.error((err as Error).message)
       setDeleteProviderTarget(null)
@@ -202,7 +202,15 @@ export function ModelsTab() {
           if (!open) setDeleteProviderTarget(null)
         }}
         title={t('config.deleteProviderTitle')}
-        message={t('config.deleteProviderMsg', { id: deleteProviderTarget?.id || '' })}
+        message={
+          deleteProviderTarget &&
+          models.some((m) => m.providerId === deleteProviderTarget.id)
+            ? t('config.deleteProviderMsg', {
+                id: deleteProviderTarget.id,
+                count: models.filter((m) => m.providerId === deleteProviderTarget.id).length,
+              })
+            : t('config.deleteProviderEmptyMsg', { id: deleteProviderTarget?.id || '' })
+        }
         destructive
         onConfirm={confirmDeleteProvider}
         confirmLabel={t('config.deleteProviderTitle')}

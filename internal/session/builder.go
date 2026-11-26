@@ -1117,6 +1117,7 @@ func (b *Builder) BuildL2(ctx context.Context, id, group, workDir string) (*Sess
 		s.Router = BuildRouterFunc(b.RT)
 	}
 	s.modelLookup = ModelLookupForStack(b.RT)
+	s.defaultModelLookup = DefaultModelLookupForStack(b.RT)
 
 	// Wire L2 meta.json coordinates so router-driven level writes (and any
 	// other session code path) can persist without re-deriving paths.
@@ -1167,6 +1168,8 @@ func (b *Builder) BuildL1ForCron(ctx context.Context, id, cronLogDir string) (*S
 	s := NewSession("cron-l1-"+id+"-session", "L1", a, cw, tl, a.Log.Child())
 	s.SetRunWatch(b.RT.RunWatch)
 	s.SetAgentRegistry(b.RT.AgentRegistry)
+	s.modelLookup = ModelLookupForStack(b.RT)
+	s.defaultModelLookup = DefaultModelLookupForStack(b.RT)
 	return s, nil
 }
 
@@ -1320,6 +1323,8 @@ func (b *Builder) BuildL2ForCron(ctx context.Context, id, group, cronLogDir stri
 	s := NewSession(sessionID, group, childAgent, cw, tl, sessLogger)
 	s.SetRunWatch(b.RT.RunWatch)
 	s.SetAgentRegistry(b.RT.AgentRegistry)
+	s.modelLookup = ModelLookupForStack(b.RT)
+	s.defaultModelLookup = DefaultModelLookupForStack(b.RT)
 	s.SetSupervisor(sv, b.RT.RemoveSupervisor)
 	s.SetGenerationRebuilder(createGeneration)
 	s.PublishInitialGeneration()

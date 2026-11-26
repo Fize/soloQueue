@@ -39,30 +39,29 @@ type ModelSpec struct {
 // model is missing or disabled.
 type ModelLookup func(providerID, modelID string) (ModelSpec, bool)
 
+// DefaultModelLookup resolves the configured default model. It is evaluated
+// for every turn so a hot-reloaded provider/model change also reaches sessions
+// whose agent was built before the change.
+type DefaultModelLookup func() (ModelSpec, bool)
+
 // ModelLookupForConfig resolves models from the live configuration.
 func ModelLookupForConfig(cfg *config.GlobalService) ModelLookup {
 	if cfg == nil {
 		return nil
 	}
 	return func(providerID, modelID string) (ModelSpec, bool) {
-		model := cfg.EnabledModel(providerID, modelID)
-		if model == nil {
-			return ModelSpec{}, false
-		}
-		apiModel := model.APIModel
-		if apiModel == "" {
-			apiModel = model.ID
-		}
-		return ModelSpec{
-			ProviderID:       model.ProviderID,
-			APIModel:         apiModel,
-			Name:             model.Name,
-			ContextWindow:    model.ContextWindow,
-			Vision:           model.Vision,
-			ThinkingEnabled:  model.Thinking.Enabled,
-			ReasoningEfforts: append([]string(nil), model.Thinking.ReasoningEfforts...),
-			ThinkingType:     model.Thinking.ThinkingType,
-		}, true
+		return modelSpecFromConfig(cfg.EnabledModel(providerID, modelID))
+	}
+}
+
+// DefaultModelLookupForConfig resolves the current default from the live
+// configuration, including the first-enabled-provider/model fallback.
+func DefaultModelLookupForConfig(cfg *config.GlobalService) DefaultModelLookup {
+	if cfg == nil {
+		return nil
+	}
+	return func() (ModelSpec, bool) {
+		return modelSpecFromConfig(cfg.DefaultModel())
 	}
 }
 
@@ -72,6 +71,34 @@ func ModelLookupForStack(rt *runtime.Stack) ModelLookup {
 		return nil
 	}
 	return ModelLookupForConfig(rt.Settings)
+}
+
+// DefaultModelLookupForStack resolves the stack's current default model.
+func DefaultModelLookupForStack(rt *runtime.Stack) DefaultModelLookup {
+	if rt == nil || rt.Settings == nil {
+		return nil
+	}
+	return DefaultModelLookupForConfig(rt.Settings)
+}
+
+func modelSpecFromConfig(model *config.LLMModel) (ModelSpec, bool) {
+	if model == nil {
+		return ModelSpec{}, false
+	}
+	apiModel := model.APIModel
+	if apiModel == "" {
+		apiModel = model.ID
+	}
+	return ModelSpec{
+		ProviderID:       model.ProviderID,
+		APIModel:         apiModel,
+		Name:             model.Name,
+		ContextWindow:    model.ContextWindow,
+		Vision:           model.Vision,
+		ThinkingEnabled:  model.Thinking.Enabled,
+		ReasoningEfforts: append([]string(nil), model.Thinking.ReasoningEfforts...),
+		ThinkingType:     model.Thinking.ThinkingType,
+	}, true
 }
 
 // NormalizeModelSelection validates and canonicalizes a selection. A nil lookup
@@ -189,24 +216,23 @@ func (s *Session) persistModelSelection(sel ModelSelection) error {
 	})
 }
 
-// modelOverrideParams builds the model override for the next ask. ok=false
-// means the configured default model applies; a selection that no longer
-// resolves degrades to the default instead of failing the turn.
+// modelOverrideParams builds the model override for the next ask. A valid
+// session selection wins; auto mode and stale selections resolve the current
+// configured default so a running agent does not stay pinned to a deleted
+// provider/model. ok=false preserves the agent definition when no live default
+// is available.
 func (s *Session) modelOverrideParams() (iface.ModelOverrideParams, bool) {
 	sel := s.ModelSelection()
-	if sel.IsAuto() {
-		return iface.ModelOverrideParams{}, false
-	}
 
 	s.modelSelMu.RLock()
 	lookup := s.modelLookup
+	defaultLookup := s.defaultModelLookup
 	s.modelSelMu.RUnlock()
-	if lookup == nil {
-		return iface.ModelOverrideParams{}, false
-	}
 
-	spec, ok := lookup(sel.ProviderID, sel.ModelID)
-	if !ok {
+	if !sel.IsAuto() && lookup != nil {
+		if spec, ok := lookup(sel.ProviderID, sel.ModelID); ok {
+			return modelOverrideFromSpec(spec, sel.ReasoningEffort), true
+		}
 		if s.logger != nil {
 			s.logger.Warn(logger.CatApp, "session model selection unavailable, using default model",
 				"target_id", s.TargetID,
@@ -214,9 +240,18 @@ func (s *Session) modelOverrideParams() (iface.ModelOverrideParams, bool) {
 				"model_id", sel.ModelID,
 			)
 		}
-		return iface.ModelOverrideParams{}, false
 	}
 
+	if defaultLookup != nil {
+		if spec, ok := defaultLookup(); ok {
+			return modelOverrideFromSpec(spec, ""), true
+		}
+	}
+
+	return iface.ModelOverrideParams{}, false
+}
+
+func modelOverrideFromSpec(spec ModelSpec, reasoningEffort string) iface.ModelOverrideParams {
 	params := iface.ModelOverrideParams{
 		ProviderID:    spec.ProviderID,
 		ModelID:       spec.APIModel,
@@ -228,11 +263,11 @@ func (s *Session) modelOverrideParams() (iface.ModelOverrideParams, bool) {
 		params.ThinkingType = spec.ThinkingType
 		// The effort comes from the session selection only. Without a selection
 		// nothing is sent and the provider decides.
-		if supportsReasoningEffort(spec.ReasoningEfforts, sel.ReasoningEffort) {
-			params.ReasoningEffort = sel.ReasoningEffort
+		if supportsReasoningEffort(spec.ReasoningEfforts, reasoningEffort) {
+			params.ReasoningEffort = reasoningEffort
 		}
 	}
-	return params, true
+	return params
 }
 
 // ModelCommand applies a /model argument and returns the reply text. It is

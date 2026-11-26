@@ -54,30 +54,51 @@ func (s *GlobalService) UpdateProvider(id string, p LLMProvider) error {
 	return nil
 }
 
-// DeleteProvider removes an LLM provider by ID.
-func (s *GlobalService) DeleteProvider(id string) error {
+// DeleteProvider removes an LLM provider and all models owned by it.
+func (s *GlobalService) DeleteProvider(id string) ([]string, error) {
 	if id == "" {
-		return fmt.Errorf("provider id is required")
+		return nil, fmt.Errorf("provider id is required")
 	}
 	var deleted bool
+	deletedModels := make([]string, 0)
 	_, err := s.Set(func(st *Settings) {
+		found := false
+		for _, p := range st.Providers {
+			if p.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+		deleted = true
+
 		var providers []LLMProvider
 		for _, p := range st.Providers {
 			if p.ID != id {
 				providers = append(providers, p)
-			} else {
-				deleted = true
 			}
 		}
 		st.Providers = providers
+
+		models := make([]LLMModel, 0, len(st.Models))
+		for _, m := range st.Models {
+			if m.ProviderID == id {
+				deletedModels = append(deletedModels, m.ID)
+			} else {
+				models = append(models, m)
+			}
+		}
+		st.Models = models
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !deleted {
-		return fmt.Errorf("provider %q not found", id)
+		return nil, fmt.Errorf("provider %q not found", id)
 	}
-	return nil
+	return deletedModels, nil
 }
 
 // CreateModel adds a new LLM model to the configuration.

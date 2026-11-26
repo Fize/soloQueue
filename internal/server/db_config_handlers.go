@@ -128,13 +128,18 @@ func (m *Mux) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := m.configSvc.DeleteProvider(id); err != nil {
+	deletedModels, err := m.configSvc.DeleteProvider(id)
+	if err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	m.triggerOnConfigChange()
-	result := map[string]any{"deleted": id}
+	result := map[string]any{
+		"deleted":           id,
+		"deletedModels":     deletedModels,
+		"deletedModelCount": len(deletedModels),
+	}
 	if revokeWarning != nil {
 		result["remoteRevocationConfirmed"] = false
 		result["warning"] = "Local credentials were cleared; remote revocation could not be confirmed."
