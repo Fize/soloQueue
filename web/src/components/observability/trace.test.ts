@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { buildTrace } from './trace'
+import { buildTrace, groupParallel, subtaskHue } from './trace'
 import type { ObservedRequest, ObservedCall, ObservedDispatch } from '@/lib/api/observability-api'
 const start = '2026-10-26T00:00:00Z'
 const end = '2026-10-26T00:00:10Z'
@@ -89,4 +89,68 @@ it('uses the exact dispatch link when a worker instance was reused by multiple s
   expect(trace.nodes.find((node) => node.id === 'dispatch:first')?.children[0].id).toBe(
     'call:linked'
   )
+})
+
+it('numbers sibling spans so parallel subtasks stay distinguishable', () => {
+  const trace = buildTrace(request([], [dispatch('first'), dispatch('second')]))
+  expect(trace.root.children.map((node) => node.ordinal)).toEqual([1, 2])
+})
+
+it('labels a subtask by its task instead of the executor it shares', () => {
+  const trace = buildTrace(
+    request([], [{ ...dispatch('worker'), executor: 'editor', task_name: 'Rewrite router tests' }])
+  )
+  expect(trace.root.children[0].label).toBe('Rewrite router tests')
+})
+
+it('falls back to the executor when a subtask has no recorded task', () => {
+  const trace = buildTrace(request([], [{ ...dispatch('editor'), task_name: '', task: '' }]))
+  expect(trace.root.children[0].label).toBe('editor')
+})
+
+it('groups overlapping sibling subtasks and separates sequential ones', () => {
+  const trace = buildTrace(
+    request(
+      [],
+      [
+        {
+          ...dispatch('first'),
+          created_at: '2026-10-26T00:00:00Z',
+          updated_at: '2026-10-26T00:00:10Z',
+        },
+        {
+          ...dispatch('second'),
+          created_at: '2026-10-26T00:00:05Z',
+          updated_at: '2026-10-26T00:00:08Z',
+        },
+        {
+          ...dispatch('third'),
+          created_at: '2026-10-26T00:00:20Z',
+          updated_at: '2026-10-26T00:00:30Z',
+        },
+      ]
+    )
+  )
+  expect(groupParallel(trace.root.children).map((group) => group.map((node) => node.id))).toEqual([
+    ['dispatch:first', 'dispatch:second'],
+    ['dispatch:third'],
+  ])
+})
+
+it('keeps a subtask without timings in its own group', () => {
+  const trace = buildTrace(
+    request(
+      [],
+      [
+        { ...dispatch('first'), created_at: 'bad' },
+        { ...dispatch('second'), created_at: 'bad' },
+      ]
+    )
+  )
+  expect(groupParallel(trace.root.children).map((group) => group.length)).toEqual([1, 1])
+})
+
+it('assigns a stable identity colour per subtask ordinal', () => {
+  expect([1, 2, 3, 4, 5, 6].map((ordinal) => subtaskHue(ordinal))).toEqual([1, 2, 3, 4, 1, 2])
+  expect(subtaskHue(undefined)).toBeUndefined()
 })

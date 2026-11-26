@@ -7,12 +7,35 @@ export interface TraceNode {
   status: string
   start?: number
   end?: number
+  ordinal?: number
   warning: boolean
   missingParent?: boolean
   tool?: ObservedCall
   call?: ObservedCall
   dispatch?: ObservedDispatch
   children: TraceNode[]
+}
+
+const TASK_LABEL_LIMIT = 60
+
+const SUBTASK_HUES = 4
+
+// Stable identity colour for a parallel subtask. The ordinal stays the primary
+// cue; colour only shortens recognition at a glance.
+export function subtaskHue(ordinal?: number) {
+  return ordinal === undefined ? undefined : ((ordinal - 1) % SUBTASK_HUES) + 1
+}
+
+// `task` can run to thousands of characters; only the first non-empty line is a title.
+function taskLabel(dispatch: ObservedDispatch) {
+  const text = (dispatch.task_name || dispatch.task || '').trim()
+  if (!text) return dispatch.executor
+  const line =
+    text
+      .split('\n')
+      .find((value) => value.trim())
+      ?.trim() || text
+  return line.length > TASK_LABEL_LIMIT ? `${line.slice(0, TASK_LABEL_LIMIT)}…` : line
 }
 
 export function traceTime(value?: string): number | undefined {
@@ -51,7 +74,7 @@ export function buildTrace(data: ObservedRequest, now = Date.now()) {
     dispatches.set(dispatch.dispatch_id, {
       id: `dispatch:${dispatch.dispatch_id}`,
       kind: 'dispatch',
-      label: dispatch.executor,
+      label: taskLabel(dispatch),
       status: dispatch.status,
       dispatch,
       ...interval(
@@ -138,6 +161,9 @@ export function buildTrace(data: ObservedRequest, now = Date.now()) {
     node.children.sort(
       (a, b) => (a.start ?? Infinity) - (b.start ?? Infinity) || a.id.localeCompare(b.id)
     )
+    node.children.forEach((child, index) => {
+      child.ordinal = index + 1
+    })
     node.children.forEach(sort)
   }
   sort(root)
@@ -155,4 +181,33 @@ export function buildTrace(data: ObservedRequest, now = Date.now()) {
 
 export function isTraceError(status: string) {
   return ['error', 'failed', 'panic', 'interrupted', 'cancelled', 'timeout'].includes(status)
+}
+
+// Siblings whose spans overlap ran concurrently. Grouping is visual only: the
+// tree and the parent links stay as recorded.
+export function groupParallel(nodes: TraceNode[]): TraceNode[][] {
+  const groups: TraceNode[][] = []
+  let current: TraceNode[] = []
+  let start = 0
+  let end = 0
+  for (const node of nodes) {
+    if (node.start === undefined || node.end === undefined) {
+      if (current.length) groups.push(current)
+      current = []
+      groups.push([node])
+      continue
+    }
+    if (current.length && node.start <= end && node.end >= start) {
+      current.push(node)
+      start = Math.min(start, node.start)
+      end = Math.max(end, node.end)
+      continue
+    }
+    if (current.length) groups.push(current)
+    current = [node]
+    start = node.start
+    end = node.end
+  }
+  if (current.length) groups.push(current)
+  return groups
 }

@@ -120,6 +120,17 @@
   --info: var(--color-info);
   --info-foreground: var(--color-info-foreground);
 
+  /* Parallel subtask identity for the trace timeline. Identity only — never encode status.
+     Four hues at equal OKLCH lightness (L .78), each >=45deg from its neighbour and from
+     --color-destructive (red, failure) and --color-primary (blue, selection).
+     Declared here rather than in @theme: Tailwind drops theme variables no utility
+     references, and these are consumed through var() in inline styles.
+     A fifth concurrent subtask wraps back to 1; the ordinal stays the primary cue. */
+  --color-subtask-1: #83CE72;
+  --color-subtask-2: #00D4D5;
+  --color-subtask-3: #CC9FFF;
+  --color-subtask-4: #FE8DC5;
+
   color-scheme: dark;
 }
 
@@ -157,6 +168,10 @@
   --color-tool-lsp:   #1D4ED8;
   --color-tool-mcp:   #6D28D9;
   --color-tool-skill: #A21CAF;
+  --color-subtask-1: #297613;
+  --color-subtask-2: #007C7F;
+  --color-subtask-3: #7A41AF;
+  --color-subtask-4: #A82571;
 
   color-scheme: light;
 }

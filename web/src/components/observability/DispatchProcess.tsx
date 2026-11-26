@@ -40,7 +40,7 @@ function DispatchProcessView({ sessionId, dispatchId, initial }: { sessionId: st
         <summary className="cursor-pointer break-words">{event.sequence} · {event.type} <time className="text-muted-foreground">{new Date(event.timestamp).toLocaleTimeString()}</time></summary>
         {event.payload && <pre className="mt-2 whitespace-pre-wrap break-words rounded bg-muted/30 p-2">{JSON.stringify(event.payload, null, 2)}</pre>}
       </details>)}
-      {data.next_cursor && <Button variant="outline" size="xs" disabled={busy} onClick={() => void more()}>{busy ? t('observability.loading') : t('observability.loadMore')}</Button>}
+      {data.next_cursor && <Button variant="outline" size="xs" disabled={busy} onClick={() => void more()}>{busy ? t('observability.loading') : t('observability.loadMoreEvents')}</Button>}
       <Button variant="ghost" size="xs" disabled={busy} onClick={() => setRefresh((value) => value + 1)}>{t('observability.refresh')}</Button>
     </>}
   </div>

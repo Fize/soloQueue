@@ -18,6 +18,7 @@ export interface ObservedDispatch {
   request_id?: string; tool_call_id?: string
   dispatch_id: string; parent_dispatch_id?: string; root_dispatch_id: string; executor: string
   executor_instance_id: string; status: string; created_at: string; updated_at: string
+  task_name?: string; task?: string
   events: DispatchEvent[]; next_cursor?: string
 }
 export interface ObservedRequest {

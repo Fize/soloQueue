@@ -120,24 +120,22 @@ it('reports expired details without synthesizing a prompt', async () => {
   ).not.toBeInTheDocument()
   expect(await within(dialog).findByText('observability.promptExpired')).toBeInTheDocument()
 })
-it('loads more calls without repeating a call ID or changing the total count', async () => {
+it('loads every span page so a trace arrives complete', async () => {
   api.getObservedRequest.mockImplementation((_sid, _rid, cursor) =>
     Promise.resolve(
       cursor
-        ? {
-            ...data,
-            call_count: 2,
-            calls: [call, { ...call, call_id: 'call2', model_id: 'second' }],
-          }
+        ? { ...data, call_count: 2, calls: [{ ...call, call_id: 'call2', model_id: 'second' }] }
         : { ...data, call_count: 2, next_cursor: 'cursor' }
     )
   )
   render(<ExecutionDetails sessionId="l1" requestId="req1" />)
   fireEvent.click(screen.getByRole('button', { name: /observability.title/ }))
   const dialog = await screen.findByRole('dialog')
-  fireEvent.click(await within(dialog).findByRole('button', { name: 'observability.loadMore' }))
   expect(await within(dialog).findByText('provider / second')).toBeInTheDocument()
-  expect(within(dialog).getAllByText('provider / model')).toHaveLength(1)
+  expect(within(dialog).getByText('provider / model')).toBeInTheDocument()
+  expect(
+    within(dialog).queryByRole('button', { name: 'observability.loadRemainingCalls' })
+  ).not.toBeInTheDocument()
 })
 it('does not apply a previous request response after changing identity', async () => {
   let previous!: (value: ObservedRequest) => void
@@ -280,9 +278,15 @@ it('shows parallel child work as a nested trace and opens the selected call with
   const research = within(trace)
     .getByRole('button', { name: /^Research/ })
     .closest('li')!
+  // Subtasks start collapsed so a multi-subtask turn stays readable.
+  expect(within(research).queryByRole('button', { name: /^Nested worker/ })).not.toBeInTheDocument()
+  fireEvent.click(within(research).getByRole('button', { name: 'observability.expand Research' }))
   const nested = within(research)
     .getByRole('button', { name: /^Nested worker/ })
     .closest('li')!
+  fireEvent.click(
+    within(nested).getByRole('button', { name: 'observability.expand Nested worker' })
+  )
   expect(
     within(nested).getByRole('button', { name: /provider \/ child-model/ })
   ).toBeInTheDocument()
@@ -472,6 +476,7 @@ it('shows independent main and child tool spans with escaped arguments, results 
   expect(within(dialog).getByText('125 ms')).toBeInTheDocument()
   expect(within(dialog).getByText('<script>main result</script>')).toBeInTheDocument()
   expect(document.querySelector('script')).toBeNull()
+  fireEvent.click(within(dialog).getByRole('button', { name: 'observability.expand Worker' }))
   fireEvent.click(within(dialog).getByText('Read'))
   expect(within(dialog).getByText('child result')).toBeInTheDocument()
 })
@@ -503,15 +508,46 @@ it('refreshes a running tool loaded from a later page when the execution complet
   await screen.findByText('observability.calls 1')
   fireEvent.click(screen.getByRole('button', { name: /observability.title/ }))
   const dialog = await screen.findByRole('dialog')
-  fireEvent.click(await within(dialog).findByRole('button', { name: 'observability.loadMore' }))
   fireEvent.click(await within(dialog).findByText('Read'))
   complete = true
   view.rerender(<ExecutionDetails sessionId="l1" requestId="req1" running />)
   expect(await within(dialog).findByText('Completed later tool')).toBeInTheDocument()
 })
 
+it('offers the remaining count once a trace exceeds the span budget', async () => {
+  const page = (offset: number) => ({
+    ...data,
+    call_count: 201,
+    calls: Array.from({ length: 50 }, (_, index) => ({
+      ...call,
+      call_id: `c${offset + index}`,
+      model_id: `m${offset + index}`,
+    })),
+    next_cursor: offset + 50 < 200 ? String(offset + 50) : 'more',
+  })
+  api.getObservedRequest.mockImplementation((_sid, _rid, cursor) =>
+    Promise.resolve(page(cursor ? Number(cursor) : 0))
+  )
+  render(<ExecutionDetails sessionId="l1" requestId="req1" />)
+  fireEvent.click(screen.getByRole('button', { name: /observability.title/ }))
+  const dialog = await screen.findByRole('dialog')
+  expect(
+    await within(dialog).findByRole('button', { name: 'observability.loadRemainingCalls' })
+  ).toBeInTheDocument()
+  expect(within(dialog).queryByText('observability.traceComplete')).not.toBeInTheDocument()
+})
+
 it('shows logical and exact transport request on demand', async () => {
-  api.getObservedPrompt.mockResolvedValue({ call_id: 'call1', recording_status: 'complete', representation: 'messages', snapshot_version: 2, wire_recording_status: 'complete', messages: [{ role: 'system', content: 'fixed' }], logical_request: { Messages: [{ Role: 'user', Content: 'private question' }] }, wire_requests: ['{"input":"private question"}\n'] })
+  api.getObservedPrompt.mockResolvedValue({
+    call_id: 'call1',
+    recording_status: 'complete',
+    representation: 'messages',
+    snapshot_version: 2,
+    wire_recording_status: 'complete',
+    messages: [{ role: 'system', content: 'fixed' }],
+    logical_request: { Messages: [{ Role: 'user', Content: 'private question' }] },
+    wire_requests: ['{"input":"private question"}\n'],
+  })
   render(<ExecutionDetails sessionId="l1" requestId="req1" />)
   fireEvent.click(screen.getByRole('button', { name: /observability.title/ }))
   const dialog = await screen.findByRole('dialog')

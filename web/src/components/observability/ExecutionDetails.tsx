@@ -17,6 +17,9 @@ import { TraceTimeline } from './TraceTimeline'
 import { buildTrace, isTraceError, type TraceNode } from './trace'
 import { DispatchProcess } from './DispatchProcess'
 
+// Four pages of spans. Beyond this the trace is paged on demand instead.
+const SPAN_LIMIT = 200
+
 function ExecutionDetailsView({
   sessionId,
   requestId,
@@ -32,8 +35,13 @@ function ExecutionDetailsView({
   const [open, setOpen] = useState(false)
   const [refresh, setRefresh] = useState(0)
   const [moreBusy, setMoreBusy] = useState(false)
+  const [flash, setFlash] = useState<Set<string>>(new Set())
+  const [reveal, setReveal] = useState<Set<string>>(new Set())
+  const [announce, setAnnounce] = useState('')
   const [selectedID, setSelectedID] = useState('request')
   const inspectorRef = useRef<HTMLElement>(null)
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(flashTimer.current), [])
   useEffect(() => {
     if (selectedID !== 'request' && window.innerWidth < 1024) {
       inspectorRef.current?.scrollIntoView?.({ block: 'start' })
@@ -41,13 +49,6 @@ function ExecutionDetailsView({
   }, [selectedID])
   const identity = `${sessionId}\u0000${requestId}`
   const identityRef = useRef(identity)
-  const loadedRef = useRef<{ count: number; generation?: string }>({ count: 0 })
-  useEffect(() => {
-    loadedRef.current = {
-      count: (data?.calls.length || 0) + (data?.tools?.length || 0),
-      generation: data?.generation,
-    }
-  }, [data])
   useEffect(() => {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -55,12 +56,14 @@ function ExecutionDetailsView({
     async function load() {
       try {
         let value = await getObservedRequest(sessionId, requestId, undefined, controller.signal)
-        const target =
-          open && value.generation === loadedRef.current.generation ? loadedRef.current.count : 0
         const cursors = new Set<string>()
-        // Refresh every page already opened, so later tool spans do not retain
-        // a stale running state after the first page reports completion.
-        while (value.next_cursor && value.calls.length + (value.tools?.length || 0) < target) {
+        // A trace is only readable when a subtask and its calls arrive together,
+        // so an open dialog pages until the span budget instead of stopping at
+        // the first page and leaving dispatch rows without children.
+        while (
+          value.next_cursor &&
+          value.calls.length + (value.tools?.length || 0) < (open ? SPAN_LIMIT : 0)
+        ) {
           if (cursors.has(value.next_cursor)) throw new Error(t('observability.error'))
           cursors.add(value.next_cursor)
           const page = await getObservedRequest(
@@ -102,10 +105,18 @@ function ExecutionDetailsView({
   async function more() {
     if (!data?.next_cursor || moreBusy) return
     const currentIdentity = identity
+    const known = new Set([
+      ...data.calls.map((call) => `call:${call.call_id}`),
+      ...(data.tools || []).map((tool) => `tool:${tool.call_id}`),
+    ])
     setMoreBusy(true)
     try {
       const value = await getObservedRequest(sessionId, requestId, data.next_cursor)
       if (identityRef.current !== currentIdentity) return
+      const added = [
+        ...value.calls.map((call) => `call:${call.call_id}`),
+        ...(value.tools || []).map((tool) => `tool:${tool.call_id}`),
+      ].filter((id) => !known.has(id))
       setData((old) =>
         old
           ? {
@@ -125,6 +136,19 @@ function ExecutionDetailsView({
             }
           : value
       )
+      // Loaded spans land inside their subtask, which starts collapsed.
+      const owners = new Set<string>()
+      for (const item of [...value.calls, ...(value.tools || [])]) {
+        if (item.dispatch_id) owners.add(`dispatch:${item.dispatch_id}`)
+      }
+      setReveal(owners)
+      setFlash(new Set(added))
+      setAnnounce(t('observability.loadedAnnounce', { count: added.length }))
+      clearTimeout(flashTimer.current)
+      flashTimer.current = setTimeout(() => {
+        setFlash(new Set())
+        setAnnounce('')
+      }, 700)
     } catch (cause) {
       if (identityRef.current === currentIdentity)
         setError(cause instanceof Error ? cause.message : t('observability.error'))
@@ -147,6 +171,8 @@ function ExecutionDetailsView({
   const attemptsKnown =
     data?.attempts_reported ?? data?.calls.every((call) => call.attempts_reported)
   const loadedTokens = data?.calls.reduce((sum, call) => sum + call.total_tokens, 0) || 0
+  const remainingCalls = Math.max(0, (data?.call_count || 0) - (data?.calls.length || 0))
+  const loadedSpans = (data?.calls.length || 0) + (data?.tools?.length || 0)
   function select(node: TraceNode) {
     setSelectedID(node.id)
   }
@@ -260,32 +286,45 @@ function ExecutionDetailsView({
                 >
                   <div className="border-b px-4 py-3">
                     <h3 className="text-xs font-semibold">{t('observability.trace')}</h3>
-                    <p className="mt-1 text-[10px] text-muted-foreground">
-                      {t('observability.parallelHint')}
-                    </p>
                   </div>
                   <TraceTimeline
                     root={trace.root}
                     start={trace.start}
                     end={trace.end}
                     selected={selected?.id || 'request'}
+                    flash={flash}
+                    expand={reveal}
                     onSelect={select}
                   />
-                  {data.next_cursor && (
-                    <div className="space-y-2 p-3">
+                  <div className="sticky bottom-0 z-10 space-y-2 border-t border-border/60 bg-background/95 p-3 backdrop-blur">
+                    {data.next_cursor ? (
+                      <>
+                        <p className="text-[10px] text-muted-foreground">
+                          {t('observability.insertHint')}
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          disabled={moreBusy}
+                          aria-busy={moreBusy}
+                          onClick={() => void more()}
+                        >
+                          {moreBusy
+                            ? t('observability.loading')
+                            : remainingCalls > 0
+                              ? t('observability.loadRemainingCalls', { count: remainingCalls })
+                              : t('observability.loadRemainingSpans')}
+                        </Button>
+                      </>
+                    ) : (
                       <p className="text-[10px] text-muted-foreground">
-                        {t('observability.moreSpans')}
+                        {t('observability.traceComplete', { count: loadedSpans })}
                       </p>
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        disabled={moreBusy}
-                        onClick={() => void more()}
-                      >
-                        {moreBusy ? t('observability.loading') : t('observability.loadMore')}
-                      </Button>
-                    </div>
-                  )}
+                    )}
+                    <p role="status" aria-live="polite" className="sr-only">
+                      {announce}
+                    </p>
+                  </div>
                 </section>
                 <section
                   ref={inspectorRef}
