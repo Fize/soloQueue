@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -119,5 +120,64 @@ func TestL2SessionModelUnknownSession(t *testing.T) {
 	recorder := httpRecord(t, m, http.MethodGet, "/api/session/l2/missing/model", nil)
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+// A session exists as soon as it is created, but it has no meta.json until its
+// first message activates it. Selecting a model in the composer before that
+// point must work and survive the activation.
+func TestL2SessionModelOnCreatedSession(t *testing.T) {
+	workDir := t.TempDir()
+	svc, err := config.New(workDir)
+	if err != nil {
+		t.Fatalf("config.New: %v", err)
+	}
+	store := session.NewL2SessionStore(nil, workDir, nil)
+	if _, err := store.Create(context.Background(), "fresh", "engineering", "", ""); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	m := NewMux(workDir, nil, WithConfigService(svc), WithL2SessionStore(store))
+	t.Cleanup(func() { _ = m.Close() })
+
+	recorder := httpRecord(t, m, http.MethodGet, "/api/session/l2/fresh/model", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	var initial sessionModelResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &initial); err != nil {
+		t.Fatalf("decode GET: %v", err)
+	}
+	if initial.Selection != nil || initial.Source != "default" {
+		t.Fatalf("initial = %+v, want auto", initial)
+	}
+
+	body := strings.NewReader(`{"provider_id":"deepseek","model_id":"deepseek-v4-flash-thinking","reasoning_effort":"max"}`)
+	recorder = httpRecord(t, m, http.MethodPut, "/api/session/l2/fresh/model", body)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	// The choice is readable straight away, before any activation.
+	sel, ok := store.ModelSelection("fresh")
+	if !ok || sel.ModelID != "deepseek-v4-flash-thinking" || sel.ReasoningEffort != "max" {
+		t.Fatalf("store selection = %+v ok = %v", sel, ok)
+	}
+
+	// meta.json carries the group, otherwise the session would be unrestorable.
+	meta, err := session.LoadMeta(workDir, "fresh")
+	if err != nil {
+		t.Fatalf("LoadMeta: %v", err)
+	}
+	if meta.Group != "engineering" {
+		t.Fatalf("meta group = %q, want engineering", meta.Group)
+	}
+	if meta.Model.ModelID != "deepseek-v4-flash-thinking" || meta.Model.ReasoningEffort != "max" {
+		t.Fatalf("persisted model = %+v", meta.Model)
+	}
+
+	// An id that neither the store nor the disk knows stays a 404.
+	recorder = httpRecord(t, m, http.MethodPut, "/api/session/l2/missing/model", strings.NewReader(`{"provider_id":"","model_id":""}`))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("missing PUT status = %d body = %s", recorder.Code, recorder.Body.String())
 	}
 }

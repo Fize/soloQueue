@@ -18,6 +18,10 @@ import (
 	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
+// ErrL2SessionNotFound reports a session id the store cannot resolve in memory
+// or on disk. Callers map it to their own not-found response.
+var ErrL2SessionNotFound = errors.New("L2 session not found")
+
 type l2LifecycleState uint8
 
 const (
@@ -593,6 +597,66 @@ func (s *L2SessionStore) SetName(id, name string) {
 		s.logger.WarnContext(context.Background(), logger.CatApp, "L2 session rename to meta.json failed",
 			"id", id, "err", err.Error())
 	}
+}
+
+// ModelSelection reports the session's model override. An activated session
+// holds the live copy, an inactive one reads meta.json, and a session that was
+// created but never started has no metadata yet — it reports auto. The bool
+// reports whether the session exists at all.
+func (s *L2SessionStore) ModelSelection(id string) (ModelSelection, bool) {
+	s.mu.RLock()
+	entry, ok := s.sessions[id]
+	var sess *Session
+	if ok {
+		sess = entry.Session
+	}
+	s.mu.RUnlock()
+
+	if sess != nil {
+		return sess.ModelSelection(), true
+	}
+	// A session restored from disk after a restart is not in memory yet.
+	if meta, err := LoadMeta(s.workDir, id); err == nil {
+		return meta.Model, true
+	}
+	return ModelSelection{}, ok
+}
+
+// SetModelSelection stores an already validated override. An activated session
+// owns its live copy; an inactive one persists into meta.json so activation
+// hydrates it. The write seeds the entry's creation fields, because a session
+// that was never started has no meta.json yet and the next LoadMeta must still
+// be able to restore it.
+func (s *L2SessionStore) SetModelSelection(id string, sel ModelSelection) error {
+	s.mu.RLock()
+	entry, ok := s.sessions[id]
+	var sess *Session
+	seed := l2EntrySeed{}
+	if ok {
+		sess = entry.Session
+		seed = newL2EntrySeed(entry)
+	}
+	workDir := s.workDir
+	s.mu.RUnlock()
+
+	if sess != nil {
+		return sess.SetModelSelection(sel)
+	}
+	if !ok {
+		// Only a session that already exists on disk may be updated: a stale id
+		// must not create metadata for a session nobody can open.
+		if _, err := LoadMeta(workDir, id); err != nil {
+			return fmt.Errorf("%w: %q", ErrL2SessionNotFound, id)
+		}
+	}
+
+	if err := MergeAndSave(workDir, id, func(m *SessionMeta) {
+		applyEntrySeed(m, seed)
+		m.Model = sel
+	}); err != nil {
+		return fmt.Errorf("persist model selection for L2 session %q: %w", id, err)
+	}
+	return nil
 }
 
 // l2EntrySeed captures the in-memory fields that must be present on disk for

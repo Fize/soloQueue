@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -135,6 +136,40 @@ func (m *Mux) handleSetSessionModel(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, http.StatusOK, m.sessionModelResponseFor(sess.ModelSelection()))
 }
 
+// l2SessionModelSelection resolves the stored selection of an L2 session,
+// including one that was created but never activated: it has no meta.json yet,
+// but it already exists and reports auto until a model is chosen.
+func (m *Mux) l2SessionModelSelection(id string) (session.ModelSelection, bool) {
+	if sess := m.activatedL2Session(id); sess != nil {
+		return sess.ModelSelection(), true
+	}
+	if m.l2Store != nil {
+		return m.l2Store.ModelSelection(id)
+	}
+	meta, err := session.LoadMeta(m.workDir, id)
+	if err != nil {
+		return session.ModelSelection{}, false
+	}
+	return meta.Model, true
+}
+
+// persistL2SessionModel stores a validated selection. A session that is not
+// loaded keeps its choice on disk so the next activation picks it up.
+func (m *Mux) persistL2SessionModel(id string, sel session.ModelSelection) error {
+	if sess := m.activatedL2Session(id); sess != nil {
+		return sess.SetModelSelection(sel)
+	}
+	if m.l2Store != nil {
+		return m.l2Store.SetModelSelection(id, sel)
+	}
+	if _, err := session.LoadMeta(m.workDir, id); err != nil {
+		return session.ErrL2SessionNotFound
+	}
+	return session.MergeAndSave(m.workDir, id, func(meta *session.SessionMeta) {
+		meta.Model = sel
+	})
+}
+
 // GET /api/session/l2/{id}/model
 func (m *Mux) handleGetL2SessionModel(w http.ResponseWriter, r *http.Request) {
 	if m.configSvc == nil {
@@ -146,16 +181,12 @@ func (m *Mux) handleGetL2SessionModel(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session id is required"})
 		return
 	}
-	if sess := m.activatedL2Session(id); sess != nil {
-		m.writeJSON(w, http.StatusOK, m.sessionModelResponseFor(sess.ModelSelection()))
-		return
-	}
-	meta, err := session.LoadMeta(m.workDir, id)
-	if err != nil {
+	sel, ok := m.l2SessionModelSelection(id)
+	if !ok {
 		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
-	m.writeJSON(w, http.StatusOK, m.sessionModelResponseFor(meta.Model))
+	m.writeJSON(w, http.StatusOK, m.sessionModelResponseFor(sel))
 }
 
 // PUT /api/session/l2/{id}/model
@@ -174,23 +205,11 @@ func (m *Mux) handleSetL2SessionModel(w http.ResponseWriter, r *http.Request) {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if sess := m.activatedL2Session(id); sess != nil {
-		if err := sess.SetModelSelection(sel); err != nil {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	if err := m.persistL2SessionModel(id, sel); err != nil {
+		if errors.Is(err, session.ErrL2SessionNotFound) {
+			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 			return
 		}
-		m.writeJSON(w, http.StatusOK, m.sessionModelResponseFor(sess.ModelSelection()))
-		return
-	}
-	// The session is not loaded: persist the choice so the next activation
-	// picks it up.
-	if _, err := session.LoadMeta(m.workDir, id); err != nil {
-		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
-		return
-	}
-	if err := session.MergeAndSave(m.workDir, id, func(meta *session.SessionMeta) {
-		meta.Model = sel
-	}); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
