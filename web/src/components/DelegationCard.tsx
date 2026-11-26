@@ -178,12 +178,12 @@ export function DelegationCard({
               {(taskText || cleanName).replace(/\s+/g, ' ')}
             </DialogDescription>
           </DialogHeader>
+          {taskText && <details className="shrink-0 rounded-md border border-border/40 text-xs">
+            <summary className="cursor-pointer px-3 py-2 text-muted-foreground">{t('observability.taskDescription')}</summary>
+            <div tabIndex={0} className="max-h-[35vh] overflow-y-auto whitespace-pre-wrap break-words border-t border-border/40 px-3 py-2 text-muted-foreground">{taskText}</div>
+          </details>}
           <div ref={streamScrollRef} className="min-h-0 min-w-0 overflow-y-auto">
-            {taskText && <details className="mb-4 rounded-md border border-border/40 text-xs">
-              <summary className="cursor-pointer px-3 py-2 text-muted-foreground">{t('observability.taskDescription')}</summary>
-              <div tabIndex={0} className="max-h-[35vh] overflow-y-auto whitespace-pre-wrap break-words border-t border-border/40 px-3 py-2 text-muted-foreground">{taskText}</div>
-            </details>}
-            {running && agentStream ? <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} conversationStyle identity={`${sessionId}:${identity.dispatchId || callId}`} /> : sessionId && (identity.dispatchId || requestId) ?
+            {agentStream ? <AgentStreamView state={agentStream} scrollContainerRef={streamScrollRef} conversationStyle identity={`${sessionId}:${identity.dispatchId || callId}`} /> : sessionId && (identity.dispatchId || requestId) ?
               <DelegationHistory sessionId={sessionId} requestId={requestId} dispatchId={identity.dispatchId} toolCallId={callId} result={result} error={error} scrollRef={streamScrollRef} /> :
               <div className="space-y-3 text-xs">
                 {result && <MarkdownPreview content={result} />}
