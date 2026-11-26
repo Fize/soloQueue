@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -204,7 +205,14 @@ func (h *FileHandler) buildEntry(r slog.Record, cat Category) map[string]any {
 // applyAttr writes slog.Attr to the top level of entry or to the ctx sub-object.
 func applyAttr(entry, ctx map[string]any, a slog.Attr) {
 	key := a.Key
-	val := a.Value.Any()
+	val := a.Value.Resolve().Any()
+
+	// encoding/json only sees exported fields on error values, so errors.New and
+	// fmt.Errorf serialize to "{}" and custom errors lose their Error() text.
+	// Persist the message instead.
+	if err, ok := val.(error); ok {
+		val = errorText(err)
+	}
 
 	// Top-level reserved fields
 	switch key {
@@ -213,6 +221,22 @@ func applyAttr(entry, ctx map[string]any, a slog.Attr) {
 	default:
 		ctx[key] = val
 	}
+}
+
+// errorText renders err as its message for JSONL output. A typed-nil error
+// becomes null (matching json.Marshal) so a nil receiver never reaches Error().
+func errorText(err error) any {
+	if err == nil {
+		return nil
+	}
+	v := reflect.ValueOf(err)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if v.IsNil() {
+			return nil
+		}
+	}
+	return err.Error()
 }
 
 // extractCategory extracts the category from record attrs.
