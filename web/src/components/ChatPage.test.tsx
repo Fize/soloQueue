@@ -67,6 +67,7 @@ const chatStoreState = {
     },
   ],
   drafts: [] as Array<Record<string, unknown>>,
+  pendingModel: null as Record<string, unknown> | null,
   sessionsLoading: false,
   sessionsLoaded: true,
   historyHasMore: {},
@@ -250,6 +251,7 @@ beforeEach(() => {
   mocks.inspectorPanelProps = {};
   mocks.resizablePaneArgs = {};
   chatStoreState.activeSessionId = "channel-l2";
+  chatStoreState.pendingModel = null;
   chatStoreState.sessionsLoading = false;
   chatStoreState.sessionsLoaded = true;
   chatStoreState.sessions = [
@@ -489,6 +491,61 @@ describe("ChatPage", () => {
 
     await waitFor(() =>
       expect(screen.queryByText("channel L2 live output")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("starts the chat from the welcome screen with the model chosen there", async () => {
+    routeSessionId = "";
+    chatStoreState.activeSessionId = null;
+    chatStoreState.sessions = [];
+    chatStoreState.drafts = [];
+    chatStoreState.pendingModel = { provider_id: "tencent", model_id: "kimi-k3" };
+    mocks.createL2Session.mockResolvedValueOnce("l2:from-welcome");
+
+    render(<ChatPage />);
+
+    await mocks.chatInputProps.onSend?.("hello", undefined, "team", "/repo");
+
+    expect(mocks.createL2Session).toHaveBeenCalledWith("team", "/repo", {
+      provider_id: "tencent",
+      model_id: "kimi-k3",
+    });
+    expect(mocks.chatStreamSend).toHaveBeenCalled();
+  });
+
+  it("creates the session with the model chosen while it was only a placeholder", async () => {
+    const draftId = "draft:model-placeholder";
+    routeSessionId = draftId;
+    chatStoreState.activeSessionId = draftId;
+    chatStoreState.sessions = [];
+    chatStoreState.drafts = [
+      {
+        id: draftId,
+        group: "team",
+        project_path: "/repo",
+        draft: true,
+        model: { provider_id: "tencent", model_id: "kimi-k3" },
+      },
+    ];
+    mocks.createL2Session.mockResolvedValueOnce("l2:new-session");
+
+    render(<ChatPage />);
+
+    await mocks.chatInputProps.onSend?.("hello", undefined, "team", "/repo");
+
+    // The placeholder's choice travels into the creation call, which applies it
+    // before the session becomes active.
+    expect(mocks.createL2Session).toHaveBeenCalledWith("team", "/repo", {
+      provider_id: "tencent",
+      model_id: "kimi-k3",
+    });
+    expect(mocks.chatStreamSend).toHaveBeenCalledWith(
+      "hello",
+      undefined,
+      "l2:new-session",
+      undefined,
+      undefined,
+      false,
     );
   });
 

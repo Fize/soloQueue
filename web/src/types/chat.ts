@@ -115,6 +115,12 @@ export interface ChatSession {
   last_active_at?: string;
   /** True for a client-side placeholder that no server session backs yet. */
   draft?: boolean;
+  /**
+   * Placeholder only: the model chosen in the composer before the session
+   * exists. It is applied when the first message creates the real session; a
+   * server session always reports its model through the session model API.
+   */
+  model?: SessionModelSelection;
   ctxwin_used?: number;
   ctxwin_limit?: number;
   usage?: SessionUsage;

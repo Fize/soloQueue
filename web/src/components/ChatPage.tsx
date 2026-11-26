@@ -77,6 +77,8 @@ export function ChatPage() {
   const isSystemCommandRunning = activeSessionId ? (systemCommandSessions[activeSessionId] ?? false) : false
   const sessions = useChatStore(useShallow((s) => s.sessions))
   const drafts = useChatStore(useShallow((s) => s.drafts))
+  // Model chosen on the welcome screen, before any chat exists.
+  const pendingModel = useChatStore((s) => s.pendingModel)
   const sessionsLoading = useChatStore((s) => s.sessionsLoading)
   const sessionsLoaded = useChatStore((s) => s.sessionsLoaded)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
@@ -281,7 +283,8 @@ export function ChatPage() {
   const currentMessages = transcript.messages;
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   // Placeholder new chat: the backend has no session for it yet, so it carries
-  // the group/project the user picked when they clicked "new chat".
+  // the group/project the user picked when they clicked "new chat", plus the
+  // model chosen in the composer until the session exists.
   const activeDraft = drafts.find((s) => s.id === activeSessionId);
   const hasActiveSession = activeSession != null;
 
@@ -505,8 +508,14 @@ export function ChatPage() {
 
     if (!isL1Session && group) {
       if (!hasServerSession) {
-        // No session exists — auto-create one on first send
-        const newId = await createL2Session(group, projectPath || "");
+        // No session exists — auto-create one on first send. The composer may
+        // carry a model chosen before the session existed; the store applies it
+        // before the new session becomes active.
+        const newId = await createL2Session(
+          group,
+          projectPath || "",
+          activeDraft?.model ?? pendingModel,
+        );
         if (newId) {
           targetSessionId = newId;
           navigate(`/chat/${newId}`);

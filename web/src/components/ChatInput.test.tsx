@@ -2,7 +2,7 @@ import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-l
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatInput } from './ChatInput'
-import { getProjectBranches, uploadFile } from '@/lib/api'
+import { getProjectBranches, getSessionModel, uploadFile } from '@/lib/api'
 
 vi.mock('@/lib/api', () => ({
   getProjectBranches: vi.fn().mockResolvedValue(['main']),
@@ -124,6 +124,7 @@ describe('ChatInput workspace selector', () => {
   })
   it('renders the task type badge and the session model pill', async () => {
     renderInput({
+      activeSessionId: 'session-a',
       taskLevel: 'route-task-sentinel',
       modelName: 'route-model-sentinel',
     })
@@ -134,6 +135,18 @@ describe('ChatInput workspace selector', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('Flash'),
     )
+  })
+
+  it('offers the model picker before a chat exists and reads no session model', async () => {
+    // The welcome composer starts a new chat: it shows the pending choice (auto
+    // by default) instead of the L1 session's model, and stays clickable.
+    vi.mocked(getSessionModel).mockClear()
+    renderInput({ activeSessionId: undefined })
+
+    const model = await screen.findByRole('button', { name: 'Model' })
+    expect(model).toHaveTextContent('Auto')
+    expect(model).toBeEnabled()
+    expect(getSessionModel).not.toHaveBeenCalled()
   })
 
   it('keeps local selected by default even when projects are available', async () => {

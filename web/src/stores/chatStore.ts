@@ -1,11 +1,12 @@
 import { create } from 'zustand'
-import type { ChatSession, ChatRouteInfo, CompactionStatus } from '@/types'
+import type { ChatSession, ChatRouteInfo, CompactionStatus, SessionModelSelection } from '@/types'
 import {
   listSessions,
   createL2Session,
   deleteL2Session,
   rewindSession as apiRewindSession,
   deleteSessionMessages as apiDeleteSessionMessages,
+  setSessionModel,
 } from '@/lib/api'
 import { useInspectorStateStore } from './inspectorStateStore'
 
@@ -41,6 +42,12 @@ interface ChatState {
    * chat leaves nothing behind to clean up.
    */
   drafts: ChatSession[]
+  /**
+   * Model chosen on the composer before any chat exists (the welcome screen).
+   * The first message of the chat started there applies it, exactly like a
+   * placeholder's choice; a session created from it clears the field.
+   */
+  pendingModel: SessionModelSelection | null
   activeSessionId: string | null
   compactions: Record<string, CompactionStatus[]>
   compactionClearWatermarks: Record<string, string>
@@ -58,11 +65,19 @@ interface ChatState {
   sessionsLoaded: boolean
 
   loadSessions: () => Promise<void>
-  createL2Session: (group: string, workDir?: string) => Promise<string | null>
+  createL2Session: (
+    group: string,
+    workDir?: string,
+    model?: SessionModelSelection | null,
+  ) => Promise<string | null>
   deleteL2Session: (id: string) => Promise<void>
   setActiveSession: (id: string) => void
   /** Creates a client-side placeholder session and returns its id. */
   beginDraft: (group: string, projectPath?: string) => string
+  /** Keeps a model chosen before the placeholder's session exists; null clears it. */
+  setDraftModel: (id: string, selection: SessionModelSelection | null) => void
+  /** Keeps a model chosen while no chat exists yet; null clears it. */
+  setPendingModel: (selection: SessionModelSelection | null) => void
   /** Drops one placeholder session without touching the backend. */
   clearDraft: (id: string) => void
   /** Marks a session as just active so the tree reorders without a refetch. */
@@ -180,6 +195,7 @@ function newDraftSessionId(): string {
 export const useChatStore = create<ChatState>((set) => ({
   sessions: [],
   drafts: [],
+  pendingModel: null,
   activeSessionId: null,
   compactions: {},
   compactionClearWatermarks: {},
@@ -230,7 +246,7 @@ export const useChatStore = create<ChatState>((set) => ({
     return inflightSessionsLoad
   },
 
-  createL2Session: async (group: string, workDir?: string) => {
+  createL2Session: async (group: string, workDir?: string, model?: SessionModelSelection | null) => {
     try {
       const info = await createL2Session(group, workDir || '')
       const session: ChatSession = {
@@ -244,11 +260,24 @@ export const useChatStore = create<ChatState>((set) => ({
         createdAt: info.created_at,
         last_active_at: info.created_at,
       }
+      // Apply a model chosen while the chat was only a placeholder before the
+      // session becomes active: the composer reads its model from the server,
+      // so activating first would show the default for a moment and never
+      // refresh. A failed write keeps the default instead of blocking the chat.
+      if (model) {
+        try {
+          await setSessionModel(info.id, model)
+        } catch {
+          // Fall through: the session exists with the configured default model.
+        }
+      }
       set((s) => ({
         sessions: sortSessions([session, ...s.sessions]),
         activeSessionId: session.id,
         // The placeholder is now backed by a real session.
         drafts: [],
+        // A choice made on the welcome screen belonged to this chat.
+        pendingModel: null,
       }))
       return session.id
     } catch {
@@ -269,8 +298,10 @@ export const useChatStore = create<ChatState>((set) => ({
       draft: true,
     }
     // Placeholders are per new-chat action: a second "new chat" replaces the
-    // previous unstarted one instead of accumulating empty rows.
-    set(() => ({ drafts: [draft], activeSessionId: draft.id }))
+    // previous unstarted one instead of accumulating empty rows. The choice made
+    // on the welcome screen belonged to the chat that was never started, and a
+    // placeholder keeps its own choice, so it must not leak into this one.
+    set(() => ({ drafts: [draft], activeSessionId: draft.id, pendingModel: null }))
     return draft.id
   },
 
@@ -335,13 +366,30 @@ export const useChatStore = create<ChatState>((set) => ({
     }
   },
 
-  // Switching away from an unstarted placeholder abandons it: a new chat that
-  // never produced a message must not linger in the tree.
-  setActiveSession: (id: string) =>
+  setDraftModel: (id: string, selection: SessionModelSelection | null) =>
     set((s) => ({
-      activeSessionId: id,
-      drafts: s.drafts.some((d) => d.id === id) ? s.drafts : [],
+      drafts: s.drafts.map((d) => (d.id === id ? { ...d, model: selection ?? undefined } : d)),
     })),
+
+  setPendingModel: (selection: SessionModelSelection | null) =>
+    set({ pendingModel: selection }),
+
+  // Switching away from an unstarted placeholder abandons it: a new chat that
+  // never produced a message must not linger in the tree. An empty id is not a
+  // switch — the router reports "no session" for one render while it catches up
+  // with a placeholder beginDraft() just activated, and dropping the row there
+  // would lose the context (and any model) chosen for the pending chat.
+  setActiveSession: (id: string) =>
+    set((s) => {
+      if (!id) return { activeSessionId: id }
+      const toDraft = s.drafts.some((d) => d.id === id)
+      return {
+        activeSessionId: id,
+        drafts: toDraft ? s.drafts : [],
+        // The welcome-screen choice belonged to the chat that never started.
+        pendingModel: toDraft ? s.pendingModel : null,
+      }
+    }),
 
   renameSession: (id: string, name: string) =>
     set((s) => ({ sessions: s.sessions.map((sess) => (sess.id === id ? { ...sess, name } : sess)) })),

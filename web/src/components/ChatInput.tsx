@@ -1005,7 +1005,9 @@ export function ChatInput({
             state={sessionModel.state}
             saving={sessionModel.saving}
             tier={tier}
-            disabled={disabled || (showL2Selectors && !activeSessionId)}
+            // A composer without a session still chooses the model of the chat
+            // it is about to create, so only a disabled composer blocks it.
+            disabled={disabled}
             onSelect={async (selection) => {
               const next = await sessionModel.select(selection)
               return !!next

@@ -6,6 +6,7 @@ import {
   deleteSessionMessages as apiDeleteSessionMessages,
   listSessions,
   rewindSession as apiRewindSession,
+  setSessionModel as apiSetSessionModel,
 } from '@/lib/api'
 import { useInspectorStateStore } from './inspectorStateStore'
 
@@ -15,6 +16,7 @@ vi.mock('@/lib/api', () => ({
   deleteL2Session: vi.fn(),
   rewindSession: vi.fn(),
   deleteSessionMessages: vi.fn(),
+  setSessionModel: vi.fn(),
 }))
 
 beforeEach(() => {
@@ -24,6 +26,7 @@ beforeEach(() => {
   useChatStore.setState({
     sessions: [],
     drafts: [],
+    pendingModel: null,
     activeSessionId: null,
     compactions: {},
     compactionClearWatermarks: {},
@@ -298,6 +301,73 @@ describe('session ordering and draft placeholders', () => {
     expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual(['l2:real'])
   })
 
+  it('keeps the placeholder while the router settles to "no session"', () => {
+    // beginDraft() activates the placeholder and navigate() lands one render
+    // later, so ChatPage reports an empty session id first. That must not drop
+    // the row — otherwise the pending chat loses its group, project and model.
+    const draftId = useChatStore.getState().beginDraft('engineering', '/repo')
+    useChatStore.getState().setDraftModel(draftId, { provider_id: 'tencent', model_id: 'kimi-k3' })
+
+    useChatStore.getState().setActiveSession('')
+
+    expect(useChatStore.getState().activeSessionId).toBe('')
+    expect(useChatStore.getState().drafts.map((d) => d.id)).toEqual([draftId])
+    expect(useChatStore.getState().drafts[0].model?.model_id).toBe('kimi-k3')
+
+    // The route catches up with the placeholder it just created.
+    useChatStore.getState().setActiveSession(draftId)
+    expect(useChatStore.getState().drafts).toHaveLength(1)
+
+    // Switching to a real session still abandons the placeholder.
+    useChatStore.getState().setActiveSession('l2:real')
+    expect(useChatStore.getState().drafts).toEqual([])
+  })
+
+  it('keeps a welcome-screen choice until the chat it starts exists', async () => {
+    useChatStore.getState().setPendingModel({ provider_id: 'tencent', model_id: 'kimi-k3' })
+    expect(useChatStore.getState().pendingModel?.model_id).toBe('kimi-k3')
+
+    // Opening an existing chat abandons the choice: it belonged to a chat that
+    // was never started.
+    useChatStore.setState({ sessions: [session('l2:real', '2026-11-26T10:00:00Z')] })
+    useChatStore.getState().setActiveSession('l2:real')
+    expect(useChatStore.getState().pendingModel).toBeNull()
+  })
+
+  it('clears the welcome-screen choice once the session it created exists', async () => {
+    vi.mocked(apiCreateL2Session).mockResolvedValueOnce({
+      id: 'uuid-4',
+      group: 'engineering',
+      project_path: '',
+      created_at: '2026-11-26T12:00:00Z',
+    } as any)
+    vi.mocked(apiSetSessionModel).mockResolvedValueOnce({
+      selection: null,
+      effective: null,
+      source: 'default',
+    })
+    const model = { provider_id: 'tencent', model_id: 'kimi-k3' }
+    useChatStore.getState().setPendingModel(model)
+
+    const created = await useChatStore.getState().createL2Session('engineering', '', model)
+
+    expect(created).toBe('l2:uuid-4')
+    expect(vi.mocked(apiSetSessionModel)).toHaveBeenCalledWith('uuid-4', model)
+    expect(useChatStore.getState().pendingModel).toBeNull()
+  })
+
+  it('drops the welcome-screen choice when a placeholder new chat starts', () => {
+    useChatStore.getState().setPendingModel({ provider_id: 'tencent', model_id: 'kimi-k3' })
+
+    const draftId = useChatStore.getState().beginDraft('engineering')
+
+    // The placeholder shows its own (empty) choice, so the created session must
+    // not silently inherit the abandoned one.
+    expect(useChatStore.getState().pendingModel).toBeNull()
+    expect(useChatStore.getState().drafts[0]).toMatchObject({ id: draftId })
+    expect(useChatStore.getState().drafts[0].model).toBeUndefined()
+  })
+
   it('beginDraft replaces a previous unstarted placeholder', () => {
     const first = useChatStore.getState().beginDraft('engineering')
     const second = useChatStore.getState().beginDraft('engineering')
@@ -332,5 +402,61 @@ describe('session ordering and draft placeholders', () => {
     expect(useChatStore.getState().activeSessionId).toBe('l2:uuid-1')
     expect(draftId).not.toBe(created)
     expect(useChatStore.getState().sessions.map((s) => s.id)).toEqual(['l2:uuid-1'])
+  })
+
+  it('setDraftModel keeps the choice on the placeholder only', () => {
+    const draftId = useChatStore.getState().beginDraft('engineering')
+    const selection = { provider_id: 'tencent', model_id: 'kimi-k3' }
+
+    useChatStore.getState().setDraftModel(draftId, selection)
+
+    expect(useChatStore.getState().drafts[0].model).toEqual(selection)
+    expect(vi.mocked(apiSetSessionModel)).not.toHaveBeenCalled()
+
+    useChatStore.getState().setDraftModel(draftId, null)
+
+    expect(useChatStore.getState().drafts[0].model).toBeUndefined()
+  })
+
+  it('createL2Session applies the placeholder model before activating the session', async () => {
+    vi.mocked(apiCreateL2Session).mockResolvedValueOnce({
+      id: 'uuid-2',
+      group: 'engineering',
+      project_path: '',
+      created_at: '2026-11-26T12:00:00Z',
+    } as any)
+    // The composer reads the model from the server as soon as the session is
+    // active, so the write must land before the store switches to it.
+    const draftId = useChatStore.getState().beginDraft('engineering')
+    const writes: Array<string | null> = []
+    vi.mocked(apiSetSessionModel).mockImplementationOnce(async () => {
+      writes.push(useChatStore.getState().activeSessionId)
+      return { selection: null, effective: null, source: 'default' }
+    })
+    const model = { provider_id: 'tencent', model_id: 'kimi-k3', reasoning_effort: 'high' }
+
+    const created = await useChatStore.getState().createL2Session('engineering', '', model)
+
+    expect(vi.mocked(apiSetSessionModel)).toHaveBeenCalledWith('uuid-2', model)
+    expect(writes).toEqual([draftId])
+    expect(created).toBe('l2:uuid-2')
+    expect(useChatStore.getState().activeSessionId).toBe('l2:uuid-2')
+  })
+
+  it('createL2Session keeps the default model when applying the choice fails', async () => {
+    vi.mocked(apiCreateL2Session).mockResolvedValueOnce({
+      id: 'uuid-3',
+      group: 'engineering',
+      project_path: '',
+      created_at: '2026-11-26T12:00:00Z',
+    } as any)
+    vi.mocked(apiSetSessionModel).mockRejectedValueOnce(new Error('rejected'))
+
+    const created = await useChatStore
+      .getState()
+      .createL2Session('engineering', '', { provider_id: 'tencent', model_id: 'gone' })
+
+    expect(created).toBe('l2:uuid-3')
+    expect(useChatStore.getState().activeSessionId).toBe('l2:uuid-3')
   })
 })

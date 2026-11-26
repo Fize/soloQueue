@@ -108,7 +108,14 @@ export function ModelPicker({
   const selection = state?.selection
   const selectedRef = selection ? `${selection.provider_id}:${selection.model_id}` : ''
   const effort = selection?.reasoning_effort ?? ''
-  const triggerLabel = effective ? effective.name || effective.model_id : t('chat.modelSelectorAuto')
+  // A placeholder new chat reports the chosen ids only: the server names the
+  // model once the session exists, so the catalog fills the gap in the meantime.
+  const catalogLabel = effective && !effective.name
+    ? options.find((m) => m.providerId === effective.provider_id && m.id === effective.model_id)?.name
+    : undefined
+  const triggerLabel = effective
+    ? effective.name || catalogLabel || effective.model_id
+    : t('chat.modelSelectorAuto')
 
   const viewFor = useCallback(
     (model: LLMModel): SessionModelView | null => {
