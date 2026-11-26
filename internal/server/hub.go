@@ -212,6 +212,9 @@ func (h *Hub) configureRequestLifecycle() {
 		},
 		OnInput: func(ctx context.Context, sessionID, requestID, prompt string) {
 			h.rememberRequestPrompt(requestID, prompt)
+			// Marks activity and titles the session immediately; the transcript
+			// carries the title to clients, so no runtime-state notify is needed.
+			h.observeSessionInput(logicalRuntimeSessionID(sessionID), prompt)
 		},
 		OnBind: func(sessionID, requestID string, cancel func() error) error {
 			return h.requests.BindCanceller(requestID, cancel)

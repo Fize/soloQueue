@@ -4,10 +4,53 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/xiaobaitu/soloqueue/internal/agent"
 	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
+
+// observeSessionInput handles an accepted user prompt for an L2 session: it
+// marks the session as active and titles it immediately.
+//
+// The title is derived from the prompt alone (generateSessionTitle ignores the
+// reply), so it can be produced at input time instead of waiting for the
+// agent's first DoneEvent — which, for a tool-using task, arrives only after the
+// whole turn has finished. Built-in slash commands are not user-authored
+// prompts and must never become a session title.
+func (h *Hub) observeSessionInput(sessionID, prompt string) {
+	if h == nil || h.mux == nil || h.mux.l2Store == nil || !strings.HasPrefix(sessionID, "l2:") {
+		return
+	}
+	l2ID := strings.TrimPrefix(sessionID, "l2:")
+
+	// In-memory activity mark: the ordering key for the session list, visible to
+	// clients without waiting for a timeline write or another list round-trip.
+	h.mux.l2Store.TouchActivity(l2ID, time.Now())
+
+	if !isUserAuthoredPrompt(prompt) {
+		return
+	}
+	if h.mux.l2Store.GetName(l2ID) != "" {
+		return
+	}
+	title := generateSessionTitle(prompt, "")
+	if title == "" {
+		return
+	}
+	h.mux.l2Store.SetName(l2ID, title)
+	h.publishSessionMeta(sessionID, transcript.Frame{Kind: transcript.KindSessionMeta, SessionName: title})
+}
+
+// isUserAuthoredPrompt reports whether a prompt may name a session. Empty or
+// whitespace-only input and built-in slash commands are excluded.
+func isUserAuthoredPrompt(prompt string) bool {
+	trimmed := strings.TrimSpace(prompt)
+	if trimmed == "" {
+		return false
+	}
+	return !strings.HasPrefix(trimmed, "/")
+}
 
 // rememberRequestPrompt keeps the first prompt of a request for the session
 // title generated when its first reply completes.
@@ -29,11 +72,16 @@ func (h *Hub) observeSessionMeta(sessionID, requestID string, ev agent.AgentEven
 	l2ID := strings.TrimPrefix(sessionID, "l2:")
 	switch e := ev.(type) {
 	case agent.DoneEvent:
+		// Fallback for prompts that produced no input-time title (empty prompt,
+		// slash command, or an input hook that never ran).
 		if h.mux.l2Store.GetName(l2ID) != "" {
 			return
 		}
 		prompt, _ := h.prompts.Load(requestID)
 		text, _ := prompt.(string)
+		if !isUserAuthoredPrompt(text) {
+			return
+		}
 		title := generateSessionTitle(text, e.Content)
 		if title == "" {
 			return
@@ -70,7 +118,7 @@ func (h *Hub) observeSessionMeta(sessionID, requestID string, ev agent.AgentEven
 }
 
 func (h *Hub) publishSessionMeta(sessionID string, frame transcript.Frame) {
-	if h.mux == nil {
+	if h == nil || h.mux == nil || h.mux.transcripts == nil {
 		return
 	}
 	h.mux.transcripts.Journal(sessionID, h.mux.sessionTimelineDir(sessionID)).Publish(frame)
