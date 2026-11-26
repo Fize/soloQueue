@@ -10,6 +10,12 @@ import (
 // maxFramesPerMessage bounds one batched WebSocket message.
 const maxFramesPerMessage = 512
 
+// maxFramesBytes bounds how much one batched message may carry. Frame counts
+// alone do not bound it: a single snapshot or tool result can be megabytes, and
+// the client parses and renders every byte it receives. A frame that alone
+// exceeds the budget is still sent whole, because frames must stay contiguous.
+const maxFramesBytes = 256 << 10
+
 // framesMessage carries consecutive journal frames of one session.
 type framesMessage struct {
 	Type      string             `json:"type"`
@@ -130,17 +136,55 @@ func (c *Client) pendingTranscriptMessages() (messages [][]byte, more bool) {
 		if len(frames) == 0 {
 			continue
 		}
-		data, err := json.Marshal(framesMessage{Type: "frames", SessionID: sub.key, Epoch: sub.epoch, Frames: frames})
-		if err != nil {
+		data, sent, trimmed := encodeFrames(sub.key, sub.epoch, frames)
+		if data == nil || sent == 0 {
 			continue
 		}
 		messages = append(messages, data)
-		sub.cursor = frames[len(frames)-1].Seq
-		if len(frames) == maxFramesPerMessage {
+		sub.cursor = frames[sent-1].Seq
+		if trimmed || len(frames) == maxFramesPerMessage {
 			more = true
 		}
 	}
 	return messages, more
+}
+
+// encodeFrames encodes the longest prefix of frames that fits maxFramesBytes.
+// At least one frame is always encoded and trimmed reports that the rest is
+// still queued.
+func encodeFrames(key, epoch string, frames []transcript.Frame) (data []byte, sent int, trimmed bool) {
+	encode := func(count int) []byte {
+		encoded, err := json.Marshal(framesMessage{Type: "frames", SessionID: key, Epoch: epoch, Frames: frames[:count]})
+		if err != nil {
+			return nil
+		}
+		return encoded
+	}
+
+	data = encode(len(frames))
+	if data == nil || len(data) <= maxFramesBytes || len(frames) == 1 {
+		return data, len(frames), false
+	}
+
+	// Binary search the longest prefix that fits; each probe re-encodes exactly
+	// the bytes that will be written.
+	best := encode(1)
+	bestCount := 1
+	low, high := 2, len(frames)
+	for low <= high {
+		mid := (low + high) / 2
+		candidate := encode(mid)
+		if candidate == nil {
+			break
+		}
+		if len(candidate) <= maxFramesBytes {
+			best, bestCount = candidate, mid
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
+	}
+	return best, bestCount, true
 }
 
 // setLatestState records the newest runtime state for this client. Only the

@@ -187,3 +187,71 @@ func TestWebSocketTranscriptSubscriptionResumes(t *testing.T) {
 		return
 	}
 }
+
+func TestFramesMessageIsBoundedByBytes(t *testing.T) {
+	hub := NewHub(&Mux{})
+	client := newClient(hub, nil)
+	reg := transcript.NewRegistry(transcript.Config{MaxFrames: 2048})
+	j := reg.Journal("l2:bytes", "")
+	// Each frame alone is small, but the batch is far above the byte budget.
+	payload := strings.Repeat("x", 8<<10)
+	const total = 200
+	for i := 0; i < total; i++ {
+		j.Publish(transcript.Frame{Kind: transcript.KindItemDelta, RequestID: "r", ItemID: "out:r:0", Text: payload})
+	}
+	client.subscribe("l2:bytes", j, j.Epoch(), 0)
+
+	seen := 0
+	for round := 0; round < 100; round++ {
+		messages, more := client.pendingTranscriptMessages()
+		for _, raw := range messages {
+			if len(raw) > maxFramesBytes+(16<<10) {
+				t.Fatalf("message %d bytes exceeds the budget", len(raw))
+			}
+			var batch framesMessage
+			if err := json.Unmarshal(raw, &batch); err != nil {
+				t.Fatal(err)
+			}
+			if len(batch.Frames) == 0 {
+				t.Fatal("empty batch")
+			}
+			for _, frame := range batch.Frames {
+				if frame.Seq != uint64(seen+1) {
+					t.Fatalf("sequence gap: got %d want %d", frame.Seq, seen+1)
+				}
+				seen++
+			}
+		}
+		if !more && len(messages) == 0 {
+			break
+		}
+	}
+	if seen != total {
+		t.Fatalf("delivered %d of %d frames", seen, total)
+	}
+}
+
+func TestOversizedSingleFrameIsStillDelivered(t *testing.T) {
+	hub := NewHub(&Mux{})
+	client := newClient(hub, nil)
+	reg := transcript.NewRegistry(transcript.Config{MaxFrames: 16})
+	j := reg.Journal("l2:big", "")
+	j.Publish(transcript.Frame{Kind: transcript.KindItemSnapshot, RequestID: "r", ItemID: "out:r:0",
+		Segments: []transcript.Segment{{Type: transcript.SegmentContent, Text: strings.Repeat("y", maxFramesBytes*2)}}})
+	client.subscribe("l2:big", j, j.Epoch(), 0)
+
+	messages, more := client.pendingTranscriptMessages()
+	if len(messages) != 1 || more {
+		t.Fatalf("messages=%d more=%v", len(messages), more)
+	}
+	var batch framesMessage
+	if err := json.Unmarshal(messages[0], &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Frames) != 1 || batch.Frames[0].Seq != 1 {
+		t.Fatalf("batch = %#v", batch)
+	}
+	if messages, _ := client.pendingTranscriptMessages(); len(messages) != 0 {
+		t.Fatalf("frame delivered twice: %d", len(messages))
+	}
+}
