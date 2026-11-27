@@ -1723,6 +1723,7 @@ func (s *Session) Clear() error {
 	if a := s.CurrentAgent(); a != nil && a.Def.ProjectInstructions != "" {
 		s.cw.Push(ctxwin.RoleUser, a.Def.ProjectInstructions, ctxwin.WithProjectInstructions())
 	}
+	s.clearAttachments()
 	s.mu.Unlock()
 	s.PublishTranscriptReset("clear")
 
@@ -1856,7 +1857,9 @@ func (s *Session) Rewind(targetTs time.Time) error {
 	}
 
 	// Truncate in-memory ContextWindow
+	dropped := s.itemIDsDroppedByRewind(resolvedTs)
 	s.cw.Rewind(resolvedTs)
+	s.dropAttachments(dropped)
 	s.PublishTranscriptReset("rewind")
 	return nil
 }
@@ -1914,7 +1917,9 @@ func (s *Session) DeleteMessages(targetTsList []time.Time) error {
 	}
 
 	// Remove from in-memory ContextWindow
+	dropped := s.itemIDsAt(resolvedTsList)
 	s.cw.DeleteMessages(resolvedTsList)
+	s.dropAttachments(dropped)
 	s.PublishTranscriptReset("delete")
 	return nil
 }

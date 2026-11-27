@@ -77,11 +77,8 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Prompt string `json:"prompt"`
-		Files  []struct {
-			Name string `json:"name"`
-			Path string `json:"path"`
-		} `json:"files"`
+		Prompt string       `json:"prompt"`
+		Files  []ClientFile `json:"files"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		m.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -97,6 +94,10 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 	// Format prompt with uploaded files if present.
 	// Image files are base64-encoded and passed via context for multimodal models.
 	// Non-image files are injected as text path markers (existing behavior).
+	// Files are bound to this request's transcript item first, matching the
+	// WebSocket path, so their bytes live next to the row that references them.
+	requestID := uuid.NewString()
+	req.Files = m.moveFilesIntoItem("l1", requestID, req.Files)
 	finalPrompt := trimmed
 	var images []llm.ImageContent
 	if len(req.Files) > 0 {
@@ -151,7 +152,7 @@ func (m *Mux) handleAskSession(w http.ResponseWriter, r *http.Request) {
 
 	// Build context with file and image data.
 	askCtx := telemetry.WithTelemetryMetadata(context.Background(), telemetry.Metadata{
-		RequestID: uuid.NewString(),
+		RequestID: requestID,
 		SessionID: sess.TargetID,
 		Origin:    telemetry.OriginAPI,
 	})
@@ -779,7 +780,9 @@ func (m *Mux) resolveSession(ctx context.Context, sessionID string) *session.Ses
 }
 
 // handleUploadFile handles multipart file uploads.
-// Saves the file to `<session_work_dir>/downloads/<filename>`.
+// Saves the file to the session's own timeline directory
+// (`<logs/timelines/<key>>/attachments/<unique name>`), so an attachment is
+// accounted for, retained and deleted together with the history that uses it.
 // Accepts optional `session_id` to resolve L2 session workspace; defaults to L1.
 func (m *Mux) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	if m.sessionMgr == nil {
@@ -801,67 +804,40 @@ func (m *Mux) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	sessionID := r.FormValue("session_id")
-	var sess *session.Session
 	if strings.HasPrefix(sessionID, "l2:") {
 		if m.l2Store == nil {
 			m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "L2 sessions not available"})
 			return
 		}
 		l2ID := strings.TrimPrefix(sessionID, "l2:")
-		sess, err = m.l2Store.Get(r.Context(), l2ID)
-		if err != nil {
+		if _, err := m.l2Store.Get(r.Context(), l2ID); err != nil {
 			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": fmt.Sprintf("L2 session not found: %s", l2ID)})
 			return
 		}
-	} else {
-		sess = m.sessionMgr.Session()
-		if sess == nil {
-			m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active L1 session"})
-			return
-		}
-	}
-
-	a := sess.CurrentAgent()
-	if a == nil {
-		m.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session agent unavailable"})
+	} else if m.sessionMgr.Session() == nil {
+		m.writeJSON(w, http.StatusNotFound, map[string]string{"error": "no active L1 session"})
 		return
 	}
-	workDir := a.WorkDir
-	if workDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		workDir = filepath.Join(home, ".soloqueue")
-	}
 
-	downloadsDir := filepath.Join(workDir, "downloads")
+	downloadsDir := m.uploadAttachmentsDir(sessionID)
 	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create downloads directory: " + err.Error()})
 		return
 	}
 
 	filename := filepath.Base(header.Filename)
-	destPath := filepath.Join(downloadsDir, filename)
-	// Repeated uploads (e.g. clipboard pastes) reuse the same filename and
-	// would overwrite the previous file, making every preview show the same
-	// image. Deduplicate so each upload keeps its own path.
-	if _, err := os.Stat(destPath); err == nil {
-		ext := filepath.Ext(filename)
-		base := strings.TrimSuffix(filename, ext)
-		destPath = filepath.Join(downloadsDir, fmt.Sprintf("%s-%d%s", base, time.Now().UnixNano(), ext))
-	}
-
-	out, err := os.Create(destPath)
+	ext := filepath.Ext(filename)
+	out, err := os.CreateTemp(downloadsDir, strings.TrimSuffix(filename, ext)+"-*"+ext)
 	if err != nil {
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create local file: " + err.Error()})
 		return
 	}
 	defer out.Close()
+	destPath := out.Name()
 
 	size, err := io.Copy(out, file)
 	if err != nil {
+		_ = os.Remove(destPath)
 		m.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to save file: " + err.Error()})
 		return
 	}

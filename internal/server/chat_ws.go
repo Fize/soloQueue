@@ -62,7 +62,11 @@ func (h *Hub) handleChatSend(client *Client, msg *ClientMessage) {
 
 	// Format prompt with uploaded files.
 	// Image files are base64-encoded and passed via context for multimodal models.
+	// Attachments are bound to this message first: they move into
+	// <session>/attachments/<item-id>/ so the bytes live next to the row that
+	// references them.
 	finalPrompt := msg.Prompt
+	msg.Files = h.mux.moveFilesIntoItem(sessionID, msg.RequestID, msg.Files)
 	var images []llm.ImageContent
 	if len(msg.Files) > 0 {
 		var blocks []string

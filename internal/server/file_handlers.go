@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/xiaobaitu/soloqueue/internal/transcript"
 )
 
 // FileInfo holds metadata for a single file or directory.
@@ -149,7 +151,28 @@ func (m *Mux) validatePath(raw string) (string, error) {
 		}
 	}
 
+	// Chat attachments live inside a session's timeline directory, which is not
+	// a general root: only the attachments subtree is servable.
+	if m.isSessionAttachment(resolved) {
+		return resolved, nil
+	}
+
 	return "", os.ErrPermission
+}
+
+// isSessionAttachment reports whether path is a chat attachment, i.e. a file
+// under <workDir>/logs/timelines/<session>/attachments/.
+func (m *Mux) isSessionAttachment(path string) bool {
+	root := filepath.Join(m.workDir, "logs", "timelines")
+	if resolvedRoot, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolvedRoot
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	return len(parts) >= 3 && parts[1] == transcript.AttachmentsDirName
 }
 
 func (m *Mux) validateLegacyDesignOutputImage(raw string) (string, error) {

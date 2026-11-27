@@ -174,6 +174,7 @@ func (m *Manager) periodic() {
 	if err == nil && len(preview.Errors) == 0 {
 		_, _ = m.Execute(preview.ID, preview.Revision, true)
 	}
+	m.sweepSessionAttachments(time.Now())
 	m.mu.Lock()
 	m.next = time.Now().Add(cleanupInterval)
 	m.mu.Unlock()

@@ -87,10 +87,14 @@ func TestHTTP_UploadFile(t *testing.T) {
 		t.Errorf("expected 11 bytes, got %d", resp.Size)
 	}
 
-	// Verify file was saved in workspace/downloads
-	expectedPath := filepath.Join(workDir, "downloads", "test_file.txt")
-	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
-		t.Errorf("expected file to exist at %s, but it does not", expectedPath)
+	// Uploads land inside the session's own timeline directory so the bytes are
+	// accounted for, retained and deleted together with the history using them.
+	attachmentsDir := filepath.Join(workDir, "logs", "timelines", "default", "attachments")
+	if filepath.Dir(resp.Path) != attachmentsDir {
+		t.Errorf("expected upload in %s, got %s", attachmentsDir, resp.Path)
+	}
+	if data, err := os.ReadFile(resp.Path); err != nil || string(data) != "hello world" {
+		t.Errorf("expected upload content at %s, got %q err=%v", resp.Path, data, err)
 	}
 }
 
