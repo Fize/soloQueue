@@ -4,7 +4,59 @@ Notable changes are recorded here for each release in English and Simplified Chi
 
 ## [Unreleased]
 
-## [0.3.1] - 2026-11-02
+## [0.4.0] - 2026-11-27
+
+### Added
+
+- Added model selection before a chat session exists, and stored the chosen model for unstarted sessions.
+- Added automatic chat titles from the first prompt and ordering of the chat list by last activity.
+- Added identification of parallel subtasks in the execution trace.
+
+### Improved
+
+- Decoupled task classification from model selection, so the router labels prompts without choosing the model.
+- Moved model controls out of the composer and declared thinking-effort capabilities per model.
+- Rendered streamed markdown in chunks, coalesced realtime frames, and folded thinking batches to keep long chats responsive.
+- Rendered conversations in server production order, with placeholders reserved for new chats.
+- Unified storage accounting and cleanup under one ledger.
+- Declared thinking capabilities through `reasoning_efforts` alone: an empty set means the model never thinks, and `off` marks providers that accept disabling thinking.
+
+### Fixed
+
+- Refilled rewound attachments, kept chat uploads inside session history, and kept the chosen model after a rewind.
+- Kept a finished delegation's process in its detail view and gave every delegation a unique dispatch identity.
+- Cancelled async delegation context when setup fails and resumed pending messages.
+- Logged the run ID, status, and diagnostic for failed cron attempts, and preserved error text in file logs.
+- Kept the task type in the working indicator and hid auto-injected project instruction messages.
+- Cascaded provider model deletion to fall back to the default model.
+- Capped the size of transcript frame messages and formatted execution durations.
+- Embedded timezone data in the binary.
+
+### 新增
+
+- 新增发送前选择模型的能力，未开始的会话也会保存所选模型。
+- 新增根据首条消息自动生成聊天标题，聊天列表按最近活动排序。
+- 新增执行追踪中并行子任务的识别。
+
+### 改进
+
+- 任务分类与模型选择解耦，路由只为提示词打标签，不再决定使用哪个模型。
+- 模型控件移出输入框，并按模型声明思考强度能力。
+- 流式 Markdown 分块渲染，实时帧合并，思考片段批量折叠，长对话更流畅。
+- 会话按服务端生成顺序渲染，并为新对话预留占位。
+- 存储计费与清理统一到同一账本。
+- 思考能力仅通过 `reasoning_efforts` 声明：空集合表示模型不进行思考，`off` 表示服务商支持关闭思考。
+
+### 修复
+
+- 修复撤回后附件回填及所选模型保持问题，聊天上传的文件保留在会话历史中。
+- 已完成的委派在详情视图中保留其进程，每次委派分配唯一的派发标识。
+- 委派在设置失败时取消异步上下文，并恢复待处理消息。
+- 定时任务失败时记录运行 ID、状态和诊断信息，文件日志保留错误文本。
+- 工作指示器保留任务类型，并隐藏自动注入的项目指令消息。
+- 删除服务商模型时级联处理，并回退到默认模型。
+- 限制过大的转录帧消息，并修正执行耗时的格式。
+- 将时区数据嵌入二进制文件。
 
 ### Added
 
