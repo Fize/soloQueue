@@ -106,4 +106,31 @@ describe('useSessionModel', () => {
       model_id: 'kimi-k3',
     })
   })
+
+  it('reuses the last known selection instead of falling back to auto after a remount', async () => {
+    vi.mocked(getSessionModel).mockResolvedValue(serverState)
+    const first = renderHook(() => useSessionModel('l2:remount'))
+    await waitFor(() => expect(first.result.current.state?.source).toBe('user'))
+    first.unmount()
+
+    // A remounted composer must not read as "Auto" while the refetch is in flight.
+    vi.mocked(getSessionModel).mockImplementation(() => new Promise(() => {}))
+    const second = renderHook(() => useSessionModel('l2:remount'))
+
+    expect(second.result.current.state?.selection?.model_id).toBe('kimi-k3')
+    expect(second.result.current.state?.source).toBe('user')
+  })
+
+  it('keeps the known selection when the refetch fails', async () => {
+    vi.mocked(getSessionModel).mockResolvedValue(serverState)
+    const first = renderHook(() => useSessionModel('l2:offline'))
+    await waitFor(() => expect(first.result.current.state?.selection?.model_id).toBe('kimi-k3'))
+    first.unmount()
+
+    vi.mocked(getSessionModel).mockRejectedValue(new Error('offline'))
+    const second = renderHook(() => useSessionModel('l2:offline'))
+
+    await waitFor(() => expect(getSessionModel).toHaveBeenCalledTimes(2))
+    expect(second.result.current.state?.selection?.model_id).toBe('kimi-k3')
+  })
 })

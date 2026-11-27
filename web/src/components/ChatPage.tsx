@@ -530,7 +530,12 @@ export function ChatPage() {
 
         if (group !== currentGroup || !pathsMatch(projectPath || "", currentProjPath)) {
           const previousId = activeSessionId;
-          const newId = await createL2Session(group, projectPath || "");
+          // The replacement session must inherit the model the user already
+          // chose; recreating it as "auto" silently resets the composer.
+          const carriedModel = previousId
+            ? useChatStore.getState().sessionModels[previousId]?.selection ?? null
+            : null;
+          const newId = await createL2Session(group, projectPath || "", carriedModel);
           if (newId) {
             if (previousId && previousId !== newId) {
               await deleteL2Session(previousId);

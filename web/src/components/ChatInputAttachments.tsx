@@ -5,7 +5,8 @@ import { X, Loader2 } from 'lucide-react'
 
 export interface Attachment {
   id: string
-  file: File
+  /** Absent for attachments restored by a rewind: only the server path survives. */
+  file?: File
   name: string
   previewUrl: string
   status: 'uploading' | 'done' | 'failed'

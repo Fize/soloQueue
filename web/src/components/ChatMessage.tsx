@@ -1,4 +1,4 @@
-import type { ChatMessage } from '@/types'
+import type { ChatMessage, RewindFillDetail } from '@/types'
 import { User, Sparkles, Copy, Check, RotateCcw, Trash2, CornerDownRight } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
 import { useState, useMemo, memo } from 'react'
@@ -67,9 +67,11 @@ function ChatMessageViewInner({
     try {
       if (confirmAction === 'rewind') {
         await rewindSession(currentSessionId, message.timestamp)
-        window.dispatchEvent(
-          new CustomEvent('fill-chat-input', { detail: extractFullContent(message) })
-        )
+        const detail: RewindFillDetail = {
+          text: extractFullContent(message),
+          files: message.files ?? [],
+        }
+        window.dispatchEvent(new CustomEvent('fill-chat-input', { detail }))
         toast.success(t('chat.rewindSuccess') || 'Session rewound successfully')
       } else {
         await deleteSessionMessages(

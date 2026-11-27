@@ -1,5 +1,11 @@
 import { create } from 'zustand'
-import type { ChatSession, ChatRouteInfo, CompactionStatus, SessionModelSelection } from '@/types'
+import type {
+  ChatSession,
+  ChatRouteInfo,
+  CompactionStatus,
+  SessionModelSelection,
+  SessionModelState,
+} from '@/types'
 import {
   listSessions,
   createL2Session,
@@ -48,6 +54,12 @@ interface ChatState {
    * placeholder's choice; a session created from it clears the field.
    */
   pendingModel: SessionModelSelection | null
+  /**
+   * Last server-reported model state per session. A composer that remounts
+   * (empty transcript, session switch) reads this instead of showing "Auto"
+   * until the fetch returns.
+   */
+  sessionModels: Record<string, SessionModelState>
   activeSessionId: string | null
   compactions: Record<string, CompactionStatus[]>
   compactionClearWatermarks: Record<string, string>
@@ -78,6 +90,8 @@ interface ChatState {
   setDraftModel: (id: string, selection: SessionModelSelection | null) => void
   /** Keeps a model chosen while no chat exists yet; null clears it. */
   setPendingModel: (selection: SessionModelSelection | null) => void
+  /** Records the last known model state of a real session. */
+  setSessionModelState: (id: string, state: SessionModelState) => void
   /** Drops one placeholder session without touching the backend. */
   clearDraft: (id: string) => void
   /** Marks a session as just active so the tree reorders without a refetch. */
@@ -196,6 +210,7 @@ export const useChatStore = create<ChatState>((set) => ({
   sessions: [],
   drafts: [],
   pendingModel: null,
+  sessionModels: {},
   activeSessionId: null,
   compactions: {},
   compactionClearWatermarks: {},
@@ -373,6 +388,9 @@ export const useChatStore = create<ChatState>((set) => ({
 
   setPendingModel: (selection: SessionModelSelection | null) =>
     set({ pendingModel: selection }),
+
+  setSessionModelState: (id, state) =>
+    set((s) => ({ sessionModels: { ...s.sessionModels, [id]: state } })),
 
   // Switching away from an unstarted placeholder abandons it: a new chat that
   // never produced a message must not linger in the tree. An empty id is not a

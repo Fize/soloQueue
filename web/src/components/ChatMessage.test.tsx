@@ -287,4 +287,19 @@ describe('ChatMessageView destructive actions', () => {
       expect(nativeConfirm).not.toHaveBeenCalled()
     }
   )
+
+  it('hands the rewound message and its attachments to the composer', async () => {
+    const fill = vi.fn()
+    window.addEventListener('fill-chat-input', fill)
+    const files = [{ name: 'image.png', path: '/tmp/downloads/image.png' }]
+    render(<ChatMessageView message={{ ...message('user', '为什么'), files }} />)
+
+    fireEvent.click(screen.getByTitle('chat.rewindAndEdit'))
+    fireEvent.click(screen.getByRole('button', { name: 'confirm dialog action' }))
+
+    await waitFor(() => expect(fill).toHaveBeenCalled())
+    const detail = (fill.mock.calls[0][0] as CustomEvent).detail
+    expect(detail).toEqual({ text: '为什么', files })
+    window.removeEventListener('fill-chat-input', fill)
+  })
 })

@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { ArrowUp, Plus, ChevronRight, Check, Palette } from 'lucide-react'
 import { uploadFile, getProjectBranches } from '@/lib/api'
 import type { Project } from '@/types'
-import type { SessionUsage } from '@/types/chat'
+import type { SessionUsage, RewindFillDetail } from '@/types/chat'
 import { cn, pathsMatch } from '@/lib/utils'
 import { useRuntimeStore } from '@/stores/runtimeStore'
 import { useWorkspaceCapabilities } from '@/hooks/useWorkspaceCapabilities'
@@ -407,9 +407,23 @@ export function ChatInput({
   }, [streaming])
 
   useEffect(() => {
+    // A rewind fills the composer with the message being edited: its text and
+    // the attachments it was sent with, so images are not silently dropped.
     const handleFill = (e: Event) => {
-      const customEvent = e as CustomEvent<string>;
-      const text = customEvent.detail;
+      const detail = (e as CustomEvent<RewindFillDetail | undefined>).detail;
+      const text = detail?.text || '';
+      const restored: Attachment[] = (detail?.files || []).map((file, index) => ({
+        id: `rewind-${index}-${file.path}`,
+        name: file.name,
+        // The file already exists on disk, so the server serves the preview.
+        previewUrl: `/api/files/content?path=${encodeURIComponent(file.path)}`,
+        status: 'done',
+        path: file.path,
+      }));
+      setAttachments((prev) => {
+        prev.forEach((att) => URL.revokeObjectURL(att.previewUrl));
+        return restored;
+      });
       if (inputRef.current) {
         inputRef.current.value = text;
         setInputValue(text);
@@ -521,7 +535,8 @@ export function ChatInput({
   }, [])
 
   const handleSubmit = useCallback(async () => {
-    const rawText = inputRef.current?.value.trim() || ''
+    const draftText = inputRef.current?.value || ''
+    const rawText = draftText.trim()
 
     // Block sending if there are uploads in progress
     const hasUploading = attachments.some((att) => att.status === 'uploading')
@@ -592,6 +607,17 @@ export function ChatInput({
       html_hint: selectedTarget.htmlHint
     } : undefined
 
+    // Clear before awaiting. Sending the first message of an empty transcript
+    // remounts the composer, and a remount restores whatever the draft still
+    // holds — which left the accepted text sitting in the box.
+    const draftMentions = mentionsRef.current
+    clearChatDraft(draftKey)
+    if (inputRef.current) {
+      inputRef.current.value = ''
+      inputRef.current.style.height = 'auto'
+    }
+    setInputValue('')
+
     const accepted = await onSend(
       finalPrompt,
       uploadedFiles.length > 0 ? uploadedFiles : undefined,
@@ -600,21 +626,28 @@ export function ChatInput({
       selectedElement
     )
 
-    if (accepted === false) return
+    // Nothing was sent: hand the text back unless the user already moved on.
+    if (accepted === false) {
+      if (currentDraftKey.current === draftKey) {
+        setChatDraft(draftKey, { text: draftText, mentions: draftMentions })
+        mentionsRef.current = draftMentions
+        setAtMentions(draftMentions)
+        if (inputRef.current) {
+          inputRef.current.value = draftText
+          setInputValue(draftText)
+          autoResize()
+        }
+      }
+      return
+    }
 
-    clearChatDraft(draftKey)
     if (currentDraftKey.current !== draftKey) return
-    if (inputRef.current) inputRef.current.value = ''
-    setInputValue('')
     mentionsRef.current = new Map()
     setAtMentions(new Map())
 
     // Clear and revoke attachments
     attachments.forEach((att) => URL.revokeObjectURL(att.previewUrl))
     setAttachments([])
-
-    // Reset height
-    if (inputRef.current) inputRef.current.style.height = 'auto'
   }, [activeSessionId, disabled, draftKey, groupsError, groupsLoading, onSend, onCancel, processing, selectedGroup, selectedProjectPath, selectedTarget, showL2Selectors, streaming, t, attachments, atMentions])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

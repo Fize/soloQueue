@@ -18,6 +18,12 @@ function cleared(selection: SessionModelSelection): boolean {
   return !selection.provider_id || !selection.model_id
 }
 
+/** Last state the store knows for a session, so a remount never flashes "Auto". */
+function knownSessionModel(sessionId?: string): SessionModelState | null {
+  if (!sessionId) return null
+  return useChatStore.getState().sessionModels[sessionId] ?? null
+}
+
 /**
  * Session-scoped model selection. The server owns the state; this hook mirrors
  * it so every entry point (Web, QQ, WeChat, WeCom, Telegram) sees one value.
@@ -36,7 +42,10 @@ export function useSessionModel(sessionId?: string) {
   const pendingModel = useChatStore((s) => s.pendingModel)
   const setDraftModel = useChatStore((s) => s.setDraftModel)
   const setPendingModel = useChatStore((s) => s.setPendingModel)
-  const [state, setState] = useState<SessionModelState | null>(null)
+  const setSessionModelState = useChatStore((s) => s.setSessionModelState)
+  const [state, setState] = useState<SessionModelState | null>(() =>
+    draft ? null : knownSessionModel(sessionId)
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -50,18 +59,22 @@ export function useSessionModel(sessionId?: string) {
       return
     }
     let cancelled = false
-    setState(null)
+    // Hold the last known state while the refetch is in flight: a composer that
+    // remounts (empty transcript, session switch) must not read as "Auto".
+    setState(knownSessionModel(sessionId))
     getSessionModel(sessionId)
       .then((next) => {
-        if (!cancelled) setState(next)
+        if (cancelled) return
+        setState(next)
+        if (sessionId) setSessionModelState(sessionId, next)
       })
       .catch(() => {
-        if (!cancelled) setState(null)
+        // Keep the known state; the server is not authoritative right now.
       })
     return () => {
       cancelled = true
     }
-  }, [sessionId, unstarted])
+  }, [sessionId, unstarted, setSessionModelState])
 
   const select = useCallback(
     async (selection: SessionModelSelection): Promise<SessionModelState | null> => {
@@ -78,12 +91,15 @@ export function useSessionModel(sessionId?: string) {
       try {
         const next = await setSessionModel(sessionId, selection)
         setState(next)
+        if (sessionId) setSessionModelState(sessionId, next)
         return next
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
         // Roll the UI back to what the server actually holds.
         try {
-          setState(await getSessionModel(sessionId))
+          const actual = await getSessionModel(sessionId)
+          setState(actual)
+          if (sessionId) setSessionModelState(sessionId, actual)
         } catch {
           // Keep the last known server state when the refetch also fails.
         }
@@ -92,7 +108,7 @@ export function useSessionModel(sessionId?: string) {
         setSaving(false)
       }
     },
-    [draft, sessionId, setDraftModel, setPendingModel, unstarted]
+    [draft, sessionId, setDraftModel, setPendingModel, setSessionModelState, unstarted]
   )
 
   const chosen = draft ? draftModel : pendingModel

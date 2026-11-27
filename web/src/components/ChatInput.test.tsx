@@ -122,6 +122,51 @@ describe('ChatInput workspace selector', () => {
     await act(async () => finish(true))
     expect(input).toHaveValue('Draft B')
   })
+  it('keeps the accepted text out of the box when the composer remounts while sending', async () => {
+    const user = userEvent.setup()
+    let finish!: (value: boolean) => void
+    const onSend = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve }))
+    const first = renderInput({ onSend, activeSessionId: 'send-remount' })
+    await user.type(screen.getByPlaceholderText('Ask anything...'), 'send me{Enter}')
+    expect(screen.getByPlaceholderText('Ask anything...')).toHaveValue('')
+
+    // Sending the first message of an empty transcript remounts the composer.
+    // The draft is already gone, so the fresh instance stays empty.
+    first.unmount()
+    renderInput({ onSend, activeSessionId: 'send-remount' })
+    expect(screen.getByPlaceholderText('Ask anything...')).toHaveValue('')
+
+    await act(async () => finish(true))
+    expect(screen.getByPlaceholderText('Ask anything...')).toHaveValue('')
+  })
+  it('hands the text back when the send is not accepted', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn().mockResolvedValue(false)
+    renderInput({ onSend, activeSessionId: 'send-rejected' })
+    const input = screen.getByPlaceholderText('Ask anything...')
+
+    await user.type(input, 'keep me{Enter}')
+
+    await waitFor(() => expect(input).toHaveValue('keep me'))
+  })
+  it('restores the attachments of a rewound message into the composer', async () => {
+    renderInput({ activeSessionId: 'rewind-fill' })
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('fill-chat-input', {
+          detail: { text: '为什么', files: [{ name: 'image.png', path: '/tmp/a b/image.png' }] },
+        })
+      )
+    })
+
+    expect(screen.getByPlaceholderText('Ask anything...')).toHaveValue('为什么')
+    // The attachment is served from disk, so it can be re-sent unchanged.
+    expect(screen.getByAltText('preview')).toHaveAttribute(
+      'src',
+      '/api/files/content?path=%2Ftmp%2Fa%20b%2Fimage.png'
+    )
+  })
   it('renders the task type badge and the session model pill', async () => {
     renderInput({
       activeSessionId: 'session-a',

@@ -192,6 +192,15 @@ export interface ChatMessage {
   continuation?: boolean;
 }
 
+/**
+ * Payload of the composer's `fill-chat-input` event: a rewound message's text
+ * together with the attachments it was sent with, so the image is not lost.
+ */
+export interface RewindFillDetail {
+  text: string;
+  files: { name: string; path: string }[];
+}
+
 export type ChatSegment =
   | { type: "thinking"; text: string }
   | { type: "content"; text: string }
